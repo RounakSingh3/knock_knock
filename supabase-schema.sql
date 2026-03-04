@@ -4,11 +4,19 @@
 -- Run this entire script in your Supabase SQL Editor
 -- (Dashboard → SQL Editor → New Query → Paste & Run)
 
--- 1. PROFILES TABLE (extends auth.users)
+-- Reset existing tables to apply new schema cleanly
+DROP TABLE IF EXISTS stories CASCADE;
+DROP TABLE IF EXISTS likes CASCADE;
+DROP TABLE IF EXISTS posts CASCADE;
+DROP TABLE IF EXISTS profiles CASCADE;
+
 CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
   name TEXT,
   gender TEXT,
+  dob DATE,
   avatar_url TEXT DEFAULT 'https://i.pravatar.cc/150',
   points INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
@@ -54,75 +62,40 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stories ENABLE ROW LEVEL SECURITY;
 
--- PROFILES: users can read all profiles, but only update their own
-CREATE POLICY "Anyone can view profiles"
-  ON profiles FOR SELECT
-  USING (true);
+-- Since we are bypassing Supabase Auth (JWTs), auth.uid() will be null.
+-- For this simple MVP custom auth, we will allow public read/write,
+-- and handle the "security" entirely in the frontend React application.
+-- WARNING: This is NOT secure for a production app, but is necessary
+-- to bypass Supabase Auth rate limits without a dedicated backend server.
 
-CREATE POLICY "Users can update own profile"
-  ON profiles FOR UPDATE
-  USING (auth.uid() = id);
+-- PROFILES
+CREATE POLICY "Public access to profiles"
+  ON profiles FOR ALL
+  USING (true)
+  WITH CHECK (true);
 
-CREATE POLICY "Users can insert own profile"
-  ON profiles FOR INSERT
-  WITH CHECK (auth.uid() = id);
+-- POSTS
+CREATE POLICY "Public access to posts"
+  ON posts FOR ALL
+  USING (true)
+  WITH CHECK (true);
 
--- POSTS: anyone can read, authenticated users can insert
-CREATE POLICY "Anyone can view posts"
-  ON posts FOR SELECT
-  USING (true);
+-- LIKES
+CREATE POLICY "Public access to likes"
+  ON likes FOR ALL
+  USING (true)
+  WITH CHECK (true);
 
-CREATE POLICY "Authenticated users can create posts"
-  ON posts FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+-- STORIES
+CREATE POLICY "Public access to stories"
+  ON stories FOR ALL
+  USING (true)
+  WITH CHECK (true);
 
-CREATE POLICY "Users can update own posts"
-  ON posts FOR UPDATE
-  USING (auth.uid() = user_id);
-
--- LIKES: anyone can read, authenticated users can insert/delete their own
-CREATE POLICY "Anyone can view likes"
-  ON likes FOR SELECT
-  USING (true);
-
-CREATE POLICY "Users can like posts"
-  ON likes FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can unlike posts"
-  ON likes FOR DELETE
-  USING (auth.uid() = user_id);
-
--- STORIES: anyone can read, authenticated users can insert their own
-CREATE POLICY "Anyone can view stories"
-  ON stories FOR SELECT
-  USING (true);
-
-CREATE POLICY "Authenticated users can create stories"
-  ON stories FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
--- ============================================
--- FUNCTION: Auto-create profile on signup
--- ============================================
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, name, avatar_url)
-  VALUES (
-    NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'name', 'User'),
-    'https://i.pravatar.cc/150?u=' || NEW.id
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Trigger: run after every new auth signup
+-- Custom auth means we no longer use the auth.users trigger.
+-- Removing the trigger and function:
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+DROP FUNCTION IF EXISTS public.handle_new_user();
 
 -- ============================================
 -- FUNCTION: Update likes_count on posts

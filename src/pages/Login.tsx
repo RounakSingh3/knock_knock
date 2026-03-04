@@ -1,38 +1,80 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AppContext } from '../App';
 import { supabase } from '../lib/supabase';
-import { Sparkles, ArrowRight, Loader2 } from 'lucide-react';
+import { Sparkles, ArrowRight, Loader2, Check, X } from 'lucide-react';
 
 const Login = () => {
     const navigate = useNavigate();
+    const { setUser } = useContext(AppContext);
 
-    const [isSignUp, setIsSignUp] = useState(false);
+    const [isSignUp, setIsSignUp] = useState(true);
     const [loading, setLoading] = useState(false);
+    const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
     const [formData, setFormData] = useState({
         name: '',
-        email: '',
+        username: '',
+        dob: '',
+        gender: '',
         password: '',
     });
 
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [globalError, setGlobalError] = useState('');
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
-        if (errors[e.target.name]) {
-            setErrors({ ...errors, [e.target.name]: '' });
+    // Debounced username check
+    const checkUsernameRef = React.useRef<NodeJS.Timeout>();
+
+    const checkUsername = async (username: string) => {
+        if (!username.trim() || username.length < 3) {
+            setUsernameStatus('idle');
+            return;
+        }
+
+        setUsernameStatus('checking');
+
+        const { data } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('username', username.toLowerCase())
+            .maybeSingle();
+
+        setUsernameStatus(data ? 'taken' : 'available');
+    };
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
+
+        if (errors[name]) {
+            setErrors({ ...errors, [name]: '' });
         }
         setGlobalError('');
+
+        // Check username availability with debounce (only when signing up)
+        if (isSignUp && name === 'username') {
+            setUsernameStatus('idle');
+            clearTimeout(checkUsernameRef.current);
+            checkUsernameRef.current = setTimeout(() => checkUsername(value), 500);
+        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         const newErrors: Record<string, string> = {};
 
-        if (!formData.email.trim()) newErrors.email = 'Email is required';
+        if (!formData.username.trim()) newErrors.username = 'Username is required';
         if (!formData.password.trim()) newErrors.password = 'Password is required';
         if (formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
-        if (isSignUp && !formData.name.trim()) newErrors.name = 'Name is required';
+
+        if (isSignUp) {
+            if (!formData.name.trim()) newErrors.name = 'Name is required';
+            if (formData.username.length < 3) newErrors.username = 'Username must be at least 3 characters';
+            if (!/^[a-zA-Z0-9._]+$/.test(formData.username)) newErrors.username = 'Only letters, numbers, dots and underscores';
+            if (!formData.dob) newErrors.dob = 'Date of birth is required';
+            if (!formData.gender) newErrors.gender = 'Gender is required';
+            if (usernameStatus === 'taken') newErrors.username = 'Username is already taken';
+        }
 
         if (Object.keys(newErrors).length > 0) {
             setErrors(newErrors);
@@ -42,40 +84,52 @@ const Login = () => {
         setLoading(true);
         setGlobalError('');
 
+        // Custom direct database authentication
         try {
             if (isSignUp) {
-                // Sign Up
-                const { error } = await supabase.auth.signUp({
-                    email: formData.email,
-                    password: formData.password,
-                    options: {
-                        data: {
-                            name: formData.name,
-                        },
-                    },
-                });
+                // 1. Insert new user into profiles table
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .insert({
+                        username: formData.username.toLowerCase(),
+                        password: formData.password, // Plain text MVP (not for production!)
+                        name: formData.name,
+                        gender: formData.gender,
+                        dob: formData.dob,
+                        avatar_url: `https://i.pravatar.cc/150?u=${formData.username.toLowerCase()}`
+                    })
+                    .select()
+                    .single();
 
-                if (error) {
-                    setGlobalError(error.message);
+                if (error || !data) {
+                    setGlobalError(error?.message || 'Failed to create account. Please try again.');
                     setLoading(false);
                     return;
                 }
 
-                // Profile is created automatically via the database trigger
+                // 2. Save session locally
+                localStorage.setItem('knock_user_session', JSON.stringify(data));
+                setUser(data);
                 navigate('/home');
-            } else {
-                // Sign In
-                const { error } = await supabase.auth.signInWithPassword({
-                    email: formData.email,
-                    password: formData.password,
-                });
 
-                if (error) {
-                    setGlobalError(error.message);
+            } else {
+                // 1. Query profiles table for matching username and password
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('username', formData.username.toLowerCase())
+                    .eq('password', formData.password)
+                    .maybeSingle();
+
+                if (error || !data) {
+                    setGlobalError('Invalid username or password.');
                     setLoading(false);
                     return;
                 }
 
+                // 2. Save session locally
+                localStorage.setItem('knock_user_session', JSON.stringify(data));
+                setUser(data);
                 navigate('/home');
             }
         } catch (err) {
@@ -112,36 +166,105 @@ const Login = () => {
                 )}
 
                 <form onSubmit={handleSubmit} className="login-form">
-                    {isSignUp && (
-                        <div className="form-group">
-                            <label>Full Name *</label>
+                    {/* Username field - shared between Sign In and Sign Up */}
+                    <div className="form-group">
+                        <label>Username *</label>
+                        <div style={{ position: 'relative' }}>
                             <input
                                 type="text"
-                                name="name"
-                                placeholder="John Doe"
-                                value={formData.name}
+                                name="username"
+                                placeholder="cool_username"
+                                value={formData.username}
                                 onChange={handleChange}
-                                className={errors.name ? 'error-input' : ''}
+                                className={errors.username ? 'error-input' : ''}
                                 disabled={loading}
+                                style={{ paddingRight: '40px' }}
                             />
-                            {errors.name && <span className="error-text">{errors.name}</span>}
+                            {/* Availability indicator (only on Sign Up) */}
+                            {isSignUp && (
+                                <div style={{
+                                    position: 'absolute',
+                                    right: '12px',
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                }}>
+                                    {usernameStatus === 'checking' && (
+                                        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                                    )}
+                                    {usernameStatus === 'available' && (
+                                        <Check size={18} style={{ color: '#34C759' }} />
+                                    )}
+                                    {usernameStatus === 'taken' && (
+                                        <X size={18} style={{ color: '#ff3b30' }} />
+                                    )}
+                                </div>
+                            )}
                         </div>
-                    )}
-
-                    <div className="form-group">
-                        <label>Email Address *</label>
-                        <input
-                            type="email"
-                            name="email"
-                            placeholder="you@example.com"
-                            value={formData.email}
-                            onChange={handleChange}
-                            className={errors.email ? 'error-input' : ''}
-                            disabled={loading}
-                        />
-                        {errors.email && <span className="error-text">{errors.email}</span>}
+                        {isSignUp && usernameStatus === 'available' && (
+                            <span style={{ color: '#34C759', fontSize: '0.8rem' }}>Username is available!</span>
+                        )}
+                        {isSignUp && usernameStatus === 'taken' && (
+                            <span style={{ color: '#ff3b30', fontSize: '0.8rem' }}>Username is already taken</span>
+                        )}
+                        {errors.username && (!isSignUp || usernameStatus !== 'taken') && (
+                            <span className="error-text">{errors.username}</span>
+                        )}
                     </div>
 
+                    {/* Sign Up Specific Fields */}
+                    {isSignUp && (
+                        <>
+                            <div className="form-group">
+                                <label>Full Name *</label>
+                                <input
+                                    type="text"
+                                    name="name"
+                                    placeholder="John Doe"
+                                    value={formData.name}
+                                    onChange={handleChange}
+                                    className={errors.name ? 'error-input' : ''}
+                                    disabled={loading}
+                                />
+                                {errors.name && <span className="error-text">{errors.name}</span>}
+                            </div>
+
+                            <div className="form-group">
+                                <label>Date of Birth *</label>
+                                <input
+                                    type="date"
+                                    name="dob"
+                                    value={formData.dob}
+                                    onChange={handleChange}
+                                    className={errors.dob ? 'error-input' : ''}
+                                    disabled={loading}
+                                    style={{ colorScheme: 'dark' }}
+                                />
+                                {errors.dob && <span className="error-text">{errors.dob}</span>}
+                            </div>
+
+                            <div className="form-group">
+                                <label>Gender *</label>
+                                <select
+                                    name="gender"
+                                    value={formData.gender}
+                                    onChange={handleChange}
+                                    className={errors.gender ? 'error-input' : ''}
+                                    disabled={loading}
+                                >
+                                    <option value="" disabled>Select gender</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                    <option value="other">Other</option>
+                                    <option value="prefer_not_to_say">Prefer not to say</option>
+                                </select>
+                                {errors.gender && <span className="error-text">{errors.gender}</span>}
+                            </div>
+                        </>
+                    )}
+
+                    {/* Password Field - shared */}
                     <div className="form-group mb-8">
                         <label>Password *</label>
                         <input
@@ -159,8 +282,8 @@ const Login = () => {
                     <button
                         type="submit"
                         className="premium-btn w-full justify-center text-lg py-4 mt-4"
-                        disabled={loading}
-                        style={{ opacity: loading ? 0.7 : 1 }}
+                        disabled={loading || (isSignUp && usernameStatus === 'taken')}
+                        style={{ opacity: (loading || (isSignUp && usernameStatus === 'taken')) ? 0.7 : 1 }}
                     >
                         {loading ? (
                             <>
@@ -177,7 +300,7 @@ const Login = () => {
 
                 <div style={{ textAlign: 'center', marginTop: '24px' }}>
                     <button
-                        onClick={() => { setIsSignUp(!isSignUp); setErrors({}); setGlobalError(''); }}
+                        onClick={() => { setIsSignUp(!isSignUp); setErrors({}); setGlobalError(''); setUsernameStatus('idle'); }}
                         style={{
                             background: 'none',
                             border: 'none',

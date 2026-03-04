@@ -1,8 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './lib/supabase';
-import { fetchProfile, updatePoints } from './lib/database';
-import type { User } from '@supabase/supabase-js';
+import { fetchProfile, updatePoints, type ProfileData } from './lib/database';
 import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
 import Stories from './pages/Stories';
@@ -10,21 +9,22 @@ import Explore from './pages/Explore';
 import VoiceCall from './pages/VoiceCall';
 import Login from './pages/Login';
 
+
 // Global Context for Points & Auth
 interface AppContextType {
     points: number;
-    setPoints: React.Dispatch<React.SetStateAction<number>>;
-    user: User | null;
+    user: ProfileData | null;
+    setUser: React.Dispatch<React.SetStateAction<ProfileData | null>>;
     isAuthenticated: boolean;
-    signOut: () => Promise<void>;
+    signOut: () => void;
 }
 
 export const AppContext = createContext<AppContextType>({
     points: 0,
-    setPoints: () => { },
     user: null,
+    setUser: () => { },
     isAuthenticated: false,
-    signOut: async () => { },
+    signOut: () => { },
 });
 
 // We need to track total app time in milliseconds
@@ -32,37 +32,39 @@ const POINTS_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 function App() {
     const [points, setPoints] = useState(0);
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<ProfileData | null>(null);
     const [loading, setLoading] = useState(true);
 
     const isAuthenticated = !!user;
 
-    // Listen for Supabase auth state changes
+    // Check localStorage for saved session
     useEffect(() => {
-        // Check initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setUser(session?.user ?? null);
-            setLoading(false);
-        });
-
-        // Subscribe to auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setUser(session?.user ?? null);
-        });
-
-        return () => subscription.unsubscribe();
+        const savedUser = localStorage.getItem('knock_user_session');
+        if (savedUser) {
+            try {
+                const parsedUser = JSON.parse(savedUser) as ProfileData;
+                setUser(parsedUser);
+                setPoints(parsedUser.points || 0);
+            } catch (e) {
+                console.error("Failed to parse session", e);
+                localStorage.removeItem('knock_user_session');
+            }
+        }
+        setLoading(false);
     }, []);
 
-    // Load points from database when user logs in
+    // Also fetch fresh profile data to keep points updated
     useEffect(() => {
-        if (user) {
+        if (user && user.id) {
             fetchProfile(user.id).then(profile => {
                 if (profile) {
                     setPoints(profile.points);
+                    // Update the session quietly so it's fresh for next load
+                    localStorage.setItem('knock_user_session', JSON.stringify({ ...user, ...profile }));
                 }
             });
         }
-    }, [user]);
+    }, [user?.id]);
 
     // Track time spent in app & award points
     useEffect(() => {
@@ -91,8 +93,8 @@ function App() {
         return () => clearTimeout(timeout);
     }, [points, user]);
 
-    const signOut = async () => {
-        await supabase.auth.signOut();
+    const signOut = () => {
+        localStorage.removeItem('knock_user_session');
         setUser(null);
         setPoints(0);
     };
@@ -111,7 +113,7 @@ function App() {
     }
 
     return (
-        <AppContext.Provider value={{ points, setPoints, user, isAuthenticated, signOut }}>
+        <AppContext.Provider value={{ points, setPoints, user, setUser, isAuthenticated, signOut }}>
             <Router>
                 <div className="app-container">
                     <Routes>
