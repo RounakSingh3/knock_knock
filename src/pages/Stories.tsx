@@ -199,16 +199,18 @@ const Stories = () => {
                         {boostedStories.length > 0 ? (
                             boostedStories.map(story => (
                                 <div key={story.id} className="boosted-story">
-                                    <img src={story.image_url} alt="Boosted" loading="lazy" />
-                                    <div className="boost-badge"><Zap size={12} fill="currentColor" /> Boosted</div>
+                                    <img src={story.image_url} alt="Story" loading="lazy" />
                                 </div>
                             ))
                         ) : (
                             // Fallback placeholder stories
                             [1, 2, 3, 4].map(i => (
                                 <div key={i} className="boosted-story">
-                                    <img src={`https://images.unsplash.com/photo-${1500000000000 + i * 100000}?w=400&q=80`} alt="Boosted" loading="lazy" />
-                                    <div className="boost-badge"><Zap size={12} fill="currentColor" /> Boosted</div>
+                                    <img
+                                        src={`https://images.unsplash.com/photo-${1500000000000 + i * 100000}?w=400&q=80`}
+                                        alt="Story"
+                                        loading="lazy"
+                                    />
                                 </div>
                             ))
                         )}
