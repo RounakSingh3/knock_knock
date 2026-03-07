@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
 import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send } from 'lucide-react';
 import { AppContext } from '../App';
-import { fetchBoostedStories, updatePoints, type StoryData } from '../lib/database';
+import { fetchBoostedStories, updatePoints, createStory, type StoryData } from '../lib/database';
 
 const FILTERS = [
     { name: 'Normal', style: '' },
@@ -20,6 +20,7 @@ const Stories = () => {
     const [hasCaptured, setHasCaptured] = useState(false);
     const [isBoosting, setIsBoosting] = useState(false);
     const [boostedStories, setBoostedStories] = useState<StoryData[]>([]);
+    const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
 
     // Global context
     const { points, setPoints, user } = useContext(AppContext);
@@ -65,6 +66,8 @@ const Stories = () => {
             if (ctx) {
                 ctx.filter = FILTERS[activeFilterIndex].style || 'none';
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                setCapturedImageUrl(dataUrl);
                 setHasCaptured(true);
                 const stream = video.srcObject as MediaStream;
                 if (stream) stream.getTracks().forEach(track => track.stop());
@@ -73,22 +76,42 @@ const Stories = () => {
     };
 
     const handleBoost = () => {
+        if (!user) {
+            alert('You need to be logged in to boost a story.');
+            return;
+        }
+
+        if (!capturedImageUrl) {
+            alert('Please capture a photo first before boosting.');
+            return;
+        }
+
         if (points < 10) {
             alert(`You need 10 Boost Points to boost a story! You currently have ${points} points. \nStay active in the app for 1 hour to earn 10 points.`);
             return;
         }
 
         setIsBoosting(true);
-        setTimeout(() => {
+        setTimeout(async () => {
             const newPoints = points - 10;
             setPoints(newPoints);
 
             // Persist points to database
-            if (user) {
-                updatePoints(user.id, newPoints);
-            }
+            await updatePoints(user.id, newPoints);
 
-            alert("Story Boosted Successfully! It is now being shown to 5,000+ new users. -10 Points.");
+            // Create boosted story owned by current user
+            await createStory(
+                user.id,
+                capturedImageUrl,
+                FILTERS[activeFilterIndex].name,
+                true
+            );
+
+            // Refresh boosted stories feed
+            const updatedStories = await fetchBoostedStories();
+            setBoostedStories(updatedStories);
+
+            alert("Story Boosted Successfully! It is now being shown to new users. -10 Points.");
             setIsBoosting(false);
             stopCamera();
         }, 1500);
