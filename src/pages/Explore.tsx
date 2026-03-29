@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Loader2, Film, Grid3X3, Star } from 'lucide-react';
 import { fetchExplorePosts, type PostData } from '../lib/database';
 
 const Explore = () => {
+    const navigate = useNavigate();
     const [posts, setPosts] = useState<PostData[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,14 +30,40 @@ const Explore = () => {
 
     return (
         <div className="explore-page pb-20">
-            <div className="search-bar">
-                <Search size={20} color="#8e8e93" />
-                <input
-                    type="text"
-                    placeholder="Search for people or posts..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
+            <div style={{ display: 'flex', gap: '8px', padding: '0 12px 16px', alignItems: 'center' }}>
+                <div className="search-bar" style={{ flex: 1, margin: 0 }}>
+                    <Search size={20} color="#8e8e93" />
+                    <input
+                        type="text"
+                        placeholder="Search for people or posts..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <button style={{ 
+                    background: 'var(--surface-color)', 
+                    border: 'none', 
+                    borderRadius: '12px', 
+                    padding: '12px', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    cursor: 'pointer'
+                }}>
+                    <Star size={24} color="#facc15" />
+                </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="explore-tabs">
+                <button className="explore-tab active">
+                    <Grid3X3 size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                    For You
+                </button>
+                <button className="explore-tab" onClick={() => navigate('/reels')}>
+                    <Film size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                    Videos
+                </button>
             </div>
 
             <div className="explore-grid">

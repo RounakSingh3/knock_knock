@@ -8,12 +8,19 @@ const Home = () => {
     const { signOut } = useContext(AppContext);
     const [posts, setPosts] = useState<PostData[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
 
     useEffect(() => {
-        fetchPosts().then(data => {
-            setPosts(data);
-            setLoading(false);
-        });
+        fetchPosts()
+            .then(data => {
+                setPosts(data);
+                setLoading(false);
+            })
+            .catch(err => {
+                console.error('Failed to fetch posts:', err);
+                setError('Failed to load posts. Please check your connection and try again.');
+                setLoading(false);
+            });
     }, []);
 
     return (
@@ -39,21 +46,19 @@ const Home = () => {
                 </div>
             </header>
 
-            {/* Stories Rack - Horizontal Scroll */}
-            <div className="stories-rack">
-                {posts.slice(0, 6).map(post => (
-                    <div key={`story-${post.id}`} className="story-item">
-                        <div className="story-ring">
-                            <img src={post.avatar_url || 'https://i.pravatar.cc/150'} alt={post.username} />
-                        </div>
-                        <span className="story-username">{post.username.split('_')[0]}</span>
-                    </div>
-                ))}
-            </div>
-
             {/* Feed */}
             <div className="feed-container">
-                {loading ? (
+                {error ? (
+                    <div style={{ textAlign: 'center', padding: '3rem', color: '#ff3b30' }}>
+                        <p>{error}</p>
+                        <button
+                            onClick={() => { setError(''); setLoading(true); fetchPosts().then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); }); }}
+                            style={{ marginTop: '1rem', padding: '8px 20px', background: 'rgba(255,51,102,0.2)', border: '1px solid #ff3366', borderRadius: '8px', color: '#ff3366', cursor: 'pointer' }}
+                        >
+                            Retry
+                        </button>
+                    </div>
+                ) : loading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
                         <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
                     </div>

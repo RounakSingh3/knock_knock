@@ -113,15 +113,21 @@ const Login = () => {
                 navigate('/home');
 
             } else {
-                // 1. Query profiles table for matching username and password
+                // 1. Query profiles table for matching username
                 const { data, error } = await supabase
                     .from('profiles')
                     .select('*')
                     .eq('username', formData.username.toLowerCase())
-                    .eq('password', formData.password)
                     .maybeSingle();
 
                 if (error || !data) {
+                    setGlobalError('Invalid username or password.');
+                    setLoading(false);
+                    return;
+                }
+
+                // 2. Verify password client-side
+                if (data.password !== formData.password) {
                     setGlobalError('Invalid username or password.');
                     setLoading(false);
                     return;

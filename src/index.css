@@ -142,6 +142,155 @@ body {
     object-fit: cover;
 }
 
+/* Profile Stat Button */
+.stat-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-active);
+    padding: 8px 12px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.1s;
+    min-width: 80px;
+}
+
+.stat-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.stat-btn:active {
+    transform: scale(0.95);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Profile Action Button */
+.profile-action-btn {
+    flex: 1;
+    padding: 8px;
+    background: #2c2c2e;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    transition: transform 0.1s, opacity 0.2s;
+}
+
+.profile-action-btn:active {
+    transform: scale(0.97);
+    opacity: 0.8;
+}
+
+/* Points Dashboard */
+.points-dashboard {
+    margin: 0 1rem 0.75rem;
+    padding: 16px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.points-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.points-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.points-card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.points-card-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.points-card-label {
+    font-size: 11px;
+    color: #8e8e93;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Upload Summary Cards */
+.upload-summary-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 6px;
+    background: var(--surface-color);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+
+/* Profile Tabs */
+.profile-tab {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    padding: 12px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #8e8e93;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+}
+
+.profile-tab.active {
+    color: #fff;
+    border-bottom-color: #fff;
+}
+
+/* User List Item (followers/following) */
+.user-list-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    transition: background-color 0.2s;
+}
+
+.user-list-item:active {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.user-list-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid #2c2c2e;
+}
+
 .story-username {
     font-size: 0.75rem;
     color: var(--text-active);
@@ -288,6 +437,7 @@ body {
     font-size: 2rem;
     background: -webkit-linear-gradient(45deg, #ff3366, #ff9933);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     font-weight: 800;
 }
@@ -895,4 +1045,402 @@ body {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* ═══════════════════════════════════════════
+   REELS PAGE — Full-screen vertical video feed
+   ═══════════════════════════════════════════ */
+
+.reels-page {
+    height: 100vh;
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+    scrollbar-width: none;
+    background: #000;
+    position: relative;
+}
+
+.reels-page::-webkit-scrollbar {
+    display: none;
+}
+
+.reels-header-title {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: white;
+    z-index: 50;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+    letter-spacing: 0.5px;
+}
+
+.reels-mute-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 50;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(12px);
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.reels-mute-btn:active {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Individual Reel Card */
+.reel-card {
+    height: 100vh;
+    width: 100%;
+    scroll-snap-align: start;
+    position: relative;
+    overflow: hidden;
+    background: #000;
+}
+
+.reel-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    cursor: pointer;
+}
+
+/* Pause indicator */
+.reel-pause-indicator {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    animation: fadeInScale 0.2s ease;
+}
+
+.reel-pause-indicator svg {
+    opacity: 0.7;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.6));
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Bottom gradient */
+.reel-gradient-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 55%;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.3) 50%, transparent 100%);
+    pointer-events: none;
+}
+
+/* Creator info overlay */
+.reel-info {
+    position: absolute;
+    bottom: 80px;
+    left: 12px;
+    right: 80px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.reel-creator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.reel-creator-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid white;
+    object-fit: cover;
+}
+
+.reel-creator-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: white;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+.reel-follow-btn {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.reel-follow-btn:active {
+    background: rgba(255, 255, 255, 0.4);
+    transform: scale(0.95);
+}
+
+.reel-caption {
+    font-size: 0.88rem;
+    color: rgba(255, 255, 255, 0.95);
+    line-height: 1.4;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.reel-song {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.78rem;
+}
+
+.reel-song-marquee {
+    overflow: hidden;
+    white-space: nowrap;
+    max-width: 200px;
+    text-overflow: ellipsis;
+}
+
+/* Side action buttons */
+.reel-actions {
+    position: absolute;
+    right: 10px;
+    bottom: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    z-index: 10;
+}
+
+.reel-action-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    transition: transform 0.15s;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.reel-action-btn:active {
+    transform: scale(0.85);
+}
+
+.reel-action-btn span {
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.reel-action-btn.liked svg {
+    animation: pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Spinning record disc */
+.reel-disc {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    overflow: hidden;
+    animation: discSpin 3s linear infinite;
+}
+
+.reel-disc img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+@keyframes discSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Progress bar */
+.reel-progress-bar {
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.2);
+    z-index: 20;
+}
+
+.reel-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ff3366, #ff9933);
+    border-radius: 0 2px 2px 0;
+    transition: width 0.2s linear;
+}
+
+/* Heart burst animation (double-tap) */
+.heart-burst {
+    position: absolute;
+    z-index: 30;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    animation: heartPop 0.8s ease-out forwards;
+}
+
+@keyframes heartPop {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(0);
+    }
+
+    40% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.3);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1.6) translateY(-40px);
+    }
+}
+
+/* Category badge */
+.reel-category-badge {
+    position: absolute;
+    top: 56px;
+    left: 16px;
+    background: rgba(255, 51, 102, 0.25);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 51, 102, 0.4);
+    color: #ff8fa3;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    z-index: 50;
+}
+
+/* ═══════════════════════════════════════════
+   EXPLORE PAGE — Tabs (For You / Videos)
+   ═══════════════════════════════════════════ */
+
+.explore-tabs {
+    display: flex;
+    gap: 0;
+    margin: 0 12px 12px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+}
+
+.explore-tab {
+    flex: 1;
+    padding: 10px 0;
+    text-align: center;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-inactive);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.25s;
+    text-decoration: none;
+}
+
+.explore-tab.active {
+    color: white;
+    background: linear-gradient(90deg, rgba(255, 51, 102, 0.2), rgba(255, 153, 51, 0.2));
+    box-shadow: inset 0 -2px 0 var(--primary-color);
+}
+
+/* ═══════════════════════════════════════════
+   STORIES PAGE — Trending Clips Grid
+   ═══════════════════════════════════════════ */
+
+.clips-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.clip-card {
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    aspect-ratio: 9/16;
+    background: var(--surface-color);
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.clip-card:active {
+    transform: scale(0.97);
+}
+
+.clip-card video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.clip-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0.8) 0%, transparent 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.clip-views {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: white;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.clip-creator {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.7);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }

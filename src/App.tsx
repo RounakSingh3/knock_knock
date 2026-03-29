@@ -6,13 +6,15 @@ import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
 import Stories from './pages/Stories';
 import Explore from './pages/Explore';
+import Reels from './pages/Reels';
 import VoiceCall from './pages/VoiceCall';
 import Login from './pages/Login';
-
+import Profile from './pages/Profile';
 
 // Global Context for Points & Auth
 interface AppContextType {
     points: number;
+    setPoints: React.Dispatch<React.SetStateAction<number>>;
     user: ProfileData | null;
     setUser: React.Dispatch<React.SetStateAction<ProfileData | null>>;
     isAuthenticated: boolean;
@@ -21,6 +23,7 @@ interface AppContextType {
 
 export const AppContext = createContext<AppContextType>({
     points: 0,
+    setPoints: () => { },
     user: null,
     setUser: () => { },
     isAuthenticated: false,
@@ -62,6 +65,8 @@ function App() {
                     // Update the session quietly so it's fresh for next load
                     localStorage.setItem('knock_user_session', JSON.stringify({ ...user, ...profile }));
                 }
+            }).catch(err => {
+                console.error('Failed to fetch profile:', err);
             });
         }
     }, [user?.id]);
@@ -128,7 +133,10 @@ function App() {
                                 <Route path="/home" element={<Home />} />
                                 <Route path="/stories" element={<Stories />} />
                                 <Route path="/explore" element={<Explore />} />
+                                <Route path="/reels" element={<Reels />} />
                                 <Route path="/call" element={<VoiceCall />} />
+                                <Route path="/profile" element={<Profile />} />
+                                <Route path="/profile/:username" element={<Profile />} />
                                 <Route path="/login" element={<Navigate to="/home" />} />
                             </>
                         )}

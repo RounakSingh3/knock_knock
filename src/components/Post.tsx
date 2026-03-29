@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { Link } from 'react-router-dom';
 import { Heart, MessageCircle, Send, Bookmark } from 'lucide-react';
 import { AppContext } from '../App';
 import { checkIfLiked, toggleLike } from '../lib/database';
@@ -39,10 +40,10 @@ const Post: React.FC<PostProps> = ({ id, username, avatarUrl, imageUrl, likes, c
         <div className="post-container">
             {/* Header */}
             <div className="post-header">
-                <div className="post-user-info">
+                <Link to={`/profile/${username}`} className="post-user-info" style={{ textDecoration: 'none', color: 'inherit' }}>
                     <img src={avatarUrl} alt={username} className="avatar" />
                     <span className="font-bold username">{username}</span>
-                </div>
+                </Link>
                 <button className="more-options">•••</button>
             </div>
 

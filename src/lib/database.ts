@@ -25,6 +25,20 @@ export async function fetchPosts(): Promise<PostData[]> {
     return data || [];
 }
 
+export async function fetchUserPosts(username: string): Promise<PostData[]> {
+    const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('username', username)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching user posts:', error);
+        return [];
+    }
+    return data || [];
+}
+
 // ── Likes ──────────────────────────────────────────────
 
 export async function checkIfLiked(userId: string, postId: string): Promise<boolean> {
@@ -73,6 +87,20 @@ export async function fetchProfile(userId: string): Promise<ProfileData | null> 
 
     if (error) {
         console.error('Error fetching profile:', error);
+        return null;
+    }
+    return data;
+}
+
+export async function fetchProfileByUsername(username: string): Promise<ProfileData | null> {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', username)
+        .maybeSingle();
+
+    if (error) {
+        console.error('Error fetching profile by username:', error);
         return null;
     }
     return data;

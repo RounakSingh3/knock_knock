@@ -87,7 +87,7 @@ const Stories = () => {
         }
 
         if (points < 10) {
-            alert(`You need 10 Boost Points to boost a story! You currently have ${points} points. \nStay active in the app for 1 hour to earn 10 points.`);
+            alert(`You need 10 Boost Points to boost a story.\nYou currently have ${points} points.\nStay active in the app for 1 hour to earn 10 points.`);
             return;
         }
 
@@ -107,11 +107,11 @@ const Stories = () => {
                 true
             );
 
-            // Refresh boosted stories feed
+            // Refresh boosted stories feed (your story will be shown to more people)
             const updatedStories = await fetchBoostedStories();
             setBoostedStories(updatedStories);
 
-            alert("Story Boosted Successfully! It is now being shown to new users. -10 Points.");
+            alert("Story Boosted Successfully!\nWe will silently show it to extra people using your 10 Boost Points.");
             setIsBoosting(false);
             stopCamera();
         }, 1500);
@@ -204,9 +204,12 @@ const Stories = () => {
         <div className="stories-page pb-20">
             <div className="p-4 text-center mt-6">
                 <h2 className="title mb-2">Stories</h2>
-                <div className="font-bold text-yellow-400 mb-6 flex align-center justify-center gap-2">
+                <div className="font-bold text-yellow-400 mb-1 flex align-center justify-center gap-2">
                     <Sparkles size={18} /> {points} Boost Points
                 </div>
+                <p className="text-xs text-gray-400 mb-5">
+                    Every hour you use Knock Knock, you earn 10 Boost Points. Spend 10 points to quietly show your story to extra people.
+                </p>
                 <div className="create-story-card" onClick={startCamera}>
                     <div className="camera-icon-wrapper">
                         <Camera size={40} />
@@ -237,6 +240,38 @@ const Stories = () => {
                                 </div>
                             ))
                         )}
+                    </div>
+                </div>
+
+                {/* Trending Short Clips */}
+                <div className="trending-stories mt-8">
+                    <h3 className="text-left mb-4">Trending Clips 🎬</h3>
+                    <div className="clips-grid">
+                        {[
+                            { src: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', poster: 'https://images.pexels.com/videos/856029/free-video-856029.jpg?auto=compress&w=300', creator: 'nature_vibes', views: '14.2K' },
+                            { src: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', poster: 'https://images.pexels.com/videos/3015510/free-video-3015510.jpg?auto=compress&w=300', creator: 'city_explorer', views: '28.4K' },
+                            { src: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', poster: 'https://images.pexels.com/videos/1526909/free-video-1526909.jpg?auto=compress&w=300', creator: 'ocean_dreams', views: '45.6K' },
+                            { src: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', poster: 'https://images.pexels.com/videos/4065924/free-video-4065924.jpg?auto=compress&w=300', creator: 'dance_central', views: '89.2K' },
+                            { src: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', poster: 'https://images.pexels.com/videos/854669/free-video-854669.jpg?auto=compress&w=300', creator: 'sky_watcher', views: '32.1K' },
+                            { src: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', poster: 'https://images.pexels.com/videos/2795173/free-video-2795173.jpg?auto=compress&w=300', creator: 'foodie_fam', views: '67.3K' },
+                        ].map((clip, i) => (
+                            <div key={i} className="clip-card" onClick={() => window.location.href = '/reels'}>
+                                <video
+                                    src={clip.src}
+                                    poster={clip.poster}
+                                    muted
+                                    loop
+                                    playsInline
+                                    preload="metadata"
+                                    onMouseEnter={(e) => (e.target as HTMLVideoElement).play().catch(() => { })}
+                                    onMouseLeave={(e) => { (e.target as HTMLVideoElement).pause(); (e.target as HTMLVideoElement).currentTime = 0; }}
+                                />
+                                <div className="clip-overlay">
+                                    <span className="clip-views">▶ {clip.views}</span>
+                                    <span className="clip-creator">@{clip.creator}</span>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
