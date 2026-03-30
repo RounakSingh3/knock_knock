@@ -76,6 +76,7 @@ const Home = () => {
                             imageUrl={post.image_url}
                             likes={post.likes_count}
                             caption={post.caption || ''}
+                            attachedLink={post.attached_link}
                             timeAgo={getTimeAgo(post.created_at)}
                         />
                     ))

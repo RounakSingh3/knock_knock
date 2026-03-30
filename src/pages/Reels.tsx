@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon } from 'lucide-react';
 
 interface ReelData {
     id: number;
@@ -13,6 +14,7 @@ interface ReelData {
     comments: number;
     shares: number;
     category: string;
+    attachedLink?: string;
 }
 
 const REELS_DATA: ReelData[] = [
@@ -298,6 +300,32 @@ const Reels: React.FC = () => {
         });
     }, []);
 
+    const navigate = useNavigate();
+    const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        setTouchStartX(e.changedTouches[0].screenX);
+    };
+
+    const handleTouchEnd = (reel: ReelData, e: React.TouchEvent) => {
+        if (touchStartX === null) return;
+        const touchEndX = e.changedTouches[0].screenX;
+        const diffX = touchEndX - touchStartX;
+
+        if (Math.abs(diffX) > 60) {
+            if (diffX > 0) {
+                // Swipe Right -> Profile
+                navigate(`/profile/${reel.creator}`);
+            } else {
+                // Swipe Left -> Link
+                if (reel.attachedLink) {
+                    window.open(reel.attachedLink, '_blank', 'noopener,noreferrer');
+                }
+            }
+        }
+        setTouchStartX(null);
+    };
+
     return (
         <div className="reels-page" ref={containerRef}>
             {/* Mute toggle */}
@@ -318,7 +346,12 @@ const Reels: React.FC = () => {
             {REELS_DATA.map((reel, idx) => {
                 const isLiked = likedReels.has(reel.id);
                 return (
-                    <div className="reel-card" key={reel.id}>
+                    <div 
+                        className="reel-card" 
+                        key={reel.id}
+                        onTouchStart={handleTouchStart}
+                        onTouchEnd={(e) => handleTouchEnd(reel, e)}
+                    >
                         {/* Video */}
                         <video
                             ref={(el) => {
@@ -333,6 +366,13 @@ const Reels: React.FC = () => {
                             preload="metadata"
                             onClick={(e) => handleDoubleTap(idx, e)}
                         />
+
+                        {/* Link Indicator */}
+                        {reel.attachedLink && (
+                            <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, background: 'rgba(0,0,0,0.6)', padding: '8px', borderRadius: '50%', display: 'flex' }}>
+                                <LinkIcon size={20} color="#fff" />
+                            </div>
+                        )}
 
                         {/* Heart burst animation */}
                         {heartBursts.map((h) => (

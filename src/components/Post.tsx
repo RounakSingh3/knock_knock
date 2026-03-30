@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Link } from 'react-router-dom';
-import { Heart, MessageCircle, Send, Bookmark } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Heart, MessageCircle, Send, Bookmark, Link as LinkIcon } from 'lucide-react';
 import { AppContext } from '../App';
 import { checkIfLiked, toggleLike } from '../lib/database';
 
@@ -12,9 +12,10 @@ interface PostProps {
     likes: number;
     caption: string;
     timeAgo: string;
+    attachedLink?: string;
 }
 
-const Post: React.FC<PostProps> = ({ id, username, avatarUrl, imageUrl, likes, caption, timeAgo }) => {
+const Post: React.FC<PostProps> = ({ id, username, avatarUrl, imageUrl, likes, caption, timeAgo, attachedLink }) => {
     const { user } = useContext(AppContext);
     const [isLiked, setIsLiked] = useState(false);
     const [likeCount, setLikeCount] = useState(likes);
@@ -36,6 +37,35 @@ const Post: React.FC<PostProps> = ({ id, username, avatarUrl, imageUrl, likes, c
         await toggleLike(user.id, id, !newLiked);
     };
 
+    const navigate = useNavigate();
+    const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        setTouchStartX(e.changedTouches[0].screenX);
+    };
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (touchStartX === null) return;
+        const touchEndX = e.changedTouches[0].screenX;
+        const diffX = touchEndX - touchStartX;
+
+        // Threshold for swipe
+        if (Math.abs(diffX) > 60) {
+            if (diffX > 0) {
+                // Swiped Right -> Go to profile
+                navigate(`/profile/${username}`);
+            } else {
+                // Swiped Left -> Open link if available
+                if (attachedLink) {
+                    window.open(attachedLink, '_blank', 'noopener,noreferrer');
+                } else {
+                    // Optional: could show a toast saying "No link attached"
+                }
+            }
+        }
+        setTouchStartX(null);
+    };
+
     return (
         <div className="post-container">
             {/* Header */}
@@ -48,8 +78,18 @@ const Post: React.FC<PostProps> = ({ id, username, avatarUrl, imageUrl, likes, c
             </div>
 
             {/* Image */}
-            <div className="post-image-container" onDoubleClick={() => { if (!isLiked) handleLikeToggle(); }}>
+            <div 
+                className="post-image-container" 
+                onDoubleClick={() => { if (!isLiked) handleLikeToggle(); }}
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+            >
                 <img src={imageUrl} alt="Post content" className="post-image" />
+                {attachedLink && (
+                    <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.6)', padding: '6px', borderRadius: '50%', display: 'flex' }}>
+                        <LinkIcon size={16} color="#fff" />
+                    </div>
+                )}
             </div>
 
             {/* Actions */}

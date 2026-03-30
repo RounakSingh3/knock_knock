@@ -10,6 +10,7 @@ export interface PostData {
     caption: string;
     likes_count: number;
     created_at: string;
+    attached_link?: string;
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
