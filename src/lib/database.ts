@@ -40,6 +40,40 @@ export async function fetchUserPosts(username: string): Promise<PostData[]> {
     return data || [];
 }
 
+export async function uploadMedia(file: File, path: string): Promise<string | null> {
+    const { data, error } = await supabase.storage
+        .from('media')
+        .upload(path, file, { cacheControl: '3600', upsert: false });
+
+    if (error) {
+        console.error('Error uploading media:', error);
+        return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage.from('media').getPublicUrl(path);
+    return publicUrlData.publicUrl;
+}
+
+export async function createNewPost(post: { username: string; avatar_url: string; image_url: string; caption: string; attached_link?: string }) {
+    // Generate a unique ID (uuid) for the post, although Supabase usually auto-generates if we omit 'id' (assuming id is auto-uuid)
+    const { data, error } = await supabase
+        .from('posts')
+        .insert({
+            username: post.username,
+            avatar_url: post.avatar_url,
+            image_url: post.image_url,
+            caption: post.caption,
+            likes_count: 0,
+            attached_link: post.attached_link
+        });
+
+    if (error) {
+        console.error('Error creating post:', error);
+        throw error;
+    }
+    return data;
+}
+
 // ── Likes ──────────────────────────────────────────────
 
 export async function checkIfLiked(userId: string, postId: string): Promise<boolean> {

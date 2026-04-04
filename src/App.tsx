@@ -10,6 +10,7 @@ import Reels from './pages/Reels';
 import VoiceCall from './pages/VoiceCall';
 import Login from './pages/Login';
 import Profile from './pages/Profile';
+import CreatePost from './pages/CreatePost';
 
 // Global Context for Points & Auth
 interface AppContextType {
@@ -133,6 +134,7 @@ function App() {
                                 <Route path="/home" element={<Home />} />
                                 <Route path="/stories" element={<Stories />} />
                                 <Route path="/explore" element={<Explore />} />
+                                <Route path="/create" element={<CreatePost />} />
                                 <Route path="/reels" element={<Reels />} />
                                 <Route path="/call" element={<VoiceCall />} />
                                 <Route path="/profile" element={<Profile />} />
