@@ -95,11 +95,16 @@ const Profile = () => {
             {/* Header */}
             <header className="home-header" style={{ justifyContent: 'space-between' }}>
                 <h1 className="font-bold text-xl">{displayUsername}</h1>
-                {isOwnProfile && (
-                    <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
-                        <Settings size={24} />
-                    </button>
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ background: 'rgba(255, 51, 102, 0.15)', color: '#ff3366', padding: '4px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Star size={16} fill="#ff3366" /> {isOwnProfile ? points : profile.points} Pts
+                    </div>
+                    {isOwnProfile && (
+                        <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
+                            <Settings size={24} />
+                        </button>
+                    )}
+                </div>
             </header>
 
             {/* Profile Info */}
@@ -154,36 +159,6 @@ const Profile = () => {
                         </button>
                     )}
                     <button className="profile-action-btn">Share Profile</button>
-                </div>
-            </div>
-
-            {/* ── Points Dashboard ── */}
-            <div className="points-dashboard">
-                <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Star size={18} color="#facc15" /> Points Dashboard
-                </h3>
-                <div className="points-grid">
-                    <div className="points-card">
-                        <div className="points-card-icon" style={{ background: 'rgba(255, 51, 102, 0.15)' }}>
-                            <TrendingUp size={22} color="#ff3366" />
-                        </div>
-                        <div className="points-card-value">{isOwnProfile ? points : profile.points}</div>
-                        <div className="points-card-label">Total Points</div>
-                    </div>
-                    <div className="points-card">
-                        <div className="points-card-icon" style={{ background: 'rgba(250, 204, 21, 0.15)' }}>
-                            <Zap size={22} color="#facc15" />
-                        </div>
-                        <div className="points-card-value">{boostPoints}</div>
-                        <div className="points-card-label">Boost Points</div>
-                    </div>
-                    <div className="points-card">
-                        <div className="points-card-icon" style={{ background: 'rgba(52, 199, 89, 0.15)' }}>
-                            <Clock size={22} color="#34C759" />
-                        </div>
-                        <div className="points-card-value">{screenTimePoints}</div>
-                        <div className="points-card-label">Screen Time</div>
-                    </div>
                 </div>
             </div>
 
