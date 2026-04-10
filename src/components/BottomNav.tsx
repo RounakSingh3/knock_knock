@@ -20,9 +20,6 @@ const BottomNav = () => {
             <NavLink to="/profile" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <User size={26} />
             </NavLink>
-            <NavLink to="/create" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <PlusSquare size={26} />
-            </NavLink>
         </nav>
     );
 };

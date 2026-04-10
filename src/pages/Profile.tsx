@@ -138,7 +138,16 @@ const Profile = () => {
 
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem' }}>
                     {isOwnProfile ? (
-                        <button className="profile-action-btn">Edit Profile</button>
+                        <>
+                            <button className="profile-action-btn">Edit Profile</button>
+                            <button 
+                                className="profile-action-btn" 
+                                style={{ background: '#ff3366', color: '#fff', border: 'none' }}
+                                onClick={() => navigate('/create')}
+                            >
+                                + Create Post
+                            </button>
+                        </>
                     ) : (
                         <button className="profile-action-btn" style={{ background: '#ff3366' }}>
                             <UserPlus size={16} /> Follow
