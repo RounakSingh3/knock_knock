@@ -1,20 +1,37 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import Post from '../components/Post';
 import { fetchPosts, type PostData } from '../lib/database';
-import { Loader2 } from 'lucide-react';
+import { checkIfLiked, toggleLike } from '../lib/database';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles } from 'lucide-react';
 
 const Home = () => {
-    const { signOut } = useContext(AppContext);
+    const { signOut, user } = useContext(AppContext);
+    const navigate = useNavigate();
     const [posts, setPosts] = useState<PostData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
+    const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
+    const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
 
     useEffect(() => {
         fetchPosts()
             .then(data => {
                 setPosts(data);
                 setLoading(false);
+                // Initialize like counts
+                const counts: Record<string, number> = {};
+                data.forEach(p => { counts[p.id] = p.likes_count; });
+                setLikeCounts(counts);
+                // Check liked status for each post
+                if (user) {
+                    data.forEach(p => {
+                        checkIfLiked(user.id, p.id).then(liked => {
+                            setLikedPosts(prev => ({ ...prev, [p.id]: liked }));
+                        });
+                    });
+                }
             })
             .catch(err => {
                 console.error('Failed to fetch posts:', err);
@@ -23,65 +40,180 @@ const Home = () => {
             });
     }, []);
 
+    const handleLikeToggle = async (postId: string) => {
+        if (!user) return;
+        const currentlyLiked = likedPosts[postId] || false;
+        const newLiked = !currentlyLiked;
+        setLikedPosts(prev => ({ ...prev, [postId]: newLiked }));
+        setLikeCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newLiked ? 1 : -1) }));
+        await toggleLike(user.id, postId, currentlyLiked);
+    };
+
+    const handleDoubleTap = (post: PostData) => {
+        if (!likedPosts[post.id]) {
+            handleLikeToggle(post.id);
+        }
+    };
+
     return (
-        <div className="home-page pb-20">
-            {/* Top Bar */}
-            <header className="home-header">
-                <h1 className="app-title">Knock Knock</h1>
-                <div className="header-actions">
-                    <button
-                        onClick={signOut}
-                        style={{
-                            background: 'none',
-                            border: '1px solid rgba(255,255,255,0.15)',
-                            color: '#8e8e93',
-                            borderRadius: '8px',
-                            padding: '6px 14px',
-                            fontSize: '13px',
-                            cursor: 'pointer',
-                        }}
-                    >
-                        Sign Out
+        <div className="home-page-v2">
+            {/* Redesigned Header */}
+            <header className="home-header-v2">
+                <div className="header-left-v2">
+                    <div className="header-greeting">
+                        <Sparkles size={18} className="greeting-icon" />
+                        <span className="greeting-text">
+                            Hey, <strong>{user?.username || 'there'}</strong>
+                        </span>
+                    </div>
+                    <p className="header-subtitle">Discover what's new ✨</p>
+                </div>
+                <div className="header-right-v2">
+                    <button onClick={signOut} className="signout-btn-v2" title="Sign Out">
+                        <LogOut size={18} />
                     </button>
                 </div>
             </header>
 
-            {/* Feed */}
-            <div className="feed-container">
+            {/* Content */}
+            <div className="masonry-feed-wrapper">
                 {error ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: '#ff3b30' }}>
-                        <p>{error}</p>
+                    <div className="feed-state-msg">
+                        <p style={{ color: '#ff3b30' }}>{error}</p>
                         <button
-                            onClick={() => { setError(''); setLoading(true); fetchPosts().then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); }); }}
-                            style={{ marginTop: '1rem', padding: '8px 20px', background: 'rgba(255,51,102,0.2)', border: '1px solid #ff3366', borderRadius: '8px', color: '#ff3366', cursor: 'pointer' }}
+                            className="retry-btn-v2"
+                            onClick={() => {
+                                setError(''); setLoading(true);
+                                fetchPosts().then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); });
+                            }}
                         >
                             Retry
                         </button>
                     </div>
                 ) : loading ? (
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                    <div className="feed-state-msg">
                         <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
                     </div>
                 ) : posts.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '3rem', color: '#8e8e93' }}>
-                        <p>No posts yet. Be the first to post!</p>
+                    <div className="feed-state-msg">
+                        <p style={{ color: '#8e8e93' }}>No posts yet. Be the first to post!</p>
                     </div>
                 ) : (
-                    posts.map((post) => (
-                        <Post
-                            key={post.id}
-                            id={post.id}
-                            username={post.username}
-                            avatarUrl={post.avatar_url || 'https://i.pravatar.cc/150'}
-                            imageUrl={post.image_url}
-                            likes={post.likes_count}
-                            caption={post.caption || ''}
-                            attachedLink={post.attached_link}
-                            timeAgo={getTimeAgo(post.created_at)}
-                        />
-                    ))
+                    <div className="masonry-grid">
+                        {posts.map((post, index) => (
+                            <div
+                                key={post.id}
+                                className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
+                                onClick={() => setSelectedPost(post)}
+                                onDoubleClick={() => handleDoubleTap(post)}
+                            >
+                                <img src={post.image_url} alt="" className="masonry-card-img" />
+                                {/* Gradient overlay */}
+                                <div className="masonry-card-overlay" />
+                                {/* Like badge */}
+                                <button
+                                    className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
+                                    onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
+                                >
+                                    <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
+                                </button>
+                                {/* Attached link icon */}
+                                {post.attached_link && (
+                                    <div className="masonry-link-badge">
+                                        <LinkIcon size={12} />
+                                    </div>
+                                )}
+                                {/* Bottom info */}
+                                <div className="masonry-card-info">
+                                    <div className="masonry-card-user">
+                                        <img
+                                            src={post.avatar_url || 'https://i.pravatar.cc/150'}
+                                            alt=""
+                                            className="masonry-avatar"
+                                        />
+                                        <span className="masonry-username">{post.username}</span>
+                                    </div>
+                                    <div className="masonry-meta">
+                                        <span className="masonry-likes">{likeCounts[post.id] || 0} ❤️</span>
+                                        <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 )}
             </div>
+
+            {/* Floating Action Button */}
+            <button className="fab-create" onClick={() => navigate('/create')}>
+                <Plus size={28} />
+            </button>
+
+            {/* Detail Modal */}
+            {selectedPost && (
+                <div className="post-modal-backdrop" onClick={() => setSelectedPost(null)}>
+                    <div className="post-modal" onClick={(e) => e.stopPropagation()}>
+                        <button className="modal-close-btn" onClick={() => setSelectedPost(null)}>
+                            <X size={22} />
+                        </button>
+                        {/* Image */}
+                        <div className="modal-image-wrap">
+                            <img src={selectedPost.image_url} alt="" className="modal-image" />
+                        </div>
+                        {/* Details */}
+                        <div className="modal-details">
+                            <div className="modal-user-row">
+                                <img
+                                    src={selectedPost.avatar_url || 'https://i.pravatar.cc/150'}
+                                    alt=""
+                                    className="modal-avatar"
+                                    onClick={() => { setSelectedPost(null); navigate(`/profile/${selectedPost.username}`); }}
+                                />
+                                <div>
+                                    <span
+                                        className="modal-username"
+                                        onClick={() => { setSelectedPost(null); navigate(`/profile/${selectedPost.username}`); }}
+                                    >
+                                        {selectedPost.username}
+                                    </span>
+                                    <span className="modal-time">{getTimeAgo(selectedPost.created_at)}</span>
+                                </div>
+                            </div>
+                            {selectedPost.caption && (
+                                <p className="modal-caption">{selectedPost.caption}</p>
+                            )}
+                            {selectedPost.attached_link && (
+                                <a
+                                    href={selectedPost.attached_link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="modal-link"
+                                >
+                                    <LinkIcon size={14} /> {selectedPost.attached_link}
+                                </a>
+                            )}
+                            <div className="modal-actions">
+                                <button
+                                    className={`modal-action-btn ${likedPosts[selectedPost.id] ? 'liked' : ''}`}
+                                    onClick={() => handleLikeToggle(selectedPost.id)}
+                                >
+                                    <Heart size={22} fill={likedPosts[selectedPost.id] ? '#ff3366' : 'none'} color={likedPosts[selectedPost.id] ? '#ff3366' : '#fff'} />
+                                    <span>{likeCounts[selectedPost.id] || 0}</span>
+                                </button>
+                                <button className="modal-action-btn">
+                                    <MessageCircle size={22} />
+                                </button>
+                                <button className="modal-action-btn">
+                                    <Send size={22} />
+                                </button>
+                                <button className="modal-action-btn modal-action-right">
+                                    <Bookmark size={22} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

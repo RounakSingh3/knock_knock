@@ -142,6 +142,500 @@ body {
     object-fit: cover;
 }
 
+/* ═══════════════════════════════════════════
+   HOME PAGE V2 — Masonry Card Grid Layout
+   ═══════════════════════════════════════════ */
+
+.home-page-v2 {
+    min-height: 100vh;
+    padding-bottom: 80px;
+    background: var(--bg-color);
+}
+
+/* Header V2 — Dashboard Style */
+.home-header-v2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 16px 14px;
+    position: sticky;
+    top: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    z-index: 99;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.header-left-v2 {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.header-greeting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.greeting-icon {
+    color: #ff9933;
+    animation: sparkle-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sparkle-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.9); }
+}
+
+.greeting-text {
+    font-size: 1.2rem;
+    color: #f5f5f5;
+    letter-spacing: 0.3px;
+}
+
+.greeting-text strong {
+    background: linear-gradient(90deg, #ff3366, #ff9933);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 700;
+}
+
+.header-subtitle {
+    font-size: 0.78rem;
+    color: #6e6e73;
+    margin-left: 26px;
+    letter-spacing: 0.2px;
+}
+
+.header-right-v2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.signout-btn-v2 {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #8e8e93;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.signout-btn-v2:hover {
+    background: rgba(255, 59, 48, 0.15);
+    border-color: rgba(255, 59, 48, 0.3);
+    color: #ff3b30;
+}
+
+/* Masonry Feed Wrapper */
+.masonry-feed-wrapper {
+    padding: 10px 8px;
+}
+
+.feed-state-msg {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 1rem;
+    gap: 1rem;
+}
+
+.retry-btn-v2 {
+    padding: 10px 24px;
+    background: rgba(255, 51, 102, 0.15);
+    border: 1px solid rgba(255, 51, 102, 0.3);
+    border-radius: 12px;
+    color: #ff3366;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.retry-btn-v2:hover {
+    background: rgba(255, 51, 102, 0.25);
+}
+
+/* Masonry Grid */
+.masonry-grid {
+    columns: 2;
+    column-gap: 8px;
+}
+
+.masonry-card {
+    position: relative;
+    break-inside: avoid;
+    margin-bottom: 8px;
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.3s ease;
+    background: var(--surface-color);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.masonry-card:active {
+    transform: scale(0.97);
+}
+
+.masonry-card-img {
+    width: 100%;
+    display: block;
+    object-fit: cover;
+    min-height: 160px;
+    max-height: 320px;
+}
+
+.masonry-card--tall .masonry-card-img {
+    min-height: 260px;
+    max-height: 400px;
+}
+
+/* Card overlay gradient */
+.masonry-card-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60%;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.2) 50%, transparent 100%);
+    pointer-events: none;
+}
+
+/* Like button on card */
+.masonry-like-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s, background 0.2s;
+    z-index: 5;
+}
+
+.masonry-like-btn:active {
+    transform: scale(0.85);
+}
+
+.masonry-like-btn.liked {
+    background: rgba(255, 51, 102, 0.3);
+    animation: pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Link badge */
+.masonry-link-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    z-index: 5;
+}
+
+/* Card info */
+.masonry-card-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 10px 12px;
+    z-index: 5;
+}
+
+.masonry-card-user {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.masonry-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1.5px solid rgba(255, 255, 255, 0.5);
+}
+
+.masonry-username {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.masonry-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.masonry-likes {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 600;
+}
+
+.masonry-time {
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Floating Action Button */
+.fab-create {
+    position: fixed;
+    bottom: 80px;
+    right: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ff3366 0%, #ff6633 100%);
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 90;
+    box-shadow: 0 4px 20px rgba(255, 51, 102, 0.5), 0 0 40px rgba(255, 51, 102, 0.15);
+    transition: transform 0.2s, box-shadow 0.3s;
+    animation: fab-glow 3s ease-in-out infinite;
+}
+
+.fab-create:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 28px rgba(255, 51, 102, 0.6), 0 0 50px rgba(255, 51, 102, 0.2);
+}
+
+.fab-create:active {
+    transform: scale(0.95);
+}
+
+@keyframes fab-glow {
+    0%, 100% { box-shadow: 0 4px 20px rgba(255, 51, 102, 0.5), 0 0 40px rgba(255, 51, 102, 0.15); }
+    50% { box-shadow: 0 4px 28px rgba(255, 51, 102, 0.7), 0 0 60px rgba(255, 51, 102, 0.25); }
+}
+
+/* ═══════════════════════════════════════════
+   POST DETAIL MODAL
+   ═══════════════════════════════════════════ */
+
+.post-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: modal-fade-in 0.25s ease;
+}
+
+@keyframes modal-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.post-modal {
+    width: 100%;
+    max-width: 420px;
+    max-height: 90vh;
+    background: #1a1a1e;
+    border-radius: 24px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    animation: modal-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+}
+
+@keyframes modal-slide-up {
+    from { opacity: 0; transform: translateY(40px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: background 0.2s;
+}
+
+.modal-close-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.modal-image-wrap {
+    width: 100%;
+    max-height: 50vh;
+    overflow: hidden;
+    background: #0a0a0a;
+}
+
+.modal-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.modal-details {
+    padding: 16px 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+}
+
+.modal-user-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modal-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.modal-avatar:hover {
+    border-color: #ff3366;
+}
+
+.modal-username {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: white;
+    cursor: pointer;
+    display: block;
+}
+
+.modal-username:hover {
+    color: #ff3366;
+}
+
+.modal-time {
+    font-size: 0.72rem;
+    color: #6e6e73;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+}
+
+.modal-caption {
+    font-size: 0.9rem;
+    color: #d1d1d6;
+    line-height: 1.5;
+}
+
+.modal-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: #60a5fa;
+    text-decoration: none;
+    padding: 8px 12px;
+    background: rgba(96, 165, 250, 0.08);
+    border-radius: 10px;
+    border: 1px solid rgba(96, 165, 250, 0.15);
+    transition: background 0.2s;
+    word-break: break-all;
+}
+
+.modal-link:hover {
+    background: rgba(96, 165, 250, 0.15);
+}
+
+.modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.modal-action-btn {
+    background: none;
+    border: none;
+    color: #d1d1d6;
+    padding: 8px 12px;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    transition: background 0.2s, color 0.2s, transform 0.1s;
+}
+
+.modal-action-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.modal-action-btn:active {
+    transform: scale(0.9);
+}
+
+.modal-action-btn.liked {
+    color: #ff3366;
+}
+
+.modal-action-btn.liked:hover {
+    background: rgba(255, 51, 102, 0.1);
+}
+
+.modal-action-right {
+    margin-left: auto;
+}
+
 /* Profile Stat Button */
 .stat-btn {
     background: transparent;
