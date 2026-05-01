@@ -203,3 +203,121 @@ export async function fetchExplorePosts(): Promise<PostData[]> {
     }
     return data || [];
 }
+
+// ── Matching Algorithm ─────────────────────────────────
+
+export interface MatchResult {
+    profile: ProfileData & { username: string; dob?: string };
+    similarityScore: number;
+    sharedLikes: number;
+    totalLikes: number;
+    compatibilityPercent: number;
+}
+
+/** Fetch all post_ids a user has liked */
+export async function fetchUserLikes(userId: string): Promise<string[]> {
+    const { data, error } = await supabase
+        .from('likes')
+        .select('post_id')
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error fetching user likes:', error);
+        return [];
+    }
+    return (data || []).map(d => d.post_id);
+}
+
+/** Fetch all profiles except the current user */
+export async function fetchAllProfiles(excludeUserId: string): Promise<(ProfileData & { username: string; dob?: string })[]> {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('id', excludeUserId);
+
+    if (error) {
+        console.error('Error fetching all profiles:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/**
+ * Smart matching algorithm:
+ * 1. Fetch current user's liked posts
+ * 2. For each candidate, fetch their liked posts
+ * 3. Count shared likes (intersection)
+ * 4. Compute similarity = sharedLikes / union of both users' likes
+ * 5. Apply preference filter (gender-based, random, etc.)
+ * 6. Rank by similarity descending
+ */
+export async function computeMatches(
+    currentUserId: string,
+    currentUserGender: string,
+    preference: string
+): Promise<MatchResult[]> {
+    // 1. Get current user's liked posts
+    const myLikes = await fetchUserLikes(currentUserId);
+    const myLikeSet = new Set(myLikes);
+
+    // 2. Get all other profiles
+    let candidates = await fetchAllProfiles(currentUserId);
+
+    // 3. Apply gender-based preference filter
+    if (preference === 'Boy to Girl 👫') {
+        candidates = candidates.filter(c => c.gender === 'female');
+    } else if (preference === 'Girl to Boy 👭') {
+        candidates = candidates.filter(c => c.gender === 'male');
+    }
+    // "Similar Likes ❤️", "Same Country 🌍", "Random 🎲" → no gender filter
+
+    // 4. For each candidate, compute similarity
+    const results: MatchResult[] = [];
+
+    for (const candidate of candidates) {
+        const candidateLikes = await fetchUserLikes(candidate.id);
+        const candidateLikeSet = new Set(candidateLikes);
+
+        // Count shared likes (intersection)
+        let sharedLikes = 0;
+        for (const postId of myLikes) {
+            if (candidateLikeSet.has(postId)) {
+                sharedLikes++;
+            }
+        }
+
+        // Union size for Jaccard similarity
+        const unionSize = new Set([...myLikes, ...candidateLikes]).size;
+        const similarityScore = unionSize > 0 ? sharedLikes / unionSize : 0;
+
+        // Bonus: activity level similarity (points closeness)
+        // Normalized to 0-0.2 extra score
+        const pointsDiff = Math.abs((candidate.points || 0));
+        const activityBonus = Math.max(0, 0.2 - (pointsDiff / 10000));
+
+        const totalScore = similarityScore + activityBonus;
+        const compatibilityPercent = Math.min(99, Math.round(totalScore * 100));
+
+        results.push({
+            profile: candidate,
+            similarityScore: totalScore,
+            sharedLikes,
+            totalLikes: candidateLikes.length,
+            compatibilityPercent: Math.max(compatibilityPercent, sharedLikes > 0 ? 15 : 5),
+        });
+    }
+
+    // 5. Sort by similarity (descending)
+    if (preference === 'Random 🎲') {
+        // Shuffle randomly
+        for (let i = results.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [results[i], results[j]] = [results[j], results[i]];
+        }
+    } else {
+        results.sort((a, b) => b.similarityScore - a.similarityScore);
+    }
+
+    return results;
+}
+
