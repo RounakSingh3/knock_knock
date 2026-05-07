@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward } from 'lucide-react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
+import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X } from 'lucide-react';
 import { AppContext } from '../App';
 import { computeMatches, type MatchResult } from '../lib/database';
 
@@ -27,10 +27,14 @@ const VoiceCall = () => {
 
     // Call feature states
     const [requestStatus, setRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
+    const [videoRequestStatus, setVideoRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
     const [isFollowed, setIsFollowed] = useState(false);
-    const [isVideoActive, setIsVideoActive] = useState(false);
+    const [showChat, setShowChat] = useState(false);
+    const [chatInput, setChatInput] = useState('');
+    const [chatMessages, setChatMessages] = useState<{ id: number; text: string; isMine: boolean }[]>([]);
 
     const currentMatch = matches[currentMatchIndex] || null;
+    const localVideoRef = useRef<HTMLVideoElement>(null);
 
     // Timer for active call
     useEffect(() => {
@@ -53,6 +57,24 @@ const VoiceCall = () => {
         }
     }, [callDuration, inCall, requestStatus]);
 
+    // Setup local webcam when video is accepted
+    useEffect(() => {
+        if (videoRequestStatus === 'accepted' && localVideoRef.current) {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    if (localVideoRef.current) {
+                        localVideoRef.current.srcObject = stream;
+                    }
+                })
+                .catch(err => console.error("Error accessing webcam:", err));
+        } else if (videoRequestStatus !== 'accepted') {
+            if (localVideoRef.current && localVideoRef.current.srcObject) {
+                const tracks = (localVideoRef.current.srcObject as MediaStream).getTracks();
+                tracks.forEach(track => track.stop());
+            }
+        }
+    }, [videoRequestStatus]);
+
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
         const s = (seconds % 60).toString().padStart(2, '0');
@@ -61,14 +83,15 @@ const VoiceCall = () => {
 
     const handleTalkMore = () => {
         setRequestStatus('sent');
-        setTimeout(() => {
-            setRequestStatus('accepted');
-        }, 2000);
+        setTimeout(() => setRequestStatus('accepted'), 2000);
     };
 
-    const handleFollow = () => {
-        setIsFollowed(true);
+    const handleRequestVideo = () => {
+        setVideoRequestStatus('sent');
+        setTimeout(() => setVideoRequestStatus('accepted'), 2000);
     };
+
+    const handleFollow = () => setIsFollowed(true);
 
     const startSearch = async () => {
         if (!user) return;
@@ -77,18 +100,12 @@ const VoiceCall = () => {
         setShowMatchCard(false);
 
         try {
-            const results = await computeMatches(
-                user.id,
-                (user as any).gender || '',
-                activePref
-            );
-
+            const results = await computeMatches(user.id, (user as any).gender || '', activePref);
             if (results.length === 0) {
                 setNoMatchFound(true);
                 setIsSearching(false);
                 return;
             }
-
             setMatches(results);
             setCurrentMatchIndex(0);
             setIsSearching(false);
@@ -110,12 +127,8 @@ const VoiceCall = () => {
             setCurrentMatchIndex(prev => prev + 1);
             setInCall(false);
             setShowMatchCard(true);
-            setCallDuration(0);
-            setRequestStatus('none');
-            setIsFollowed(false);
-            setIsVideoActive(false);
+            resetCallStates();
         } else {
-            // No more matches
             endCall();
             setNoMatchFound(true);
         }
@@ -125,10 +138,16 @@ const VoiceCall = () => {
         setInCall(false);
         setShowMatchCard(false);
         setIsSearching(false);
+        resetCallStates();
+    };
+
+    const resetCallStates = () => {
         setCallDuration(0);
         setRequestStatus('none');
+        setVideoRequestStatus('none');
         setIsFollowed(false);
-        setIsVideoActive(false);
+        setShowChat(false);
+        setChatMessages([]);
     };
 
     const goBack = () => {
@@ -138,74 +157,139 @@ const VoiceCall = () => {
         setNoMatchFound(false);
     };
 
+    const sendChatMessage = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!chatInput.trim()) return;
+        const newMsg = { id: Date.now(), text: chatInput, isMine: true };
+        setChatMessages(prev => [...prev, newMsg]);
+        setChatInput('');
+        
+        // Mock remote reply
+        setTimeout(() => {
+            setChatMessages(prev => [...prev, { id: Date.now(), text: 'Haha yeah! 😄', isMine: false }]);
+        }, 1500);
+    };
+
     // ── Active Call Screen ──
     if (inCall && currentMatch) {
         return (
-            <div className="call-active-screen">
-                <div className="text-center mt-8">
-                    <img
-                        src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
-                        alt={currentMatch.profile.username}
-                        className="call-avatar"
-                    />
-                    <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '4px' }}>
-                        {currentMatch.profile.name}
-                    </h2>
-                    <p className="text-gray-400" style={{ fontSize: '0.9rem' }}>
-                        @{currentMatch.profile.username}
-                    </p>
-                    <div className="match-compat-inline">
-                        <Heart size={14} fill="#ff3366" color="#ff3366" />
-                        <span>{currentMatch.compatibilityPercent}% Compatible</span>
-                        <span className="match-compat-dot">•</span>
-                        <span>{currentMatch.sharedLikes} shared likes</span>
+            <div className="call-active-screen" style={{ position: 'relative', overflow: 'hidden' }}>
+                {videoRequestStatus === 'accepted' ? (
+                    // Video Call Layout
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+                        {/* Remote Video (Mocked with avatar) */}
+                        <div style={{ flex: 1, backgroundColor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                            <img
+                                src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
+                                alt={currentMatch.profile.username}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5, filter: 'blur(20px)' }}
+                            />
+                            <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <img
+                                    src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
+                                    alt=""
+                                    style={{ width: '80px', height: '80px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)' }}
+                                />
+                                <span style={{ marginTop: '8px', fontWeight: 'bold' }}>{currentMatch.profile.name} (Camera Off)</span>
+                            </div>
+                        </div>
+
+                        {/* Local Video */}
+                        <div style={{ position: 'absolute', top: '16px', right: '16px', width: '100px', height: '140px', backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)' }}>
+                            <video
+                                ref={localVideoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                        </div>
                     </div>
-                    <div className="text-4xl font-mono" style={{ marginTop: '2rem', marginBottom: '0.5rem' }}>
+                ) : (
+                    // Voice Call Layout
+                    <div className="text-center mt-8">
+                        <img
+                            src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
+                            alt={currentMatch.profile.username}
+                            className="call-avatar"
+                        />
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '4px' }}>
+                            {currentMatch.profile.name}
+                        </h2>
+                        <p className="text-gray-400" style={{ fontSize: '0.9rem' }}>
+                            @{currentMatch.profile.username}
+                        </p>
+                        <div className="match-compat-inline">
+                            <Heart size={14} fill="#ff3366" color="#ff3366" />
+                            <span>{currentMatch.compatibilityPercent}% Compatible</span>
+                            <span className="match-compat-dot">•</span>
+                            <span>{currentMatch.sharedLikes} shared likes</span>
+                        </div>
+                    </div>
+                )}
+
+                <div className="text-center" style={{ position: 'absolute', top: '240px', left: 0, right: 0, zIndex: 10 }}>
+                    <div className="text-4xl font-mono" style={{ display: videoRequestStatus === 'accepted' ? 'none' : 'block' }}>
                         {formatTime(callDuration)}
                         {requestStatus !== 'accepted' && (
-                            <span style={{ display: 'block', fontSize: '0.8rem', color: '#8e8e93', marginTop: '4px' }}>Limit: 3:00</span>
-                        )}
-                    </div>
-
-                    {/* Time limit extension and follow features */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', marginTop: '2rem', minHeight: '100px' }}>
-                        {requestStatus === 'none' && (
-                            <button className="premium-btn" style={{ fontSize: '0.9rem', padding: '10px 20px' }} onClick={handleTalkMore}>
-                                <Clock size={16} style={{ marginRight: '8px' }} /> Request More Time
-                            </button>
-                        )}
-                        {requestStatus === 'sent' && (
-                            <div style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
-                                Waiting for them to accept...
-                            </div>
-                        )}
-                        {requestStatus === 'accepted' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
-                                <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✅ No Time Limit!</span>
-                                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                                    <button
-                                        className="pill"
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: isVideoActive ? 'var(--primary-color)' : '' }}
-                                        onClick={() => setIsVideoActive(!isVideoActive)}
-                                    >
-                                        {isVideoActive ? <Video size={16} /> : <VideoOff size={16} />}
-                                        {isVideoActive ? 'Video On' : 'Switch to Video'}
-                                    </button>
-                                    <button
-                                        className="pill"
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: isFollowed ? '#34C759' : '' }}
-                                        onClick={handleFollow}
-                                        disabled={isFollowed}
-                                    >
-                                        <UserPlus size={16} /> {isFollowed ? 'Friends' : 'Follow'}
-                                    </button>
-                                </div>
-                            </div>
+                            <span style={{ display: 'block', fontSize: '0.8rem', color: '#8e8e93', marginTop: '4px' }}>Voice Limit: 3:00</span>
                         )}
                     </div>
                 </div>
 
-                <div className="call-controls">
+                {/* Status and Action Buttons */}
+                <div style={{ position: 'absolute', bottom: '100px', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', zIndex: 10 }}>
+                    {requestStatus === 'none' && (
+                        <button className="premium-btn" style={{ fontSize: '0.9rem', padding: '10px 20px' }} onClick={handleTalkMore}>
+                            <Clock size={16} style={{ marginRight: '8px' }} /> Request More Time
+                        </button>
+                    )}
+                    {requestStatus === 'sent' && (
+                        <div style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
+                            Waiting for them to accept more time...
+                        </div>
+                    )}
+                    {requestStatus === 'accepted' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: videoRequestStatus === 'accepted' ? 'transparent' : 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
+                            {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✅ Voice Call Extended!</span>}
+                            
+                            {videoRequestStatus === 'none' && (
+                                <button
+                                    className="pill"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
+                                    onClick={handleRequestVideo}
+                                >
+                                    <Video size={16} /> Request Video Call
+                                </button>
+                            )}
+                            {videoRequestStatus === 'sent' && (
+                                <span style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
+                                    Waiting for them to accept video...
+                                </span>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                                <button
+                                    className="pill"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: showChat ? 'var(--primary-color)' : '' }}
+                                    onClick={() => setShowChat(!showChat)}
+                                >
+                                    <MessageSquare size={16} /> Chat
+                                </button>
+                                <button
+                                    className="pill"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: isFollowed ? '#34C759' : '' }}
+                                    onClick={handleFollow}
+                                    disabled={isFollowed}
+                                >
+                                    <UserPlus size={16} /> {isFollowed ? 'Friends' : 'Follow'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="call-controls" style={{ position: 'absolute', bottom: '20px', left: 0, right: 0, zIndex: 10 }}>
                     <button className="call-btn btn-mute" onClick={() => setIsMuted(!isMuted)}>
                         {isMuted ? <MicOff size={28} color="#ff3b30" /> : <Mic size={28} />}
                     </button>
@@ -216,6 +300,36 @@ const VoiceCall = () => {
                         <SkipForward size={28} />
                     </button>
                 </div>
+
+                {/* Chat Drawer */}
+                {showChat && (
+                    <div style={{ position: 'absolute', bottom: '90px', left: '16px', right: '16px', height: '300px', backgroundColor: 'rgba(25, 25, 25, 0.95)', backdropFilter: 'blur(10px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', zIndex: 20 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                            <span style={{ fontWeight: 'bold' }}>Chat with {currentMatch.profile.name}</span>
+                            <button onClick={() => setShowChat(false)}><X size={18} /></button>
+                        </div>
+                        <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! 👋</p>}
+                            {chatMessages.map(msg => (
+                                <div key={msg.id} style={{ alignSelf: msg.isMine ? 'flex-end' : 'flex-start', background: msg.isMine ? 'var(--primary-color)' : '#333', padding: '8px 12px', borderRadius: '12px', maxWidth: '80%', fontSize: '0.9rem' }}>
+                                    {msg.text}
+                                </div>
+                            ))}
+                        </div>
+                        <form onSubmit={sendChatMessage} style={{ display: 'flex', padding: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                            <input
+                                type="text"
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                placeholder="Type a message..."
+                                style={{ flex: 1, background: '#111', border: 'none', padding: '10px 16px', borderRadius: '20px', color: '#fff', marginRight: '8px', fontSize: '0.9rem' }}
+                            />
+                            <button type="submit" style={{ background: 'var(--primary-color)', border: 'none', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                <Send size={18} />
+                            </button>
+                        </form>
+                    </div>
+                )}
             </div>
         );
     }
