@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon } from 'lucide-react';
 
-interface ReelData {
+export interface ReelData {
     id: number;
     videoUrl: string;
     posterUrl: string;
@@ -17,7 +17,7 @@ interface ReelData {
     attachedLink?: string;
 }
 
-const REELS_DATA: ReelData[] = [
+export const REELS_DATA: ReelData[] = [
     {
         id: 1,
         videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4',
@@ -176,7 +176,7 @@ const REELS_DATA: ReelData[] = [
     },
 ];
 
-function formatCount(n: number): string {
+export function formatCount(n: number): string {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
     if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
     return String(n);
