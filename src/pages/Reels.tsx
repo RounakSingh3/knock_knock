@@ -176,25 +176,42 @@ const REELS_DATA: ReelData[] = [
     },
 ];
 
-function formatCount(n: number): string {
-    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
-    return String(n);
-}
-
 const Reels: React.FC = () => {
     const [likedReels, setLikedReels] = useState<Set<number>>(new Set());
     const [mutedAll, setMutedAll] = useState(true);
     const [activeIndex, setActiveIndex] = useState(0);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+    const [selectedReelIndex, setSelectedReelIndex] = useState<number | null>(null);
+
     const [playStates, setPlayStates] = useState<boolean[]>(REELS_DATA.map(() => true));
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
-    const lastTapRef = useRef<number>(0);
     const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
 
-    // IntersectionObserver to auto-play visible video
+    const containerRef = useRef<HTMLDivElement>(null);
+    const modalScrollRef = useRef<HTMLDivElement>(null);
+    const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+    const lastTapRef = useRef<number>(0);
+    const navigate = useNavigate();
+    const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+    // Auto-scroll to selected reel index when modal opens
     useEffect(() => {
+        if (selectedReelIndex !== null && modalScrollRef.current) {
+            const height = modalScrollRef.current.clientHeight;
+            modalScrollRef.current.scrollTo(0, height * selectedReelIndex);
+            setActiveIndex(selectedReelIndex);
+            setTimeout(() => {
+                const activeVideo = videoRefs.current[selectedReelIndex];
+                if (activeVideo) {
+                    activeVideo.play().catch(() => {});
+                    setPlayStates(prev => { const n = [...prev]; n[selectedReelIndex] = true; return n; });
+                }
+            }, 300);
+        }
+    }, [selectedReelIndex]);
+
+    // IntersectionObserver to auto-play visible video in modal
+    useEffect(() => {
+        if (selectedReelIndex === null) return;
         const observers: IntersectionObserver[] = [];
         videoRefs.current.forEach((video, idx) => {
             if (!video) return;
@@ -225,10 +242,11 @@ const Reels: React.FC = () => {
             observers.push(obs);
         });
         return () => observers.forEach((o) => o.disconnect());
-    }, []);
+    }, [selectedReelIndex]);
 
     // Progress bar updater
     useEffect(() => {
+        if (selectedReelIndex === null) return;
         const interval = setInterval(() => {
             videoRefs.current.forEach((video, idx) => {
                 if (video && video.duration) {
@@ -241,7 +259,7 @@ const Reels: React.FC = () => {
             });
         }, 200);
         return () => clearInterval(interval);
-    }, []);
+    }, [selectedReelIndex]);
 
     const togglePlay = useCallback(
         (idx: number) => {
@@ -300,9 +318,6 @@ const Reels: React.FC = () => {
         });
     }, []);
 
-    const navigate = useNavigate();
-    const [touchStartX, setTouchStartX] = useState<number | null>(null);
-
     const handleTouchStart = (e: React.TouchEvent) => {
         setTouchStartX(e.changedTouches[0].screenX);
     };
@@ -326,132 +341,242 @@ const Reels: React.FC = () => {
         setTouchStartX(null);
     };
 
+    const closePlayer = () => {
+        // Pause all videos when returning to grid
+        videoRefs.current.forEach(v => v?.pause());
+        setSelectedReelIndex(null);
+    };
+
     return (
-        <div className="reels-page" ref={containerRef}>
-            {/* Mute toggle */}
-            <button
-                className="reels-mute-btn"
-                onClick={() => {
-                    setMutedAll((m) => !m);
-                    videoRefs.current.forEach((v) => {
-                        if (v) v.muted = !mutedAll;
-                    });
-                }}
-            >
-                {mutedAll ? <VolumeX size={20} /> : <Volume2 size={20} />}
-            </button>
+        <div className="explore-page pb-20" ref={containerRef} style={{ background: 'var(--bg-color)' }}>
+            {/* Header & Create Story Area */}
+            <div style={{ padding: '20px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h1 className="font-bold text-2xl">Reels & Stories</h1>
+                <button 
+                    onClick={() => navigate('/create')}
+                    style={{
+                        background: 'linear-gradient(45deg, #ff3366, #ff9933)',
+                        border: 'none',
+                        borderRadius: '20px',
+                        padding: '8px 16px',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        fontSize: '0.9rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(255, 51, 102, 0.3)'
+                    }}
+                >
+                    + Create Post
+                </button>
+            </div>
 
-            <div className="reels-header-title">Reels</div>
-
-            {REELS_DATA.map((reel, idx) => {
-                const isLiked = likedReels.has(reel.id);
-                return (
+            {/* Grid View */}
+            <div className="explore-grid">
+                {REELS_DATA.map((reel, idx) => (
                     <div 
-                        className="reel-card" 
-                        key={reel.id}
-                        onTouchStart={handleTouchStart}
-                        onTouchEnd={(e) => handleTouchEnd(reel, e)}
+                        key={reel.id} 
+                        className="explore-item" 
+                        onClick={() => setSelectedReelIndex(idx)}
+                        style={{ cursor: 'pointer', position: 'relative' }}
                     >
-                        {/* Video */}
-                        <video
-                            ref={(el) => {
-                                videoRefs.current[idx] = el;
-                            }}
-                            className="reel-video"
-                            src={reel.videoUrl}
-                            poster={reel.posterUrl}
-                            loop
-                            muted={mutedAll}
-                            playsInline
-                            preload="metadata"
-                            onClick={(e) => handleDoubleTap(idx, e)}
-                        />
-
-                        {/* Link Indicator */}
-                        {reel.attachedLink && (
-                            <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, background: 'rgba(0,0,0,0.6)', padding: '8px', borderRadius: '50%', display: 'flex' }}>
-                                <LinkIcon size={20} color="#fff" />
-                            </div>
-                        )}
-
-                        {/* Heart burst animation */}
-                        {heartBursts.map((h) => (
-                            <div
-                                key={h.id}
-                                className="heart-burst"
-                                style={{ left: h.x, top: h.y }}
-                            >
-                                <Heart size={80} fill="#ff3366" stroke="none" />
-                            </div>
-                        ))}
-
-                        {/* Pause indicator */}
-                        {!playStates[idx] && (
-                            <div className="reel-pause-indicator">
-                                <Play size={54} fill="white" stroke="none" />
-                            </div>
-                        )}
-
-                        {/* Bottom gradient overlay */}
-                        <div className="reel-gradient-bottom" />
-
-                        {/* Creator info & caption */}
-                        <div className="reel-info">
-                            <div className="reel-creator">
-                                <img
-                                    src={reel.creatorAvatar}
-                                    alt={reel.creator}
-                                    className="reel-creator-avatar"
-                                />
-                                <span className="reel-creator-name">@{reel.creator}</span>
-                                <button className="reel-follow-btn">Follow</button>
-                            </div>
-                            <p className="reel-caption">{reel.caption}</p>
-                            <div className="reel-song">
-                                <Music size={12} />
-                                <span className="reel-song-marquee">{reel.song}</span>
-                            </div>
+                        <img src={reel.posterUrl} alt={reel.caption || 'Reel'} loading="lazy" />
+                        <div style={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            color: 'white',
+                            textShadow: '0 1px 3px rgba(0,0,0,0.8)'
+                        }}>
+                            <Play size={16} fill="white" />
                         </div>
-
-                        {/* Side actions */}
-                        <div className="reel-actions">
-                            <button
-                                className={`reel-action-btn ${isLiked ? 'liked' : ''}`}
-                                onClick={() => toggleLike(reel.id)}
-                            >
-                                <Heart
-                                    size={28}
-                                    fill={isLiked ? '#ff3366' : 'none'}
-                                    stroke={isLiked ? '#ff3366' : 'white'}
-                                />
-                                <span>{formatCount(reel.likes + (isLiked ? 1 : 0))}</span>
-                            </button>
-                            <button className="reel-action-btn">
-                                <MessageCircle size={28} />
-                                <span>{formatCount(reel.comments)}</span>
-                            </button>
-                            <button className="reel-action-btn">
-                                <Share2 size={28} />
-                                <span>{formatCount(reel.shares)}</span>
-                            </button>
-                            <div className="reel-disc">
-                                <img src={reel.creatorAvatar} alt="" />
-                            </div>
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 8,
+                            left: 8,
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '0.75rem',
+                            textShadow: '0 1px 3px rgba(0,0,0,0.8)'
+                        }}>
+                            <Heart size={12} fill="white" stroke="none" />
+                            {formatCount(reel.likes)}
                         </div>
-
-                        {/* Progress bar */}
-                        <div className="reel-progress-bar">
-                            <div
-                                className="reel-progress-fill"
-                                style={{ width: `${progresses[idx]}%` }}
-                            />
-                        </div>
-
-                        {/* Category badge */}
-                        <div className="reel-category-badge">{reel.category}</div>
                     </div>
-                );
-            })}
+                ))}
+            </div>
+
+            {/* Modal Full-Screen Player */}
+            {selectedReelIndex !== null && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100vw',
+                    height: '100vh',
+                    zIndex: 9999,
+                    background: '#000'
+                }}>
+                    {/* Modal Controls */}
+                    <div style={{
+                        position: 'absolute',
+                        top: 40,
+                        left: 20,
+                        right: 20,
+                        zIndex: 10000,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        pointerEvents: 'none'
+                    }}>
+                        <button 
+                            onClick={closePlayer}
+                            style={{ 
+                                background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', 
+                                padding: '10px 16px', borderRadius: '20px', pointerEvents: 'auto',
+                                backdropFilter: 'blur(10px)', fontSize: '0.9rem', fontWeight: 600
+                            }}
+                        >
+                            ← Back to grid
+                        </button>
+                        <button
+                            onClick={() => {
+                                setMutedAll((m) => !m);
+                                videoRefs.current.forEach((v) => {
+                                    if (v) v.muted = !mutedAll;
+                                });
+                            }}
+                            style={{ 
+                                background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', 
+                                width: '40px', height: '40px', borderRadius: '50%', pointerEvents: 'auto',
+                                backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}
+                        >
+                            {mutedAll ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                        </button>
+                    </div>
+
+                    {/* Scrollable Player */}
+                    <div className="reels-page" ref={modalScrollRef} style={{ height: '100%', overflowY: 'scroll' }}>
+                        {REELS_DATA.map((reel, idx) => {
+                            const isLiked = likedReels.has(reel.id);
+                            const isActiveReel = Math.abs(idx - activeIndex) <= 1; // Only render adjacent reels for performance
+                            
+                            return (
+                                <div 
+                                    className="reel-card" 
+                                    key={reel.id}
+                                    onTouchStart={handleTouchStart}
+                                    onTouchEnd={(e) => handleTouchEnd(reel, e)}
+                                >
+                                    {isActiveReel ? (
+                                        <video
+                                            ref={(el) => {
+                                                videoRefs.current[idx] = el;
+                                            }}
+                                            className="reel-video"
+                                            src={reel.videoUrl}
+                                            poster={reel.posterUrl}
+                                            loop
+                                            muted={mutedAll}
+                                            playsInline
+                                            preload="metadata"
+                                            onClick={(e) => handleDoubleTap(idx, e)}
+                                        />
+                                    ) : (
+                                        <div className="reel-video flex items-center justify-center bg-black">
+                                            <img src={reel.posterUrl} alt="Poster" className="w-full h-full object-cover opacity-30" />
+                                        </div>
+                                    )}
+
+                                    {/* Link Indicator */}
+                                    {reel.attachedLink && (
+                                        <div style={{ position: 'absolute', top: 100, right: 20, zIndex: 10, background: 'rgba(0,0,0,0.6)', padding: '8px', borderRadius: '50%', display: 'flex' }}>
+                                            <LinkIcon size={20} color="#fff" />
+                                        </div>
+                                    )}
+
+                                    {/* Heart burst animation */}
+                                    {heartBursts.map((h) => (
+                                        <div
+                                            key={h.id}
+                                            className="heart-burst"
+                                            style={{ left: h.x, top: h.y }}
+                                        >
+                                            <Heart size={80} fill="#ff3366" stroke="none" />
+                                        </div>
+                                    ))}
+
+                                    {/* Pause indicator */}
+                                    {!playStates[idx] && (
+                                        <div className="reel-pause-indicator">
+                                            <Play size={54} fill="white" stroke="none" />
+                                        </div>
+                                    )}
+
+                                    {/* Bottom gradient overlay */}
+                                    <div className="reel-gradient-bottom" />
+
+                                    {/* Creator info & caption */}
+                                    <div className="reel-info" style={{ paddingBottom: '30px' }}>
+                                        <div className="reel-creator">
+                                            <img
+                                                src={reel.creatorAvatar}
+                                                alt={reel.creator}
+                                                className="reel-creator-avatar"
+                                            />
+                                            <span className="reel-creator-name">@{reel.creator}</span>
+                                            <button className="reel-follow-btn">Follow</button>
+                                        </div>
+                                        <p className="reel-caption">{reel.caption}</p>
+                                        <div className="reel-song">
+                                            <Music size={12} />
+                                            <span className="reel-song-marquee">{reel.song}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Side actions */}
+                                    <div className="reel-actions" style={{ paddingBottom: '30px' }}>
+                                        <button
+                                            className={`reel-action-btn ${isLiked ? 'liked' : ''}`}
+                                            onClick={() => toggleLike(reel.id)}
+                                        >
+                                            <Heart
+                                                size={28}
+                                                fill={isLiked ? '#ff3366' : 'none'}
+                                                stroke={isLiked ? '#ff3366' : 'white'}
+                                            />
+                                            <span>{formatCount(reel.likes + (isLiked ? 1 : 0))}</span>
+                                        </button>
+                                        <button className="reel-action-btn">
+                                            <MessageCircle size={28} />
+                                            <span>{formatCount(reel.comments)}</span>
+                                        </button>
+                                        <button className="reel-action-btn">
+                                            <Share2 size={28} />
+                                            <span>{formatCount(reel.shares)}</span>
+                                        </button>
+                                        <div className="reel-disc">
+                                            <img src={reel.creatorAvatar} alt="" />
+                                        </div>
+                                    </div>
+
+                                    {/* Progress bar */}
+                                    <div className="reel-progress-bar">
+                                        <div
+                                            className="reel-progress-fill"
+                                            style={{ width: `${progresses[idx]}%` }}
+                                        />
+                                    </div>
+
+                                    {/* Category badge */}
+                                    <div className="reel-category-badge" style={{ bottom: 180 }}>{reel.category}</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
