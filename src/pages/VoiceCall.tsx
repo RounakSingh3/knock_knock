@@ -251,7 +251,7 @@ const VoiceCall = () => {
                     )}
                     {requestStatus === 'accepted' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: videoRequestStatus === 'accepted' ? 'transparent' : 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
-                            {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✅ Voice Call Extended!</span>}
+                            {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✅ Voice Call Extended (No Time Limit!)</span>}
                             
                             {videoRequestStatus === 'none' && (
                                 <button
