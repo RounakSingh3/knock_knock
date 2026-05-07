@@ -176,6 +176,12 @@ const REELS_DATA: ReelData[] = [
     },
 ];
 
+function formatCount(n: number): string {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    return String(n);
+}
+
 const Reels: React.FC = () => {
     const [likedReels, setLikedReels] = useState<Set<number>>(new Set());
     const [mutedAll, setMutedAll] = useState(true);
