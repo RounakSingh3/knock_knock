@@ -42,7 +42,7 @@ export async function fetchUserPosts(username: string): Promise<PostData[]> {
 
 export async function uploadMedia(file: File, path: string): Promise<string | null> {
     const { data, error } = await supabase.storage
-        .from('media')
+        .from('knock-knock-eight.versel')
         .upload(path, file, { cacheControl: '3600', upsert: false });
 
     if (error) {
@@ -50,7 +50,7 @@ export async function uploadMedia(file: File, path: string): Promise<string | nu
         return null;
     }
 
-    const { data: publicUrlData } = supabase.storage.from('media').getPublicUrl(path);
+    const { data: publicUrlData } = supabase.storage.from('knock-knock-eight.versel').getPublicUrl(path);
     return publicUrlData.publicUrl;
 }
 

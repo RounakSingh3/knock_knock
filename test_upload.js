@@ -1,39 +1,23 @@
-const { createClient } = require('@supabase/supabase-js');
-const dotenv = require('dotenv');
-dotenv.config({ path: '.env.local' });
+import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+import dotenv from 'dotenv';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+dotenv.config();
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing env vars');
-  process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function testUpload() {
-  console.log('Testing upload to "media" bucket...');
-  const testFileContent = 'Hello, this is a test file to verify uploads.';
-  
-  const { data, error } = await supabase.storage
-    .from('media')
-    .upload('test_folder/test.txt', testFileContent, {
-      contentType: 'text/plain',
-      upsert: true
-    });
-
-  if (error) {
-    console.error('❌ Upload Failed!');
-    console.error('Reason:', error.message);
-    if (error.message.toLowerCase().includes('row-level security') || error.message.includes('RLS') || error.message.includes('policy')) {
-        console.error('It looks like your RLS policies are preventing INSERT on the media bucket.');
+    console.log("Testing Supabase connection...");
+    const dummyContent = 'test';
+    const { data, error } = await supabase.storage.from('media').upload('test.txt', dummyContent, { upsert: true });
+    if (error) {
+        console.error("Upload error details:");
+        console.error(JSON.stringify(error, null, 2));
+    } else {
+        console.log("Upload success!", data);
     }
-  } else {
-    console.log('✅ Upload Succeeded!', data);
-    const { data: publicUrlData } = supabase.storage.from('media').getPublicUrl('test_folder/test.txt');
-    console.log('🔗 Public URL:', publicUrlData.publicUrl);
-  }
 }
 
 testUpload();
