@@ -378,30 +378,7 @@ const VoiceCall = () => {
                 )}
             </button>
 
-            {/* How It Works */}
-            <div className="match-how-it-works">
-                <h4>How Matching Works</h4>
-                <div className="match-how-steps">
-                    <div className="match-how-step">
-                        <div className="match-how-icon" style={{ background: 'rgba(255, 51, 102, 0.15)' }}>
-                            <Heart size={18} color="#ff3366" />
-                        </div>
-                        <span>We analyze posts you both liked</span>
-                    </div>
-                    <div className="match-how-step">
-                        <div className="match-how-icon" style={{ background: 'rgba(250, 204, 21, 0.15)' }}>
-                            <Zap size={18} color="#facc15" />
-                        </div>
-                        <span>Calculate compatibility score</span>
-                    </div>
-                    <div className="match-how-step">
-                        <div className="match-how-icon" style={{ background: 'rgba(96, 165, 250, 0.15)' }}>
-                            <Users size={18} color="#60a5fa" />
-                        </div>
-                        <span>Connect you with best matches</span>
-                    </div>
-                </div>
-            </div>
+
         </div>
     );
 };
