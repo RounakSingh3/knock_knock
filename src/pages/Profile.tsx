@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData } from '../lib/database';
+import { 
+    fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
+    fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow 
+} from '../lib/database';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star } from 'lucide-react';
 
 const Profile = () => {
@@ -14,12 +17,15 @@ const Profile = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState<'posts' | 'followers' | 'following'>('posts');
+    const [followersList, setFollowersList] = useState<ProfileData[]>([]);
+    const [followingList, setFollowingList] = useState<ProfileData[]>([]);
+    const [followStats, setFollowStats] = useState({ followers: 0, following: 0 });
+    const [isFollowing, setIsFollowing] = useState(false);
 
     useEffect(() => {
         if (!username && currentUser) {
-            const currentUserWithUsername = currentUser as ProfileData & { username?: string };
-            if (currentUserWithUsername.username) {
-                navigate(`/profile/${currentUserWithUsername.username}`, { replace: true });
+            if (currentUser.username) {
+                navigate(`/profile/${currentUser.username}`, { replace: true });
                 return;
             }
         }
@@ -36,8 +42,18 @@ const Profile = () => {
                     return;
                 }
                 setProfile(profileData);
-                const userPosts = await fetchUserPosts(username);
+                
+                const [userPosts, stats] = await Promise.all([
+                    fetchUserPosts(username),
+                    fetchFollowCounts(profileData.id)
+                ]);
                 setPosts(userPosts);
+                setFollowStats(stats);
+                
+                if (currentUser && currentUser.id !== profileData.id) {
+                    const following = await checkIfFollowing(currentUser.id, profileData.id);
+                    setIsFollowing(following);
+                }
             } catch (err) {
                 console.error('Error loading profile:', err);
                 setError('Failed to load profile');
@@ -47,6 +63,26 @@ const Profile = () => {
         };
         loadProfile();
     }, [username, currentUser, navigate]);
+
+    useEffect(() => {
+        if (!profile) return;
+        if (activeTab === 'followers') {
+            fetchFollowers(profile.id).then(setFollowersList);
+        } else if (activeTab === 'following') {
+            fetchFollowing(profile.id).then(setFollowingList);
+        }
+    }, [activeTab, profile]);
+
+    const handleFollowToggle = async () => {
+        if (!currentUser || !profile) return;
+        const newIsFollowing = !isFollowing;
+        setIsFollowing(newIsFollowing);
+        setFollowStats(prev => ({
+            ...prev,
+            followers: prev.followers + (newIsFollowing ? 1 : -1)
+        }));
+        await toggleFollow(currentUser.id, profile.id, isFollowing);
+    };
 
     if (loading) {
         return (
@@ -65,30 +101,11 @@ const Profile = () => {
     }
 
     const displayUsername = username;
-    const isOwnProfile = currentUser && (currentUser as any).username === username;
+    const isOwnProfile = currentUser && currentUser.username === username;
 
     // Derived stats
-    const followersCount = (profile.points * 3) % 1000;
-    const followingCount = (profile.points * 2) % 500;
     const videoPosts = posts.filter(p => p.image_url?.includes('video'));
     const photoPosts = posts.filter(p => !p.image_url?.includes('video'));
-    const boostPoints = Math.floor(profile.points * 0.4);
-    const screenTimePoints = Math.floor(profile.points * 0.6);
-
-    // Mock followers / following lists
-    const mockFollowers = Array.from({ length: Math.min(followersCount, 10) }).map((_, i) => ({
-        id: `follower-${i}`,
-        name: `User ${i + 1}`,
-        username: `user_${i + 1}`,
-        avatar: `https://i.pravatar.cc/150?u=follower${i}${displayUsername}`,
-    }));
-
-    const mockFollowing = Array.from({ length: Math.min(followingCount, 10) }).map((_, i) => ({
-        id: `following-${i}`,
-        name: `Friend ${i + 1}`,
-        username: `friend_${i + 1}`,
-        avatar: `https://i.pravatar.cc/150?u=following${i}${displayUsername}`,
-    }));
 
     return (
         <div className="profile-page pb-20">
@@ -124,11 +141,11 @@ const Profile = () => {
                             <div style={{ fontSize: '13px', color: activeTab === 'posts' ? '#ff3366' : '#8e8e93' }}>Posts</div>
                         </button>
                         <button className="stat-btn" onClick={() => setActiveTab('followers')}>
-                            <div className="font-bold text-lg">{followersCount}</div>
+                            <div className="font-bold text-lg">{followStats.followers}</div>
                             <div style={{ fontSize: '13px', color: activeTab === 'followers' ? '#ff3366' : '#8e8e93' }}>Followers</div>
                         </button>
                         <button className="stat-btn" onClick={() => setActiveTab('following')}>
-                            <div className="font-bold text-lg">{followingCount}</div>
+                            <div className="font-bold text-lg">{followStats.following}</div>
                             <div style={{ fontSize: '13px', color: activeTab === 'following' ? '#ff3366' : '#8e8e93' }}>Following</div>
                         </button>
                     </div>
@@ -154,8 +171,13 @@ const Profile = () => {
                             </button>
                         </>
                     ) : (
-                        <button className="profile-action-btn" style={{ background: '#ff3366' }}>
-                            <UserPlus size={16} /> Follow
+                        <button 
+                            className="profile-action-btn" 
+                            style={{ background: isFollowing ? '#2c2c2e' : '#ff3366', color: '#fff' }}
+                            onClick={handleFollowToggle}
+                        >
+                            {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
+                            {isFollowing ? ' Following' : ' Follow'}
                         </button>
                     )}
                     <button className="profile-action-btn">Share Profile</button>
@@ -237,26 +259,23 @@ const Profile = () => {
                 {/* Followers Tab */}
                 {activeTab === 'followers' && (
                     <div style={{ padding: '8px 0' }}>
-                        {mockFollowers.length === 0 ? (
+                        {followersList.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '3rem', color: '#8e8e93' }}>No followers yet</div>
                         ) : (
-                            mockFollowers.map(f => (
-                                <div key={f.id} className="user-list-item">
-                                    <img src={f.avatar} alt={f.name} className="user-list-avatar" />
+                            followersList.map(f => (
+                                <div key={f.id} className="user-list-item" onClick={() => navigate(`/profile/${f.username}`)}>
+                                    <img src={f.avatar_url} alt={f.name} className="user-list-avatar" />
                                     <div style={{ flex: 1 }}>
                                         <div className="font-bold" style={{ fontSize: '14px' }}>{f.username}</div>
                                         <div style={{ fontSize: '13px', color: '#8e8e93' }}>{f.name}</div>
                                     </div>
-                                    <button className="profile-action-btn" style={{ flex: 'none', padding: '6px 16px', fontSize: '13px' }}>
-                                        Remove
-                                    </button>
+                                    {isOwnProfile && (
+                                        <button className="profile-action-btn" style={{ flex: 'none', padding: '6px 16px', fontSize: '13px' }}>
+                                            Remove
+                                        </button>
+                                    )}
                                 </div>
                             ))
-                        )}
-                        {followersCount > 10 && (
-                            <div style={{ textAlign: 'center', padding: '1rem', color: '#8e8e93', fontSize: '13px' }}>
-                                + {followersCount - 10} more followers
-                            </div>
                         )}
                     </div>
                 )}
@@ -264,26 +283,18 @@ const Profile = () => {
                 {/* Following Tab */}
                 {activeTab === 'following' && (
                     <div style={{ padding: '8px 0' }}>
-                        {mockFollowing.length === 0 ? (
+                        {followingList.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '3rem', color: '#8e8e93' }}>Not following anyone yet</div>
                         ) : (
-                            mockFollowing.map(f => (
-                                <div key={f.id} className="user-list-item">
-                                    <img src={f.avatar} alt={f.name} className="user-list-avatar" />
+                            followingList.map(f => (
+                                <div key={f.id} className="user-list-item" onClick={() => navigate(`/profile/${f.username}`)}>
+                                    <img src={f.avatar_url} alt={f.name} className="user-list-avatar" />
                                     <div style={{ flex: 1 }}>
                                         <div className="font-bold" style={{ fontSize: '14px' }}>{f.username}</div>
                                         <div style={{ fontSize: '13px', color: '#8e8e93' }}>{f.name}</div>
                                     </div>
-                                    <button className="profile-action-btn" style={{ flex: 'none', padding: '6px 16px', fontSize: '13px', background: '#ff3366' }}>
-                                        Following
-                                    </button>
                                 </div>
                             ))
-                        )}
-                        {followingCount > 10 && (
-                            <div style={{ textAlign: 'center', padding: '1rem', color: '#8e8e93', fontSize: '13px' }}>
-                                + {followingCount - 10} more following
-                            </div>
                         )}
                     </div>
                 )}

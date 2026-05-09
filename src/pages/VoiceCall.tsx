@@ -100,7 +100,7 @@ const VoiceCall = () => {
         setShowMatchCard(false);
 
         try {
-            const results = await computeMatches(user.id, (user as any).gender || '', activePref);
+            const results = await computeMatches(user.id, user.gender || '', activePref);
             if (results.length === 0) {
                 setNoMatchFound(true);
                 setIsSearching(false);

@@ -53,8 +53,9 @@ const CreatePost = () => {
 
             // 2. Insert into posts table
             await createNewPost({
-                username: (user as any).username || 'user',
-                avatar_url: (user as any).avatar_url || 'https://i.pravatar.cc/150',
+                user_id: user.id,
+                username: user.username || 'user',
+                avatar_url: user.avatar_url || 'https://i.pravatar.cc/150',
                 image_url: publicUrl,
                 caption,
                 attached_link: attachedLink || undefined,

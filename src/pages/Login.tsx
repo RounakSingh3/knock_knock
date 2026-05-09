@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { supabase } from '../lib/supabase';
+import { signUp, signIn, checkUsernameAvailable } from '../lib/auth';
 import { Sparkles, ArrowRight, Loader2, Check, X } from 'lucide-react';
 
 const Login = () => {
@@ -23,7 +23,7 @@ const Login = () => {
     const [globalError, setGlobalError] = useState('');
 
     // Debounced username check
-    const checkUsernameRef = React.useRef<NodeJS.Timeout>();
+    const checkUsernameRef = React.useRef<ReturnType<typeof setTimeout>>();
 
     const checkUsername = async (username: string) => {
         if (!username.trim() || username.length < 3) {
@@ -32,14 +32,8 @@ const Login = () => {
         }
 
         setUsernameStatus('checking');
-
-        const { data } = await supabase
-            .from('profiles')
-            .select('username')
-            .eq('username', username.toLowerCase())
-            .maybeSingle();
-
-        setUsernameStatus(data ? 'taken' : 'available');
+        const available = await checkUsernameAvailable(username);
+        setUsernameStatus(available ? 'available' : 'taken');
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -84,62 +78,40 @@ const Login = () => {
         setLoading(true);
         setGlobalError('');
 
-        // Custom direct database authentication
         try {
             if (isSignUp) {
-                // 1. Insert new user into profiles table
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .insert({
-                        username: formData.username.toLowerCase(),
-                        password: formData.password, // Plain text MVP (not for production!)
-                        name: formData.name,
-                        gender: formData.gender,
-                        dob: formData.dob,
-                        avatar_url: `https://i.pravatar.cc/150?u=${formData.username.toLowerCase()}`
-                    })
-                    .select()
-                    .single();
+                // Sign up via Supabase Auth (password is hashed server-side)
+                await signUp({
+                    username: formData.username,
+                    password: formData.password,
+                    name: formData.name,
+                    gender: formData.gender,
+                    dob: formData.dob,
+                });
 
-                if (error || !data) {
-                    setGlobalError(error?.message || 'Failed to create account. Please try again.');
-                    setLoading(false);
-                    return;
-                }
-
-                // 2. Save session locally
-                localStorage.setItem('knock_user_session', JSON.stringify(data));
-                setUser(data);
+                // The onAuthStateChange listener in App.tsx will
+                // automatically detect the new session and load the profile.
                 navigate('/home');
 
             } else {
-                // 1. Query profiles table for matching username
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('username', formData.username.toLowerCase())
-                    .maybeSingle();
+                // Sign in via Supabase Auth (password verified server-side)
+                await signIn(formData.username, formData.password);
 
-                if (error || !data) {
-                    setGlobalError('Invalid username or password.');
-                    setLoading(false);
-                    return;
-                }
-
-                // 2. Verify password client-side
-                if (data.password !== formData.password) {
-                    setGlobalError('Invalid username or password.');
-                    setLoading(false);
-                    return;
-                }
-
-                // 2. Save session locally
-                localStorage.setItem('knock_user_session', JSON.stringify(data));
-                setUser(data);
+                // The onAuthStateChange listener in App.tsx will
+                // automatically detect the session and load the profile.
                 navigate('/home');
             }
-        } catch (err) {
-            setGlobalError('An unexpected error occurred. Please try again.');
+        } catch (err: any) {
+            console.error('Auth error:', err);
+            // Provide user-friendly error messages
+            const message = err?.message || 'An unexpected error occurred.';
+            if (message.includes('User already registered')) {
+                setGlobalError('This username is already taken.');
+            } else if (message.includes('Invalid login credentials')) {
+                setGlobalError('Invalid username or password.');
+            } else {
+                setGlobalError(message);
+            }
             setLoading(false);
         }
     };

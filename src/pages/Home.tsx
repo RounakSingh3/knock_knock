@@ -1,9 +1,29 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchPosts, type PostData } from '../lib/database';
-import { checkIfLiked, toggleLike } from '../lib/database';
+<<<<<<< HEAD
+import { 
+    fetchPosts, type PostData, 
+    fetchUserLikedPostIds, toggleLike, 
+    fetchUserBookmarkedPostIds, toggleBookmark, 
+    fetchComments, addComment, deleteComment, type CommentData,
+    fetchFeedStories, type UserStoryGroup
+} from '../lib/database';
+import StoryViewer from '../components/StoryViewer';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles } from 'lucide-react';
+=======
+import { fetchPosts, fetchRecentStories, type PostData, type StoryData } from '../lib/database';
+import { checkIfLiked, toggleLike } from '../lib/database';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame } from 'lucide-react';
+
+// Group stories by user_id for the story rack
+interface StoryGroup {
+    userId: string;
+    username: string;
+    avatarUrl: string;
+    stories: StoryData[];
+}
+>>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
 
 const Home = () => {
     const { signOut, user } = useContext(AppContext);
@@ -14,31 +34,128 @@ const Home = () => {
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
     const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+    const [bookmarkedPosts, setBookmarkedPosts] = useState<Record<string, boolean>>({});
+    
+    // For comments (modal state)
+    const [comments, setComments] = useState<CommentData[]>([]);
+    const [commentInput, setCommentInput] = useState('');
+    const [loadingComments, setLoadingComments] = useState(false);
+    const [showComments, setShowComments] = useState(false);
+
+    // For stories
+    const [storyGroups, setStoryGroups] = useState<UserStoryGroup[]>([]);
+    const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
+
+    // Story rack state
+    const [storyGroups, setStoryGroups] = useState<StoryGroup[]>([]);
+    const [viewingGroup, setViewingGroup] = useState<StoryGroup | null>(null);
+    const [viewingIndex, setViewingIndex] = useState(0);
+    const [storyProgress, setStoryProgress] = useState(0);
 
     useEffect(() => {
         fetchPosts()
-            .then(data => {
+            .then(async data => {
                 setPosts(data);
-                setLoading(false);
+<<<<<<< HEAD
+                
                 // Initialize like counts
                 const counts: Record<string, number> = {};
                 data.forEach(p => { counts[p.id] = p.likes_count; });
                 setLikeCounts(counts);
-                // Check liked status for each post
+
+=======
+                setLoading(false);
+                const counts: Record<string, number> = {};
+                data.forEach(p => { counts[p.id] = p.likes_count; });
+                setLikeCounts(counts);
+>>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
                 if (user) {
-                    data.forEach(p => {
-                        checkIfLiked(user.id, p.id).then(liked => {
-                            setLikedPosts(prev => ({ ...prev, [p.id]: liked }));
-                        });
-                    });
+                    // Batch fetch likes (N+1 fix)
+                    const likedSet = await fetchUserLikedPostIds(user.id);
+                    const likedMap: Record<string, boolean> = {};
+                    data.forEach(p => { likedMap[p.id] = likedSet.has(p.id); });
+                    setLikedPosts(likedMap);
+
+                    // Batch fetch bookmarks
+                    const bookmarkedSet = await fetchUserBookmarkedPostIds(user.id);
+                    const bookmarkedMap: Record<string, boolean> = {};
+                    data.forEach(p => { bookmarkedMap[p.id] = bookmarkedSet.has(p.id); });
+                    setBookmarkedPosts(bookmarkedMap);
+
+                    // Fetch Feed Stories
+                    const stories = await fetchFeedStories(user.id);
+                    setStoryGroups(stories);
                 }
+                setLoading(false);
             })
             .catch(err => {
                 console.error('Failed to fetch posts:', err);
                 setError('Failed to load posts. Please check your connection and try again.');
                 setLoading(false);
             });
+<<<<<<< HEAD
+    }, [user]);
+
+    useEffect(() => {
+        if (selectedPost) {
+            setLoadingComments(true);
+            fetchComments(selectedPost.id).then(data => {
+                setComments(data);
+                setLoadingComments(false);
+            });
+        } else {
+            setComments([]);
+            setCommentInput('');
+            setShowComments(false);
+        }
+    }, [selectedPost]);
+
+    const handleBookmarkToggle = async (postId: string) => {
+        if (!user) return;
+        const currentlyBookmarked = bookmarkedPosts[postId] || false;
+        const newBookmarked = !currentlyBookmarked;
+        setBookmarkedPosts(prev => ({ ...prev, [postId]: newBookmarked }));
+        await toggleBookmark(user.id, postId, currentlyBookmarked);
+    };
+
+    const handleAddComment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user || !selectedPost || !commentInput.trim()) return;
+
+        const newComment = await addComment(
+            selectedPost.id, 
+            user.id, 
+            user.username || 'user', 
+            user.avatar_url, 
+            commentInput.trim()
+        );
+
+        if (newComment) {
+            setComments(prev => [...prev, newComment]);
+            setCommentInput('');
+        }
+    };
+=======
+
+        // Fetch recent stories for the rack
+        fetchRecentStories().then(stories => {
+            const groups: Record<string, StoryGroup> = {};
+            stories.forEach(s => {
+                const uid = s.user_id || 'unknown';
+                if (!groups[uid]) {
+                    groups[uid] = {
+                        userId: uid,
+                        username: s.username || 'user',
+                        avatarUrl: `https://i.pravatar.cc/150?u=${s.username || uid}`,
+                        stories: [],
+                    };
+                }
+                groups[uid].stories.push(s);
+            });
+            setStoryGroups(Object.values(groups));
+        });
     }, []);
+>>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
 
     const handleLikeToggle = async (postId: string) => {
         if (!user) return;
@@ -55,15 +172,145 @@ const Home = () => {
         }
     };
 
+    // ── Story Viewer Logic ──
+    const openStoryViewer = (group: StoryGroup) => {
+        setViewingGroup(group);
+        setViewingIndex(0);
+        setStoryProgress(0);
+    };
+
+    const closeStoryViewer = () => {
+        setViewingGroup(null);
+        setViewingIndex(0);
+        setStoryProgress(0);
+    };
+
+    const nextStory = () => {
+        if (!viewingGroup) return;
+        if (viewingIndex < viewingGroup.stories.length - 1) {
+            setViewingIndex(prev => prev + 1);
+            setStoryProgress(0);
+        } else {
+            // Move to next group
+            const currentGroupIdx = storyGroups.findIndex(g => g.userId === viewingGroup.userId);
+            if (currentGroupIdx < storyGroups.length - 1) {
+                const nextGroup = storyGroups[currentGroupIdx + 1];
+                setViewingGroup(nextGroup);
+                setViewingIndex(0);
+                setStoryProgress(0);
+            } else {
+                closeStoryViewer();
+            }
+        }
+    };
+
+    const prevStory = () => {
+        if (!viewingGroup) return;
+        if (viewingIndex > 0) {
+            setViewingIndex(prev => prev - 1);
+            setStoryProgress(0);
+        }
+    };
+
+    // Auto-advance story progress
+    useEffect(() => {
+        if (!viewingGroup) return;
+        const duration = 5000; // 5 seconds per story
+        const interval = 50;
+        const step = (interval / duration) * 100;
+
+        const timer = setInterval(() => {
+            setStoryProgress(prev => {
+                if (prev >= 100) {
+                    nextStory();
+                    return 0;
+                }
+                return prev + step;
+            });
+        }, interval);
+
+        return () => clearInterval(timer);
+    }, [viewingGroup, viewingIndex]);
+
+    // ── Story Viewer Overlay ──
+    if (viewingGroup) {
+        const currentStory = viewingGroup.stories[viewingIndex];
+        return (
+            <div className="story-viewer-overlay">
+                {/* Progress Bars */}
+                <div className="story-progress-bar-container">
+                    {viewingGroup.stories.map((_, i) => (
+                        <div key={i} className="story-progress-track">
+                            <div
+                                className="story-progress-fill"
+                                style={{
+                                    width: i < viewingIndex ? '100%' :
+                                        i === viewingIndex ? `${storyProgress}%` : '0%'
+                                }}
+                            />
+                        </div>
+                    ))}
+                </div>
+
+                {/* Header */}
+                <div className="story-viewer-header">
+                    <div className="story-viewer-user">
+                        <img
+                            src={viewingGroup.avatarUrl}
+                            alt=""
+                            className="story-viewer-avatar"
+                        />
+                        <div>
+                            <span className="story-viewer-username">@{viewingGroup.username}</span>
+                            <span className="story-viewer-time">
+                                {currentStory ? getTimeAgo(currentStory.created_at) : ''}
+                            </span>
+                        </div>
+                    </div>
+                    <button className="story-viewer-close" onClick={closeStoryViewer}>
+                        <X size={24} />
+                    </button>
+                </div>
+
+                {/* Story Image */}
+                {currentStory && (
+                    <img
+                        src={currentStory.image_url}
+                        alt=""
+                        className="story-viewer-image"
+                    />
+                )}
+
+                {/* Tap Zones */}
+                <div className="story-tap-left" onClick={prevStory} />
+                <div className="story-tap-right" onClick={nextStory} />
+
+                {/* Filter Badge */}
+                {currentStory && currentStory.filter_name !== 'Normal' && (
+                    <div className="story-filter-badge">
+                        <Sparkles size={12} /> {currentStory.filter_name}
+                    </div>
+                )}
+
+                {/* Boosted Badge */}
+                {currentStory && currentStory.is_boosted && (
+                    <div className="story-boosted-badge">
+                        <Flame size={12} /> Boosted
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     return (
         <div className="home-page-v2">
-            {/* Redesigned Header */}
+            {/* Header */}
             <header className="home-header-v2">
                 <div className="header-left-v2">
                     <div className="header-greeting">
                         <Sparkles size={18} className="greeting-icon" />
                         <span className="greeting-text">
-                            Hey, <strong>{user?.username || 'there'}</strong>
+                            Hey, <strong>{user?.username || (user as any)?.name || 'there'}</strong>
                         </span>
                     </div>
                     <p className="header-subtitle">Discover what's new ✨</p>
@@ -74,6 +321,94 @@ const Home = () => {
                     </button>
                 </div>
             </header>
+
+<<<<<<< HEAD
+            {/* Story Tray */}
+            <div className="story-tray" style={{ display: 'flex', overflowX: 'auto', padding: '10px 15px', gap: '15px', backgroundColor: 'var(--surface-color)', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                {/* Always show "Add Story" button */}
+                <div 
+                    className="story-tray-item" 
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', flexShrink: 0, position: 'relative' }}
+                    onClick={() => navigate('/stories')}
+                >
+                    <div className="story-avatar-ring" style={{ padding: '3px', borderRadius: '50%', border: '2px solid transparent' }}>
+                        <img 
+                            src={user?.avatar_url || 'https://i.pravatar.cc/150'} 
+                            alt="Add Story" 
+                            style={{ width: '60px', height: '60px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--surface-color)' }} 
+                        />
+                    </div>
+                    <div style={{ position: 'absolute', bottom: '20px', right: '0px', background: '#3b82f6', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface-color)' }}>
+                        <Plus size={14} color="white" strokeWidth={3} />
+                    </div>
+                    <span style={{ fontSize: '12px', marginTop: '5px', color: 'var(--text-color)', maxWidth: '65px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Add Story
+                    </span>
+                </div>
+
+                {/* Other Stories */}
+                {storyGroups.map((group, idx) => (
+                    <div 
+                        key={group.userId} 
+                        className="story-tray-item" 
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}
+                        onClick={() => setActiveStoryGroupIndex(idx)}
+                    >
+                        <div className="story-avatar-ring" style={{ padding: '3px', borderRadius: '50%', background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)' }}>
+                            <img 
+                                src={group.avatarUrl} 
+                                alt={group.username} 
+                                style={{ width: '60px', height: '60px', borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--surface-color)' }} 
+                            />
+                        </div>
+                        <span style={{ fontSize: '12px', marginTop: '5px', color: 'var(--text-color)', maxWidth: '65px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {group.userId === user?.id ? 'Your Story' : group.username}
+                        </span>
+                    </div>
+                ))}
+                <style>{`
+                    .story-tray::-webkit-scrollbar { display: none; }
+                `}</style>
+            </div>
+=======
+            {/* ── Story Rack ── */}
+            {(storyGroups.length > 0 || user) && (
+                <div className="story-rack-v2">
+                    {/* Your Story CTA */}
+                    <div className="story-rack-item" onClick={() => navigate('/stories')}>
+                        <div className="story-ring-v2 story-ring-add">
+                            <img
+                                src={user?.avatar_url || 'https://i.pravatar.cc/150'}
+                                alt=""
+                            />
+                            <div className="story-add-icon">
+                                <Plus size={14} />
+                            </div>
+                        </div>
+                        <span className="story-rack-name">Your Story</span>
+                    </div>
+
+                    {/* Other users' stories */}
+                    {storyGroups
+                        .filter(g => g.userId !== user?.id)
+                        .map(group => (
+                            <div
+                                key={group.userId}
+                                className="story-rack-item"
+                                onClick={() => openStoryViewer(group)}
+                            >
+                                <div className="story-ring-v2">
+                                    <img
+                                        src={group.avatarUrl}
+                                        alt={group.username}
+                                    />
+                                </div>
+                                <span className="story-rack-name">{group.username}</span>
+                            </div>
+                        ))}
+                </div>
+            )}
+>>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
 
             {/* Content */}
             <div className="masonry-feed-wrapper">
@@ -108,22 +443,18 @@ const Home = () => {
                                 onDoubleClick={() => handleDoubleTap(post)}
                             >
                                 <img src={post.image_url} alt="" className="masonry-card-img" />
-                                {/* Gradient overlay */}
                                 <div className="masonry-card-overlay" />
-                                {/* Like badge */}
                                 <button
                                     className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
                                     onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
                                 >
                                     <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
                                 </button>
-                                {/* Attached link icon */}
                                 {post.attached_link && (
                                     <div className="masonry-link-badge">
                                         <LinkIcon size={12} />
                                     </div>
                                 )}
-                                {/* Bottom info */}
                                 <div className="masonry-card-info">
                                     <div className="masonry-card-user">
                                         <img
@@ -144,23 +475,21 @@ const Home = () => {
                 )}
             </div>
 
-            {/* Floating Action Button */}
+            {/* FAB */}
             <button className="fab-create" onClick={() => navigate('/create')}>
                 <Plus size={28} />
             </button>
 
-            {/* Detail Modal */}
+            {/* Post Detail Modal */}
             {selectedPost && (
                 <div className="post-modal-backdrop" onClick={() => setSelectedPost(null)}>
                     <div className="post-modal" onClick={(e) => e.stopPropagation()}>
                         <button className="modal-close-btn" onClick={() => setSelectedPost(null)}>
                             <X size={22} />
                         </button>
-                        {/* Image */}
                         <div className="modal-image-wrap">
                             <img src={selectedPost.image_url} alt="" className="modal-image" />
                         </div>
-                        {/* Details */}
                         <div className="modal-details">
                             <div className="modal-user-row">
                                 <img
@@ -200,19 +529,68 @@ const Home = () => {
                                     <Heart size={22} fill={likedPosts[selectedPost.id] ? '#ff3366' : 'none'} color={likedPosts[selectedPost.id] ? '#ff3366' : '#fff'} />
                                     <span>{likeCounts[selectedPost.id] || 0}</span>
                                 </button>
-                                <button className="modal-action-btn">
-                                    <MessageCircle size={22} />
+                                <button className="modal-action-btn" onClick={() => setShowComments(!showComments)}>
+                                    <MessageCircle size={22} fill={showComments ? '#fff' : 'none'} />
+                                    <span>{comments.length}</span>
                                 </button>
                                 <button className="modal-action-btn">
                                     <Send size={22} />
                                 </button>
-                                <button className="modal-action-btn modal-action-right">
-                                    <Bookmark size={22} />
+                                <button className="modal-action-btn modal-action-right" onClick={() => handleBookmarkToggle(selectedPost.id)}>
+                                    <Bookmark size={22} fill={bookmarkedPosts[selectedPost.id] ? '#fff' : 'none'} color={bookmarkedPosts[selectedPost.id] ? '#fff' : '#fff'} />
                                 </button>
                             </div>
+                            
+                            {showComments && (
+                                <div className="comments-section" style={{ marginTop: '16px', borderTop: '1px solid #333', paddingTop: '16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                    <div className="comments-list" style={{ flex: 1, overflowY: 'auto', marginBottom: '12px', maxHeight: '200px' }}>
+                                        {loadingComments ? (
+                                            <div style={{ textAlign: 'center', padding: '10px' }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /></div>
+                                        ) : comments.length === 0 ? (
+                                            <p style={{ color: '#8e8e93', fontSize: '14px', textAlign: 'center' }}>No comments yet.</p>
+                                        ) : (
+                                            comments.map(c => (
+                                                <div key={c.id} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                                                    <img src={c.avatar_url || 'https://i.pravatar.cc/150'} alt="" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} />
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                                                            <span style={{ fontWeight: 'bold', fontSize: '14px' }}>{c.username}</span>
+                                                            <span style={{ color: '#8e8e93', fontSize: '12px' }}>{getTimeAgo(c.created_at)}</span>
+                                                        </div>
+                                                        <p style={{ fontSize: '14px', margin: 0, wordBreak: 'break-word' }}>{c.content}</p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                    <form onSubmit={handleAddComment} style={{ display: 'flex', gap: '8px' }}>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Add a comment..." 
+                                            value={commentInput}
+                                            onChange={e => setCommentInput(e.target.value)}
+                                            style={{ flex: 1, background: '#222', border: 'none', borderRadius: '20px', padding: '10px 16px', color: '#fff' }}
+                                        />
+                                        <button type="submit" disabled={!commentInput.trim()} style={{ background: 'none', border: 'none', color: commentInput.trim() ? '#ff3366' : '#555', fontWeight: 'bold', cursor: commentInput.trim() ? 'pointer' : 'default' }}>
+                                            Post
+                                        </button>
+                                    </form>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
+            )}
+            
+            {/* Story Viewer Overlay */}
+            {activeStoryGroupIndex !== null && (
+                <StoryViewer 
+                    storyGroups={storyGroups} 
+                    initialGroupIndex={activeStoryGroupIndex} 
+                    currentUserId={user?.id}
+                    onClose={() => setActiveStoryGroupIndex(null)}
+                    onGroupsUpdated={setStoryGroups}
+                />
             )}
         </div>
     );
