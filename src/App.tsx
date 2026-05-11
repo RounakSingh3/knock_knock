@@ -1,12 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-<<<<<<< HEAD
-import { fetchProfile, incrementPoints, type ProfileData } from './lib/database';
-import { getSession, onAuthStateChange, signOut as authSignOut } from './lib/auth';
-=======
 import { supabase } from './lib/supabase';
 import { fetchProfile, updatePoints, setUserOnlineStatus, type ProfileData } from './lib/database';
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
 import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
 import Stories from './pages/Stories';
@@ -16,7 +11,6 @@ import VoiceCall from './pages/VoiceCall';
 import Login from './pages/Login';
 import Profile from './pages/Profile';
 import CreatePost from './pages/CreatePost';
-import ErrorBoundary from './components/ErrorBoundary';
 
 // Global Context for Points & Auth
 interface AppContextType {
@@ -47,44 +41,36 @@ function App() {
 
     const isAuthenticated = !!user;
 
-    // Initialize auth state from Supabase session
+    // Check localStorage for saved session
     useEffect(() => {
-        let isMounted = true;
-
-        // Check existing session on mount
-        getSession().then(async (session) => {
-            if (session?.user && isMounted) {
-                const profile = await fetchProfile(session.user.id);
-                if (profile && isMounted) {
-                    setUser(profile);
-                    setPoints(profile.points || 0);
-                }
+        const savedUser = localStorage.getItem('knock_user_session');
+        if (savedUser) {
+            try {
+                const parsedUser = JSON.parse(savedUser) as ProfileData;
+                setUser(parsedUser);
+                setPoints(parsedUser.points || 0);
+            } catch (e) {
+                console.error("Failed to parse session", e);
+                localStorage.removeItem('knock_user_session');
             }
-            if (isMounted) setLoading(false);
-        }).catch((err) => {
-            console.error('Failed to get session:', err);
-            if (isMounted) setLoading(false);
-        });
-
-        // Listen for auth state changes (sign in, sign out, token refresh)
-        const subscription = onAuthStateChange(async (userId) => {
-            if (userId && isMounted) {
-                const profile = await fetchProfile(userId);
-                if (profile && isMounted) {
-                    setUser(profile);
-                    setPoints(profile.points || 0);
-                }
-            } else if (isMounted) {
-                setUser(null);
-                setPoints(0);
-            }
-        });
-
-        return () => {
-            isMounted = false;
-            subscription.unsubscribe();
-        };
+        }
+        setLoading(false);
     }, []);
+
+    // Also fetch fresh profile data to keep points updated
+    useEffect(() => {
+        if (user && user.id) {
+            fetchProfile(user.id).then(profile => {
+                if (profile) {
+                    setPoints(profile.points);
+                    // Update the session quietly so it's fresh for next load
+                    localStorage.setItem('knock_user_session', JSON.stringify({ ...user, ...profile }));
+                }
+            }).catch(err => {
+                console.error('Failed to fetch profile:', err);
+            });
+        }
+    }, [user?.id]);
 
     // Track time spent in app & award points
     useEffect(() => {
@@ -93,8 +79,8 @@ function App() {
         const interval = setInterval(() => {
             setPoints(prev => {
                 const newPoints = prev + 10;
-                // Persist to database via secure RPC
-                incrementPoints(10);
+                // Persist to database
+                updatePoints(user.id, newPoints);
                 return newPoints;
             });
         }, POINTS_INTERVAL_MS);
@@ -102,14 +88,6 @@ function App() {
         return () => clearInterval(interval);
     }, [user]);
 
-<<<<<<< HEAD
-    const signOut = async () => {
-        try {
-            await authSignOut();
-        } catch (err) {
-            console.error('Sign out error:', err);
-        }
-=======
     // Sync points to database whenever they change (debounced)
     useEffect(() => {
         if (!user || points === 0) return;
@@ -152,7 +130,6 @@ function App() {
 
     const signOut = () => {
         localStorage.removeItem('knock_user_session');
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
         setUser(null);
         setPoints(0);
     };
@@ -171,36 +148,34 @@ function App() {
     }
 
     return (
-        <ErrorBoundary>
-            <AppContext.Provider value={{ points, setPoints, user, setUser, isAuthenticated, signOut }}>
-                <Router>
-                    <div className="app-container">
-                        <Routes>
-                            {!isAuthenticated ? (
-                                <>
-                                    <Route path="*" element={<Navigate to="/login" />} />
-                                    <Route path="/login" element={<Login />} />
-                                </>
-                            ) : (
-                                <>
-                                    <Route path="/" element={<Navigate to="/home" />} />
-                                    <Route path="/home" element={<Home />} />
-                                    <Route path="/stories" element={<Stories />} />
-                                    <Route path="/explore" element={<Explore />} />
-                                    <Route path="/create" element={<CreatePost />} />
-                                    <Route path="/reels" element={<Reels />} />
-                                    <Route path="/call" element={<VoiceCall />} />
-                                    <Route path="/profile" element={<Profile />} />
-                                    <Route path="/profile/:username" element={<Profile />} />
-                                    <Route path="/login" element={<Navigate to="/home" />} />
-                                </>
-                            )}
-                        </Routes>
-                        {isAuthenticated && <BottomNav />}
-                    </div>
-                </Router>
-            </AppContext.Provider>
-        </ErrorBoundary>
+        <AppContext.Provider value={{ points, setPoints, user, setUser, isAuthenticated, signOut }}>
+            <Router>
+                <div className="app-container">
+                    <Routes>
+                        {!isAuthenticated ? (
+                            <>
+                                <Route path="*" element={<Navigate to="/login" />} />
+                                <Route path="/login" element={<Login />} />
+                            </>
+                        ) : (
+                            <>
+                                <Route path="/" element={<Navigate to="/home" />} />
+                                <Route path="/home" element={<Home />} />
+                                <Route path="/stories" element={<Stories />} />
+                                <Route path="/explore" element={<Explore />} />
+                                <Route path="/create" element={<CreatePost />} />
+                                <Route path="/reels" element={<Reels />} />
+                                <Route path="/call" element={<VoiceCall />} />
+                                <Route path="/profile" element={<Profile />} />
+                                <Route path="/profile/:username" element={<Profile />} />
+                                <Route path="/login" element={<Navigate to="/home" />} />
+                            </>
+                        )}
+                    </Routes>
+                    {isAuthenticated && <BottomNav />}
+                </div>
+            </Router>
+        </AppContext.Provider>
     );
 }
 

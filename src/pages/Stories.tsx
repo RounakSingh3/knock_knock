@@ -1,9 +1,6 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
 import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock } from 'lucide-react';
 import { AppContext } from '../App';
-<<<<<<< HEAD
-import { fetchBoostedStories, spendPoints, createStory, type StoryData } from '../lib/database';
-=======
 import {
     fetchBoostedStories,
     fetchUserStories,
@@ -13,7 +10,6 @@ import {
     fetchProfile,
     type StoryData,
 } from '../lib/database';
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
 
 const FILTERS = [
     { name: 'Normal', style: '' },
@@ -35,8 +31,6 @@ const Stories = () => {
     const [boostedStories, setBoostedStories] = useState<StoryData[]>([]);
     const [myStories, setMyStories] = useState<StoryData[]>([]);
     const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
-    const [caption, setCaption] = useState('');
-    const [hashtags, setHashtags] = useState('');
 
     // Streak states
     const [streakCount, setStreakCount] = useState(0);
@@ -47,7 +41,6 @@ const Stories = () => {
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Fetch data on mount
     useEffect(() => {
@@ -106,12 +99,7 @@ const Stories = () => {
         }
         setIsCameraActive(false);
         setHasCaptured(false);
-<<<<<<< HEAD
-        setCaption('');
-        setHashtags('');
-=======
         setCapturedImageUrl(null);
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
     };
 
     const captureImage = () => {
@@ -133,30 +121,6 @@ const Stories = () => {
         }
     };
 
-<<<<<<< HEAD
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const dataUrl = event.target?.result as string;
-            setCapturedImageUrl(dataUrl);
-            setHasCaptured(true);
-            setIsCameraActive(true); // Switch to editing view
-            if (videoRef.current?.srcObject) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                stream.getTracks().forEach(track => track.stop());
-            }
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const handleBoost = () => {
-        if (!user) {
-            alert('You need to be logged in to boost a story.');
-            return;
-=======
     const postStory = async (boost: boolean) => {
         if (!user || !capturedImageUrl) return;
 
@@ -168,7 +132,6 @@ const Stories = () => {
             setIsBoosting(true);
         } else {
             setIsPosting(true);
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
         }
 
         // Simulate a brief delay
@@ -197,20 +160,6 @@ const Stories = () => {
         setPoints(prev => prev + streakResult.pointsAwarded);
         setStreakPointsEarned(streakResult.pointsAwarded);
 
-<<<<<<< HEAD
-            // Deduct points via secure server-side RPC
-            await spendPoints(10);
-
-            // Create boosted story owned by current user
-            await createStory(
-                user.id,
-                capturedImageUrl,
-                caption,
-                hashtags,
-                FILTERS[activeFilterIndex].name,
-                true
-            );
-=======
         // Refresh data
         const updatedStories = await fetchBoostedStories();
         setBoostedStories(updatedStories);
@@ -220,25 +169,9 @@ const Stories = () => {
         setIsBoosting(false);
         setIsPosting(false);
         stopCamera();
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
 
         // Show streak reward briefly
         setTimeout(() => setStreakPointsEarned(null), 4000);
-    };
-
-    const handlePost = async () => {
-        if (!user || !capturedImageUrl) return;
-        
-        await createStory(
-            user.id,
-            capturedImageUrl,
-            caption,
-            hashtags,
-            FILTERS[activeFilterIndex].name,
-            false
-        );
-        alert('Story posted!');
-        stopCamera();
     };
 
     useEffect(() => {
@@ -272,40 +205,22 @@ const Stories = () => {
                     )}
                 </div>
 
-<<<<<<< HEAD
-                    {/* Video / Canvas / Image Element */}
-=======
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
                 <div className="video-container">
-                    {!capturedImageUrl && (
-                        <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            className="camera-video feed"
-                            style={{
-                                display: hasCaptured ? 'none' : 'block',
-                                filter: FILTERS[activeFilterIndex].style
-                            }}
-                        />
-                    )}
-                    {capturedImageUrl ? (
-                        <img 
-                            src={capturedImageUrl} 
-                            alt="Captured" 
-                            className="camera-video feed"
-                            style={{ 
-                                display: 'block',
-                                filter: FILTERS[activeFilterIndex].style 
-                            }} 
-                        />
-                    ) : (
-                        <canvas
-                            ref={canvasRef}
-                            className="camera-video"
-                            style={{ display: 'none' }}
-                        />
-                    )}
+                    <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        className="camera-video feed"
+                        style={{
+                            display: hasCaptured ? 'none' : 'block',
+                            filter: FILTERS[activeFilterIndex].style
+                        }}
+                    />
+                    <canvas
+                        ref={canvasRef}
+                        className="camera-video"
+                        style={{ display: hasCaptured ? 'block' : 'none' }}
+                    />
                 </div>
 
                 {!hasCaptured && (
@@ -323,73 +238,6 @@ const Stories = () => {
                     </div>
                 )}
 
-<<<<<<< HEAD
-                {/* Story Creation Dialog */}
-                {hasCaptured && (
-                    <div className="story-creation-dialog-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-                        <div className="story-creation-dialog" style={{ background: '#1c1c1e', borderRadius: '16px', padding: '20px', width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h3 style={{ margin: 0, color: 'white', fontSize: '18px', fontWeight: 'bold' }}>New Story</h3>
-                                <button onClick={() => { setHasCaptured(false); setCapturedImageUrl(null); setCaption(''); setHashtags(''); }} style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer' }}>
-                                    <X size={24} />
-                                </button>
-                            </div>
-                            
-                            <div style={{ display: 'flex', gap: '15px' }}>
-                                <img src={capturedImageUrl!} alt="Preview" style={{ width: '80px', height: '120px', objectFit: 'cover', borderRadius: '8px', filter: FILTERS[activeFilterIndex].style }} />
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <textarea 
-                                        placeholder="Add a visible caption..." 
-                                        value={caption}
-                                        onChange={(e) => setCaption(e.target.value)}
-                                        style={{ flex: 1, width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #333', background: '#2c2c2e', color: 'white', resize: 'none', fontSize: '14px' }}
-                                    />
-                                    <input 
-                                        type="text" 
-                                        placeholder="Hidden hashtags (e.g. #fitness #gym)" 
-                                        value={hashtags}
-                                        onChange={(e) => setHashtags(e.target.value)}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #333', background: '#2c2c2e', color: 'white', fontSize: '14px' }}
-                                    />
-                                </div>
-                            </div>
-                            
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <button
-                                    onClick={handleBoost}
-                                    disabled={isBoosting}
-                                    style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)', color: 'white', fontWeight: 'bold', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', cursor: isBoosting ? 'not-allowed' : 'pointer', opacity: isBoosting ? 0.7 : 1 }}
-                                >
-                                    <Zap size={20} fill={isBoosting ? "currentColor" : "none"} />
-                                    {isBoosting ? "Boosting..." : "Boost Story (10 Points)"}
-                                </button>
-                                <button 
-                                    onClick={handlePost}
-                                    style={{ width: '100%', padding: '14px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}
-                                >
-                                    Post Normally
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Bottom Actions */}
-                {!hasCaptured && (
-                    <div className="camera-footer">
-                        <input 
-                            type="file" 
-                            accept="image/*" 
-                            ref={fileInputRef} 
-                            style={{ display: 'none' }} 
-                            onChange={handleFileUpload} 
-                        />
-                        <button className="icon-btn" onClick={() => fileInputRef.current?.click()}>
-                            <ImageIcon size={32} />
-                        </button>
-                        <button className="shutter-btn" onClick={captureImage}></button>
-                        <button className="icon-btn flex items-center justify-center opacity-0"><ImageIcon size={32} /></button>
-=======
                 <div className="camera-footer">
                     {!hasCaptured ? (
                         <>
@@ -423,7 +271,6 @@ const Stories = () => {
                     <div className="camera-streak-hint">
                         <Flame size={14} />
                         <span>Post → earn <strong>+{nextStreakReward()} pts</strong> streak reward!</span>
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
                     </div>
                 )}
             </div>
@@ -432,41 +279,12 @@ const Stories = () => {
 
     // ── Main Stories Hub ──
     return (
-<<<<<<< HEAD
-        <div className="stories-page pb-20">
-            <div className="p-4 text-center mt-6">
-                <input 
-                    type="file" 
-                    accept="image/*" 
-                    ref={fileInputRef} 
-                    style={{ display: 'none' }} 
-                    onChange={handleFileUpload} 
-                />
-                <h2 className="title mb-2">Stories</h2>
-                <div className="font-bold text-yellow-400 mb-1 flex align-center justify-center gap-2">
-                    <Sparkles size={18} /> {points} Boost Points
-                </div>
-                <p className="text-xs text-gray-400 mb-5">
-                    Every hour you use Knock Knock, you earn 10 Boost Points. Spend 10 points to quietly show your story to extra people.
-                </p>
-                <div className="create-story-card">
-                    <div className="camera-icon-wrapper" onClick={startCamera}>
-                        <Camera size={40} />
-                    </div>
-                    <h3>Create a premium story</h3>
-                    <p>Add AR filters and boost to a larger audience</p>
-                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '16px' }}>
-                        <button className="premium-btn flex-1" onClick={startCamera}>Camera</button>
-                        <button className="premium-btn flex-1" style={{ background: '#333' }} onClick={() => fileInputRef.current?.click()}>Gallery</button>
-                    </div>
-=======
         <div className="stories-hub pb-20">
             {/* Streak Points Earned Toast */}
             {streakPointsEarned !== null && (
                 <div className="streak-toast">
                     <Flame size={20} />
                     <span>+{streakPointsEarned} streak points earned! 🎉</span>
->>>>>>> 3b4f6af (feat: Combined Instagram + Snapchat stories redesign with streak system)
                 </div>
             )}
 
