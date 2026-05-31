@@ -148,7 +148,7 @@ body {
 
 .home-page-v2 {
     min-height: 100vh;
-    padding-bottom: 80px;
+    padding-bottom: 180px;
     background: var(--bg-color);
 }
 
@@ -410,7 +410,7 @@ body {
 /* Floating Action Button */
 .fab-create {
     position: fixed;
-    bottom: 80px;
+    bottom: 180px;
     right: 20px;
     width: 56px;
     height: 56px;
@@ -2213,7 +2213,16 @@ body {
     padding: 14px 16px;
     overflow-x: auto;
     scrollbar-width: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: none;
+    position: fixed;
+    bottom: 60px;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    z-index: 98;
 }
 
 .story-rack-v2::-webkit-scrollbar {
