@@ -389,7 +389,7 @@ const Reels: React.FC = () => {
         <div className="explore-page pb-20" ref={containerRef} style={{ background: 'var(--bg-color)' }}>
             {/* Header & Create Story Area */}
             <div style={{ padding: '20px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h1 className="font-bold text-2xl">Reels & Stories</h1>
+                <h1 className="font-bold text-2xl">Reels</h1>
                 <button 
                     onClick={() => navigate('/create')}
                     style={{

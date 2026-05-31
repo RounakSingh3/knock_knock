@@ -219,42 +219,29 @@ const Home = () => {
 
     return (
         <div className="home-page-v2">
-            {/* Header */}
+            {/* Header + Stories */}
             <header className="home-header-v2">
-                <div className="header-left-v2">
-                    <div className="header-greeting">
-                        <Sparkles size={18} className="greeting-icon" />
-                        <span className="greeting-text">
-                            Hey, <strong>{user?.username || (user as any)?.name || 'there'}</strong>
-                        </span>
-                    </div>
-                    <p className="header-subtitle">Discover what's new ✨</p>
-                </div>
-                <div className="header-right-v2">
-                    <button onClick={signOut} className="signout-btn-v2" title="Sign Out">
-                        <LogOut size={18} />
-                    </button>
-                </div>
+                <h1 className="home-brand-title">Knock Knock</h1>
+                <button onClick={signOut} className="signout-btn-v2" title="Sign Out" type="button">
+                    <LogOut size={18} />
+                </button>
             </header>
 
-            {/* ── Story Rack ── */}
             {(storyGroups.length > 0 || user) && (
-                <div className="story-rack-v2">
-                    {/* Your Story CTA */}
+                <div className="story-rack-v2 story-rack-top">
                     <div className="story-rack-item" onClick={() => navigate('/stories')}>
-                        <div className="story-ring-v2 story-ring-add">
+                        <div className="story-tile-rect story-tile-add">
                             <img
                                 src={user?.avatar_url || 'https://i.pravatar.cc/150'}
                                 alt=""
                             />
-                            <div className="story-add-icon">
+                            <div className="story-add-icon-rect">
                                 <Plus size={14} />
                             </div>
                         </div>
                         <span className="story-rack-name">Your Story</span>
                     </div>
 
-                    {/* Other users' stories */}
                     {storyGroups
                         .filter(g => g.userId !== user?.id)
                         .map(group => (
@@ -263,9 +250,9 @@ const Home = () => {
                                 className="story-rack-item"
                                 onClick={() => openStoryViewer(group)}
                             >
-                                <div className="story-ring-v2">
+                                <div className="story-tile-rect">
                                     <img
-                                        src={group.avatarUrl}
+                                        src={group.stories[0]?.image_url || group.avatarUrl}
                                         alt={group.username}
                                     />
                                 </div>
