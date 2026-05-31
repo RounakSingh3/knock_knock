@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon } from 'lucide-react';
+import { fetchVideoPosts, type PostData } from '../lib/database';
 
 export interface ReelData {
-    id: number;
+    id: string | number;
     videoUrl: string;
     posterUrl: string;
     creator: string;
@@ -182,8 +183,26 @@ export function formatCount(n: number): string {
     return String(n);
 }
 
+function postToReel(post: PostData): ReelData {
+    return {
+        id: post.id,
+        videoUrl: post.image_url,
+        posterUrl: post.image_url,
+        creator: post.username,
+        creatorAvatar: post.avatar_url || `https://i.pravatar.cc/150?u=${post.username}`,
+        caption: post.caption || '',
+        song: 'Original — Upload',
+        likes: post.likes_count || 0,
+        comments: 0,
+        shares: 0,
+        category: 'Uploads',
+        attachedLink: post.attached_link,
+    };
+}
+
 const Reels: React.FC = () => {
-    const [likedReels, setLikedReels] = useState<Set<number>>(new Set());
+    const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
+    const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [mutedAll, setMutedAll] = useState(true);
     const [activeIndex, setActiveIndex] = useState(0);
     const [selectedReelIndex, setSelectedReelIndex] = useState<number | null>(null);
@@ -191,6 +210,16 @@ const Reels: React.FC = () => {
     const [playStates, setPlayStates] = useState<boolean[]>(REELS_DATA.map(() => true));
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
     const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
+
+    useEffect(() => {
+        fetchVideoPosts().then((videoPosts) => {
+            const userReels = videoPosts.map(postToReel);
+            const merged = [...userReels, ...REELS_DATA];
+            setReelsList(merged);
+            setPlayStates(merged.map(() => true));
+            setProgresses(merged.map(() => 0));
+        });
+    }, []);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const modalScrollRef = useRef<HTMLDivElement>(null);
@@ -297,7 +326,7 @@ const Reels: React.FC = () => {
                 // Double tap — like
                 setLikedReels((prev) => {
                     const next = new Set(prev);
-                    next.add(REELS_DATA[idx].id);
+                    next.add(reelsList[idx].id);
                     return next;
                 });
                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -312,10 +341,10 @@ const Reels: React.FC = () => {
             }
             lastTapRef.current = now;
         },
-        [togglePlay]
+        [togglePlay, reelsList]
     );
 
-    const toggleLike = useCallback((reelId: number) => {
+    const toggleLike = useCallback((reelId: string | number) => {
         setLikedReels((prev) => {
             const next = new Set(prev);
             if (next.has(reelId)) next.delete(reelId);
@@ -378,7 +407,7 @@ const Reels: React.FC = () => {
 
             {/* Grid View */}
             <div className="explore-grid">
-                {REELS_DATA.map((reel, idx) => (
+                {reelsList.map((reel, idx) => (
                     <div 
                         key={reel.id} 
                         className="explore-item" 
@@ -464,7 +493,7 @@ const Reels: React.FC = () => {
 
                     {/* Scrollable Player */}
                     <div className="reels-page" ref={modalScrollRef} style={{ height: '100%', overflowY: 'scroll' }}>
-                        {REELS_DATA.map((reel, idx) => {
+                        {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
                             const isActiveReel = Math.abs(idx - activeIndex) <= 1; // Only render adjacent reels for performance
                             

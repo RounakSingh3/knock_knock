@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS posts (
   image_url TEXT NOT NULL,
   caption TEXT,
   likes_count INTEGER DEFAULT 0,
+  media_type TEXT DEFAULT 'image',
+  attached_link TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

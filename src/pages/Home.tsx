@@ -4,6 +4,7 @@ import { AppContext } from '../App';
 import { fetchPosts, fetchRecentStories, type PostData, type StoryData } from '../lib/database';
 import { checkIfLiked, toggleLike } from '../lib/database';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame } from 'lucide-react';
+import PostMedia from '../components/PostMedia';
 
 // Group stories by user_id for the story rack
 interface StoryGroup {
@@ -305,7 +306,7 @@ const Home = () => {
                                 onClick={() => setSelectedPost(post)}
                                 onDoubleClick={() => handleDoubleTap(post)}
                             >
-                                <img src={post.image_url} alt="" className="masonry-card-img" />
+                                <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay />
                                 <div className="masonry-card-overlay" />
                                 <button
                                     className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
@@ -351,7 +352,7 @@ const Home = () => {
                             <X size={22} />
                         </button>
                         <div className="modal-image-wrap">
-                            <img src={selectedPost.image_url} alt="" className="modal-image" />
+                            <PostMedia post={selectedPost} className="modal-image" controls muted playsInline />
                         </div>
                         <div className="modal-details">
                             <div className="modal-user-row">

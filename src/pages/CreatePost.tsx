@@ -2,6 +2,7 @@ import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { uploadMedia, createNewPost } from '../lib/database';
+import { getMediaTypeFromFile } from '../lib/media';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2 } from 'lucide-react';
 
 const CreatePost = () => {
@@ -39,19 +40,12 @@ const CreatePost = () => {
         setError('');
 
         try {
-            // Generate unique path in the 'media' bucket
             const fileExt = file.name.split('.').pop();
             const fileName = `${user.id}-${Date.now()}.${fileExt}`;
             const path = `posts/${fileName}`;
 
-            // 1. Upload to Supabase Storage
             const publicUrl = await uploadMedia(file, path);
 
-            if (!publicUrl) {
-                throw new Error('Failed to upload file to storage.');
-            }
-
-            // 2. Insert into posts table
             await createNewPost({
                 user_id: user.id,
                 username: user.username || 'user',
@@ -59,13 +53,15 @@ const CreatePost = () => {
                 image_url: publicUrl,
                 caption,
                 attached_link: attachedLink || undefined,
+                media_type: getMediaTypeFromFile(file),
             });
 
-            // 3. Navigate to home
             navigate('/home');
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Upload Error:', err);
-            setError(err.message || 'An error occurred during upload.');
+            const message = err instanceof Error ? err.message : 'An error occurred during upload.';
+            setError(message);
+        } finally {
             setLoading(false);
         }
     };

@@ -120,7 +120,7 @@ const Login = () => {
         <div className="login-page">
             <div className="login-container">
                 <div className="login-header">
-                    <h1 className="app-title text-4xl mb-2 text-center" style={{ background: '-webkit-linear-gradient(45deg, #ff3366, #ff9933)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    <h1 className="app-title text-4xl mb-2 text-center" style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, letterSpacing: '-1.5px', background: 'var(--primary-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                         Knock Knock
                     </h1>
                     <p className="text-gray-400 text-center mb-8 flex justify-center items-center gap-2">

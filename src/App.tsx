@@ -138,7 +138,7 @@ function App() {
         return (
             <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
                 <div className="text-center">
-                    <h1 className="app-title text-4xl mb-2" style={{ background: '-webkit-linear-gradient(45deg, #ff3366, #ff9933)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    <h1 className="app-title text-4xl mb-2" style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, letterSpacing: '-1.5px', background: 'var(--primary-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                         Knock Knock
                     </h1>
                     <p style={{ color: '#8e8e93', marginTop: '1rem' }}>Loading...</p>

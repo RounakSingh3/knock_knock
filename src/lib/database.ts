@@ -1,9 +1,14 @@
 import { supabase } from './supabase';
+import { isVideoPost, type MediaType } from './media';
+
+const STORAGE_BUCKET =
+    import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
 
 // ── Posts ──────────────────────────────────────────────
 
 export interface PostData {
     id: string;
+    user_id?: string;
     username: string;
     avatar_url: string;
     image_url: string;
@@ -11,6 +16,7 @@ export interface PostData {
     likes_count: number;
     created_at: string;
     attached_link?: string;
+    media_type?: MediaType | string;
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
@@ -40,38 +46,73 @@ export async function fetchUserPosts(username: string): Promise<PostData[]> {
     return data || [];
 }
 
-export async function uploadMedia(file: File, path: string): Promise<string | null> {
-    const { data, error } = await supabase.storage
-        .from('knock-knock-eight.versel')
-        .upload(path, file, { cacheControl: '3600', upsert: false });
+export async function uploadMedia(file: File, path: string): Promise<string> {
+    const { error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(path, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: file.type || undefined,
+        });
 
     if (error) {
         console.error('Error uploading media:', error);
-        return null;
+        throw new Error(error.message || 'Failed to upload file to storage.');
     }
 
-    const { data: publicUrlData } = supabase.storage.from('knock-knock-eight.versel').getPublicUrl(path);
+    const { data: publicUrlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
     return publicUrlData.publicUrl;
 }
 
-export async function createNewPost(post: { username: string; avatar_url: string; image_url: string; caption: string; attached_link?: string }) {
-    // Generate a unique ID (uuid) for the post, although Supabase usually auto-generates if we omit 'id' (assuming id is auto-uuid)
+export async function fetchVideoPosts(): Promise<PostData[]> {
     const { data, error } = await supabase
         .from('posts')
-        .insert({
-            username: post.username,
-            avatar_url: post.avatar_url,
-            image_url: post.image_url,
-            caption: post.caption,
-            likes_count: 0,
-            attached_link: post.attached_link
-        });
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching video posts:', error);
+        return [];
+    }
+    return (data || []).filter((p) => isVideoPost(p));
+}
+
+export async function createNewPost(post: {
+    user_id?: string;
+    username: string;
+    avatar_url: string;
+    image_url: string;
+    caption: string;
+    attached_link?: string;
+    media_type?: MediaType;
+}) {
+    const row: Record<string, unknown> = {
+        username: post.username,
+        avatar_url: post.avatar_url,
+        image_url: post.image_url,
+        caption: post.caption,
+        likes_count: 0,
+        media_type: post.media_type || 'image',
+    };
+    if (post.user_id) row.user_id = post.user_id;
+    if (post.attached_link) row.attached_link = post.attached_link;
+
+    const { data, error } = await supabase.from('posts').insert(row);
 
     if (error) {
         console.error('Error creating post:', error);
         throw error;
     }
     return data;
+}
+
+/** Upload a canvas/data-URL story image to storage */
+export async function uploadStoryImage(dataUrl: string, userId: string): Promise<string> {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const file = new File([blob], `story-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    const path = `stories/${userId}-${Date.now()}.jpg`;
+    return uploadMedia(file, path);
 }
 
 // ── Likes ──────────────────────────────────────────────
@@ -228,18 +269,26 @@ export async function fetchUserStories(userId: string): Promise<StoryData[]> {
     return data || [];
 }
 
-export async function createStory(userId: string, imageUrl: string, filterName: string, isBoosted: boolean, username?: string) {
-    const { error } = await supabase
-        .from('stories')
-        .insert({
-            user_id: userId,
-            image_url: imageUrl,
-            filter_name: filterName,
-            is_boosted: isBoosted,
-            username: username || null,
-        });
+export async function createStory(
+    userId: string,
+    imageUrl: string,
+    filterName: string,
+    isBoosted: boolean,
+    username?: string
+): Promise<{ error: Error | null }> {
+    const { error } = await supabase.from('stories').insert({
+        user_id: userId,
+        image_url: imageUrl,
+        filter_name: filterName,
+        is_boosted: isBoosted,
+        username: username || null,
+    });
 
-    if (error) console.error('Error creating story:', error);
+    if (error) {
+        console.error('Error creating story:', error);
+        return { error: new Error(error.message) };
+    }
+    return { error: null };
 }
 
 /**

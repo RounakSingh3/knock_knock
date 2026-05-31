@@ -6,6 +6,8 @@ import {
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow 
 } from '../lib/database';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star } from 'lucide-react';
+import PostMedia from '../components/PostMedia';
+import { isVideoPost } from '../lib/media';
 
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
@@ -104,8 +106,8 @@ const Profile = () => {
     const isOwnProfile = currentUser && currentUser.username === username;
 
     // Derived stats
-    const videoPosts = posts.filter(p => p.image_url?.includes('video'));
-    const photoPosts = posts.filter(p => !p.image_url?.includes('video'));
+    const videoPosts = posts.filter((p) => isVideoPost(p));
+    const photoPosts = posts.filter((p) => !isVideoPost(p));
 
     return (
         <div className="profile-page pb-20">
@@ -234,14 +236,15 @@ const Profile = () => {
                     <>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                             {posts.map(post => (
-                                <div key={post.id} style={{ aspectRatio: '1/1', background: '#2c2c2e' }}>
-                                    <img
-                                        src={post.image_url}
+                                <div key={post.id} style={{ aspectRatio: '1/1', background: '#2c2c2e', overflow: 'hidden' }}>
+                                    <PostMedia
+                                        post={post}
                                         alt="Post"
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x300?text=No+Image';
-                                        }}
+                                        muted
+                                        loop
+                                        playsInline
+                                        autoPlay
                                     />
                                 </div>
                             ))}

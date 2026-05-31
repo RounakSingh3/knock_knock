@@ -1,15 +1,38 @@
 import React, { useRef, useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock } from 'lucide-react';
 import { AppContext } from '../App';
 import {
     fetchBoostedStories,
     fetchUserStories,
+    fetchVideoPosts,
     updatePoints,
     updateStreak,
     createStory,
+    uploadStoryImage,
     fetchProfile,
     type StoryData,
+    type UserStoryGroup,
+    type PostData,
 } from '../lib/database';
+import StoryViewer from '../components/StoryViewer';
+
+function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
+    const groups: Record<string, UserStoryGroup> = {};
+    stories.forEach((s) => {
+        const uid = s.user_id || 'unknown';
+        if (!groups[uid]) {
+            groups[uid] = {
+                userId: uid,
+                username: s.username || 'user',
+                avatarUrl: `https://i.pravatar.cc/150?u=${s.username || uid}`,
+                stories: [],
+            };
+        }
+        groups[uid].stories.push(s);
+    });
+    return Object.values(groups);
+}
 
 const FILTERS = [
     { name: 'Normal', style: '' },
@@ -31,6 +54,11 @@ const Stories = () => {
     const [boostedStories, setBoostedStories] = useState<StoryData[]>([]);
     const [myStories, setMyStories] = useState<StoryData[]>([]);
     const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
+    const [videoClips, setVideoClips] = useState<PostData[]>([]);
+    const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
+    const [viewerStoryGroups, setViewerStoryGroups] = useState<UserStoryGroup[]>([]);
+
+    const navigate = useNavigate();
 
     // Streak states
     const [streakCount, setStreakCount] = useState(0);
@@ -44,14 +72,14 @@ const Stories = () => {
 
     // Fetch data on mount
     useEffect(() => {
-        fetchBoostedStories().then(stories => setBoostedStories(stories));
+        fetchBoostedStories().then((stories) => setBoostedStories(stories));
+        fetchVideoPosts().then((posts) => setVideoClips(posts));
         if (user) {
-            fetchUserStories(user.id).then(stories => setMyStories(stories));
-            // Fetch fresh profile for streak data
-            fetchProfile(user.id).then(profile => {
+            fetchUserStories(user.id).then((stories) => setMyStories(stories));
+            fetchProfile(user.id).then((profile) => {
                 if (profile) {
-                    setStreakCount((profile as any).streak_count || 0);
-                    setLastStoryAt((profile as any).last_story_at || null);
+                    setStreakCount(profile.streak_count || 0);
+                    setLastStoryAt(profile.last_story_at || null);
                 }
             });
         }
@@ -121,57 +149,78 @@ const Stories = () => {
         }
     };
 
+    const openStoryViewer = (story: StoryData) => {
+        const groups = groupStoriesByUser(boostedStories);
+        const groupIdx = groups.findIndex((g) => g.stories.some((s) => s.id === story.id));
+        if (groupIdx >= 0) {
+            setViewerStoryGroups(groups);
+            setActiveStoryGroupIndex(groupIdx);
+        }
+    };
+
     const postStory = async (boost: boolean) => {
         if (!user || !capturedImageUrl) return;
 
-        if (boost) {
-            if (points < 10) {
-                alert(`You need 10 Boost Points to boost a story.\nYou currently have ${points} points.\nStay active or post stories to earn more!`);
+        if (boost && points < 10) {
+            alert(`You need 10 Boost Points to boost a story.\nYou currently have ${points} points.\nStay active or post stories to earn more!`);
+            return;
+        }
+
+        if (boost) setIsBoosting(true);
+        else setIsPosting(true);
+
+        try {
+            const imageUrl = await uploadStoryImage(capturedImageUrl, user.id);
+            const { error } = await createStory(
+                user.id,
+                imageUrl,
+                FILTERS[activeFilterIndex].name,
+                boost,
+                user.username || user.name
+            );
+
+            if (error) {
+                alert(`Could not post story: ${error.message}`);
                 return;
             }
-            setIsBoosting(true);
-        } else {
-            setIsPosting(true);
+
+            let pointsForStreak = points;
+            if (boost) {
+                const newPts = points - 10;
+                pointsForStreak = newPts;
+                setPoints(newPts);
+                await updatePoints(user.id, newPts);
+            }
+
+            const streakResult = await updateStreak(
+                user.id,
+                streakCount,
+                lastStoryAt,
+                pointsForStreak
+            );
+            setStreakCount(streakResult.newStreak);
+            setLastStoryAt(new Date().toISOString());
+            setPoints((prev) => prev + streakResult.pointsAwarded);
+            setStreakPointsEarned(streakResult.pointsAwarded);
+
+            const [updatedBoosted, updatedMy, updatedClips] = await Promise.all([
+                fetchBoostedStories(),
+                fetchUserStories(user.id),
+                fetchVideoPosts(),
+            ]);
+            setBoostedStories(updatedBoosted);
+            setMyStories(updatedMy);
+            setVideoClips(updatedClips);
+
+            stopCamera();
+            setTimeout(() => setStreakPointsEarned(null), 4000);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to post story.';
+            alert(message);
+        } finally {
+            setIsBoosting(false);
+            setIsPosting(false);
         }
-
-        // Simulate a brief delay
-        await new Promise(r => setTimeout(r, 1200));
-
-        // Deduct boost points if boosting
-        if (boost) {
-            const newPts = points - 10;
-            setPoints(newPts);
-            await updatePoints(user.id, newPts);
-        }
-
-        // Create story
-        await createStory(
-            user.id,
-            capturedImageUrl,
-            FILTERS[activeFilterIndex].name,
-            boost,
-            (user as any).username || user.name
-        );
-
-        // Update streak
-        const streakResult = await updateStreak(user.id, streakCount, lastStoryAt, boost ? points - 10 : points);
-        setStreakCount(streakResult.newStreak);
-        setLastStoryAt(new Date().toISOString());
-        setPoints(prev => prev + streakResult.pointsAwarded);
-        setStreakPointsEarned(streakResult.pointsAwarded);
-
-        // Refresh data
-        const updatedStories = await fetchBoostedStories();
-        setBoostedStories(updatedStories);
-        const updatedMyStories = await fetchUserStories(user.id);
-        setMyStories(updatedMyStories);
-
-        setIsBoosting(false);
-        setIsPosting(false);
-        stopCamera();
-
-        // Show streak reward briefly
-        setTimeout(() => setStreakPointsEarned(null), 4000);
     };
 
     useEffect(() => {
@@ -280,6 +329,10 @@ const Stories = () => {
     // ── Main Stories Hub ──
     return (
         <div className="stories-hub pb-20">
+            <header style={{ padding: '16px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h1 className="font-bold text-2xl">Boost & Stories</h1>
+            </header>
+
             {/* Streak Points Earned Toast */}
             {streakPointsEarned !== null && (
                 <div className="streak-toast">
@@ -378,8 +431,13 @@ const Stories = () => {
                 <h3 className="section-title">Trending Boosted 🔥</h3>
                 <div className="boosted-grid">
                     {boostedStories.length > 0 ? (
-                        boostedStories.map(story => (
-                            <div key={story.id} className="boosted-story">
+                        boostedStories.map((story) => (
+                            <div
+                                key={story.id}
+                                className="boosted-story"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => openStoryViewer(story)}
+                            >
                                 <img src={story.image_url} alt="Story" loading="lazy" />
                                 {story.username && (
                                     <div className="boosted-story-user">@{story.username}</div>
@@ -387,50 +445,59 @@ const Stories = () => {
                             </div>
                         ))
                     ) : (
-                        [1, 2, 3, 4].map(i => (
-                            <div key={i} className="boosted-story">
-                                <img
-                                    src={`https://images.unsplash.com/photo-${1500000000000 + i * 100000}?w=400&q=80`}
-                                    alt="Story"
-                                    loading="lazy"
-                                />
-                            </div>
-                        ))
+                        <p style={{ color: '#8e8e93', gridColumn: '1 / -1', padding: '1rem 0', fontSize: '14px' }}>
+                            No boosted stories yet — capture a snap above and tap Boost (10 pts).
+                        </p>
                     )}
                 </div>
             </div>
 
-            {/* ── Trending Clips (kept from original) ── */}
-            <div className="section-block">
-                <h3 className="section-title">Trending Clips 🎬</h3>
-                <div className="clips-grid">
-                    {[
-                        { src: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', poster: 'https://images.pexels.com/videos/856029/free-video-856029.jpg?auto=compress&w=300', creator: 'nature_vibes', views: '14.2K' },
-                        { src: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', poster: 'https://images.pexels.com/videos/3015510/free-video-3015510.jpg?auto=compress&w=300', creator: 'city_explorer', views: '28.4K' },
-                        { src: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', poster: 'https://images.pexels.com/videos/1526909/free-video-1526909.jpg?auto=compress&w=300', creator: 'ocean_dreams', views: '45.6K' },
-                        { src: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', poster: 'https://images.pexels.com/videos/4065924/free-video-4065924.jpg?auto=compress&w=300', creator: 'dance_central', views: '89.2K' },
-                        { src: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', poster: 'https://images.pexels.com/videos/854669/free-video-854669.jpg?auto=compress&w=300', creator: 'sky_watcher', views: '32.1K' },
-                        { src: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', poster: 'https://images.pexels.com/videos/2795173/free-video-2795173.jpg?auto=compress&w=300', creator: 'foodie_fam', views: '67.3K' },
-                    ].map((clip, i) => (
-                        <div key={i} className="clip-card" onClick={() => window.location.href = '/reels'}>
-                            <video
-                                src={clip.src}
-                                poster={clip.poster}
-                                muted
-                                loop
-                                playsInline
-                                preload="metadata"
-                                onMouseEnter={(e) => (e.target as HTMLVideoElement).play().catch(() => { })}
-                                onMouseLeave={(e) => { (e.target as HTMLVideoElement).pause(); (e.target as HTMLVideoElement).currentTime = 0; }}
-                            />
-                            <div className="clip-overlay">
-                                <span className="clip-views">▶ {clip.views}</span>
-                                <span className="clip-creator">@{clip.creator}</span>
+            {videoClips.length > 0 && (
+                <div className="section-block">
+                    <h3 className="section-title">Community Videos 🎬</h3>
+                    <div className="clips-grid">
+                        {videoClips.slice(0, 6).map((clip) => (
+                            <div
+                                key={clip.id}
+                                className="clip-card"
+                                onClick={() => navigate('/reels')}
+                                style={{ cursor: 'pointer' }}
+                            >
+                                <video
+                                    src={clip.image_url}
+                                    muted
+                                    loop
+                                    playsInline
+                                    preload="metadata"
+                                    onMouseEnter={(e) => (e.target as HTMLVideoElement).play().catch(() => {})}
+                                    onMouseLeave={(e) => {
+                                        const v = e.target as HTMLVideoElement;
+                                        v.pause();
+                                        v.currentTime = 0;
+                                    }}
+                                />
+                                <div className="clip-overlay">
+                                    <span className="clip-views">▶ {clip.likes_count || 0}</span>
+                                    <span className="clip-creator">@{clip.username}</span>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {activeStoryGroupIndex !== null && (
+                <StoryViewer
+                    storyGroups={viewerStoryGroups}
+                    initialGroupIndex={activeStoryGroupIndex}
+                    currentUserId={user?.id}
+                    onClose={() => setActiveStoryGroupIndex(null)}
+                    onGroupsUpdated={(groups) => {
+                        setViewerStoryGroups(groups);
+                        setBoostedStories(groups.flatMap((g) => g.stories).filter((s) => s.is_boosted));
+                    }}
+                />
+            )}
         </div>
     );
 };
