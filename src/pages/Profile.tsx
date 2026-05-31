@@ -5,9 +5,9 @@ import {
     fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow 
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star } from 'lucide-react';
-import PostMedia from '../components/PostMedia';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X } from 'lucide-react';
 import { isVideoPost } from '../lib/media';
+import PostMedia from '../components/PostMedia';
 
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
@@ -23,6 +23,7 @@ const Profile = () => {
     const [followingList, setFollowingList] = useState<ProfileData[]>([]);
     const [followStats, setFollowStats] = useState({ followers: 0, following: 0 });
     const [isFollowing, setIsFollowing] = useState(false);
+    const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
 
     useEffect(() => {
         if (!username && currentUser) {
@@ -241,7 +242,17 @@ const Profile = () => {
                     <>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                             {posts.map(post => (
-                                <div key={post.id} style={{ aspectRatio: '1/1', background: '#2c2c2e', overflow: 'hidden' }}>
+                                <div
+                                    key={post.id}
+                                    style={{
+                                        position: 'relative',
+                                        aspectRatio: '1/1',
+                                        background: '#2c2c2e',
+                                        overflow: 'hidden',
+                                        cursor: 'pointer',
+                                    }}
+                                    onClick={() => setSelectedPost(post)}
+                                >
                                     <PostMedia
                                         post={post}
                                         alt="Post"
@@ -249,8 +260,25 @@ const Profile = () => {
                                         muted
                                         loop
                                         playsInline
-                                        autoPlay
+                                        autoPlay={isVideoPost(post)}
                                     />
+                                    {isVideoPost(post) && (
+                                        <div
+                                            style={{
+                                                position: 'absolute',
+                                                bottom: 6,
+                                                right: 6,
+                                                background: 'rgba(0,0,0,0.6)',
+                                                borderRadius: 4,
+                                                padding: '2px 6px',
+                                                fontSize: 10,
+                                                color: '#fff',
+                                                pointerEvents: 'none',
+                                            }}
+                                        >
+                                            ▶ Tap for sound
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -307,6 +335,31 @@ const Profile = () => {
                     </div>
                 )}
             </div>
+
+            {selectedPost && (
+                <div className="post-modal-backdrop" onClick={() => setSelectedPost(null)}>
+                    <div className="post-modal" onClick={(e) => e.stopPropagation()}>
+                        <button className="modal-close-btn" onClick={() => setSelectedPost(null)} type="button">
+                            <X size={22} />
+                        </button>
+                        <div className="modal-image-wrap">
+                            <PostMedia
+                                post={selectedPost}
+                                className="modal-image"
+                                controls
+                                playsInline
+                                soundOn
+                                loop={false}
+                            />
+                        </div>
+                        {selectedPost.caption && (
+                            <div className="modal-details">
+                                <p className="modal-caption">{selectedPost.caption}</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

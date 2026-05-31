@@ -203,7 +203,7 @@ function postToReel(post: PostData): ReelData {
 const Reels: React.FC = () => {
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
-    const [mutedAll, setMutedAll] = useState(true);
+    const [mutedAll, setMutedAll] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
     const [selectedReelIndex, setSelectedReelIndex] = useState<number | null>(null);
 
@@ -235,14 +235,17 @@ const Reels: React.FC = () => {
             modalScrollRef.current.scrollTo(0, height * selectedReelIndex);
             setActiveIndex(selectedReelIndex);
             setTimeout(() => {
-                const activeVideo = videoRefs.current[selectedReelIndex];
-                if (activeVideo) {
-                    activeVideo.play().catch(() => {});
-                    setPlayStates(prev => { const n = [...prev]; n[selectedReelIndex] = true; return n; });
-                }
+                videoRefs.current.forEach((v, idx) => {
+                    if (!v) return;
+                    v.muted = mutedAll;
+                    if (idx === selectedReelIndex) {
+                        v.play().catch(() => {});
+                    }
+                });
+                setPlayStates(prev => { const n = [...prev]; n[selectedReelIndex] = true; return n; });
             }, 300);
         }
-    }, [selectedReelIndex]);
+    }, [selectedReelIndex, mutedAll]);
 
     // IntersectionObserver to auto-play visible video in modal
     useEffect(() => {
@@ -603,9 +606,6 @@ const Reels: React.FC = () => {
                                             style={{ width: `${progresses[idx]}%` }}
                                         />
                                     </div>
-
-                                    {/* Category badge */}
-                                    <div className="reel-category-badge" style={{ bottom: 180 }}>{reel.category}</div>
                                 </div>
                             );
                         })}

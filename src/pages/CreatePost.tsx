@@ -99,7 +99,7 @@ const CreatePost = () => {
             ) : (
                 <div style={{ position: 'relative', marginBottom: '24px', borderRadius: '16px', overflow: 'hidden', background: '#121212', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
                     {file?.type.startsWith('video/') ? (
-                        <video src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%' }} controls autoPlay muted loop />
+                        <video src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%' }} controls autoPlay playsInline loop />
                     ) : (
                         <img src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="Preview" />
                     )}
