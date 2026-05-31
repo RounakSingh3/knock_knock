@@ -119,7 +119,12 @@ const Profile = () => {
                         <Star size={16} fill="#ff3366" /> {isOwnProfile ? points : profile.points} Pts
                     </div>
                     {isOwnProfile && (
-                        <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
+                        <button
+                            type="button"
+                            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}
+                            onClick={() => navigate('/settings')}
+                            aria-label="Settings"
+                        >
                             <Settings size={24} />
                         </button>
                     )}
