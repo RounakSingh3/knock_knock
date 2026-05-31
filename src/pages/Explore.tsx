@@ -1,8 +1,26 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Search, Loader2 } from 'lucide-react';
-import { searchStoriesByHashtag, fetchBoostedStories, type UserStoryGroup } from '../lib/database';
+import { searchStoriesByHashtag, fetchBoostedStories, type UserStoryGroup, type StoryData } from '../lib/database';
 import StoryViewer from '../components/StoryViewer';
 import { AppContext } from '../App';
+
+/** Helper to group flat stories into user groups */
+function groupByUser(stories: StoryData[]): UserStoryGroup[] {
+    const groups: Record<string, UserStoryGroup> = {};
+    stories.forEach(s => {
+        const uid = s.user_id || 'unknown';
+        if (!groups[uid]) {
+            groups[uid] = {
+                userId: uid,
+                username: s.username || 'user',
+                avatarUrl: `https://i.pravatar.cc/150?u=${s.username || uid}`,
+                stories: [],
+            };
+        }
+        groups[uid].stories.push(s);
+    });
+    return Object.values(groups);
+}
 
 const Explore = () => {
     const { user } = useContext(AppContext);
@@ -22,7 +40,7 @@ const Explore = () => {
             });
         } else {
             fetchBoostedStories().then(data => {
-                setSearchedStories(data);
+                setSearchedStories(groupByUser(data));
                 setSearchingStories(false);
             });
         }

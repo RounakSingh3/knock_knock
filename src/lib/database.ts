@@ -173,6 +173,14 @@ export interface StoryData {
     filter_name: string;
     is_boosted: boolean;
     created_at: string;
+    caption?: string;
+}
+
+export interface UserStoryGroup {
+    userId: string;
+    username: string;
+    avatarUrl: string;
+    stories: StoryData[];
 }
 
 export async function fetchBoostedStories(): Promise<StoryData[]> {
@@ -266,6 +274,53 @@ export async function updateStreak(userId: string, currentStreak: number, lastSt
     if (error) console.error('Error updating streak:', error);
 
     return { newStreak, pointsAwarded };
+}
+
+/** Delete a story by its ID */
+export async function deleteStory(storyId: string) {
+    const { error } = await supabase
+        .from('stories')
+        .delete()
+        .eq('id', storyId);
+
+    if (error) console.error('Error deleting story:', error);
+}
+
+/**
+ * Search stories by hashtag/caption text and group them by user.
+ * Returns UserStoryGroup[] for use in the Explore page and StoryViewer.
+ */
+export async function searchStoriesByHashtag(term: string): Promise<UserStoryGroup[]> {
+    const { data, error } = await supabase
+        .from('stories')
+        .select('*')
+        .or(`caption.ilike.%${term}%,username.ilike.%${term}%`)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('Error searching stories:', error);
+        return [];
+    }
+
+    return groupStoriesByUser(data || []);
+}
+
+/** Helper: group flat story array into UserStoryGroup[] */
+function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
+    const groups: Record<string, UserStoryGroup> = {};
+    stories.forEach(s => {
+        const uid = s.user_id || 'unknown';
+        if (!groups[uid]) {
+            groups[uid] = {
+                userId: uid,
+                username: s.username || 'user',
+                avatarUrl: `https://i.pravatar.cc/150?u=${s.username || uid}`,
+                stories: [],
+            };
+        }
+        groups[uid].stories.push(s);
+    });
+    return Object.values(groups);
 }
 
 // ── Explore (random posts) ─────────────────────────────
@@ -402,3 +457,100 @@ export async function computeMatches(
     return results;
 }
 
+// ── Follow System ──────────────────────────────────────
+
+/** Fetch followers of a user (returns their profile data) */
+export async function fetchFollowers(userId: string): Promise<ProfileData[]> {
+    const { data, error } = await supabase
+        .from('follows')
+        .select('follower_id')
+        .eq('following_id', userId);
+
+    if (error) {
+        console.error('Error fetching followers:', error);
+        return [];
+    }
+
+    if (!data || data.length === 0) return [];
+
+    const followerIds = data.map(d => d.follower_id);
+    const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', followerIds);
+
+    if (profilesError) {
+        console.error('Error fetching follower profiles:', profilesError);
+        return [];
+    }
+    return profiles || [];
+}
+
+/** Fetch users that a user is following (returns their profile data) */
+export async function fetchFollowing(userId: string): Promise<ProfileData[]> {
+    const { data, error } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', userId);
+
+    if (error) {
+        console.error('Error fetching following:', error);
+        return [];
+    }
+
+    if (!data || data.length === 0) return [];
+
+    const followingIds = data.map(d => d.following_id);
+    const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', followingIds);
+
+    if (profilesError) {
+        console.error('Error fetching following profiles:', profilesError);
+        return [];
+    }
+    return profiles || [];
+}
+
+/** Get follower and following counts */
+export async function fetchFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
+    const [followersRes, followingRes] = await Promise.all([
+        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('following_id', userId),
+        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', userId),
+    ]);
+
+    return {
+        followers: followersRes.count || 0,
+        following: followingRes.count || 0,
+    };
+}
+
+/** Check if currentUser is following targetUser */
+export async function checkIfFollowing(currentUserId: string, targetUserId: string): Promise<boolean> {
+    const { data } = await supabase
+        .from('follows')
+        .select('id')
+        .eq('follower_id', currentUserId)
+        .eq('following_id', targetUserId)
+        .maybeSingle();
+
+    return !!data;
+}
+
+/** Toggle follow/unfollow */
+export async function toggleFollow(currentUserId: string, targetUserId: string, currentlyFollowing: boolean) {
+    if (currentlyFollowing) {
+        const { error } = await supabase
+            .from('follows')
+            .delete()
+            .eq('follower_id', currentUserId)
+            .eq('following_id', targetUserId);
+        if (error) console.error('Error unfollowing:', error);
+    } else {
+        const { error } = await supabase
+            .from('follows')
+            .insert({ follower_id: currentUserId, following_id: targetUserId });
+        if (error) console.error('Error following:', error);
+    }
+}
