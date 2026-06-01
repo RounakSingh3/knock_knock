@@ -337,12 +337,15 @@ const Profile = () => {
             </div>
 
             {selectedPost && (
-                <div className="post-modal-backdrop" onClick={() => setSelectedPost(null)}>
-                    <div className="post-modal" onClick={(e) => e.stopPropagation()}>
-                        <button className="modal-close-btn" onClick={() => setSelectedPost(null)} type="button">
-                            <X size={22} />
-                        </button>
-                        <div className="modal-image-wrap">
+                <div className="post-modal-backdrop post-modal-backdrop--fullscreen" onClick={() => setSelectedPost(null)}>
+                    <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-top-bar">
+                            <span className="modal-username">{displayUsername}</span>
+                            <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
+                                <X size={22} />
+                            </button>
+                        </div>
+                        <div className="modal-media-stage">
                             <PostMedia
                                 post={selectedPost}
                                 className="modal-image"
@@ -353,7 +356,7 @@ const Profile = () => {
                             />
                         </div>
                         {selectedPost.caption && (
-                            <div className="modal-details">
+                            <div className="modal-details modal-details--sheet">
                                 <p className="modal-caption">{selectedPost.caption}</p>
                             </div>
                         )}

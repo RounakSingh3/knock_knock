@@ -337,22 +337,9 @@ const Home = () => {
 
             {/* Post Detail Modal */}
             {selectedPost && (
-                <div className="post-modal-backdrop" onClick={() => setSelectedPost(null)}>
-                    <div className="post-modal" onClick={(e) => e.stopPropagation()}>
-                        <button className="modal-close-btn" onClick={() => setSelectedPost(null)}>
-                            <X size={22} />
-                        </button>
-                        <div className="modal-image-wrap">
-                            <PostMedia
-                                post={selectedPost}
-                                className="modal-image"
-                                controls
-                                playsInline
-                                soundOn
-                                loop={false}
-                            />
-                        </div>
-                        <div className="modal-details">
+                <div className="post-modal-backdrop post-modal-backdrop--fullscreen" onClick={() => setSelectedPost(null)}>
+                    <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-top-bar">
                             <div className="modal-user-row">
                                 <img
                                     src={selectedPost.avatar_url || 'https://i.pravatar.cc/150'}
@@ -370,6 +357,21 @@ const Home = () => {
                                     <span className="modal-time">{getTimeAgo(selectedPost.created_at)}</span>
                                 </div>
                             </div>
+                            <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
+                                <X size={22} />
+                            </button>
+                        </div>
+                        <div className="modal-media-stage">
+                            <PostMedia
+                                post={selectedPost}
+                                className="modal-image"
+                                controls
+                                playsInline
+                                soundOn
+                                loop={false}
+                            />
+                        </div>
+                        <div className="modal-details modal-details--sheet">
                             {selectedPost.caption && (
                                 <p className="modal-caption">{selectedPost.caption}</p>
                             )}
