@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { supabase } from './lib/supabase';
 import { fetchProfile, updatePoints, setUserOnlineStatus, type ProfileData } from './lib/database';
+import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSession } from './lib/auth';
 import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
 import Stories from './pages/Stories';
@@ -42,20 +42,62 @@ function App() {
 
     const isAuthenticated = !!user;
 
-    // Check localStorage for saved session
+    // Restore Supabase Auth session + profile
     useEffect(() => {
-        const savedUser = localStorage.getItem('knock_user_session');
-        if (savedUser) {
+        let mounted = true;
+
+        const loadSession = async () => {
             try {
-                const parsedUser = JSON.parse(savedUser) as ProfileData;
-                setUser(parsedUser);
-                setPoints(parsedUser.points || 0);
+                const session = await getSession();
+                if (session?.user) {
+                    const profile = await fetchCurrentProfile();
+                    if (profile && mounted) {
+                        setUser(profile);
+                        setPoints(profile.points || 0);
+                        localStorage.setItem('knock_user_session', JSON.stringify(profile));
+                        setLoading(false);
+                        return;
+                    }
+                }
             } catch (e) {
-                console.error("Failed to parse session", e);
+                console.error('Failed to restore session', e);
+            }
+
+            const savedUser = localStorage.getItem('knock_user_session');
+            if (savedUser && mounted) {
+                try {
+                    const parsedUser = JSON.parse(savedUser) as ProfileData;
+                    setUser(parsedUser);
+                    setPoints(parsedUser.points || 0);
+                } catch (e) {
+                    localStorage.removeItem('knock_user_session');
+                }
+            }
+            if (mounted) setLoading(false);
+        };
+
+        loadSession();
+
+        const subscription = onAuthStateChange(async (userId) => {
+            if (!mounted) return;
+            if (userId) {
+                const profile = await fetchCurrentProfile();
+                if (profile) {
+                    setUser(profile);
+                    setPoints(profile.points || 0);
+                    localStorage.setItem('knock_user_session', JSON.stringify(profile));
+                }
+            } else {
+                setUser(null);
+                setPoints(0);
                 localStorage.removeItem('knock_user_session');
             }
-        }
-        setLoading(false);
+        });
+
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
     }, []);
 
     // Also fetch fresh profile data to keep points updated
@@ -129,7 +171,12 @@ function App() {
         };
     }, [user?.id]);
 
-    const signOut = () => {
+    const signOut = async () => {
+        try {
+            await authSignOut();
+        } catch (e) {
+            console.error('Sign out error:', e);
+        }
         localStorage.removeItem('knock_user_session');
         setUser(null);
         setPoints(0);

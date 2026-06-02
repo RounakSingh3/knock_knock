@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { signUp, signIn, checkUsernameAvailable } from '../lib/auth';
+import { signUp, signIn, checkUsernameAvailable, fetchCurrentProfile } from '../lib/auth';
 import { Sparkles, ArrowRight, Loader2, Check, X } from 'lucide-react';
 
 const Login = () => {
@@ -80,7 +80,6 @@ const Login = () => {
 
         try {
             if (isSignUp) {
-                // Sign up via Supabase Auth (password is hashed server-side)
                 await signUp({
                     username: formData.username,
                     password: formData.password,
@@ -88,19 +87,22 @@ const Login = () => {
                     gender: formData.gender,
                     dob: formData.dob,
                 });
-
-                // The onAuthStateChange listener in App.tsx will
-                // automatically detect the new session and load the profile.
-                navigate('/home');
-
             } else {
-                // Sign in via Supabase Auth (password verified server-side)
                 await signIn(formData.username, formData.password);
-
-                // The onAuthStateChange listener in App.tsx will
-                // automatically detect the session and load the profile.
-                navigate('/home');
             }
+
+            const profile = await fetchCurrentProfile();
+            if (!profile) {
+                setGlobalError(
+                    'Signed in but profile is missing. Run supabase-auth-migration.sql in your Supabase SQL Editor, then try again.'
+                );
+                setLoading(false);
+                return;
+            }
+
+            localStorage.setItem('knock_user_session', JSON.stringify(profile));
+            setUser(profile);
+            navigate('/home');
         } catch (err: any) {
             console.error('Auth error:', err);
             // Provide user-friendly error messages
@@ -109,6 +111,10 @@ const Login = () => {
                 setGlobalError('This username is already taken.');
             } else if (message.includes('Invalid login credentials')) {
                 setGlobalError('Invalid username or password.');
+            } else if (message.includes('password') && message.includes('schema cache')) {
+                setGlobalError(
+                    'Database needs an update: open Supabase → SQL Editor, run supabase-auth-migration.sql from the project, then sign up again.'
+                );
             } else {
                 setGlobalError(message);
             }

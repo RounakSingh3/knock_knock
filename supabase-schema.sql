@@ -11,9 +11,8 @@ DROP TABLE IF EXISTS posts CASCADE;
 DROP TABLE IF EXISTS profiles CASCADE;
 
 CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   username TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL,
   name TEXT,
   gender TEXT,
   dob DATE,
@@ -98,10 +97,35 @@ CREATE POLICY "Public access to stories"
   USING (true)
   WITH CHECK (true);
 
--- Custom auth means we no longer use the auth.users trigger.
--- Removing the trigger and function:
+-- Auto-create profile when user signs up via Supabase Auth (password lives in auth.users only)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, username, name, gender, dob, avatar_url)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
+    COALESCE(NEW.raw_user_meta_data->>'name', 'User'),
+    NULLIF(NEW.raw_user_meta_data->>'gender', ''),
+    NULLIF(NEW.raw_user_meta_data->>'dob', '')::date,
+    COALESCE(
+      NEW.raw_user_meta_data->>'avatar_url',
+      'https://i.pravatar.cc/150?u=' || COALESCE(NEW.raw_user_meta_data->>'username', NEW.id::text)
+    )
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ============================================
 -- FUNCTION: Update likes_count on posts

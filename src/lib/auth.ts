@@ -24,23 +24,49 @@ export interface SignUpParams {
 
 export async function signUp(params: SignUpParams) {
     const email = usernameToEmail(params.username);
+    const username = params.username.toLowerCase();
 
     const { data, error } = await supabase.auth.signUp({
         email,
         password: params.password,
         options: {
             data: {
-                username: params.username.toLowerCase(),
+                username,
                 name: params.name,
                 gender: params.gender,
                 dob: params.dob,
-                avatar_url: `https://i.pravatar.cc/150?u=${params.username.toLowerCase()}`,
+                avatar_url: `https://i.pravatar.cc/150?u=${username}`,
             },
         },
     });
 
     if (error) throw error;
+
+    if (data.user) {
+        await ensureUserProfile(data.user.id, params);
+    }
+
     return data;
+}
+
+/** Create or update profile row (no password — Auth handles that). */
+export async function ensureUserProfile(userId: string, params: Pick<SignUpParams, 'username' | 'name' | 'gender' | 'dob'>) {
+    const username = params.username.toLowerCase();
+    const row = {
+        id: userId,
+        username,
+        name: params.name,
+        gender: params.gender,
+        dob: params.dob,
+        avatar_url: `https://i.pravatar.cc/150?u=${username}`,
+    };
+
+    const { error } = await supabase.from('profiles').upsert(row, { onConflict: 'id' });
+
+    if (error) {
+        console.error('ensureUserProfile:', error);
+        throw error;
+    }
 }
 
 // ── Sign In ──
