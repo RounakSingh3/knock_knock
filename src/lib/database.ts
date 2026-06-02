@@ -880,6 +880,30 @@ export interface MessageData {
     is_read: boolean;
 }
 
+/** Fetch all user IDs that the current user has messaged or received messages from */
+export async function fetchChattedUserIds(userId: string): Promise<string[]> {
+    const { data: sent, error: err1 } = await supabase
+        .from('messages')
+        .select('receiver_id')
+        .eq('sender_id', userId);
+        
+    const { data: received, error: err2 } = await supabase
+        .from('messages')
+        .select('sender_id')
+        .eq('receiver_id', userId);
+
+    if (err1 || err2) {
+        console.error('Error fetching chatted users');
+        return [];
+    }
+
+    const ids = new Set<string>();
+    (sent || []).forEach(m => ids.add(m.receiver_id));
+    (received || []).forEach(m => ids.add(m.sender_id));
+    
+    return Array.from(ids);
+}
+
 /** Fetch messages between two users */
 export async function fetchMessages(user1: string, user2: string): Promise<MessageData[]> {
     const { data, error } = await supabase

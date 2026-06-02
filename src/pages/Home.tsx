@@ -45,6 +45,7 @@ const Home = () => {
     // Feed mode toggle
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
     const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatUserId, setChatUserId] = useState<string | null>(null);
     const [unifiedConnectionItems, setUnifiedConnectionItems] = useState<UnifiedItem[]>([]);
     const [connectionUserIds, setConnectionUserIds] = useState<Set<string>>(new Set());
     const [loadingConnPosts, setLoadingConnPosts] = useState(false);
@@ -305,7 +306,7 @@ const Home = () => {
             <header className="home-header-v2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 className="home-brand-title">Knock Knock</h1>
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                    <button onClick={() => setIsChatOpen(true)} className="signout-btn-v2" title="Messages" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px' }}>
+                    <button onClick={() => { setChatUserId(null); setIsChatOpen(true); }} className="signout-btn-v2" title="Messages" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px' }}>
                         <MessageCircle size={24} />
                     </button>
                     <button onClick={signOut} className="signout-btn-v2" title="Sign Out" type="button" style={{ background: 'none', border: 'none', color: '#ff3b30', cursor: 'pointer', padding: '8px' }}>
@@ -456,6 +457,13 @@ const Home = () => {
                                     >
                                         <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
                                     </button>
+                                    <button
+                                        className="masonry-like-btn"
+                                        style={{ bottom: '48px' }}
+                                        onClick={(e) => { e.stopPropagation(); setChatUserId(post.user_id); setIsChatOpen(true); }}
+                                    >
+                                        <MessageCircle size={16} color="#fff" />
+                                    </button>
                                     {post.attached_link && (
                                         <div className="masonry-link-badge">
                                             <LinkIcon size={12} />
@@ -490,8 +498,9 @@ const Home = () => {
             {user && (
                 <ChatPanel 
                     isOpen={isChatOpen} 
-                    onClose={() => setIsChatOpen(false)} 
+                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
                     currentUser={{ ...user, username: user.username || 'user' }} 
+                    initialOpenUserId={chatUserId}
                 />
             )}
 

@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ChevronLeft, Send, Check, CheckCheck } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, type ProfileData, type MessageData } from '../lib/database';
+import { fetchConnectionUserIds, fetchChattedUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, type ProfileData, type MessageData } from '../lib/database';
 
 interface ChatPanelProps {
     isOpen: boolean;
     onClose: () => void;
     currentUser: ProfileData & { username: string; id: string };
+    initialOpenUserId?: string | null;
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) => {
-    const [contacts, setContacts] = useState<ProfileData[]>([]);
+const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, initialOpenUserId }) => {
+    const [connections, setConnections] = useState<ProfileData[]>([]);
+    const [requests, setRequests] = useState<ProfileData[]>([]);
     const [loadingContacts, setLoadingContacts] = useState(false);
     
-    // View state: 'list' or 'chat'
+    const [activeTab, setActiveTab] = useState<'connections' | 'requests'>('connections');
     const [view, setView] = useState<'list' | 'chat'>('list');
     const [selectedContact, setSelectedContact] = useState<ProfileData | null>(null);
     
-    // Chat state
     const [messages, setMessages] = useState<MessageData[]>([]);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [messageInput, setMessageInput] = useState('');
@@ -24,16 +25,42 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
 
     // Fetch contacts when panel opens
     useEffect(() => {
-        if (isOpen && contacts.length === 0) {
+        if (isOpen) {
             setLoadingContacts(true);
-            fetchConnectionUserIds(currentUser.id).then(ids => {
-                fetchProfilesByIds(ids).then(profiles => {
-                    setContacts(profiles);
+            Promise.all([
+                fetchConnectionUserIds(currentUser.id),
+                fetchChattedUserIds(currentUser.id)
+            ]).then(([connIds, chattedIds]) => {
+                const connSet = new Set(connIds);
+                const reqIds = chattedIds.filter(id => !connSet.has(id));
+                
+                // Also add initialOpenUserId to requests if it's not a connection and not already in chattedIds
+                if (initialOpenUserId && !connSet.has(initialOpenUserId) && !reqIds.includes(initialOpenUserId)) {
+                    reqIds.push(initialOpenUserId);
+                }
+
+                Promise.all([
+                    fetchProfilesByIds(connIds),
+                    fetchProfilesByIds(reqIds)
+                ]).then(([connProfiles, reqProfiles]) => {
+                    setConnections(connProfiles);
+                    setRequests(reqProfiles);
                     setLoadingContacts(false);
+                    
+                    if (initialOpenUserId) {
+                        const targetUser = [...connProfiles, ...reqProfiles].find(p => p.id === initialOpenUserId);
+                        if (targetUser) {
+                            setSelectedContact(targetUser);
+                            setView('chat');
+                        }
+                    }
                 });
             });
+        } else {
+            setView('list');
+            setSelectedContact(null);
         }
-    }, [isOpen]);
+    }, [isOpen, initialOpenUserId]);
 
     // Load messages when a contact is selected
     useEffect(() => {
@@ -45,7 +72,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
                 scrollToBottom();
             });
 
-            // Subscribe to new messages
             const subscription = subscribeToMessages(currentUser.id, selectedContact.id, (newMsg) => {
                 setMessages(prev => [...prev, newMsg]);
                 scrollToBottom();
@@ -70,7 +96,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
         const text = messageInput.trim();
         setMessageInput('');
 
-        // Optimistically add to UI
         const optimisticMsg: MessageData = {
             id: `temp-${Date.now()}`,
             sender_id: currentUser.id,
@@ -85,10 +110,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
         const { data, error } = await sendMessage(currentUser.id, selectedContact.id, text);
         if (error) {
             console.error('Failed to send:', error);
-            // Revert optimistic msg on failure if needed
             setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
         } else if (data) {
-            // Replace temp id with real id
             setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? data : m));
         }
     };
@@ -99,6 +122,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
     };
 
     if (!isOpen) return null;
+
+    const displayContacts = activeTab === 'connections' ? connections : requests;
 
     return (
         <div style={{
@@ -115,15 +140,44 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
                         </button>
                     </header>
                     
+                    <div style={{ display: 'flex', borderBottom: '1px solid #2c2c2e', background: '#121212' }}>
+                        <button 
+                            onClick={() => setActiveTab('connections')}
+                            style={{ 
+                                flex: 1, padding: '12px', background: 'none', border: 'none', 
+                                color: activeTab === 'connections' ? '#ff3366' : '#8e8e93',
+                                borderBottom: activeTab === 'connections' ? '2px solid #ff3366' : '2px solid transparent',
+                                fontWeight: activeTab === 'connections' ? 'bold' : 'normal',
+                                fontSize: '15px'
+                            }}
+                        >
+                            Connections
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('requests')}
+                            style={{ 
+                                flex: 1, padding: '12px', background: 'none', border: 'none', 
+                                color: activeTab === 'requests' ? '#ff3366' : '#8e8e93',
+                                borderBottom: activeTab === 'requests' ? '2px solid #ff3366' : '2px solid transparent',
+                                fontWeight: activeTab === 'requests' ? 'bold' : 'normal',
+                                fontSize: '15px'
+                            }}
+                        >
+                            For You
+                        </button>
+                    </div>
+
                     <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
                         {loadingContacts ? (
-                            <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>Loading connections...</div>
-                        ) : contacts.length === 0 ? (
+                            <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>Loading...</div>
+                        ) : displayContacts.length === 0 ? (
                             <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>
-                                No connections yet. Match in Voice Call to chat!
+                                {activeTab === 'connections' 
+                                    ? "No connections yet. Match in Voice Call to chat!"
+                                    : "No messages from the For You feed yet."}
                             </div>
                         ) : (
-                            contacts.map(contact => (
+                            displayContacts.map(contact => (
                                 <div 
                                     key={contact.id}
                                     onClick={() => { setSelectedContact(contact); setView('chat'); }}
@@ -150,7 +204,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
             ) : (
                 <>
                     <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: '#121212' }}>
-                        <button onClick={() => setView('list')} style={{ background: 'none', border: 'none', color: '#ff3366', marginRight: '12px', display: 'flex', alignItems: 'center' }}>
+                        <button onClick={() => {
+                            setView('list'); 
+                            if (initialOpenUserId) onClose(); // If opened directly to a chat, back button closes panel
+                        }} style={{ background: 'none', border: 'none', color: '#ff3366', marginRight: '12px', display: 'flex', alignItems: 'center' }}>
                             <ChevronLeft size={24} />
                         </button>
                         <img 
@@ -181,7 +238,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser }) =
                                             borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                                             maxWidth: '75%',
                                             fontSize: '15px',
-                                            lineHeight: '1.4'
+                                            lineHeight: '1.4',
+                                            wordBreak: 'break-word'
                                         }}>
                                             {msg.content}
                                         </div>
