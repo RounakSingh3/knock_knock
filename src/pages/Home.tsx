@@ -6,6 +6,7 @@ import { checkIfLiked, toggleLike } from '../lib/database';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
+import ChatPanel from '../components/ChatPanel';
 import { isVideoPost } from '../lib/media';
 
 export interface UnifiedItem {
@@ -43,6 +44,7 @@ const Home = () => {
 
     // Feed mode toggle
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
+    const [isChatOpen, setIsChatOpen] = useState(false);
     const [unifiedConnectionItems, setUnifiedConnectionItems] = useState<UnifiedItem[]>([]);
     const [connectionUserIds, setConnectionUserIds] = useState<Set<string>>(new Set());
     const [loadingConnPosts, setLoadingConnPosts] = useState(false);
@@ -300,11 +302,16 @@ const Home = () => {
     return (
         <div className="home-page-v2">
             {/* Header + Stories */}
-            <header className="home-header-v2">
+            <header className="home-header-v2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 className="home-brand-title">Knock Knock</h1>
-                <button onClick={signOut} className="signout-btn-v2" title="Sign Out" type="button">
-                    <LogOut size={18} />
-                </button>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                    <button onClick={() => setIsChatOpen(true)} className="signout-btn-v2" title="Messages" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px' }}>
+                        <MessageCircle size={24} />
+                    </button>
+                    <button onClick={signOut} className="signout-btn-v2" title="Sign Out" type="button" style={{ background: 'none', border: 'none', color: '#ff3b30', cursor: 'pointer', padding: '8px' }}>
+                        <LogOut size={20} />
+                    </button>
+                </div>
             </header>
 
             {/* Feed Mode Toggle */}
@@ -479,6 +486,14 @@ const Home = () => {
             <button className="fab-create" onClick={() => navigate('/create')}>
                 <Plus size={28} />
             </button>
+
+            {user && (
+                <ChatPanel 
+                    isOpen={isChatOpen} 
+                    onClose={() => setIsChatOpen(false)} 
+                    currentUser={{ ...user, username: user.username || 'user' }} 
+                />
+            )}
 
             {/* Post Detail Modal */}
             {selectedPost && (

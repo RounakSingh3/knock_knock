@@ -868,3 +868,85 @@ export async function fetchConnectionStories(userId: string): Promise<StoryData[
     }
     return data || [];
 }
+
+// ── Chat / Messaging ───────────────────────────────────────
+
+export interface MessageData {
+    id: string;
+    sender_id: string;
+    receiver_id: string;
+    content: string;
+    created_at: string;
+    is_read: boolean;
+}
+
+/** Fetch messages between two users */
+export async function fetchMessages(user1: string, user2: string): Promise<MessageData[]> {
+    const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .or(`and(sender_id.eq.${user1},receiver_id.eq.${user2}),and(sender_id.eq.${user2},receiver_id.eq.${user1})`)
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        console.error('Error fetching messages:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/** Send a message */
+export async function sendMessage(senderId: string, receiverId: string, content: string): Promise<{ data: MessageData | null; error: Error | null }> {
+    const { data, error } = await supabase
+        .from('messages')
+        .insert({
+            sender_id: senderId,
+            receiver_id: receiverId,
+            content,
+        })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Error sending message:', error);
+        return { data: null, error: new Error(error.message) };
+    }
+    return { data, error: null };
+}
+
+/** Subscribe to incoming messages for a specific conversation */
+export function subscribeToMessages(user1: string, user2: string, onNewMessage: (msg: MessageData) => void) {
+    return supabase
+        .channel(`messages-${user1}-${user2}`)
+        .on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                filter: `sender_id=eq.${user2}`, // Listen for messages sent BY the other user
+            },
+            (payload) => {
+                if (payload.new.receiver_id === user1) {
+                    onNewMessage(payload.new as MessageData);
+                }
+            }
+        )
+        .subscribe();
+}
+
+/** Fetch multiple profiles by their IDs */
+export async function fetchProfilesByIds(userIds: string[]): Promise<ProfileData[]> {
+    if (userIds.length === 0) return [];
+    
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', userIds);
+        
+    if (error) {
+        console.error('Error fetching profiles by ids:', error);
+        return [];
+    }
+    return data || [];
+}
