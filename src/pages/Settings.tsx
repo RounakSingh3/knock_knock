@@ -1,6 +1,7 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
+import { fetchConnections } from '../lib/database';
 import {
     User,
     Zap,
@@ -8,136 +9,207 @@ import {
     ChevronRight,
     Star,
     PlusSquare,
+    Flame,
+    Users,
+    HelpCircle
 } from 'lucide-react';
 
 const Settings = () => {
     const { user, points, signOut } = useContext(AppContext);
     const navigate = useNavigate();
+    const [connectionsCount, setConnectionsCount] = useState<number>(0);
+    const [loadingConns, setLoadingConns] = useState(true);
+
+    useEffect(() => {
+        if (user && user.id) {
+            fetchConnections(user.id)
+                .then(data => {
+                    setConnectionsCount(data.length);
+                    setLoadingConns(false);
+                })
+                .catch(err => {
+                    console.error('Error fetching connections for settings:', err);
+                    setLoadingConns(false);
+                });
+        }
+    }, [user]);
 
     if (!user) return null;
 
     const username = user.username || 'user';
+    const streakCount = user.streak_count || 0;
 
-    const rows: { icon: React.ReactNode; label: string; sub?: string; onClick: () => void }[] = [
+    // Helper to get rank name based on points
+    const getRankName = (pts: number) => {
+        if (pts < 100) return 'Bronze Matcher 🥉';
+        if (pts < 500) return 'Silver Matcher 🥈';
+        if (pts < 2000) return 'Gold Matcher 🥇';
+        return 'Cyber Matcher 👑';
+    };
+
+    const accountRows = [
         {
-            icon: <User size={22} />,
+            icon: <User size={20} />,
             label: 'My Profile',
             sub: `@${username}`,
+            iconColor: '#06b6d4',
+            bgLight: 'rgba(6, 182, 212, 0.1)',
             onClick: () => navigate(`/profile/${username}`),
         },
         {
-            icon: <Zap size={22} />,
+            icon: <Users size={20} />,
+            label: 'My Connections',
+            sub: loadingConns ? 'Loading connections...' : `${connectionsCount} matched connections`,
+            iconColor: '#8b5cf6',
+            bgLight: 'rgba(139, 92, 246, 0.1)',
+            onClick: () => navigate('/connections'),
+        },
+    ];
+
+    const featureRows = [
+        {
+            icon: <Zap size={20} />,
             label: 'Boost & Stories',
-            sub: 'Snaps, streaks, and boost points',
+            sub: 'Snaps, streaks, and match boosts',
+            iconColor: '#f59e0b',
+            bgLight: 'rgba(245, 158, 11, 0.1)',
             onClick: () => navigate('/stories'),
         },
         {
-            icon: <PlusSquare size={22} />,
+            icon: <PlusSquare size={20} />,
             label: 'Create Post',
-            sub: 'Share photos or videos',
+            sub: 'Share photos or video reels',
+            iconColor: '#ec4899',
+            bgLight: 'rgba(236, 72, 153, 0.1)',
             onClick: () => navigate('/create'),
         },
     ];
 
     return (
         <div className="profile-page pb-20">
+            {/* Header */}
             <header className="home-header">
-                <h1 className="font-bold text-xl">Settings</h1>
+                <h1 className="font-bold text-xl" style={{ fontFamily: "'Sora', sans-serif" }}>Settings</h1>
             </header>
 
-            <div style={{ padding: '1rem' }}>
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '14px',
-                        padding: '16px',
-                        background: '#1c1c1e',
-                        borderRadius: '16px',
-                        marginBottom: '20px',
-                    }}
-                >
-                    <img
-                        src={user.avatar_url || `https://i.pravatar.cc/150?u=${username}`}
-                        alt=""
-                        style={{ width: 56, height: 56, borderRadius: '50%', objectFit: 'cover' }}
-                    />
-                    <div>
-                        <div className="font-bold">{user.name || username}</div>
-                        <div style={{ color: '#8e8e93', fontSize: '14px' }}>@{username}</div>
-                        <div
-                            style={{
-                                marginTop: '6px',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                color: '#ff3366',
-                                fontSize: '13px',
-                                fontWeight: 700,
-                            }}
-                        >
-                            <Star size={14} fill="#ff3366" /> {points} Boost Points
+            <div className="settings-container">
+                {/* Premium User Card */}
+                <div className="profile-card-premium">
+                    <div className="profile-card-header">
+                        <div className="avatar-container-premium">
+                            <img
+                                src={user.avatar_url || `https://i.pravatar.cc/150?u=${username}`}
+                                alt={user.name || username}
+                                className="avatar-image-premium"
+                            />
+                            <div className="gender-badge-premium">
+                                {user.gender === 'male' ? '♂️' : user.gender === 'female' ? '♀️' : '🌈'}
+                            </div>
+                        </div>
+
+                        <div className="user-meta-premium">
+                            <div className="user-name-premium">{user.name || username}</div>
+                            <div className="user-username-premium">@{username}</div>
+                            <div className="user-level-badge">{getRankName(points)}</div>
+                        </div>
+                    </div>
+
+                    {/* Stats Bar */}
+                    <div className="stats-grid-premium">
+                        <div className="stat-box-premium">
+                            <div className="stat-value-premium" style={{ color: '#fbbf24' }}>
+                                <Star size={16} fill="#fbbf24" style={{ filter: 'drop-shadow(0 0 4px rgba(251,191,36,0.5))' }} />
+                                <span>{points}</span>
+                            </div>
+                            <div className="stat-label-premium">Points</div>
+                        </div>
+
+                        <div className="stat-box-premium">
+                            <div className="stat-value-premium" style={{ color: '#f97316' }}>
+                                <Flame size={16} fill="#f97316" style={{ filter: 'drop-shadow(0 0 4px rgba(249,115,22,0.5))' }} />
+                                <span>{streakCount}</span>
+                            </div>
+                            <div className="stat-label-premium">Streaks</div>
+                        </div>
+
+                        <div className="stat-box-premium">
+                            <div className="stat-value-premium" style={{ color: '#8b5cf6' }}>
+                                <Users size={16} style={{ filter: 'drop-shadow(0 0 4px rgba(139,92,246,0.5))' }} />
+                                <span>{connectionsCount}</span>
+                            </div>
+                            <div className="stat-label-premium">Matches</div>
                         </div>
                     </div>
                 </div>
 
-                <div style={{ background: '#1c1c1e', borderRadius: '16px', overflow: 'hidden' }}>
-                    {rows.map((row, i) => (
+                {/* Group 1: Account Settings */}
+                <div className="settings-group-premium">
+                    <div className="settings-group-title">Account & Connections</div>
+                    {accountRows.map(row => (
                         <button
                             key={row.label}
                             type="button"
                             onClick={row.onClick}
-                            style={{
-                                width: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '14px',
-                                padding: '16px',
-                                background: 'transparent',
-                                border: 'none',
-                                borderBottom: i < rows.length - 1 ? '1px solid #2c2c2e' : 'none',
-                                color: '#fff',
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                            }}
+                            className="settings-item-premium"
                         >
-                            <span style={{ color: '#ff3366' }}>{row.icon}</span>
-                            <span style={{ flex: 1 }}>
-                                <div className="font-bold" style={{ fontSize: '15px' }}>
-                                    {row.label}
-                                </div>
-                                {row.sub && (
-                                    <div style={{ color: '#8e8e93', fontSize: '12px', marginTop: '2px' }}>
-                                        {row.sub}
-                                    </div>
-                                )}
-                            </span>
-                            <ChevronRight size={20} color="#8e8e93" />
+                            <div
+                                className="settings-icon-wrap"
+                                style={{ backgroundColor: row.bgLight, color: row.iconColor }}
+                            >
+                                {row.icon}
+                            </div>
+                            <div className="settings-text">
+                                <div className="settings-label">{row.label}</div>
+                                <div className="settings-sub">{row.sub}</div>
+                            </div>
+                            <ChevronRight size={18} color="var(--text-inactive)" />
                         </button>
                     ))}
                 </div>
 
+                {/* Group 2: Features & Experience */}
+                <div className="settings-group-premium">
+                    <div className="settings-group-title">Features & Experience</div>
+                    {featureRows.map(row => (
+                        <button
+                            key={row.label}
+                            type="button"
+                            onClick={row.onClick}
+                            className="settings-item-premium"
+                        >
+                            <div
+                                className="settings-icon-wrap"
+                                style={{ backgroundColor: row.bgLight, color: row.iconColor }}
+                            >
+                                {row.icon}
+                            </div>
+                            <div className="settings-text">
+                                <div className="settings-label">{row.label}</div>
+                                <div className="settings-sub">{row.sub}</div>
+                            </div>
+                            <ChevronRight size={18} color="var(--text-inactive)" />
+                        </button>
+                    ))}
+                </div>
+
+                {/* Tips & Guides Banner */}
+                <div className="help-banner-premium">
+                    <HelpCircle className="help-banner-icon" size={20} />
+                    <div className="help-banner-text">
+                        <h5>How to earn points & ranks?</h5>
+                        <p>
+                            Participate in Voice Roulette calls. Each hour spent on calls awards 10 points. Building streaks with connections awards massive bonus multipliers!
+                        </p>
+                    </div>
+                </div>
+
+                {/* Logout Button */}
                 <button
                     type="button"
                     onClick={signOut}
-                    style={{
-                        width: '100%',
-                        marginTop: '24px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '10px',
-                        padding: '16px',
-                        background: 'rgba(255, 59, 48, 0.15)',
-                        border: '1px solid rgba(255, 59, 48, 0.3)',
-                        borderRadius: '16px',
-                        color: '#ff3b30',
-                        fontWeight: 700,
-                        fontSize: '16px',
-                        cursor: 'pointer',
-                    }}
+                    className="logout-btn-premium"
                 >
-                    <LogOut size={20} />
+                    <LogOut size={18} />
                     Log Out
                 </button>
             </div>
