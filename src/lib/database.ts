@@ -34,6 +34,32 @@ export async function fetchPosts(): Promise<PostData[]> {
     return data || [];
 }
 
+export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
+    const connectionIds = await fetchConnectionUserIds(userId);
+    
+    let query = supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    // Exclude posts from connected users, and also exclude own posts
+    const excludeIds = [...connectionIds, userId];
+    
+    // Supabase JS doesn't have a simple 'not in' array method directly easily without string joining if array is empty, 
+    // but .not('user_id', 'in', `(${excludeIds.join(',')})`) works.
+    if (excludeIds.length > 0) {
+        query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Error fetching For You posts:', error);
+        return [];
+    }
+    return data || [];
+}
+
 export async function fetchUserPosts(username: string): Promise<PostData[]> {
     const { data, error } = await supabase
         .from('posts')

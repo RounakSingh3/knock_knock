@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchPosts, fetchRecentStories, fetchConnectionPosts, fetchConnectionUserIds, type PostData, type StoryData } from '../lib/database';
+import { fetchForYouPosts, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, type PostData, type StoryData } from '../lib/database';
 import { checkIfLiked, toggleLike } from '../lib/database';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
+import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import { isVideoPost } from '../lib/media';
+
+export interface UnifiedItem {
+    userId: string;
+    username: string;
+    avatarUrl: string;
+    post?: PostData;
+    story?: StoryData;
+    latestDate: Date;
+}
 
 // Group stories by user_id for the story rack
 interface StoryGroup {
@@ -33,12 +43,15 @@ const Home = () => {
 
     // Feed mode toggle
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
-    const [connectionPosts, setConnectionPosts] = useState<PostData[]>([]);
+    const [unifiedConnectionItems, setUnifiedConnectionItems] = useState<UnifiedItem[]>([]);
     const [connectionUserIds, setConnectionUserIds] = useState<Set<string>>(new Set());
     const [loadingConnPosts, setLoadingConnPosts] = useState(false);
+    
+    // Connection List (like Page 3)
+    const [connectionsList, setConnectionsList] = useState<any[]>([]);
 
     useEffect(() => {
-        fetchPosts()
+        fetchForYouPosts(user?.id || '')
             .then(data => {
                 setPosts(data);
                 setLoading(false);
@@ -102,21 +115,55 @@ const Home = () => {
 
     // Load connection posts when mode switches
     useEffect(() => {
-        if (feedMode === 'connections' && user && connectionPosts.length === 0) {
+        if (feedMode === 'connections' && user && unifiedConnectionItems.length === 0) {
             setLoadingConnPosts(true);
-            fetchConnectionPosts(user.id).then(data => {
-                setConnectionPosts(data);
+            Promise.all([
+                fetchConnectionPosts(user.id),
+                fetchConnectionStories(user.id),
+            ]).then(([posts, stories]) => {
+                const userMap = new Map<string, UnifiedItem>();
+                
+                posts.forEach(p => {
+                    const uid = p.user_id || 'unknown';
+                    if (!userMap.has(uid)) {
+                        userMap.set(uid, { userId: uid, username: p.username, avatarUrl: p.avatar_url, latestDate: new Date(p.created_at) });
+                    }
+                    const u = userMap.get(uid)!;
+                    if (!u.post || new Date(p.created_at) > new Date(u.post.created_at)) {
+                        u.post = p;
+                        if (new Date(p.created_at) > u.latestDate) u.latestDate = new Date(p.created_at);
+                    }
+                });
+
+                stories.forEach(s => {
+                    const uid = s.user_id || 'unknown';
+                    if (!userMap.has(uid)) {
+                        userMap.set(uid, { userId: uid, username: s.username || 'user', avatarUrl: s.image_url, latestDate: new Date(s.created_at) });
+                    }
+                    const u = userMap.get(uid)!;
+                    if (!u.story || new Date(s.created_at) > new Date(u.story.created_at)) {
+                        u.story = s;
+                        if (new Date(s.created_at) > u.latestDate) u.latestDate = new Date(s.created_at);
+                    }
+                });
+
+                const items = Array.from(userMap.values()).sort((a, b) => b.latestDate.getTime() - a.latestDate.getTime());
+                setUnifiedConnectionItems(items);
                 setLoadingConnPosts(false);
+
                 // Check likes for connection posts
-                data.forEach(p => {
+                posts.forEach(p => {
                     checkIfLiked(user.id, p.id).then(liked => {
                         setLikedPosts(prev => ({ ...prev, [p.id]: liked }));
                     });
                 });
                 const counts: Record<string, number> = {};
-                data.forEach(p => { counts[p.id] = p.likes_count; });
+                posts.forEach(p => { counts[p.id] = p.likes_count; });
                 setLikeCounts(prev => ({ ...prev, ...counts }));
             });
+            
+            // Also fetch connection profiles list (to show matching people)
+            // For simplicity, we just extract it from unified items for now if we don't import fetchConnections
         }
     }, [feedMode]);
 
@@ -326,52 +373,38 @@ const Home = () => {
                         <div className="feed-state-msg">
                             <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
                         </div>
-                    ) : connectionPosts.length === 0 ? (
+                    ) : unifiedConnectionItems.length === 0 ? (
                         <div className="feed-state-msg">
                             <Users size={32} style={{ color: '#8e8e93', marginBottom: '8px' }} />
-                            <p style={{ color: '#8e8e93' }}>No posts from connections yet.</p>
-                            <p style={{ color: '#6e6e73', fontSize: '0.8rem', marginTop: '4px' }}>Match via Voice Roulette & Connect to see their posts here!</p>
+                            <p style={{ color: '#8e8e93' }}>No posts or stories from connections yet.</p>
+                            <p style={{ color: '#6e6e73', fontSize: '0.8rem', marginTop: '4px' }}>Match via Voice Roulette & Connect to see their updates here!</p>
                         </div>
                     ) : (
-                        <div className="masonry-grid">
-                            {connectionPosts.map((post, index) => (
-                                <div
-                                    key={post.id}
-                                    className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
-                                    onClick={() => setSelectedPost(post)}
-                                    onDoubleClick={() => handleDoubleTap(post)}
-                                >
-                                    <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={isVideoPost(post)} />
-                                    {isVideoPost(post) && (
-                                        <span className="masonry-video-sound-hint">🔊 Tap for sound</span>
-                                    )}
-                                    <div className="masonry-card-overlay" />
-                                    <div className="masonry-connection-badge">
-                                        <Users size={10} /> Connected
-                                    </div>
-                                    <button
-                                        className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
-                                        onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
-                                    >
-                                        <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
-                                    </button>
-                                    <div className="masonry-card-info">
-                                        <div className="masonry-card-user">
-                                            <img
-                                                src={post.avatar_url || 'https://i.pravatar.cc/150'}
-                                                alt=""
-                                                className="masonry-avatar"
-                                            />
-                                            <span className="masonry-username">{post.username}</span>
+                        <>
+                            <div className="connections-horizontal-list" style={{ display: 'flex', overflowX: 'auto', gap: '16px', padding: '0 16px 16px', borderBottom: '1px solid #2c2c2e', marginBottom: '16px' }}>
+                                {unifiedConnectionItems.map(item => (
+                                    <div key={'av-'+item.userId} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }}>
+                                        <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'linear-gradient(45deg, #ff3366, #ff9933)', padding: 2 }}>
+                                            <img src={item.avatarUrl || 'https://i.pravatar.cc/150'} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '2px solid #000' }} />
                                         </div>
-                                        <div className="masonry-meta">
-                                            <span className="masonry-likes">{likeCounts[post.id] || 0} ❤️</span>
-                                            <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
-                                        </div>
+                                        <span style={{ fontSize: '11px', marginTop: 4, color: '#fff' }}>{item.username.substring(0, 8)}</span>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                            <div className="masonry-grid">
+                                {unifiedConnectionItems.map((item, index) => (
+                                    <ConnectionFeedItem 
+                                        key={item.userId}
+                                        item={item}
+                                        isLiked={item.post ? !!likedPosts[item.post.id] : false}
+                                        likeCount={item.post ? (likeCounts[item.post.id] || 0) : 0}
+                                        onLikeToggle={(postId) => handleLikeToggle(postId)}
+                                        onDoubleTap={(postId) => { if(!likedPosts[postId]) handleLikeToggle(postId); }}
+                                        onClickPost={(post) => setSelectedPost(post)}
+                                    />
+                                ))}
+                            </div>
+                        </>
                     )
                 ) : (
                     // For You Feed (original)
@@ -382,7 +415,7 @@ const Home = () => {
                                 className="retry-btn-v2"
                                 onClick={() => {
                                     setError(''); setLoading(true);
-                                    fetchPosts().then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); });
+                                    fetchForYouPosts(user?.id || '').then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); });
                                 }}
                             >
                                 Retry

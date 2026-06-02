@@ -11,9 +11,7 @@ const BottomNav = () => {
             <NavLink to="/reels" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <Film size={26} />
             </NavLink>
-            <NavLink to="/connections" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <Users size={26} />
-            </NavLink>
+
             <NavLink to="/call" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <Phone size={26} />
             </NavLink>
