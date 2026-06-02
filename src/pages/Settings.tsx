@@ -1,7 +1,8 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchConnections } from '../lib/database';
+import { fetchConnections, fetchFollowCounts, fetchUserPosts } from '../lib/database';
+import { isVideoPost } from '../lib/media';
 import {
     User,
     Zap,
@@ -11,25 +12,44 @@ import {
     PlusSquare,
     Flame,
     Users,
-    HelpCircle
+    HelpCircle,
+    Image,
+    UserPlus,
+    UserCheck
 } from 'lucide-react';
 
 const Settings = () => {
     const { user, points, signOut } = useContext(AppContext);
     const navigate = useNavigate();
+    
     const [connectionsCount, setConnectionsCount] = useState<number>(0);
-    const [loadingConns, setLoadingConns] = useState(true);
+    const [followersCount, setFollowersCount] = useState<number>(0);
+    const [followingCount, setFollowingCount] = useState<number>(0);
+    const [photosCount, setPhotosCount] = useState<number>(0);
+    const [loadingStats, setLoadingStats] = useState(true);
 
     useEffect(() => {
-        if (user && user.id) {
-            fetchConnections(user.id)
-                .then(data => {
-                    setConnectionsCount(data.length);
-                    setLoadingConns(false);
+        if (user && user.id && user.username) {
+            setLoadingStats(true);
+            Promise.all([
+                fetchConnections(user.id),
+                fetchFollowCounts(user.id),
+                fetchUserPosts(user.username)
+            ])
+                .then(([conns, followData, posts]) => {
+                    setConnectionsCount(conns.length);
+                    setFollowersCount(followData.followers);
+                    setFollowingCount(followData.following);
+                    
+                    // Filter posts to only count photos (non-videos)
+                    const photos = posts.filter(p => !isVideoPost(p));
+                    setPhotosCount(photos.length);
+                    
+                    setLoadingStats(false);
                 })
                 .catch(err => {
-                    console.error('Error fetching connections for settings:', err);
-                    setLoadingConns(false);
+                    console.error('Error fetching settings stats:', err);
+                    setLoadingStats(false);
                 });
         }
     }, [user]);
@@ -59,7 +79,7 @@ const Settings = () => {
         {
             icon: <Users size={20} />,
             label: 'My Connections',
-            sub: loadingConns ? 'Loading connections...' : `${connectionsCount} matched connections`,
+            sub: loadingStats ? 'Loading connections...' : `${connectionsCount} matched connections`,
             iconColor: '#8b5cf6',
             bgLight: 'rgba(139, 92, 246, 0.1)',
             onClick: () => navigate('/connections'),
@@ -114,7 +134,7 @@ const Settings = () => {
                         </div>
                     </div>
 
-                    {/* Stats Bar */}
+                    {/* Stats Bar (3x2 Grid) */}
                     <div className="stats-grid-premium">
                         <div className="stat-box-premium">
                             <div className="stat-value-premium" style={{ color: '#fbbf24' }}>
@@ -138,6 +158,30 @@ const Settings = () => {
                                 <span>{connectionsCount}</span>
                             </div>
                             <div className="stat-label-premium">Matches</div>
+                        </div>
+
+                        <div className="stat-box-premium">
+                            <div className="stat-value-premium" style={{ color: '#06b6d4' }}>
+                                <Image size={16} style={{ filter: 'drop-shadow(0 0 4px rgba(6,182,212,0.5))' }} />
+                                <span>{photosCount}</span>
+                            </div>
+                            <div className="stat-label-premium">Photos</div>
+                        </div>
+
+                        <div className="stat-box-premium">
+                            <div className="stat-value-premium" style={{ color: '#10b981' }}>
+                                <UserPlus size={16} style={{ filter: 'drop-shadow(0 0 4px rgba(16,185,129,0.5))' }} />
+                                <span>{followersCount}</span>
+                            </div>
+                            <div className="stat-label-premium">Followers</div>
+                        </div>
+
+                        <div className="stat-box-premium">
+                            <div className="stat-value-premium" style={{ color: '#ec4899' }}>
+                                <UserCheck size={16} style={{ filter: 'drop-shadow(0 0 4px rgba(236,72,153,0.5))' }} />
+                                <span>{followingCount}</span>
+                            </div>
+                            <div className="stat-label-premium">Following</div>
                         </div>
                     </div>
                 </div>
