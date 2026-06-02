@@ -14,6 +14,8 @@ export interface PostData {
     image_url: string;
     caption: string;
     likes_count: number;
+    comments_count?: number;
+    shares_count?: number;
     created_at: string;
     attached_link?: string;
     media_type?: MediaType | string;
@@ -92,6 +94,8 @@ export async function createNewPost(post: {
         image_url: post.image_url,
         caption: post.caption,
         likes_count: 0,
+        comments_count: 0,
+        shares_count: 0,
         media_type: post.media_type || 'image',
     };
     if (post.user_id) row.user_id = post.user_id;

@@ -1,8 +1,9 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchConnections, fetchFollowCounts, fetchUserPosts } from '../lib/database';
+import { fetchConnections, fetchFollowCounts, fetchUserPosts, type PostData } from '../lib/database';
 import { isVideoPost } from '../lib/media';
+import PostMedia from '../components/PostMedia';
 import {
     User,
     Zap,
@@ -15,7 +16,11 @@ import {
     HelpCircle,
     Image,
     UserPlus,
-    UserCheck
+    UserCheck,
+    Grid,
+    Heart,
+    MessageCircle,
+    Send
 } from 'lucide-react';
 
 const Settings = () => {
@@ -26,6 +31,7 @@ const Settings = () => {
     const [followersCount, setFollowersCount] = useState<number>(0);
     const [followingCount, setFollowingCount] = useState<number>(0);
     const [photosCount, setPhotosCount] = useState<number>(0);
+    const [userPosts, setUserPosts] = useState<PostData[]>([]);
     const [loadingStats, setLoadingStats] = useState(true);
 
     useEffect(() => {
@@ -44,6 +50,7 @@ const Settings = () => {
                     // Filter posts to only count photos (non-videos)
                     const photos = posts.filter(p => !isVideoPost(p));
                     setPhotosCount(photos.length);
+                    setUserPosts(posts);
                     
                     setLoadingStats(false);
                 })
@@ -245,6 +252,44 @@ const Settings = () => {
                             Participate in Voice Roulette calls. Each hour spent on calls awards 10 points. Building streaks with connections awards massive bonus multipliers!
                         </p>
                     </div>
+                </div>
+
+                {/* My Posts Grid */}
+                <div className="settings-group-premium" style={{ marginTop: '1.5rem', background: 'transparent', padding: 0 }}>
+                    <div className="settings-group-title" style={{ paddingLeft: '0.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Grid size={18} color="#fff" /> My Posts
+                    </div>
+                    {userPosts.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '2rem', color: '#8e8e93', background: 'rgba(255,255,255,0.03)', borderRadius: '16px' }}>
+                            <p>You haven't uploaded any photos or videos yet.</p>
+                            <button className="retry-btn-v2" style={{ marginTop: '1rem' }} onClick={() => navigate('/create')}>Create Post</button>
+                        </div>
+                    ) : (
+                        <div className="settings-post-grid">
+                            {userPosts.map(post => (
+                                <div key={post.id} className="settings-post-item" onClick={() => navigate(`/profile/${username}`)}>
+                                    <PostMedia
+                                        post={post}
+                                        className="settings-post-img"
+                                        muted
+                                        loop
+                                        playsInline
+                                        autoPlay={isVideoPost(post)}
+                                    />
+                                    {isVideoPost(post) && (
+                                        <div className="settings-video-badge">▶</div>
+                                    )}
+                                    <div className="settings-post-overlay">
+                                        <div className="settings-engagement-stats">
+                                            <span><Heart size={14} fill="#fff" /> {post.likes_count || 0}</span>
+                                            <span><MessageCircle size={14} fill="#fff" /> {post.comments_count || 0}</span>
+                                            <span><Send size={14} fill="#fff" /> {post.shares_count || 0}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Logout Button */}

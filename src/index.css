@@ -3965,4 +3965,79 @@ body {
     color: var(--text-inactive);
     margin-top: 4px;
     line-height: 1.4;
+}
+
+/* 5th Page Posts Grid (Instagram style) */
+.settings-post-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    width: 100%;
+}
+
+.settings-post-item {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: #1c1c1e;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.settings-post-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.settings-post-item:hover .settings-post-img {
+    transform: scale(1.05);
+}
+
+.settings-video-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0,0,0,0.5);
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: #fff;
+    pointer-events: none;
+}
+
+.settings-post-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.settings-post-item:hover .settings-post-overlay {
+    opacity: 1;
+}
+
+.settings-engagement-stats {
+    display: flex;
+    gap: 12px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.settings-engagement-stats span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
