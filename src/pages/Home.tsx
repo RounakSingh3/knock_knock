@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchPosts, fetchRecentStories, type PostData, type StoryData } from '../lib/database';
+import { fetchPosts, fetchRecentStories, fetchConnectionPosts, fetchConnectionUserIds, type PostData, type StoryData } from '../lib/database';
 import { checkIfLiked, toggleLike } from '../lib/database';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import { isVideoPost } from '../lib/media';
 
@@ -30,6 +30,12 @@ const Home = () => {
     const [viewingGroup, setViewingGroup] = useState<StoryGroup | null>(null);
     const [viewingIndex, setViewingIndex] = useState(0);
     const [storyProgress, setStoryProgress] = useState(0);
+
+    // Feed mode toggle
+    const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
+    const [connectionPosts, setConnectionPosts] = useState<PostData[]>([]);
+    const [connectionUserIds, setConnectionUserIds] = useState<Set<string>>(new Set());
+    const [loadingConnPosts, setLoadingConnPosts] = useState(false);
 
     useEffect(() => {
         fetchPosts()
@@ -70,6 +76,13 @@ const Home = () => {
             });
             setStoryGroups(Object.values(groups));
         });
+
+        // Fetch connection user IDs for ring highlights
+        if (user) {
+            fetchConnectionUserIds(user.id).then(ids => {
+                setConnectionUserIds(new Set(ids));
+            });
+        }
     }, []);
 
     const handleLikeToggle = async (postId: string) => {
@@ -86,6 +99,26 @@ const Home = () => {
             handleLikeToggle(post.id);
         }
     };
+
+    // Load connection posts when mode switches
+    useEffect(() => {
+        if (feedMode === 'connections' && user && connectionPosts.length === 0) {
+            setLoadingConnPosts(true);
+            fetchConnectionPosts(user.id).then(data => {
+                setConnectionPosts(data);
+                setLoadingConnPosts(false);
+                // Check likes for connection posts
+                data.forEach(p => {
+                    checkIfLiked(user.id, p.id).then(liked => {
+                        setLikedPosts(prev => ({ ...prev, [p.id]: liked }));
+                    });
+                });
+                const counts: Record<string, number> = {};
+                data.forEach(p => { counts[p.id] = p.likes_count; });
+                setLikeCounts(prev => ({ ...prev, ...counts }));
+            });
+        }
+    }, [feedMode]);
 
     // ── Story Viewer Logic ──
     const openStoryViewer = (group: StoryGroup) => {
@@ -227,6 +260,24 @@ const Home = () => {
                 </button>
             </header>
 
+            {/* Feed Mode Toggle */}
+            <div className="feed-toggle-bar">
+                <button
+                    className={`feed-toggle-pill ${feedMode === 'foryou' ? 'active' : ''}`}
+                    onClick={() => setFeedMode('foryou')}
+                >
+                    <Sparkles size={14} />
+                    For You
+                </button>
+                <button
+                    className={`feed-toggle-pill ${feedMode === 'connections' ? 'active' : ''}`}
+                    onClick={() => setFeedMode('connections')}
+                >
+                    <Users size={14} />
+                    Connections
+                </button>
+            </div>
+
             {(storyGroups.length > 0 || user) && (
                 <div className="story-rack-v2 story-rack-top">
                     <div className="story-rack-item" onClick={() => navigate('/stories')}>
@@ -244,89 +295,150 @@ const Home = () => {
 
                     {storyGroups
                         .filter(g => g.userId !== user?.id)
-                        .map(group => (
-                            <div
-                                key={group.userId}
-                                className="story-rack-item"
-                                onClick={() => openStoryViewer(group)}
-                            >
-                                <div className="story-tile-rect">
-                                    <img
-                                        src={group.stories[0]?.image_url || group.avatarUrl}
-                                        alt={group.username}
-                                    />
+                        .map(group => {
+                            const isConnection = connectionUserIds.has(group.userId);
+                            return (
+                                <div
+                                    key={group.userId}
+                                    className="story-rack-item"
+                                    onClick={() => openStoryViewer(group)}
+                                >
+                                    <div className={`story-tile-rect ${isConnection ? 'story-tile-connection' : ''}`}>
+                                        <img
+                                            src={group.stories[0]?.image_url || group.avatarUrl}
+                                            alt={group.username}
+                                        />
+                                    </div>
+                                    <span className="story-rack-name">
+                                        {isConnection && '🔥 '}{group.username}
+                                    </span>
                                 </div>
-                                <span className="story-rack-name">{group.username}</span>
-                            </div>
-                        ))}
+                            );
+                        })}
                 </div>
             )}
 
             {/* Content */}
             <div className="masonry-feed-wrapper">
-                {error ? (
-                    <div className="feed-state-msg">
-                        <p style={{ color: '#ff3b30' }}>{error}</p>
-                        <button
-                            className="retry-btn-v2"
-                            onClick={() => {
-                                setError(''); setLoading(true);
-                                fetchPosts().then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); });
-                            }}
-                        >
-                            Retry
-                        </button>
-                    </div>
-                ) : loading ? (
-                    <div className="feed-state-msg">
-                        <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
-                    </div>
-                ) : posts.length === 0 ? (
-                    <div className="feed-state-msg">
-                        <p style={{ color: '#8e8e93' }}>No posts yet. Be the first to post!</p>
-                    </div>
-                ) : (
-                    <div className="masonry-grid">
-                        {posts.map((post, index) => (
-                            <div
-                                key={post.id}
-                                className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
-                                onClick={() => setSelectedPost(post)}
-                                onDoubleClick={() => handleDoubleTap(post)}
-                            >
-                                <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={isVideoPost(post)} />
-                                {isVideoPost(post) && (
-                                    <span className="masonry-video-sound-hint">🔊 Tap for sound</span>
-                                )}
-                                <div className="masonry-card-overlay" />
-                                <button
-                                    className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
-                                    onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
+                {feedMode === 'connections' ? (
+                    // Connections Feed
+                    loadingConnPosts ? (
+                        <div className="feed-state-msg">
+                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                        </div>
+                    ) : connectionPosts.length === 0 ? (
+                        <div className="feed-state-msg">
+                            <Users size={32} style={{ color: '#8e8e93', marginBottom: '8px' }} />
+                            <p style={{ color: '#8e8e93' }}>No posts from connections yet.</p>
+                            <p style={{ color: '#6e6e73', fontSize: '0.8rem', marginTop: '4px' }}>Match via Voice Roulette & Connect to see their posts here!</p>
+                        </div>
+                    ) : (
+                        <div className="masonry-grid">
+                            {connectionPosts.map((post, index) => (
+                                <div
+                                    key={post.id}
+                                    className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
+                                    onClick={() => setSelectedPost(post)}
+                                    onDoubleClick={() => handleDoubleTap(post)}
                                 >
-                                    <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
-                                </button>
-                                {post.attached_link && (
-                                    <div className="masonry-link-badge">
-                                        <LinkIcon size={12} />
+                                    <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={isVideoPost(post)} />
+                                    {isVideoPost(post) && (
+                                        <span className="masonry-video-sound-hint">🔊 Tap for sound</span>
+                                    )}
+                                    <div className="masonry-card-overlay" />
+                                    <div className="masonry-connection-badge">
+                                        <Users size={10} /> Connected
                                     </div>
-                                )}
-                                <div className="masonry-card-info">
-                                    <div className="masonry-card-user">
-                                        <img
-                                            src={post.avatar_url || 'https://i.pravatar.cc/150'}
-                                            alt=""
-                                            className="masonry-avatar"
-                                        />
-                                        <span className="masonry-username">{post.username}</span>
-                                    </div>
-                                    <div className="masonry-meta">
-                                        <span className="masonry-likes">{likeCounts[post.id] || 0} ❤️</span>
-                                        <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
+                                    <button
+                                        className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
+                                        onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
+                                    >
+                                        <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
+                                    </button>
+                                    <div className="masonry-card-info">
+                                        <div className="masonry-card-user">
+                                            <img
+                                                src={post.avatar_url || 'https://i.pravatar.cc/150'}
+                                                alt=""
+                                                className="masonry-avatar"
+                                            />
+                                            <span className="masonry-username">{post.username}</span>
+                                        </div>
+                                        <div className="masonry-meta">
+                                            <span className="masonry-likes">{likeCounts[post.id] || 0} ❤️</span>
+                                            <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    )
+                ) : (
+                    // For You Feed (original)
+                    error ? (
+                        <div className="feed-state-msg">
+                            <p style={{ color: '#ff3b30' }}>{error}</p>
+                            <button
+                                className="retry-btn-v2"
+                                onClick={() => {
+                                    setError(''); setLoading(true);
+                                    fetchPosts().then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); });
+                                }}
+                            >
+                                Retry
+                            </button>
+                        </div>
+                    ) : loading ? (
+                        <div className="feed-state-msg">
+                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                        </div>
+                    ) : posts.length === 0 ? (
+                        <div className="feed-state-msg">
+                            <p style={{ color: '#8e8e93' }}>No posts yet. Be the first to post!</p>
+                        </div>
+                    ) : (
+                        <div className="masonry-grid">
+                            {posts.map((post, index) => (
+                                <div
+                                    key={post.id}
+                                    className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
+                                    onClick={() => setSelectedPost(post)}
+                                    onDoubleClick={() => handleDoubleTap(post)}
+                                >
+                                    <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={isVideoPost(post)} />
+                                    {isVideoPost(post) && (
+                                        <span className="masonry-video-sound-hint">🔊 Tap for sound</span>
+                                    )}
+                                    <div className="masonry-card-overlay" />
+                                    <button
+                                        className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
+                                        onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
+                                    >
+                                        <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
+                                    </button>
+                                    {post.attached_link && (
+                                        <div className="masonry-link-badge">
+                                            <LinkIcon size={12} />
+                                        </div>
+                                    )}
+                                    <div className="masonry-card-info">
+                                        <div className="masonry-card-user">
+                                            <img
+                                                src={post.avatar_url || 'https://i.pravatar.cc/150'}
+                                                alt=""
+                                                className="masonry-avatar"
+                                            />
+                                            <span className="masonry-username">{post.username}</span>
+                                        </div>
+                                        <div className="masonry-meta">
+                                            <span className="masonry-likes">{likeCounts[post.id] || 0} ❤️</span>
+                                            <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )
                 )}
             </div>
 

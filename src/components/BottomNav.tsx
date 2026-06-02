@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Film, Compass, Phone, Settings } from 'lucide-react';
+import { Home, Film, Users, Phone, Settings } from 'lucide-react';
 
 const BottomNav = () => {
     return (
@@ -11,8 +11,8 @@ const BottomNav = () => {
             <NavLink to="/reels" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <Film size={26} />
             </NavLink>
-            <NavLink to="/explore" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <Compass size={26} />
+            <NavLink to="/connections" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Users size={26} />
             </NavLink>
             <NavLink to="/call" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <Phone size={26} />
@@ -25,3 +25,4 @@ const BottomNav = () => {
 };
 
 export default BottomNav;
+

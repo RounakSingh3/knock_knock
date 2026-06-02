@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
-import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X } from 'lucide-react';
+import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
 import { AppContext } from '../App';
-import { computeMatches, type MatchResult } from '../lib/database';
+import { computeMatches, createConnection, checkConnection, type MatchResult, type ConnectionData } from '../lib/database';
 
 const MATCH_PREFERENCES = [
     "Similar Likes ❤️",
@@ -28,7 +28,8 @@ const VoiceCall = () => {
     // Call feature states
     const [requestStatus, setRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
     const [videoRequestStatus, setVideoRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
-    const [isFollowed, setIsFollowed] = useState(false);
+    const [connectionState, setConnectionState] = useState<'none' | 'connecting' | 'connected' | 'already'>('none');
+    const [showConnectionToast, setShowConnectionToast] = useState(false);
     const [showChat, setShowChat] = useState(false);
     const [chatInput, setChatInput] = useState('');
     const [chatMessages, setChatMessages] = useState<{ id: number; text: string; isMine: boolean }[]>([]);
@@ -91,7 +92,33 @@ const VoiceCall = () => {
         setTimeout(() => setVideoRequestStatus('accepted'), 2000);
     };
 
-    const handleFollow = () => setIsFollowed(true);
+    const handleConnect = async () => {
+        if (!user || !currentMatch || connectionState === 'connecting' || connectionState === 'connected') return;
+        setConnectionState('connecting');
+        
+        // Check if already connected
+        const existing = await checkConnection(user.id, currentMatch.profile.id);
+        if (existing) {
+            setConnectionState('already');
+            return;
+        }
+
+        const { error } = await createConnection(
+            user.id,
+            currentMatch.profile.id,
+            currentMatch.compatibilityPercent,
+            currentMatch.sharedLikes,
+            'voice_call'
+        );
+
+        if (!error) {
+            setConnectionState('connected');
+            setShowConnectionToast(true);
+            setTimeout(() => setShowConnectionToast(false), 4000);
+        } else {
+            setConnectionState('none');
+        }
+    };
 
     const startSearch = async () => {
         if (!user) return;
@@ -145,7 +172,8 @@ const VoiceCall = () => {
         setCallDuration(0);
         setRequestStatus('none');
         setVideoRequestStatus('none');
-        setIsFollowed(false);
+        setConnectionState('none');
+        setShowConnectionToast(false);
         setShowChat(false);
         setChatMessages([]);
     };
@@ -277,17 +305,38 @@ const VoiceCall = () => {
                                     <MessageSquare size={16} /> Chat
                                 </button>
                                 <button
-                                    className="pill"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: isFollowed ? '#34C759' : '' }}
-                                    onClick={handleFollow}
-                                    disabled={isFollowed}
+                                    className={`pill connect-btn-call ${connectionState === 'connected' || connectionState === 'already' ? 'connected' : ''}`}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
+                                    onClick={handleConnect}
+                                    disabled={connectionState === 'connecting' || connectionState === 'connected' || connectionState === 'already'}
                                 >
-                                    <UserPlus size={16} /> {isFollowed ? 'Friends' : 'Follow'}
+                                    {connectionState === 'connecting' ? (
+                                        <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Connecting...</>
+                                    ) : connectionState === 'connected' ? (
+                                        <><Link2 size={16} /> Connected 🤝</>
+                                    ) : connectionState === 'already' ? (
+                                        <><Link2 size={16} /> Already Connected</>
+                                    ) : (
+                                        <><Link2 size={16} /> Connect 🤝</>
+                                    )}
                                 </button>
                             </div>
                         </div>
                     )}
                 </div>
+
+                {/* Connection Success Toast */}
+                {showConnectionToast && (
+                    <div className="connection-toast">
+                        <div className="connection-toast-inner">
+                            <Flame size={20} className="streak-icon-active" />
+                            <div>
+                                <strong>Connected with {currentMatch.profile.name}!</strong>
+                                <span>🔥 Streak started — Day 1!</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="call-controls" style={{ position: 'absolute', bottom: '20px', left: 0, right: 0, zIndex: 10 }}>
                     <button className="call-btn btn-mute" onClick={() => setIsMuted(!isMuted)}>

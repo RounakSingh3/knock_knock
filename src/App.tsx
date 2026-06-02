@@ -6,6 +6,7 @@ import BottomNav from './components/BottomNav';
 import Home from './pages/Home';
 import Stories from './pages/Stories';
 import Explore from './pages/Explore';
+import Connections from './pages/Connections';
 import Reels from './pages/Reels';
 import VoiceCall from './pages/VoiceCall';
 import Login from './pages/Login';
@@ -211,6 +212,7 @@ function App() {
                                 <Route path="/home" element={<Home />} />
                                 <Route path="/stories" element={<Stories />} />
                                 <Route path="/explore" element={<Explore />} />
+                                <Route path="/connections" element={<Connections />} />
                                 <Route path="/create" element={<CreatePost />} />
                                 <Route path="/reels" element={<Reels />} />
                                 <Route path="/call" element={<VoiceCall />} />
