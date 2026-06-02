@@ -516,14 +516,16 @@ body {
     width: 100%;
     max-width: 420px;
     max-height: 90vh;
-    background: #1a1a1e;
-    border-radius: 24px;
+    background: rgba(16, 15, 30, 0.75);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border-radius: 28px;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
-    animation: modal-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: modal-slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1);
     position: relative;
 }
 
@@ -668,17 +670,18 @@ body {
     height: 40px;
     border-radius: 50%;
     object-fit: cover;
-    border: 2px solid rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.15);
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .modal-avatar:hover {
-    border-color: #ff3366;
+    border-color: var(--accent-cyan);
 }
 
 .modal-username {
     font-weight: 700;
+    font-family: 'Sora', sans-serif;
     font-size: 0.95rem;
     color: white;
     cursor: pointer;
@@ -686,7 +689,7 @@ body {
 }
 
 .modal-username:hover {
-    color: #ff3366;
+    color: var(--accent-cyan);
 }
 
 .modal-time {
@@ -1370,13 +1373,21 @@ body {
 }
 
 .search-bar {
-    background: var(--surface-color);
-    padding: 12px 16px;
-    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    padding: 14px 18px;
+    border-radius: 16px;
     display: flex;
     align-items: center;
     gap: 12px;
     margin: 0 12px 16px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.search-bar:focus-within {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .search-bar input {
