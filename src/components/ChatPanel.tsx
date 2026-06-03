@@ -234,14 +234,46 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                                         <div style={{
                                             background: isMe ? '#ff3366' : '#2c2c2e',
                                             color: '#fff',
-                                            padding: '12px 16px',
+                                            padding: msg.content.startsWith('[SHARE_POST]') ? '8px' : '12px 16px',
                                             borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                                             maxWidth: '75%',
                                             fontSize: '15px',
                                             lineHeight: '1.4',
                                             wordBreak: 'break-word'
                                         }}>
-                                            {msg.content}
+                                            {(() => {
+                                                if (msg.content.startsWith('[SHARE_POST]')) {
+                                                    try {
+                                                        const jsonStr = msg.content.replace('[SHARE_POST] ', '');
+                                                        const sharedPost = JSON.parse(jsonStr);
+                                                        return (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                                <div style={{ fontSize: '12px', opacity: 0.8, padding: '0 4px', fontWeight: 'bold' }}>
+                                                                    Shared {sharedPost.username ? `@${sharedPost.username}'s` : 'a'} post
+                                                                </div>
+                                                                <div style={{ 
+                                                                    position: 'relative', width: '200px', height: '260px', 
+                                                                    borderRadius: '12px', overflow: 'hidden', background: '#000'
+                                                                }}>
+                                                                    {sharedPost.media_type === 'video' ? (
+                                                                        <video src={sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+                                                                    ) : (
+                                                                        <img src={sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                    )}
+                                                                </div>
+                                                                {sharedPost.caption && (
+                                                                    <div style={{ fontSize: '13px', padding: '0 4px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                                                        {sharedPost.caption}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    } catch (e) {
+                                                        return "Shared a post";
+                                                    }
+                                                }
+                                                return msg.content;
+                                            })()}
                                         </div>
                                         <div style={{ fontSize: '11px', color: '#8e8e93', marginTop: '4px', display: 'flex', alignItems: 'center' }}>
                                             {formatTime(msg.created_at)}

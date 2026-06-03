@@ -7,6 +7,7 @@ import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIco
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import ChatPanel from '../components/ChatPanel';
+import ShareModal from '../components/ShareModal';
 import { isVideoPost } from '../lib/media';
 
 export interface UnifiedItem {
@@ -46,6 +47,8 @@ const Home = () => {
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatUserId, setChatUserId] = useState<string | null>(null);
+    const [isShareOpen, setIsShareOpen] = useState(false);
+    const [postToShare, setPostToShare] = useState<PostData | null>(null);
     const [unifiedConnectionItems, setUnifiedConnectionItems] = useState<UnifiedItem[]>([]);
     const [connectionUserIds, setConnectionUserIds] = useState<Set<string>>(new Set());
     const [loadingConnPosts, setLoadingConnPosts] = useState(false);
@@ -409,6 +412,7 @@ const Home = () => {
                                         onLikeToggle={(postId) => handleLikeToggle(postId)}
                                         onDoubleTap={(postId) => { if(!likedPosts[postId]) handleLikeToggle(postId); }}
                                         onClickPost={(post) => setSelectedPost(post)}
+                                        onShare={(post) => { setPostToShare(post); setIsShareOpen(true); }}
                                     />
                                 ))}
                             </div>
@@ -464,6 +468,13 @@ const Home = () => {
                                     >
                                         <MessageCircle size={16} color="#fff" />
                                     </button>
+                                    <button
+                                        className="masonry-like-btn"
+                                        style={{ bottom: '80px' }}
+                                        onClick={(e) => { e.stopPropagation(); setPostToShare(post); setIsShareOpen(true); }}
+                                    >
+                                        <Send size={16} color="#fff" />
+                                    </button>
                                     {post.attached_link && (
                                         <div className="masonry-link-badge">
                                             <LinkIcon size={12} />
@@ -501,6 +512,15 @@ const Home = () => {
                     onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
                     currentUser={{ ...user, username: user.username || 'user' }} 
                     initialOpenUserId={chatUserId}
+                />
+            )}
+
+            {user && (
+                <ShareModal 
+                    isOpen={isShareOpen} 
+                    onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
+                    post={postToShare}
+                    currentUser={{ ...user, username: user.username || 'user' }} 
                 />
             )}
 

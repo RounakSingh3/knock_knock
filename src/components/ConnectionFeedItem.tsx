@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { PostData, StoryData } from '../lib/database';
 import PostMedia from './PostMedia';
-import { Heart, Users, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Heart, Users, ChevronRight, ChevronLeft, Send } from 'lucide-react';
 
 interface UnifiedItem {
     userId: string;
@@ -19,6 +19,7 @@ interface ConnectionFeedItemProps {
     onLikeToggle: (postId: string) => void;
     onDoubleTap: (postId: string) => void;
     onClickPost: (post: PostData) => void;
+    onShare?: (post: PostData) => void;
 }
 
 const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
@@ -28,6 +29,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
     onLikeToggle,
     onDoubleTap,
     onClickPost,
+    onShare,
 }) => {
     // 0 = post, 1 = story
     const [viewIndex, setViewIndex] = useState(0);
@@ -62,6 +64,15 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                     >
                         <Heart size={16} fill={isLiked ? '#ff3366' : 'none'} color={isLiked ? '#ff3366' : '#fff'} />
                     </button>
+                    {onShare && (
+                        <button
+                            className="masonry-like-btn"
+                            style={{ bottom: '48px' }}
+                            onClick={(e) => { e.stopPropagation(); onShare(item.post!); }}
+                        >
+                            <Send size={16} color="#fff" />
+                        </button>
+                    )}
                     <div className="masonry-card-info">
                         <div className="masonry-card-user">
                             <img src={item.avatarUrl || 'https://i.pravatar.cc/150'} alt="" className="masonry-avatar" />
