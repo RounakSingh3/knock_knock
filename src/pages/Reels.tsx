@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon } from 'lucide-react';
-import { fetchVideoPosts, type PostData } from '../lib/database';
+import { fetchVideoPosts, trackEngagement, type PostData } from '../lib/database';
+import { AppContext } from '../App';
 
 export interface ReelData {
     id: string | number;
@@ -201,6 +202,7 @@ function postToReel(post: PostData): ReelData {
 }
 
 const Reels: React.FC = () => {
+    const { user } = useContext(AppContext);
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [mutedAll, setMutedAll] = useState(false);
@@ -210,6 +212,10 @@ const Reels: React.FC = () => {
     const [playStates, setPlayStates] = useState<boolean[]>(REELS_DATA.map(() => true));
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
     const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
+
+    // Watch time & replay tracking
+    const watchStartRef = useRef<number>(0);
+    const replayCountRef = useRef<Record<number, number>>({});
 
     useEffect(() => {
         fetchVideoPosts().then((videoPosts) => {
@@ -281,6 +287,41 @@ const Reels: React.FC = () => {
         });
         return () => observers.forEach((o) => o.disconnect());
     }, [selectedReelIndex]);
+
+    // Watch time tracking: when active reel changes, log watch time for the previous one
+    useEffect(() => {
+        if (!user) return;
+        // Log watch time for previously active reel
+        if (watchStartRef.current > 0) {
+            const watchDuration = (Date.now() - watchStartRef.current) / 1000; // seconds
+            const prevReel = reelsList[activeIndex];
+            if (prevReel && typeof prevReel.id === 'string') {
+                trackEngagement(user.id, prevReel.id, 'watch_time', watchDuration, prevReel.category || 'General');
+            }
+        }
+        watchStartRef.current = Date.now();
+    }, [activeIndex]);
+
+    // Replay detection: listen for video 'ended' events
+    useEffect(() => {
+        if (selectedReelIndex === null || !user) return;
+        const handlers: (() => void)[] = [];
+        videoRefs.current.forEach((video, idx) => {
+            if (!video) return;
+            const handler = () => {
+                const reel = reelsList[idx];
+                if (reel && typeof reel.id === 'string') {
+                    replayCountRef.current[idx] = (replayCountRef.current[idx] || 0) + 1;
+                    if (replayCountRef.current[idx] >= 2) {
+                        trackEngagement(user.id, reel.id, 'replay', replayCountRef.current[idx], reel.category || 'General');
+                    }
+                }
+            };
+            video.addEventListener('ended', handler);
+            handlers.push(() => video.removeEventListener('ended', handler));
+        });
+        return () => handlers.forEach(h => h());
+    }, [selectedReelIndex, reelsList]);
 
     // Progress bar updater
     useEffect(() => {

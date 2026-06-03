@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchForYouPosts, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, type PostData, type StoryData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, type PostData, type StoryData } from '../lib/database';
 import { checkIfLiked, toggleLike } from '../lib/database';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
+import VoiceReaction from '../components/VoiceReaction';
 import { isVideoPost } from '../lib/media';
+import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 
 export interface UnifiedItem {
     userId: string;
@@ -53,30 +55,48 @@ const Home = () => {
     const [connectionUserIds, setConnectionUserIds] = useState<Set<string>>(new Set());
     const [loadingConnPosts, setLoadingConnPosts] = useState(false);
     
+    // Algorithmic feed state
+    const [allRawPosts, setAllRawPosts] = useState<PostData[]>([]);
+    const [scoredFeed, setScoredFeed] = useState<ScoredPost[]>([]);
+    const [feedPage, setFeedPage] = useState(0);
+    const [hasMorePosts, setHasMorePosts] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    
     // Connection List (like Page 3)
     const [connectionsList, setConnectionsList] = useState<any[]>([]);
 
     useEffect(() => {
-        fetchForYouPosts(user?.id || '')
-            .then(data => {
-                setPosts(data);
-                setLoading(false);
-                const counts: Record<string, number> = {};
-                data.forEach(p => { counts[p.id] = p.likes_count; });
-                setLikeCounts(counts);
-                if (user) {
-                    data.forEach(p => {
-                        checkIfLiked(user.id, p.id).then(liked => {
-                            setLikedPosts(prev => ({ ...prev, [p.id]: liked }));
-                        });
-                    });
-                }
-            })
-            .catch(err => {
-                console.error('Failed to fetch posts:', err);
-                setError('Failed to load posts. Please check your connection and try again.');
-                setLoading(false);
+        if (!user) return;
+        // Fetch all raw posts and user engagements, then build scored feed
+        Promise.all([
+            fetchAllPostsForScoring(user.id),
+            fetchUserEngagements(user.id)
+        ]).then(([rawPosts, engagements]) => {
+            setAllRawPosts(rawPosts);
+            const profile = buildInterestProfile(engagements);
+            const firstPage = assembleFeed(rawPosts, profile, 0, 10);
+            setScoredFeed(firstPage);
+            setPosts(firstPage.map(s => s.post));
+            setLoading(false);
+            
+            const counts: Record<string, number> = {};
+            firstPage.forEach(s => { counts[s.post.id] = s.post.likes_count; });
+            setLikeCounts(counts);
+            
+            firstPage.forEach(s => {
+                checkIfLiked(user.id, s.post.id).then(liked => {
+                    setLikedPosts(prev => ({ ...prev, [s.post.id]: liked }));
+                });
+                // Track view engagement silently
+                trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
             });
+            
+            setHasMorePosts(firstPage.length >= 10);
+        }).catch(err => {
+            console.error('Failed to fetch posts:', err);
+            setError('Failed to load posts. Please check your connection and try again.');
+            setLoading(false);
+        });
 
         // Fetch recent stories for the rack
         fetchRecentStories().then(stories => {
@@ -111,6 +131,53 @@ const Home = () => {
         setLikedPosts(prev => ({ ...prev, [postId]: newLiked }));
         setLikeCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newLiked ? 1 : -1) }));
         await toggleLike(user.id, postId, currentlyLiked);
+        // Track like engagement
+        if (newLiked) {
+            const post = posts.find(p => p.id === postId);
+            trackEngagement(user.id, postId, 'like', 1, post?.category || 'General');
+        }
+    };
+
+    // Pull-to-refresh handler
+    const handleRefresh = async () => {
+        if (!user || isRefreshing) return;
+        setIsRefreshing(true);
+        try {
+            const engagements = await fetchUserEngagements(user.id);
+            const profile = buildInterestProfile(engagements);
+            const newFeed = assembleFeed(allRawPosts, profile, 0, 10);
+            const shuffled = shuffleFeedForRefresh(newFeed);
+            setScoredFeed(shuffled);
+            setPosts(shuffled.map(s => s.post));
+            setFeedPage(0);
+            setHasMorePosts(true);
+        } catch (err) {
+            console.error('Refresh failed:', err);
+        }
+        setIsRefreshing(false);
+    };
+
+    // Infinite scroll — load more posts
+    const loadMorePosts = async () => {
+        if (!user || !hasMorePosts) return;
+        const nextPage = feedPage + 1;
+        const engagements = await fetchUserEngagements(user.id);
+        const profile = buildInterestProfile(engagements);
+        const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10);
+        if (nextBatch.length < 10) setHasMorePosts(false);
+        if (nextBatch.length > 0) {
+            setScoredFeed(prev => [...prev, ...nextBatch]);
+            setPosts(prev => [...prev, ...nextBatch.map(s => s.post)]);
+            setFeedPage(nextPage);
+            // Track views on new batch
+            nextBatch.forEach(s => {
+                trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
+                checkIfLiked(user.id, s.post.id).then(liked => {
+                    setLikedPosts(prev => ({ ...prev, [s.post.id]: liked }));
+                });
+                setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
+            });
+        }
     };
 
     const handleDoubleTap = (post: PostData) => {
@@ -442,6 +509,22 @@ const Home = () => {
                             <p style={{ color: '#8e8e93' }}>No posts yet. Be the first to post!</p>
                         </div>
                     ) : (
+                        <>
+                            {/* Pull to Refresh Button */}
+                            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px' }}>
+                                <button
+                                    onClick={handleRefresh}
+                                    disabled={isRefreshing}
+                                    style={{
+                                        background: 'none', border: '1px solid #2c2c2e', borderRadius: '20px',
+                                        padding: '8px 20px', color: '#8e8e93', fontSize: '13px',
+                                        display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'
+                                    }}
+                                >
+                                    <RefreshCw size={14} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+                                    {isRefreshing ? 'Refreshing...' : 'Refresh Feed'}
+                                </button>
+                            </div>
                         <div className="masonry-grid">
                             {posts.map((post, index) => (
                                 <div
@@ -475,6 +558,16 @@ const Home = () => {
                                     >
                                         <Send size={16} color="#fff" />
                                     </button>
+                                    {user && post.user_id && post.user_id !== user.id && (
+                                        <div style={{ position: 'absolute', bottom: '112px', right: '8px', zIndex: 5 }}>
+                                            <VoiceReaction
+                                                postId={post.id}
+                                                postCategory={post.category}
+                                                currentUserId={user.id}
+                                                postOwnerId={post.user_id}
+                                            />
+                                        </div>
+                                    )}
                                     {post.attached_link && (
                                         <div className="masonry-link-badge">
                                             <LinkIcon size={12} />
@@ -497,6 +590,23 @@ const Home = () => {
                                 </div>
                             ))}
                         </div>
+                        {/* Infinite Scroll: Load More */}
+                        {hasMorePosts && (
+                            <div style={{ display: 'flex', justifyContent: 'center', padding: '24px' }}>
+                                <button
+                                    onClick={loadMorePosts}
+                                    style={{
+                                        background: 'linear-gradient(45deg, #ff3366, #ff9933)',
+                                        border: 'none', borderRadius: '24px',
+                                        padding: '12px 32px', color: '#fff', fontWeight: 'bold',
+                                        fontSize: '14px', cursor: 'pointer'
+                                    }}
+                                >
+                                    Load More
+                                </button>
+                            </div>
+                        )}
+                        </>
                     )
                 )}
             </div>

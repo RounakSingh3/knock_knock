@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { uploadMedia, createNewPost } from '../lib/database';
 import { getMediaTypeFromFile } from '../lib/media';
+import { CONTENT_CATEGORIES } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2 } from 'lucide-react';
 
 const CreatePost = () => {
@@ -13,6 +14,7 @@ const CreatePost = () => {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [caption, setCaption] = useState('');
     const [attachedLink, setAttachedLink] = useState('');
+    const [category, setCategory] = useState('General');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -54,6 +56,7 @@ const CreatePost = () => {
                 caption,
                 attached_link: attachedLink || undefined,
                 media_type: getMediaTypeFromFile(file),
+                category,
             });
 
             navigate('/home');
@@ -152,6 +155,33 @@ const CreatePost = () => {
                 <p style={{ fontSize: '12px', color: '#8e8e93', marginTop: '8px', paddingLeft: '4px' }}>
                     Users can swipe left on your post to open this link.
                 </p>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+                <label style={{ fontSize: '14px', color: '#8e8e93', marginBottom: '8px', display: 'block' }}>Category</label>
+                <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    style={{
+                        width: '100%',
+                        background: '#121212',
+                        border: '1px solid #2c2c2e',
+                        borderRadius: '12px',
+                        padding: '14px 16px',
+                        color: '#fff',
+                        fontSize: '15px',
+                        outline: 'none',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238e8e93' viewBox='0 0 16 16'%3E%3Cpath d='M8 12L2 6h12z'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 16px center',
+                    }}
+                >
+                    {CONTENT_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat} style={{ background: '#1c1c1e' }}>{cat}</option>
+                    ))}
+                </select>
             </div>
 
             <button 

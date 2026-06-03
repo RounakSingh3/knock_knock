@@ -272,6 +272,25 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                                                         return "Shared a post";
                                                     }
                                                 }
+                                                if (msg.content.startsWith('[VOICE_REACTION]')) {
+                                                    const audioUrl = msg.content.replace('[VOICE_REACTION] ', '');
+                                                    return (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                            <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
+                                                                🎙️ Voice Reaction
+                                                            </div>
+                                                            <audio 
+                                                                controls 
+                                                                src={audioUrl} 
+                                                                style={{ 
+                                                                    width: '200px', height: '36px', 
+                                                                    borderRadius: '18px',
+                                                                    filter: 'invert(1) hue-rotate(180deg)',
+                                                                }} 
+                                                            />
+                                                        </div>
+                                                    );
+                                                }
                                                 return msg.content;
                                             })()}
                                         </div>

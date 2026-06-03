@@ -19,6 +19,7 @@ export interface PostData {
     created_at: string;
     attached_link?: string;
     media_type?: MediaType | string;
+    category?: string;
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
@@ -113,6 +114,7 @@ export async function createNewPost(post: {
     caption: string;
     attached_link?: string;
     media_type?: MediaType;
+    category?: string;
 }) {
     const row: Record<string, unknown> = {
         username: post.username,
@@ -123,6 +125,7 @@ export async function createNewPost(post: {
         comments_count: 0,
         shares_count: 0,
         media_type: post.media_type || 'image',
+        category: post.category || 'General',
     };
     if (post.user_id) row.user_id = post.user_id;
     if (post.attached_link) row.attached_link = post.attached_link;
@@ -973,4 +976,105 @@ export async function fetchProfilesByIds(userIds: string[]): Promise<ProfileData
         return [];
     }
     return data || [];
+}
+
+// ── Engagement Tracking ────────────────────────────────────
+
+export interface EngagementData {
+    id?: string;
+    user_id: string;
+    post_id: string;
+    action_type: string;
+    value: number;
+    category: string;
+    created_at?: string;
+}
+
+/** Track a user engagement event */
+export async function trackEngagement(
+    userId: string,
+    postId: string,
+    actionType: string,
+    value: number = 1,
+    category: string = 'General'
+): Promise<void> {
+    const { error } = await supabase
+        .from('engagements')
+        .insert({
+            user_id: userId,
+            post_id: postId,
+            action_type: actionType,
+            value,
+            category,
+        });
+
+    if (error) {
+        console.error('Error tracking engagement:', error);
+    }
+}
+
+/** Fetch all engagements for a user (for building interest profile) */
+export async function fetchUserEngagements(userId: string): Promise<EngagementData[]> {
+    const { data, error } = await supabase
+        .from('engagements')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(500); // Last 500 interactions for recency
+
+    if (error) {
+        console.error('Error fetching user engagements:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/** Fetch all posts (unpaginated) for scoring — used by algorithm.ts */
+export async function fetchAllPostsForScoring(excludeUserId: string): Promise<PostData[]> {
+    const connectionIds = await fetchConnectionUserIds(excludeUserId);
+    const excludeIds = [...connectionIds, excludeUserId];
+
+    let query = supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+    if (excludeIds.length > 0) {
+        query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Error fetching posts for scoring:', error);
+        return [];
+    }
+    return data || [];
+}
+
+// ── Voice Reactions ────────────────────────────────────────
+
+/** Upload a voice reaction audio blob to Supabase storage */
+export async function uploadVoiceReaction(audioBlob: Blob, userId: string): Promise<string> {
+    const fileName = `voice_${userId}_${Date.now()}.webm`;
+    const filePath = `voice-reactions/${fileName}`;
+
+    const { error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .upload(filePath, audioBlob, {
+            contentType: 'audio/webm',
+            upsert: false,
+        });
+
+    if (error) {
+        console.error('Error uploading voice reaction:', error);
+        throw new Error(error.message || 'Failed to upload voice reaction.');
+    }
+
+    const { data: urlData } = supabase.storage
+        .from(STORAGE_BUCKET)
+        .getPublicUrl(filePath);
+
+    return urlData.publicUrl;
 }
