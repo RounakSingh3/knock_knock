@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, type UserStoryGroup, type StoryData, type ProfileData, type PostData } from '../lib/database';
-import { CONTENT_CATEGORIES } from '../lib/algorithm';
+import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, RefreshCw } from 'lucide-react';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, type UserStoryGroup, type StoryData, type ProfileData, type PostData } from '../lib/database';
+import { CONTENT_CATEGORIES, buildInterestProfile, assembleFeed, shuffleFeedForRefresh } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { AppContext } from '../App';
@@ -49,15 +49,39 @@ const Explore = () => {
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
 
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
     // Load Discover Feed
+    const loadDiscoverFeed = async () => {
+        setIsDiscoverLoading(true);
+        try {
+            const rawPosts = await fetchDiscoverPosts(selectedCategory, 100);
+            if (user) {
+                const engagements = await fetchUserEngagements(user.id);
+                const profile = buildInterestProfile(engagements);
+                const scoredPosts = assembleFeed(rawPosts, profile, 0, 30);
+                const shuffled = shuffleFeedForRefresh(scoredPosts);
+                setDiscoverPosts(shuffled.map(s => s.post));
+            } else {
+                setDiscoverPosts(rawPosts.slice(0, 30));
+            }
+        } catch (e) {
+            console.error('Error loading discover feed:', e);
+        } finally {
+            setIsDiscoverLoading(false);
+        }
+    };
+
     useEffect(() => {
         if (searchTerm.trim().length > 0) return;
-        setIsDiscoverLoading(true);
-        fetchDiscoverPosts(selectedCategory).then(data => {
-            setDiscoverPosts(data);
-            setIsDiscoverLoading(false);
-        });
-    }, [selectedCategory, searchTerm]);
+        loadDiscoverFeed();
+    }, [selectedCategory, searchTerm, user]);
+
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        await loadDiscoverFeed();
+        setIsRefreshing(false);
+    };
 
     // Handle Search Queries
     useEffect(() => {
@@ -199,8 +223,23 @@ const Explore = () => {
                             No content found for this category.
                         </div>
                     ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-                            {discoverPosts.map((post, idx) => (
+                        <>
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                                <button
+                                    onClick={handleRefresh}
+                                    disabled={isRefreshing}
+                                    style={{
+                                        background: 'none', border: '1px solid #2c2c2e', borderRadius: '20px',
+                                        padding: '8px 20px', color: '#8e8e93', fontSize: '13px',
+                                        display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'
+                                    }}
+                                >
+                                    <RefreshCw size={14} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+                                    {isRefreshing ? 'Refreshing...' : 'Refresh Feed'}
+                                </button>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                {discoverPosts.map((post, idx) => (
                                 <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
                                     <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -214,6 +253,7 @@ const Explore = () => {
                                 </div>
                             ))}
                         </div>
+                        </>
                     )
                 ) : (
                     /* Search Results View */
