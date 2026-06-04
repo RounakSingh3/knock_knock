@@ -605,7 +605,7 @@ const Reels: React.FC = () => {
                                                 className="reel-creator-avatar"
                                             />
                                             <span className="reel-creator-name">@{reel.creator}</span>
-                                            <button className="reel-follow-btn">Follow</button>
+                                            <button className="reel-follow-btn">Friend</button>
                                         </div>
                                         <p className="reel-caption">{reel.caption}</p>
                                         <div className="reel-song">

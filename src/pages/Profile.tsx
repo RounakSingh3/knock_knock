@@ -190,7 +190,7 @@ const Profile = () => {
                             onClick={handleFollowToggle}
                         >
                             {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
-                            {isFollowing ? ' Following' : ' Follow'}
+                            {isFollowing ? ' Unfriend' : ' Friend'}
                         </button>
                     )}
                     <button className="profile-action-btn">Share Profile</button>
