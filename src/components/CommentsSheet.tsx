@@ -52,6 +52,8 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
             setText('');
             const updated = await fetchComments(postId);
             setComments(updated);
+        } else {
+            alert('Failed to upload comment: ' + (error.message || 'Unknown error'));
         }
         setSending(false);
     };
@@ -75,15 +77,17 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                 setSending(true);
                 try {
                     const voiceUrl = await uploadVoiceReaction(blob, currentUser.id);
-                    await addComment(
+                    const { error } = await addComment(
                         postId, currentUser.id, currentUser.username,
                         currentUser.avatar_url || 'https://i.pravatar.cc/150',
                         '🎙️ Voice comment', true, voiceUrl
                     );
+                    if (error) throw new Error(error.message);
                     const updated = await fetchComments(postId);
                     setComments(updated);
-                } catch (err) {
+                } catch (err: any) {
                     console.error('Voice comment failed:', err);
+                    alert('Failed to upload voice comment: ' + (err.message || 'Unknown error'));
                 }
                 setSending(false);
             };
