@@ -6,7 +6,7 @@ import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { AppContext } from '../App';
 import { useNavigate } from 'react-router-dom';
-import PostModal from '../components/PostModal';
+import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
 
@@ -43,7 +43,7 @@ const Explore = () => {
     const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
 
     // Post Modal State
-    const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
+    const [activeFeedState, setActiveFeedState] = useState<{ posts: PostData[], index: number } | null>(null);
     const [isCommentsOpen, setIsCommentsOpen] = useState(false);
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
@@ -200,8 +200,8 @@ const Explore = () => {
                         </div>
                     ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-                            {discoverPosts.map(post => (
-                                <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedPost(post)}>
+                            {discoverPosts.map((post, idx) => (
+                                <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
                                     <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     {post.category && post.category !== 'General' && (
@@ -269,8 +269,8 @@ const Explore = () => {
                                     </div>
                                 ) : (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-                                        {postResults.map(post => (
-                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedPost(post)}>
+                                        {postResults.map((post, idx) => (
+                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: postResults, index: idx })}>
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 {post.category && post.category !== 'General' && (
@@ -320,10 +320,11 @@ const Explore = () => {
                 />
             )}
 
-            {selectedPost && (
-                <PostModal
-                    post={selectedPost}
-                    onClose={() => setSelectedPost(null)}
+            {activeFeedState && (
+                <ExploreFeedViewer
+                    posts={activeFeedState.posts}
+                    initialIndex={activeFeedState.index}
+                    onClose={() => setActiveFeedState(null)}
                     onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
                     onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
                 />
