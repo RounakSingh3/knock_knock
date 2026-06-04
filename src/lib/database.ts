@@ -189,6 +189,7 @@ export interface ProfileData {
     is_online?: boolean;
     streak_count?: number;
     last_story_at?: string;
+    bio?: string;
 }
 
 export async function fetchProfile(userId: string): Promise<ProfileData | null> {
@@ -1077,4 +1078,150 @@ export async function uploadVoiceReaction(audioBlob: Blob, userId: string): Prom
         .getPublicUrl(filePath);
 
     return urlData.publicUrl;
+}
+
+// ── Comments ───────────────────────────────────────────────
+
+export interface CommentData {
+    id: string;
+    post_id: string;
+    user_id: string;
+    username: string;
+    avatar_url?: string;
+    content: string;
+    is_voice: boolean;
+    voice_url?: string;
+    created_at: string;
+}
+
+/** Fetch all comments for a post */
+export async function fetchComments(postId: string): Promise<CommentData[]> {
+    const { data, error } = await supabase
+        .from('comments')
+        .select('*')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('Error fetching comments:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/** Add a text or voice comment */
+export async function addComment(
+    postId: string,
+    userId: string,
+    username: string,
+    avatarUrl: string,
+    content: string,
+    isVoice: boolean = false,
+    voiceUrl?: string
+): Promise<{ data: any; error: any }> {
+    const { data, error } = await supabase
+        .from('comments')
+        .insert({
+            post_id: postId,
+            user_id: userId,
+            username,
+            avatar_url: avatarUrl,
+            content,
+            is_voice: isVoice,
+            voice_url: voiceUrl,
+        });
+
+    if (!error) {
+        // Increment comment count on the post
+        await supabase.rpc('increment_field', { row_id: postId, field_name: 'comments_count', table_name: 'posts' }).catch(() => {
+            // Fallback: manual increment if RPC doesn't exist
+            supabase.from('posts').select('comments_count').eq('id', postId).single().then(({ data: post }) => {
+                if (post) {
+                    supabase.from('posts').update({ comments_count: (post.comments_count || 0) + 1 }).eq('id', postId);
+                }
+            });
+        });
+    }
+
+    return { data, error };
+}
+
+/** Delete a comment (own only — RLS enforced) */
+export async function deleteComment(commentId: string): Promise<void> {
+    const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId);
+
+    if (error) {
+        console.error('Error deleting comment:', error);
+    }
+}
+
+// ── Search ─────────────────────────────────────────────────
+
+/** Search users by username */
+export async function searchUsers(query: string): Promise<ProfileData[]> {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .ilike('username', `%${query}%`)
+        .limit(20);
+
+    if (error) {
+        console.error('Error searching users:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/** Search posts by caption */
+export async function searchPostsByCaption(query: string): Promise<PostData[]> {
+    const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .ilike('caption', `%${query}%`)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+    if (error) {
+        console.error('Error searching posts:', error);
+        return [];
+    }
+    return data || [];
+}
+
+// ── Delete Post ────────────────────────────────────────────
+
+/** Delete a post (only your own) */
+export async function deletePost(postId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('posts')
+        .delete()
+        .eq('id', postId);
+
+    if (error) {
+        console.error('Error deleting post:', error);
+        return false;
+    }
+    return true;
+}
+
+// ── Profile Update ─────────────────────────────────────────
+
+/** Update profile fields */
+export async function updateProfile(
+    userId: string,
+    updates: { username?: string; bio?: string; avatar_url?: string }
+): Promise<boolean> {
+    const { error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', userId);
+
+    if (error) {
+        console.error('Error updating profile:', error);
+        return false;
+    }
+    return true;
 }

@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, type PostData, type StoryData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, type PostData, type StoryData } from '../lib/database';
 import { checkIfLiked, toggleLike } from '../lib/database';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2 } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
 import VoiceReaction from '../components/VoiceReaction';
+import CommentsSheet from '../components/CommentsSheet';
 import { isVideoPost } from '../lib/media';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 
@@ -51,6 +52,8 @@ const Home = () => {
     const [chatUserId, setChatUserId] = useState<string | null>(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
+    const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+    const [commentsPostId, setCommentsPostId] = useState<string>('');
     const [unifiedConnectionItems, setUnifiedConnectionItems] = useState<UnifiedItem[]>([]);
     const [connectionUserIds, setConnectionUserIds] = useState<Set<string>>(new Set());
     const [loadingConnPosts, setLoadingConnPosts] = useState(false);
@@ -586,6 +589,12 @@ const Home = () => {
                                             <span className="masonry-likes">{likeCounts[post.id] || 0} ❤️</span>
                                             <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
                                         </div>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setCommentsPostId(post.id); setIsCommentsOpen(true); }}
+                                            style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                        >
+                                            <MessageCircle size={12} /> {post.comments_count || 0}
+                                        </button>
                                     </div>
                                 </div>
                             ))}
@@ -692,12 +701,30 @@ const Home = () => {
                                     <Heart size={22} fill={likedPosts[selectedPost.id] ? '#ff3366' : 'none'} color={likedPosts[selectedPost.id] ? '#ff3366' : '#fff'} />
                                     <span>{likeCounts[selectedPost.id] || 0}</span>
                                 </button>
-                                <button className="modal-action-btn">
+                                <button className="modal-action-btn" onClick={() => { setCommentsPostId(selectedPost.id); setIsCommentsOpen(true); }}>
                                     <MessageCircle size={22} />
+                                    <span>{selectedPost.comments_count || 0}</span>
                                 </button>
-                                <button className="modal-action-btn">
+                                <button className="modal-action-btn" onClick={() => { setPostToShare(selectedPost); setIsShareOpen(true); }}>
                                     <Send size={22} />
                                 </button>
+                                {user && selectedPost.user_id === user.id && (
+                                    <button
+                                        className="modal-action-btn"
+                                        style={{ color: '#ff3b30' }}
+                                        onClick={async () => {
+                                            if (confirm('Delete this post?')) {
+                                                const ok = await deletePost(selectedPost.id);
+                                                if (ok) {
+                                                    setPosts(prev => prev.filter(p => p.id !== selectedPost.id));
+                                                    setSelectedPost(null);
+                                                }
+                                            }
+                                        }}
+                                    >
+                                        <Trash2 size={22} />
+                                    </button>
+                                )}
                                 <button className="modal-action-btn modal-action-right">
                                     <Bookmark size={22} />
                                 </button>
@@ -705,6 +732,16 @@ const Home = () => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Comments Sheet */}
+            {user && (
+                <CommentsSheet
+                    isOpen={isCommentsOpen}
+                    onClose={() => setIsCommentsOpen(false)}
+                    postId={commentsPostId}
+                    currentUser={{ id: user.id, username: user.username || 'user', avatar_url: user.avatar_url }}
+                />
             )}
         </div>
     );

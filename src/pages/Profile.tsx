@@ -8,6 +8,7 @@ import {
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X } from 'lucide-react';
 import { isVideoPost } from '../lib/media';
 import PostMedia from '../components/PostMedia';
+import EditProfileSheet from '../components/EditProfileSheet';
 
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
@@ -24,6 +25,7 @@ const Profile = () => {
     const [followStats, setFollowStats] = useState({ followers: 0, following: 0 });
     const [isFollowing, setIsFollowing] = useState(false);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
+    const [isEditOpen, setIsEditOpen] = useState(false);
 
     useEffect(() => {
         if (!username && currentUser) {
@@ -161,6 +163,9 @@ const Profile = () => {
 
                 <div style={{ marginBottom: '0.75rem' }}>
                     <div className="font-bold text-md">{profile.name}</div>
+                    {profile.bio && (
+                        <p style={{ fontSize: '14px', color: '#e0e0e0', margin: '6px 0', lineHeight: '1.4' }}>{profile.bio}</p>
+                    )}
                     <div style={{ fontSize: '14px', marginTop: '4px', color: '#8e8e93' }}>
                         {profile.gender === 'male' ? '♂️' : profile.gender === 'female' ? '♀️' : '🌈'} • Joined Knock Knock
                     </div>
@@ -169,7 +174,7 @@ const Profile = () => {
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem' }}>
                     {isOwnProfile ? (
                         <>
-                            <button className="profile-action-btn">Edit Profile</button>
+                            <button className="profile-action-btn" onClick={() => setIsEditOpen(true)}>Edit Profile</button>
                             <button 
                                 className="profile-action-btn" 
                                 style={{ background: '#ff3366', color: '#fff', border: 'none' }}
@@ -362,6 +367,21 @@ const Profile = () => {
                         )}
                     </div>
                 </div>
+            )}
+
+            {/* Edit Profile Sheet */}
+            {isOwnProfile && currentUser && profile && (
+                <EditProfileSheet
+                    isOpen={isEditOpen}
+                    onClose={() => setIsEditOpen(false)}
+                    currentUser={{ id: currentUser.id, username: currentUser.username || '', avatar_url: currentUser.avatar_url, bio: (profile as any).bio }}
+                    onUpdated={() => {
+                        // Reload profile
+                        if (username) {
+                            fetchProfileByUsername(username).then(p => { if (p) setProfile(p); });
+                        }
+                    }}
+                />
             )}
         </div>
     );

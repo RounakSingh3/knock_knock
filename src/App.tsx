@@ -13,6 +13,7 @@ import Login from './pages/Login';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import CreatePost from './pages/CreatePost';
+import OnboardingOverlay from './components/OnboardingOverlay';
 
 // Global Context for Points & Auth
 interface AppContextType {
@@ -40,6 +41,7 @@ function App() {
     const [points, setPoints] = useState(0);
     const [user, setUser] = useState<ProfileData | null>(null);
     const [loading, setLoading] = useState(true);
+    const [onboardingDone, setOnboardingDone] = useState(false);
 
     const isAuthenticated = !!user;
 
@@ -223,6 +225,9 @@ function App() {
                             </>
                         )}
                     </Routes>
+                    {isAuthenticated && !onboardingDone && (
+                        <OnboardingOverlay onComplete={() => setOnboardingDone(true)} />
+                    )}
                     {isAuthenticated && <BottomNav />}
                 </div>
             </Router>

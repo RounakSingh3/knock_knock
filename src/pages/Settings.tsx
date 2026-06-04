@@ -1,7 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchConnections, fetchFollowCounts, fetchUserPosts, type PostData } from '../lib/database';
+import { fetchConnections, fetchFollowCounts, fetchUserPosts, deletePost, type PostData } from '../lib/database';
 import { isVideoPost } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import {
@@ -286,6 +286,24 @@ const Settings = () => {
                                             <span><Send size={14} fill="#fff" /> {post.shares_count || 0}</span>
                                         </div>
                                     </div>
+                                    <button
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (confirm('Delete this post permanently?')) {
+                                                const ok = await deletePost(post.id);
+                                                if (ok) setUserPosts(prev => prev.filter(p => p.id !== post.id));
+                                            }
+                                        }}
+                                        style={{
+                                            position: 'absolute', top: '6px', right: '6px',
+                                            background: 'rgba(0,0,0,0.6)', border: 'none',
+                                            borderRadius: '50%', width: '28px', height: '28px',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: 'pointer', zIndex: 5,
+                                        }}
+                                    >
+                                        <span style={{ color: '#ff3b30', fontSize: '14px' }}>×</span>
+                                    </button>
                                 </div>
                             ))}
                         </div>
