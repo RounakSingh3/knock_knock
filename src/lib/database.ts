@@ -611,7 +611,7 @@ export async function fetchFollowCounts(userId: string): Promise<{ followers: nu
 export async function checkIfFollowing(currentUserId: string, targetUserId: string): Promise<boolean> {
     const { data } = await supabase
         .from('follows')
-        .select('id')
+        .select('follower_id')
         .eq('follower_id', currentUserId)
         .eq('following_id', targetUserId)
         .maybeSingle();
