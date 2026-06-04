@@ -132,7 +132,7 @@ export async function createNewPost(post: {
 
     if (error) {
         console.error('Error creating post:', error);
-        throw error;
+        throw new Error(error.message || 'Failed to create post in database.');
     }
     return data;
 }
