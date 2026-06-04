@@ -68,8 +68,10 @@ const Home = () => {
     // Connection List (like Page 3)
     const [connectionsList, setConnectionsList] = useState<any[]>([]);
 
-    useEffect(() => {
+    const loadForYouFeed = () => {
         if (!user) return;
+        setLoading(true);
+        setError('');
         // Fetch all raw posts and user engagements, then build scored feed
         Promise.all([
             fetchAllPostsForScoring(user.id),
@@ -100,6 +102,10 @@ const Home = () => {
             setError('Failed to load posts. Please check your connection and try again.');
             setLoading(false);
         });
+    };
+
+    useEffect(() => {
+        loadForYouFeed();
 
         // Fetch recent stories for the rack
         fetchRecentStories().then(stories => {
@@ -497,7 +503,7 @@ const Home = () => {
                                 className="retry-btn-v2"
                                 onClick={() => {
                                     setError(''); setLoading(true);
-                                    fetchForYouPosts(user?.id || '').then(data => { setPosts(data); setLoading(false); }).catch(() => { setError('Failed to load posts.'); setLoading(false); });
+                                    loadForYouFeed();
                                 }}
                             >
                                 Retry

@@ -1131,14 +1131,14 @@ export async function addComment(
 
     if (!error) {
         // Increment comment count on the post
-        await supabase.rpc('increment_field', { row_id: postId, field_name: 'comments_count', table_name: 'posts' }).catch(() => {
+        const { error: rpcError } = await supabase.rpc('increment_field', { row_id: postId, field_name: 'comments_count', table_name: 'posts' });
+        if (rpcError) {
             // Fallback: manual increment if RPC doesn't exist
-            supabase.from('posts').select('comments_count').eq('id', postId).single().then(({ data: post }) => {
-                if (post) {
-                    supabase.from('posts').update({ comments_count: (post.comments_count || 0) + 1 }).eq('id', postId);
-                }
-            });
-        });
+            const { data: post } = await supabase.from('posts').select('comments_count').eq('id', postId).single();
+            if (post) {
+                await supabase.from('posts').update({ comments_count: (post.comments_count || 0) + 1 }).eq('id', postId);
+            }
+        }
     }
 
     return { data, error };

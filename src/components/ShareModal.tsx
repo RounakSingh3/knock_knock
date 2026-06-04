@@ -47,7 +47,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
         // Create a JSON payload for the shared post
         const sharePayload = {
             id: post.id,
-            media_url: post.media_url,
+            image_url: post.image_url,
             media_type: post.media_type,
             caption: post.caption,
             username: post.username // if available, or we might not have it on raw PostData, but usually we do via join or passed props
