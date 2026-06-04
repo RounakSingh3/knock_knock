@@ -122,8 +122,6 @@ export async function createNewPost(post: {
         image_url: post.image_url,
         caption: post.caption,
         likes_count: 0,
-        comments_count: 0,
-        shares_count: 0,
         media_type: post.media_type || 'image',
         category: post.category || 'General',
     };
