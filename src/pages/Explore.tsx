@@ -6,6 +6,9 @@ import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { AppContext } from '../App';
 import { useNavigate } from 'react-router-dom';
+import PostModal from '../components/PostModal';
+import CommentsSheet from '../components/CommentsSheet';
+import ShareModal from '../components/ShareModal';
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -38,6 +41,13 @@ const Explore = () => {
     const [postResults, setPostResults] = useState<PostData[]>([]);
     const [storyResults, setStoryResults] = useState<UserStoryGroup[]>([]);
     const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
+
+    // Post Modal State
+    const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
+    const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+    const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
+    const [isShareOpen, setIsShareOpen] = useState(false);
+    const [postToShare, setPostToShare] = useState<PostData | null>(null);
 
     // Load Discover Feed
     useEffect(() => {
@@ -191,7 +201,7 @@ const Explore = () => {
                     ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                             {discoverPosts.map(post => (
-                                <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => navigate(`/profile/${post.username}`)}>
+                                <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedPost(post)}>
                                     <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     {post.category && post.category !== 'General' && (
@@ -260,7 +270,7 @@ const Explore = () => {
                                 ) : (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                                         {postResults.map(post => (
-                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => navigate(`/profile/${post.username}`)}>
+                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedPost(post)}>
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 {post.category && post.category !== 'General' && (
@@ -308,6 +318,23 @@ const Explore = () => {
                     onClose={() => setActiveStoryGroupIndex(null)}
                     onGroupsUpdated={setStoryResults}
                 />
+            )}
+
+            {selectedPost && (
+                <PostModal
+                    post={selectedPost}
+                    onClose={() => setSelectedPost(null)}
+                    onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
+                    onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
+                />
+            )}
+
+            {isCommentsOpen && commentsPostId && user && (
+                <CommentsSheet postId={commentsPostId} isOpen={isCommentsOpen} currentUser={user as any} onClose={() => setIsCommentsOpen(false)} />
+            )}
+
+            {isShareOpen && postToShare && user && (
+                <ShareModal post={postToShare} isOpen={isShareOpen} currentUser={user as any} onClose={() => setIsShareOpen(false)} />
             )}
         </div>
     );
