@@ -20,6 +20,8 @@ export interface PostData {
     attached_link?: string;
     media_type?: MediaType | string;
     category?: string;
+    boost_expires_at?: string | null;
+    boost_impressions_remaining?: number;
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
@@ -1237,9 +1239,70 @@ export async function updateProfile(
         .update(updates)
         .eq('id', userId);
 
-    if (error) {
-        console.error('Error updating profile:', error);
+    return true;
+}
+
+// -------------------------------------------------------------------------
+// 🚀 Boost Feature
+// -------------------------------------------------------------------------
+
+export async function boostPost(postId: string, currentUserId: string, currentPoints: number): Promise<boolean> {
+    if (currentPoints < 100) return false;
+    
+    // Deduct 100 points
+    const { error: pointsError } = await supabase
+        .from('profiles')
+        .update({ points: currentPoints - 100 })
+        .eq('id', currentUserId);
+        
+    if (pointsError) {
+        console.error('Error deducting points:', pointsError);
         return false;
     }
+    
+    // Set expiry to 24 hours from now
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24);
+    
+    const { error: postError } = await supabase
+        .from('posts')
+        .update({ 
+            boost_expires_at: expiresAt.toISOString(),
+            boost_impressions_remaining: 100
+        })
+        .eq('id', postId);
+        
+    if (postError) {
+        console.error('Error boosting post:', postError);
+        return false;
+    }
+    
     return true;
+}
+
+export async function decrementBoostImpressions(postId: string, currentRemaining: number): Promise<void> {
+    if (currentRemaining <= 0) return;
+    
+    const { error } = await supabase
+        .from('posts')
+        .update({ boost_impressions_remaining: currentRemaining - 1 })
+        .eq('id', postId);
+        
+    if (error) console.error('Error decrementing boost:', error);
+}
+
+export async function fetchActiveBoostedPosts(): Promise<PostData[]> {
+    const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .gt('boost_impressions_remaining', 0)
+        .gt('boost_expires_at', new Date().toISOString())
+        .order('boost_expires_at', { ascending: true }); // Expiring soonest first
+        
+    if (error) {
+        console.error('Error fetching boosted posts:', error);
+        return [];
+    }
+    
+    return data || [];
 }
