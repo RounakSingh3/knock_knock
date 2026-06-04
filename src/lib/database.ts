@@ -1189,6 +1189,26 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
     return data || [];
 }
 
+export async function fetchDiscoverPosts(category?: string | null, limit: number = 30): Promise<PostData[]> {
+    let query = supabase
+        .from('posts')
+        .select('*')
+        .order('likes_count', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(limit);
+        
+    if (category && category !== 'All') {
+        query = query.eq('category', category);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+        console.error('Error fetching discover posts:', error);
+        return [];
+    }
+    return data || [];
+}
+
 // ── Delete Post ────────────────────────────────────────────
 
 /** Delete a post (only your own) */
