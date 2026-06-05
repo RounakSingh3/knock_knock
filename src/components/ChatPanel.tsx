@@ -253,10 +253,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                                                                 </div>
                                                                 <div style={{ 
                                                                     position: 'relative', width: '200px', height: '260px', 
-                                                                    borderRadius: '12px', overflow: 'hidden', background: '#000'
+                                                                    borderRadius: '12px', overflow: 'hidden', background: '#1c1c1e'
                                                                 }}>
                                                                     {sharedPost.media_type === 'video' ? (
-                                                                        <video src={sharedPost.image_url || sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+                                                                        <video 
+                                                                            src={sharedPost.image_url || sharedPost.media_url} 
+                                                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                                                            muted 
+                                                                            playsInline 
+                                                                            controls
+                                                                            preload="metadata"
+                                                                        />
                                                                     ) : (
                                                                         <img src={sharedPost.image_url || sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                                     )}
