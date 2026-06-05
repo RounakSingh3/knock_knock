@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, RefreshCw } from 'lucide-react';
+import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, RefreshCw, Play } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, type UserStoryGroup, type StoryData, type ProfileData, type PostData } from '../lib/database';
 import { CONTENT_CATEGORIES, buildInterestProfile, assembleFeed, shuffleFeedForRefresh } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
@@ -10,6 +10,19 @@ import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
 import PullToRefresh from '../components/PullToRefresh';
+import { isVideoPost } from '../lib/media';
+
+const getExploreGridStyle = (idx: number) => {
+    const pattern = idx % 10;
+    const isLarge = pattern === 1 || pattern === 6;
+    return {
+        aspectRatio: '1',
+        gridColumn: isLarge ? 'span 2' : 'span 1',
+        gridRow: isLarge ? 'span 2' : 'span 1',
+        position: 'relative' as const,
+        cursor: 'pointer' as const,
+    };
+};
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -199,11 +212,16 @@ const Explore = () => {
                             </div>
                         ) : (
                             <>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
                                     {discoverPosts.map((post, idx) => (
-                                    <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
+                                    <div key={post.id} style={getExploreGridStyle(idx)} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
                                         <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        {isVideoPost(post) && (
+                                            <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
+                                                <Play size={16} color="#fff" fill="#fff" />
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -262,11 +280,16 @@ const Explore = () => {
                                         No posts found
                                     </div>
                                 ) : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
                                         {postResults.map((post, idx) => (
-                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: postResults, index: idx })}>
+                                            <div key={post.id} style={getExploreGridStyle(idx)} onClick={() => setActiveFeedState({ posts: postResults, index: idx })}>
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                {isVideoPost(post) && (
+                                                    <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
+                                                        <Play size={16} color="#fff" fill="#fff" />
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
