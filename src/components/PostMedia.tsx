@@ -76,7 +76,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
                 autoPlay={autoPlay || soundOn}
                 loop={loop}
                 playsInline={playsInline}
-                preload="metadata"
+                preload={autoPlay || soundOn ? "metadata" : "none"}
             />
         );
     }

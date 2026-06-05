@@ -17,6 +17,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
     const watchTimers = useRef<Record<string, number>>({});
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const [activePostId, setActivePostId] = useState<string | null>(posts[initialIndex]?.id || null);
+    const [currentIndex, setCurrentIndex] = useState(initialIndex);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -35,6 +36,9 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
 
                 if (entry.isIntersecting) {
                     setActivePostId(postId);
+                    const idx = posts.findIndex(p => p.id === postId);
+                    if (idx !== -1) setCurrentIndex(idx);
+                    
                     watchTimers.current[postId] = Date.now();
                     trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
                 } else {
@@ -83,24 +87,31 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
             }} 
             ref={scrollRef}
         >
-            {posts.map((post) => (
-                <div 
-                    key={post.id} 
-                    ref={el => { itemRefs.current[post.id] = el; }} 
-                    data-postid={post.id}
-                    data-category={post.category || 'General'}
-                    style={{ height: '100%', scrollSnapAlign: 'start', width: '100%', position: 'relative' }}
-                >
-                    <PostModalContent 
-                        post={post} 
-                        onClose={onClose} 
-                        onCommentClick={onCommentClick} 
-                        onShareClick={onShareClick} 
-                        isEmbedded={true}
-                        isActive={post.id === activePostId}
-                    />
-                </div>
-            ))}
+            {posts.map((post, index) => {
+                const isNear = Math.abs(index - currentIndex) <= 2;
+                return (
+                    <div 
+                        key={post.id} 
+                        ref={el => { itemRefs.current[post.id] = el; }} 
+                        data-postid={post.id}
+                        data-category={post.category || 'General'}
+                        style={{ height: '100%', scrollSnapAlign: 'start', width: '100%', position: 'relative' }}
+                    >
+                        {isNear ? (
+                            <PostModalContent 
+                                post={post} 
+                                onClose={onClose} 
+                                onCommentClick={onCommentClick} 
+                                onShareClick={onShareClick} 
+                                isEmbedded={true}
+                                isActive={post.id === activePostId}
+                            />
+                        ) : (
+                            <div style={{ width: '100%', height: '100%', background: '#000' }} />
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 };
