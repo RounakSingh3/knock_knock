@@ -125,7 +125,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
     return (
         <div style={{
             position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-            background: 'rgba(0,0,0,0.7)', zIndex: 2100,
+            background: 'rgba(0,0,0,0.7)', zIndex: 10000,
             display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
         }} onClick={onClose}>
             <div style={{

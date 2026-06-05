@@ -67,7 +67,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
     return (
         <div style={{
             position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-            background: 'rgba(0,0,0,0.8)', zIndex: 2000, display: 'flex',
+            background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex',
             justifyContent: 'center', alignItems: 'flex-end',
             animation: 'fadeIn 0.2s ease-out'
         }} onClick={onClose}>
