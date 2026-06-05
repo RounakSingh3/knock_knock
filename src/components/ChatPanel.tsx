@@ -151,7 +151,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                                 fontSize: '15px'
                             }}
                         >
-                            Friends
+                            Connections
                         </button>
                         <button 
                             onClick={() => setActiveTab('requests')}
@@ -173,7 +173,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                         ) : displayContacts.length === 0 ? (
                             <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>
                                 {activeTab === 'connections' 
-                                    ? "No friends yet. Follow some people to start chatting!"
+                                    ? "No connections yet. Follow some people to start chatting!"
                                     : "No message requests yet."}
                             </div>
                         ) : (
