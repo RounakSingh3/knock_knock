@@ -36,9 +36,19 @@ const PostMedia: React.FC<PostMediaProps> = ({
         muted !== undefined ? muted : soundOn || controls ? false : true;
 
     useEffect(() => {
-        if (!soundOn || !isVideo) return;
+        if (!isVideo) return;
         const video = videoRef.current;
         if (!video) return;
+
+        // Auto-play / pause based on active state
+        if (autoPlay || soundOn) {
+            video.play().catch(() => {});
+        } else {
+            video.pause();
+        }
+        
+        // Handle soundOn logic
+        if (!soundOn) return;
 
         const playWithSound = () => {
             video.muted = false;
@@ -52,7 +62,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
             video.addEventListener('loadeddata', playWithSound, { once: true });
             return () => video.removeEventListener('loadeddata', playWithSound);
         }
-    }, [soundOn, isVideo, post.image_url]);
+    }, [soundOn, isVideo, autoPlay, post.image_url]);
 
     if (isVideo) {
         return (

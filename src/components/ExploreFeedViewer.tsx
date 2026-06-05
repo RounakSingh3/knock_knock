@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useContext } from 'react';
+import React, { useRef, useEffect, useContext, useState } from 'react';
 import { type PostData, trackEngagement } from '../lib/database';
 import { PostModalContent } from './PostModal';
 import { AppContext } from '../App';
@@ -16,6 +16,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
     const scrollRef = useRef<HTMLDivElement>(null);
     const watchTimers = useRef<Record<string, number>>({});
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const [activePostId, setActivePostId] = useState<string | null>(posts[initialIndex]?.id || null);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -33,6 +34,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                 if (!postId) return;
 
                 if (entry.isIntersecting) {
+                    setActivePostId(postId);
                     watchTimers.current[postId] = Date.now();
                     trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
                 } else {
@@ -95,6 +97,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                         onCommentClick={onCommentClick} 
                         onShareClick={onShareClick} 
                         isEmbedded={true}
+                        isActive={post.id === activePostId}
                     />
                 </div>
             ))}

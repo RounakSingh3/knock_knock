@@ -29,9 +29,10 @@ export interface PostModalContentProps {
     onCommentClick?: (postId: string) => void;
     onShareClick?: (post: PostData) => void;
     isEmbedded?: boolean;
+    isActive?: boolean;
 }
 
-export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClose, onDelete, onCommentClick, onShareClick, isEmbedded }) => {
+export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClose, onDelete, onCommentClick, onShareClick, isEmbedded, isActive = true }) => {
     const { user } = useContext(AppContext);
     const navigate = useNavigate();
     const [isLiked, setIsLiked] = useState(false);
@@ -81,6 +82,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     className="modal-image"
                     controls
                     playsInline
+                    autoPlay={isActive}
                 />
             </div>
             <div className="modal-details modal-details--sheet">
