@@ -151,7 +151,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                                 fontSize: '15px'
                             }}
                         >
-                            Connections
+                            Friends
                         </button>
                         <button 
                             onClick={() => setActiveTab('requests')}
@@ -173,8 +173,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                         ) : displayContacts.length === 0 ? (
                             <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>
                                 {activeTab === 'connections' 
-                                    ? "No connections yet. Match in Voice Call to chat!"
-                                    : "No messages from the For You feed yet."}
+                                    ? "No friends yet. Follow some people to start chatting!"
+                                    : "No message requests yet."}
                             </div>
                         ) : (
                             displayContacts.map(contact => (
@@ -256,9 +256,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                                                                     borderRadius: '12px', overflow: 'hidden', background: '#000'
                                                                 }}>
                                                                     {sharedPost.media_type === 'video' ? (
-                                                                        <video src={sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+                                                                        <video src={sharedPost.image_url || sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
                                                                     ) : (
-                                                                        <img src={sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                        <img src={sharedPost.image_url || sharedPost.media_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                                     )}
                                                                 </div>
                                                                 {sharedPost.caption && (
