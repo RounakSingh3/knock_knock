@@ -167,34 +167,7 @@ const Explore = () => {
                 </div>
             </div>
 
-            {/* Category Chips (Only shown when NOT searching) */}
-            {!isSearching && (
-                <div style={{
-                    display: 'flex', gap: '8px', padding: '8px 16px',
-                    overflowX: 'auto', WebkitOverflowScrolling: 'touch',
-                }}>
-                    <button
-                        onClick={() => setSelectedCategory(null)}
-                        style={{
-                            background: !selectedCategory ? '#ff3366' : '#2c2c2e',
-                            color: '#fff', border: 'none', borderRadius: '16px',
-                            padding: '6px 14px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap',
-                        }}
-                    >All</button>
-                    {CONTENT_CATEGORIES.filter(c => c !== 'General').map(cat => (
-                        <button
-                            key={cat}
-                            onClick={() => setSelectedCategory(cat)}
-                            style={{
-                                background: selectedCategory === cat ? '#ff3366' : '#2c2c2e',
-                                color: '#fff', border: 'none', borderRadius: '16px',
-                                padding: '6px 14px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap',
-                            }}
-                        >{cat}</button>
-                    ))}
-                </div>
-            )}
-
+            {/* Category Chips removed to allow silent algorithmic learning */}
             {/* Search Tabs (Only shown when searching) */}
             {isSearching && (
                 <div style={{ display: 'flex', borderBottom: '1px solid #2c2c2e', marginTop: '8px' }}>
@@ -243,13 +216,6 @@ const Explore = () => {
                                 <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
                                     <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    {post.category && post.category !== 'General' && (
-                                        <span style={{
-                                            position: 'absolute', bottom: '4px', left: '4px',
-                                            background: 'rgba(0,0,0,0.6)', color: '#fff',
-                                            fontSize: '10px', padding: '2px 6px', borderRadius: '6px',
-                                        }}>{post.category}</span>
-                                    )}
                                 </div>
                             ))}
                         </div>
@@ -313,13 +279,6 @@ const Explore = () => {
                                             <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: postResults, index: idx })}>
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                                {post.category && post.category !== 'General' && (
-                                                    <span style={{
-                                                        position: 'absolute', bottom: '4px', left: '4px',
-                                                        background: 'rgba(0,0,0,0.6)', color: '#fff',
-                                                        fontSize: '10px', padding: '2px 6px', borderRadius: '6px',
-                                                    }}>{post.category}</span>
-                                                )}
                                             </div>
                                         ))}
                                     </div>
