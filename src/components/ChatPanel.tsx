@@ -173,7 +173,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                         ) : displayContacts.length === 0 ? (
                             <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>
                                 {activeTab === 'connections' 
-                                    ? "No connections yet. Follow some people to start chatting!"
+                                    ? "No connections yet. Match in Voice Call to chat!"
                                     : "No message requests yet."}
                             </div>
                         ) : (
