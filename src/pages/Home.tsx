@@ -632,6 +632,12 @@ const Home = () => {
                     onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
                     post={postToShare}
                     currentUser={{ ...user, username: user.username || 'user' }} 
+                    onViewChat={(userId) => {
+                        setIsShareOpen(false);
+                        setPostToShare(null);
+                        setChatUserId(userId);
+                        setIsChatOpen(true);
+                    }}
                 />
             )}
 

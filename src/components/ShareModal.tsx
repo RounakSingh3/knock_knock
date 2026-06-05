@@ -7,9 +7,10 @@ interface ShareModalProps {
     onClose: () => void;
     post: PostData | null;
     currentUser: ProfileData & { id: string };
+    onViewChat?: (userId: string) => void;
 }
 
-const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentUser }) => {
+const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentUser, onViewChat }) => {
     const [connections, setConnections] = useState<ProfileData[]>([]);
     const [loading, setLoading] = useState(true);
     const [sendingTo, setSendingTo] = useState<Record<string, boolean>>({});
@@ -122,24 +123,35 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                                     {contact.username}
                                 </span>
                                 
-                                <button
-                                    onClick={() => handleSend(contact.id)}
-                                    disabled={sendingTo[contact.id] || sentTo[contact.id]}
-                                    style={{
-                                        background: sentTo[contact.id] ? 'transparent' : (sendingTo[contact.id] ? '#ff9933' : '#ff3366'),
-                                        border: sentTo[contact.id] ? '1px solid #34C759' : 'none',
-                                        color: sentTo[contact.id] ? '#34C759' : '#fff',
-                                        padding: '8px 20px',
-                                        borderRadius: '20px',
-                                        fontWeight: 'bold',
-                                        fontSize: '14px',
-                                        cursor: (sendingTo[contact.id] || sentTo[contact.id]) ? 'default' : 'pointer',
-                                        display: 'flex', alignItems: 'center', gap: '6px',
-                                        transition: 'all 0.2s'
-                                    }}
-                                >
-                                    {sentTo[contact.id] ? 'Sent' : (sendingTo[contact.id] ? 'Sending...' : 'Send')}
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    {sentTo[contact.id] ? (
+                                        <button 
+                                            onClick={() => onViewChat?.(contact.id)}
+                                            style={{ 
+                                                background: '#ff3366', color: '#fff', 
+                                                border: 'none', padding: '6px 12px', 
+                                                borderRadius: '20px', fontSize: '13px', fontWeight: 'bold',
+                                                display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'
+                                            }}
+                                        >
+                                            View Chat
+                                        </button>
+                                    ) : (
+                                        <button 
+                                            onClick={() => handleSend(contact.id)}
+                                            disabled={sendingTo[contact.id]}
+                                            style={{ 
+                                                background: sendingTo[contact.id] ? '#2c2c2e' : '#fff', 
+                                                color: sendingTo[contact.id] ? '#fff' : '#000', 
+                                                border: 'none', padding: '6px 16px', 
+                                                borderRadius: '20px', fontSize: '13px', fontWeight: 'bold',
+                                                display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'
+                                            }}
+                                        >
+                                            {sendingTo[contact.id] ? <Loader2 size={14} className="animate-spin" /> : 'Send'}
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         ))
                     )}
