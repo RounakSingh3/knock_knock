@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
-import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, sendMessage, type ProfileData, type PostData } from '../lib/database';
+import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchMessageRequestUserIds, sendMessage, type ProfileData, type PostData } from '../lib/database';
 
 interface ShareModalProps {
     isOpen: boolean;
@@ -19,14 +19,22 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
         if (isOpen && currentUser) {
             setLoading(true);
             Promise.all([
-                fetchConnectionUserIds(currentUser.id).then(ids => fetchProfilesByIds(ids)),
+                fetchConnectionUserIds(currentUser.id),
+                fetchMessageRequestUserIds(currentUser.id),
                 fetchFollowing(currentUser.id)
-            ]).then(([connProfiles, followingProfiles]) => {
-                const map = new Map<string, ProfileData>();
-                connProfiles.forEach(p => map.set(p.id, p));
-                followingProfiles.forEach(p => map.set(p.id, p));
-                setConnections(Array.from(map.values()));
-                setLoading(false);
+            ]).then(([connIds, reqIds, followingProfiles]) => {
+                const idSet = new Set([...connIds, ...reqIds]);
+                fetchProfilesByIds(Array.from(idSet)).then(fetchedProfiles => {
+                    const map = new Map<string, ProfileData>();
+                    fetchedProfiles.forEach(p => map.set(p.id, p));
+                    followingProfiles.forEach(p => map.set(p.id, p));
+                    
+                    // Don't include the current user in the share list
+                    map.delete(currentUser.id);
+                    
+                    setConnections(Array.from(map.values()));
+                    setLoading(false);
+                });
             });
         }
     }, [isOpen, currentUser]);
