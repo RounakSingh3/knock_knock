@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
-import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchMessageRequestUserIds, sendMessage, type ProfileData, type PostData } from '../lib/database';
+import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchChattedUserIds, sendMessage, type ProfileData, type PostData } from '../lib/database';
 
 interface ShareModalProps {
     isOpen: boolean;
@@ -20,7 +20,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
             setLoading(true);
             Promise.all([
                 fetchConnectionUserIds(currentUser.id),
-                fetchMessageRequestUserIds(currentUser.id),
+                fetchChattedUserIds(currentUser.id),
                 fetchFollowing(currentUser.id)
             ]).then(([connIds, reqIds, followingProfiles]) => {
                 const idSet = new Set([...connIds, ...reqIds]);
