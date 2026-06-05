@@ -1197,7 +1197,7 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         .select('*')
         .order('likes_count', { ascending: false })
         .order('created_at', { ascending: false })
-        .limit(limit);
+        .limit(200); // Fetch extra to ensure enough data after deduplication
         
     if (category && category !== 'All') {
         query = query.eq('category', category);
@@ -1208,7 +1208,18 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         console.error('Error fetching discover posts:', error);
         return [];
     }
-    return data || [];
+    
+    // Deduplicate by media URL to prevent identical placeholder videos from repeating
+    const seenUrls = new Set<string>();
+    const uniquePosts: PostData[] = [];
+    for (const p of (data || [])) {
+        if (!seenUrls.has(p.image_url)) {
+            seenUrls.add(p.image_url);
+            uniquePosts.push(p);
+        }
+    }
+    
+    return uniquePosts.slice(0, limit);
 }
 
 // ── Delete Post ────────────────────────────────────────────
