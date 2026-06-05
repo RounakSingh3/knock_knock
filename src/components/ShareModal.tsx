@@ -93,7 +93,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                         </div>
                     ) : connections.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '40px', color: '#8e8e93' }}>
-                            No connections found to share with. Match in Voice Call first!
+                            No connections found. Follow some people to share posts with them!
                         </div>
                     ) : (
                         connections.map(contact => (
