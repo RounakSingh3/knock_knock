@@ -8,6 +8,7 @@ import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
+import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
 import CommentsSheet from '../components/CommentsSheet';
 import { isVideoPost } from '../lib/media';
@@ -518,22 +519,7 @@ const Home = () => {
                             <p style={{ color: '#8e8e93' }}>No posts yet. Be the first to post!</p>
                         </div>
                     ) : (
-                        <>
-                            {/* Pull to Refresh Button */}
-                            <div style={{ display: 'flex', justifyContent: 'center', padding: '8px' }}>
-                                <button
-                                    onClick={handleRefresh}
-                                    disabled={isRefreshing}
-                                    style={{
-                                        background: 'none', border: '1px solid #2c2c2e', borderRadius: '20px',
-                                        padding: '8px 20px', color: '#8e8e93', fontSize: '13px',
-                                        display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'
-                                    }}
-                                >
-                                    <RefreshCw size={14} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
-                                    {isRefreshing ? 'Refreshing...' : 'Refresh Feed'}
-                                </button>
-                            </div>
+                        <PullToRefresh onRefresh={handleRefresh}>
                         <div className="masonry-grid">
                             {posts.map((post, index) => (
                                 <div
@@ -621,7 +607,7 @@ const Home = () => {
                                 </button>
                             </div>
                         )}
-                        </>
+                        </PullToRefresh>
                     )
                 )}
             </div>

@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
+import PullToRefresh from '../components/PullToRefresh';
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -184,43 +185,30 @@ const Explore = () => {
             )}
 
             {/* Content Area */}
-            <div style={{ padding: '8px 16px' }}>
-                {!isSearching ? (
-                    /* Discover Feed (Default View) */
-                    isDiscoverLoading ? (
-                        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
-                        </div>
-                    ) : discoverPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
-                            No content found for this category.
-                        </div>
-                    ) : (
-                        <>
-                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-                                <button
-                                    onClick={handleRefresh}
-                                    disabled={isRefreshing}
-                                    style={{
-                                        background: 'none', border: '1px solid #2c2c2e', borderRadius: '20px',
-                                        padding: '8px 20px', color: '#8e8e93', fontSize: '13px',
-                                        display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'
-                                    }}
-                                >
-                                    <RefreshCw size={14} style={{ animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
-                                    {isRefreshing ? 'Refreshing...' : 'Refresh Feed'}
-                                </button>
+            <PullToRefresh onRefresh={handleRefresh}>
+                <div style={{ padding: '8px 16px' }}>
+                    {!isSearching ? (
+                        /* Discover Feed (Default View) */
+                        isDiscoverLoading ? (
+                            <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
+                                <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-                                {discoverPosts.map((post, idx) => (
-                                <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
-                                    <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                </div>
-                            ))}
-                        </div>
-                        </>
-                    )
+                        ) : discoverPosts.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
+                                No content found for this category.
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                    {discoverPosts.map((post, idx) => (
+                                    <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
+                                        <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    </div>
+                                ))}
+                            </div>
+                            </>
+                        )
                 ) : (
                     /* Search Results View */
                     loadingSearch ? (
@@ -307,7 +295,8 @@ const Explore = () => {
                         </>
                     )
                 )}
-            </div>
+                </div>
+            </PullToRefresh>
 
             {activeStoryGroupIndex !== null && (
                 <StoryViewer
