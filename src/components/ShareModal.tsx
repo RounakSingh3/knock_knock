@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, sendMessage, type ProfileData, type PostData } from '../lib/database';
+import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, sendMessage, type ProfileData, type PostData } from '../lib/database';
 
 interface ShareModalProps {
     isOpen: boolean;
@@ -18,11 +18,15 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
     useEffect(() => {
         if (isOpen && currentUser) {
             setLoading(true);
-            fetchConnectionUserIds(currentUser.id).then(ids => {
-                fetchProfilesByIds(ids).then(profiles => {
-                    setConnections(profiles);
-                    setLoading(false);
-                });
+            Promise.all([
+                fetchConnectionUserIds(currentUser.id).then(ids => fetchProfilesByIds(ids)),
+                fetchFollowing(currentUser.id)
+            ]).then(([connProfiles, followingProfiles]) => {
+                const map = new Map<string, ProfileData>();
+                connProfiles.forEach(p => map.set(p.id, p));
+                followingProfiles.forEach(p => map.set(p.id, p));
+                setConnections(Array.from(map.values()));
+                setLoading(false);
             });
         }
     }, [isOpen, currentUser]);

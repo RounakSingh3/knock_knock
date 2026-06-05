@@ -815,29 +815,24 @@ export async function removeConnection(connectionId: string): Promise<void> {
     if (error) console.error('Error removing connection:', error);
 }
 
-/** Fetch all connection user IDs for a given user (Now based on Instagram-style Follows) */
+/** Fetch all connection user IDs for a given user (Voice matches) */
 export async function fetchConnectionUserIds(userId: string): Promise<string[]> {
-    const { data: following } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', userId);
+    const { data: connectionsA } = await supabase
+        .from('connections')
+        .select('user_b')
+        .eq('user_a', userId);
 
-    const { data: followers } = await supabase
-        .from('follows')
-        .select('follower_id')
-        .eq('following_id', userId);
+    const { data: connectionsB } = await supabase
+        .from('connections')
+        .select('user_a')
+        .eq('user_b', userId);
 
-    const idSet = new Set<string>();
-    
-    if (following) {
-        following.forEach(f => idSet.add(f.following_id));
-    }
-    
-    if (followers) {
-        followers.forEach(f => idSet.add(f.follower_id));
-    }
+    const ids = [
+        ...(connectionsA || []).map(c => c.user_b),
+        ...(connectionsB || []).map(c => c.user_a),
+    ];
 
-    return Array.from(idSet);
+    return ids;
 }
 
 /** Fetch posts only from connected users */
