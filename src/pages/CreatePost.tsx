@@ -6,12 +6,28 @@ import { getMediaTypeFromFile } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2 } from 'lucide-react';
 
+const CSS_FILTERS = [
+    { name: 'Normal', filter: 'none' },
+    { name: 'Clarendon', filter: 'contrast(1.2) saturate(1.35)' },
+    { name: 'Gingham', filter: 'brightness(1.05) hue-rotate(-10deg)' },
+    { name: 'Moon', filter: 'grayscale(1) contrast(1.1) brightness(1.1)' },
+    { name: 'Lark', filter: 'contrast(0.9)' },
+    { name: 'Reyes', filter: 'sepia(0.22) brightness(1.1) contrast(0.85) saturate(0.75)' },
+    { name: 'Juno', filter: 'saturate(1.4) hue-rotate(-10deg) contrast(1.1)' },
+    { name: 'Slumber', filter: 'saturate(0.66) brightness(1.05)' },
+    { name: 'Crema', filter: 'sepia(0.5) contrast(1.25) brightness(1.15) saturate(0.9) hue-rotate(-2deg)' },
+    { name: 'Ludwig', filter: 'sepia(0.25) contrast(1.05) brightness(1.05) saturate(2)' },
+    { name: 'Aden', filter: 'hue-rotate(-20deg) contrast(0.9) saturate(0.85) brightness(1.2)' },
+    { name: 'Perpetua', filter: 'contrast(1.1) brightness(1.25) saturate(1.1)' }
+];
+
 const CreatePost = () => {
     const { user } = useContext(AppContext);
     const navigate = useNavigate();
 
     const [file, setFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [selectedFilter, setSelectedFilter] = useState('none');
     const [caption, setCaption] = useState('');
     const [attachedLink, setAttachedLink] = useState('');
     const [category, setCategory] = useState('General');
@@ -30,6 +46,7 @@ const CreatePost = () => {
         setFile(null);
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
+        setSelectedFilter('none');
     };
 
     const handleUpload = async () => {
@@ -47,16 +64,20 @@ const CreatePost = () => {
             const path = `posts/${fileName}`;
 
             const publicUrl = await uploadMedia(file, path);
+            const finalUrl = selectedFilter !== 'none' 
+                ? `${publicUrl}?filter=${encodeURIComponent(selectedFilter)}`
+                : publicUrl;
 
             await createNewPost({
                 user_id: user.id,
                 username: user.username || 'user',
                 avatar_url: user.avatar_url || 'https://i.pravatar.cc/150',
-                image_url: publicUrl,
+                image_url: finalUrl,
                 caption,
                 attached_link: attachedLink || undefined,
                 media_type: getMediaTypeFromFile(file),
                 category,
+                css_filter: selectedFilter,
             });
 
             navigate('/home');
@@ -100,11 +121,11 @@ const CreatePost = () => {
                     />
                 </label>
             ) : (
-                <div style={{ position: 'relative', marginBottom: '24px', borderRadius: '16px', overflow: 'hidden', background: '#121212', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+                <div style={{ position: 'relative', marginBottom: '16px', borderRadius: '16px', overflow: 'hidden', background: '#121212', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
                     {file?.type.startsWith('video/') ? (
-                        <video src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%' }} controls autoPlay playsInline loop />
+                        <video src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%', filter: selectedFilter }} controls autoPlay playsInline loop />
                     ) : (
-                        <img src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="Preview" />
+                        <img src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', filter: selectedFilter }} alt="Preview" />
                     )}
                     <button 
                         onClick={handleRemoveFile}
@@ -112,6 +133,41 @@ const CreatePost = () => {
                     >
                         <Trash2 size={20} color="#ff3b30" />
                     </button>
+                </div>
+            )}
+
+            {previewUrl && (
+                <div style={{ marginBottom: '24px', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' }}>
+                    <div style={{ display: 'inline-flex', gap: '12px' }}>
+                        {CSS_FILTERS.map(f => (
+                            <button
+                                key={f.name}
+                                onClick={() => setSelectedFilter(f.filter)}
+                                style={{
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                    opacity: selectedFilter === f.filter ? 1 : 0.6,
+                                    transform: selectedFilter === f.filter ? 'scale(1.05)' : 'scale(1)',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <div style={{ 
+                                    width: '60px', height: '60px', borderRadius: '12px', 
+                                    background: '#2c2c2e', marginBottom: '8px', overflow: 'hidden',
+                                    border: selectedFilter === f.filter ? '2px solid #ff3366' : '2px solid transparent'
+                                }}>
+                                    {file?.type.startsWith('video/') ? (
+                                        <video src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: f.filter }} muted />
+                                    ) : (
+                                        <img src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: f.filter }} alt="" />
+                                    )}
+                                </div>
+                                <span style={{ color: '#fff', fontSize: '11px', fontWeight: selectedFilter === f.filter ? 'bold' : 'normal' }}>
+                                    {f.name}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 

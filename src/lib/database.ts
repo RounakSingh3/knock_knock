@@ -20,6 +20,7 @@ export interface PostData {
     attached_link?: string;
     media_type?: MediaType | string;
     category?: string;
+    css_filter?: string;
     boost_expires_at?: string | null;
     boost_impressions_remaining?: number;
 }
@@ -117,6 +118,7 @@ export async function createNewPost(post: {
     attached_link?: string;
     media_type?: MediaType;
     category?: string;
+    css_filter?: string;
 }) {
     const row: Record<string, unknown> = {
         username: post.username,

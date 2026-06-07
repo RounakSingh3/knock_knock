@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon } from 'lucide-react';
-import { fetchVideoPosts, trackEngagement, type PostData } from '../lib/database';
+import { fetchVideoPosts, trackEngagement, type PostData, type MessageData } from '../lib/database';
 import { AppContext } from '../App';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
@@ -18,6 +18,7 @@ export interface ReelData {
     comments: number;
     shares: number;
     category: string;
+    css_filter?: string;
     attachedLink?: string;
 }
 
@@ -187,6 +188,15 @@ export function formatCount(n: number): string {
 }
 
 function postToReel(post: PostData): ReelData {
+    let filter = post.css_filter;
+    try {
+        if (!filter || filter === 'none') {
+            const url = new URL(post.image_url);
+            const f = url.searchParams.get('filter');
+            if (f) filter = decodeURIComponent(f);
+        }
+    } catch(e) {}
+
     return {
         id: post.id,
         videoUrl: post.image_url,
@@ -199,6 +209,7 @@ function postToReel(post: PostData): ReelData {
         comments: 0,
         shares: 0,
         category: 'Uploads',
+        css_filter: filter,
         attachedLink: post.attached_link,
     };
 }
@@ -220,6 +231,8 @@ const Reels: React.FC = () => {
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatUserId, setChatUserId] = useState<string | null>(null);
+    const [chatRefreshKey, setChatRefreshKey] = useState(0);
+    const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: MessageData } | null>(null);
 
     // Watch time & replay tracking
     const watchStartRef = useRef<number>(0);
@@ -558,21 +571,22 @@ const Reels: React.FC = () => {
                                 >
                                     {isActiveReel ? (
                                         <video
-                                            ref={(el) => {
-                                                videoRefs.current[idx] = el;
-                                            }}
-                                            className="reel-video"
+                                            ref={(el) => (videoRefs.current[idx] = el)}
                                             src={reel.videoUrl}
-                                            poster={reel.posterUrl}
                                             loop
-                                            muted={mutedAll}
                                             playsInline
-                                            preload="metadata"
+                                            autoPlay={idx === selectedReelIndex}
+                                            muted={mutedAll}
+                                            onTimeUpdate={() => handleTimeUpdate(idx)}
+                                            onEnded={() => handleReelEnd(idx)}
+                                            className="w-full h-full object-cover"
+                                            style={{ filter: reel.css_filter || 'none' }}
                                             onClick={(e) => handleDoubleTap(idx, e)}
                                         />
                                     ) : (
-                                        <div className="reel-video flex items-center justify-center bg-black">
-                                            <img src={reel.posterUrl} alt="Poster" className="w-full h-full object-cover opacity-30" />
+                                        <div className="absolute inset-0 z-0 bg-black">
+                                            <img src={reel.posterUrl} alt="Poster" className="w-full h-full object-cover opacity-30" style={{ filter: reel.css_filter || 'none' }} />
+                                            <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl" />
                                         </div>
                                     )}
 
@@ -688,6 +702,8 @@ const Reels: React.FC = () => {
                     onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
                     currentUser={{ ...user, username: user.username || 'user' }} 
                     initialOpenUserId={chatUserId}
+                    refreshKey={chatRefreshKey}
+                    pendingShare={pendingShare}
                 />
             )}
 
@@ -697,6 +713,10 @@ const Reels: React.FC = () => {
                     onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
                     post={postToShare}
                     currentUser={{ ...user, username: user.username || 'user' }} 
+                    onMessageSent={(receiverId, message) => {
+                        setPendingShare({ receiverId, message });
+                        setChatRefreshKey(k => k + 1);
+                    }}
                     onViewChat={(userId) => {
                         setIsShareOpen(false);
                         setPostToShare(null);

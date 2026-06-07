@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
-import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchChattedUserIds, sendMessage, type ProfileData, type PostData } from '../lib/database';
+import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchChattedUserIds, sendMessage, type ProfileData, type PostData, type MessageData } from '../lib/database';
 
 interface ShareModalProps {
     isOpen: boolean;
@@ -8,9 +8,10 @@ interface ShareModalProps {
     post: PostData | null;
     currentUser: ProfileData & { id: string };
     onViewChat?: (userId: string) => void;
+    onMessageSent?: (receiverId: string, message: MessageData) => void;
 }
 
-const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentUser, onViewChat }) => {
+const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentUser, onViewChat, onMessageSent }) => {
     const [connections, setConnections] = useState<ProfileData[]>([]);
     const [loading, setLoading] = useState(true);
     const [sendingTo, setSendingTo] = useState<Record<string, boolean>>({});
@@ -61,19 +62,25 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
         const sharePayload = {
             id: post.id,
             image_url: post.image_url,
+            media_url: post.image_url,
             media_type: post.media_type,
             caption: post.caption,
-            username: post.username // if available, or we might not have it on raw PostData, but usually we do via join or passed props
+            username: post.username,
+            avatar_url: post.avatar_url,
         };
 
         const content = `[SHARE_POST] ${JSON.stringify(sharePayload)}`;
 
-        const { error } = await sendMessage(currentUser.id, receiverId, content);
+        const { data, error } = await sendMessage(currentUser.id, receiverId, content);
 
         setSendingTo(prev => ({ ...prev, [receiverId]: false }));
         
-        if (!error) {
+        if (!error && data) {
             setSentTo(prev => ({ ...prev, [receiverId]: true }));
+            onMessageSent?.(receiverId, data);
+        } else {
+            alert("Failed to send message. Your session might have expired. Please try logging out and logging back in.");
+            console.error("Message send error:", error);
         }
     };
 

@@ -67,16 +67,8 @@ function App() {
                 console.error('Failed to restore session', e);
             }
 
-            const savedUser = localStorage.getItem('knock_user_session');
-            if (savedUser && mounted) {
-                try {
-                    const parsedUser = JSON.parse(savedUser) as ProfileData;
-                    setUser(parsedUser);
-                    setPoints(parsedUser.points || 0);
-                } catch (e) {
-                    localStorage.removeItem('knock_user_session');
-                }
-            }
+            // If no valid session exists, clear local storage and remain logged out
+            localStorage.removeItem('knock_user_session');
             if (mounted) setLoading(false);
         };
 

@@ -3,7 +3,7 @@ import { isVideoPost } from '../lib/media';
 import type { PostData } from '../lib/database';
 
 interface PostMediaProps {
-    post: Pick<PostData, 'image_url' | 'media_type'>;
+    post: Pick<PostData, 'image_url' | 'media_type' | 'css_filter'>;
     className?: string;
     style?: React.CSSProperties;
     /** Mute video. Defaults: false when controls/soundOn, true for autoplay thumbnails */
@@ -64,13 +64,22 @@ const PostMedia: React.FC<PostMediaProps> = ({
         }
     }, [soundOn, isVideo, autoPlay, post.image_url]);
 
+    let extractedFilter = post.css_filter || 'none';
+    try {
+        if (!post.css_filter || post.css_filter === 'none') {
+            const url = new URL(post.image_url);
+            const f = url.searchParams.get('filter');
+            if (f) extractedFilter = decodeURIComponent(f);
+        }
+    } catch(e) {}
+
     if (isVideo) {
         return (
             <video
                 ref={videoRef}
                 src={post.image_url}
                 className={className}
-                style={style}
+                style={{ ...style, filter: extractedFilter }}
                 muted={effectiveMuted}
                 controls={controls}
                 autoPlay={autoPlay || soundOn}
@@ -85,7 +94,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
             src={post.image_url}
             alt={alt}
             className={className}
-            style={style}
+            style={{ ...style, filter: extractedFilter }}
             loading="lazy"
         />
     );

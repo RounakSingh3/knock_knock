@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, RefreshCw, Play } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, type UserStoryGroup, type StoryData, type ProfileData, type PostData } from '../lib/database';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { CONTENT_CATEGORIES, buildInterestProfile, assembleFeed, shuffleFeedForRefresh } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
@@ -53,6 +53,8 @@ const Explore = () => {
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatUserId, setChatUserId] = useState<string | null>(null);
+    const [chatRefreshKey, setChatRefreshKey] = useState(0);
+    const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: MessageData } | null>(null);
 
     const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -342,6 +344,8 @@ const Explore = () => {
                     onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
                     currentUser={{ ...user, username: user.username || 'user' }} 
                     initialOpenUserId={chatUserId}
+                    refreshKey={chatRefreshKey}
+                    pendingShare={pendingShare}
                 />
             )}
 
@@ -351,6 +355,10 @@ const Explore = () => {
                     isOpen={isShareOpen} 
                     currentUser={user as any} 
                     onClose={() => setIsShareOpen(false)} 
+                    onMessageSent={(receiverId, message) => {
+                        setPendingShare({ receiverId, message });
+                        setChatRefreshKey(k => k + 1);
+                    }}
                     onViewChat={(userId) => {
                         setIsShareOpen(false);
                         setPostToShare(null);

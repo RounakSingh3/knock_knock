@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { Loader2, Rocket, PlusCircle } from 'lucide-react';
 import { AppContext } from '../App';
-import { fetchActiveBoostedPosts, fetchUserEngagements, boostPost, type PostData, fetchUserPosts, trackEngagement } from '../lib/database';
+import { fetchActiveBoostedPosts, fetchUserEngagements, boostPost, type PostData, fetchUserPosts, trackEngagement, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed } from '../lib/algorithm';
 import { PostModalContent } from '../components/PostModal';
 import CommentsSheet from '../components/CommentsSheet';
@@ -21,6 +21,8 @@ const Boost: React.FC = () => {
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatUserId, setChatUserId] = useState<string | null>(null);
+    const [chatRefreshKey, setChatRefreshKey] = useState(0);
+    const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: MessageData } | null>(null);
     
     // Select Mode State
     const [userPosts, setUserPosts] = useState<PostData[]>([]);
@@ -198,22 +200,32 @@ const Boost: React.FC = () => {
                         </div>
                     ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                            {userPosts.map(post => (
+                            {userPosts.map(post => {
+                                let filter = post.css_filter || 'none';
+                                try {
+                                    if (filter === 'none') {
+                                        const url = new URL(post.image_url);
+                                        const f = url.searchParams.get('filter');
+                                        if (f) filter = decodeURIComponent(f);
+                                    }
+                                } catch(e) {}
+                                return (
                                 <div 
                                     key={post.id} 
                                     onClick={() => handleBoostPost(post)}
                                     style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', background: '#2c2c2e' }}
                                 >
                                     {post.image_url.endsWith('.mp4') ? (
-                                        <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+                                        <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} muted playsInline />
                                     ) : (
-                                        <img src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                                        <img src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} alt="" />
                                     )}
                                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }} onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0'}>
                                         <span style={{ color: '#fff', fontWeight: 'bold', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Boost</span>
                                     </div>
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -229,6 +241,8 @@ const Boost: React.FC = () => {
                     onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
                     currentUser={{ ...user, username: user.username || 'user' }} 
                     initialOpenUserId={chatUserId}
+                    refreshKey={chatRefreshKey}
+                    pendingShare={pendingShare}
                 />
             )}
 
@@ -238,6 +252,10 @@ const Boost: React.FC = () => {
                     isOpen={isShareOpen} 
                     currentUser={user as any} 
                     onClose={() => setIsShareOpen(false)} 
+                    onMessageSent={(receiverId, message) => {
+                        setPendingShare({ receiverId, message });
+                        setChatRefreshKey(k => k + 1);
+                    }}
                     onViewChat={(userId) => {
                         setIsShareOpen(false);
                         setPostToShare(null);

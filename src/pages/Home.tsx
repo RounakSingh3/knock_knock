@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, type PostData, type StoryData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, toggleLike } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2 } from 'lucide-react';
@@ -52,6 +52,8 @@ const Home = () => {
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatUserId, setChatUserId] = useState<string | null>(null);
+    const [chatRefreshKey, setChatRefreshKey] = useState(0);
+    const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: MessageData } | null>(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
     const [isCommentsOpen, setIsCommentsOpen] = useState(false);
@@ -684,6 +686,8 @@ const Home = () => {
                     onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
                     currentUser={{ ...user, username: user.username || 'user' }} 
                     initialOpenUserId={chatUserId}
+                    refreshKey={chatRefreshKey}
+                    pendingShare={pendingShare}
                 />
             )}
 
@@ -693,6 +697,10 @@ const Home = () => {
                     onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
                     post={postToShare}
                     currentUser={{ ...user, username: user.username || 'user' }} 
+                    onMessageSent={(receiverId, message) => {
+                        setPendingShare({ receiverId, message });
+                        setChatRefreshKey(k => k + 1);
+                    }}
                     onViewChat={(userId) => {
                         setIsShareOpen(false);
                         setPostToShare(null);
