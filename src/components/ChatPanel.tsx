@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ChevronLeft, Send, Check, CheckCheck } from 'lucide-react';
-import { fetchConnectionUserIds, fetchChattedUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, type ProfileData, type MessageData } from '../lib/database';
+import { fetchConnectionUserIds, fetchChattedUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, type ProfileData, type MessageData } from '../lib/database';
+import { supabase } from '../lib/supabase';
 
 interface ChatPanelProps {
     isOpen: boolean;
@@ -23,49 +24,140 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
     const [messageInput, setMessageInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Fetch contacts when panel opens
+    const fetchChatThreads = async (myId: string) => {
+        const { data: msgs, error } = await supabase
+            .from('messages')
+            .select('*')
+            .or(`sender_id.eq.${myId},receiver_id.eq.${myId}`)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching chat threads:', error);
+            return [];
+        }
+
+        const threadsMap = new Map<string, { lastMessage: MessageData; unreadCount: number }>();
+        (msgs || []).forEach((m: any) => {
+            const partnerId = m.sender_id === myId ? m.receiver_id : m.sender_id;
+            if (!threadsMap.has(partnerId)) {
+                threadsMap.set(partnerId, {
+                    lastMessage: m,
+                    unreadCount: 0
+                });
+            }
+            if (m.receiver_id === myId && !m.is_read) {
+                threadsMap.get(partnerId)!.unreadCount += 1;
+            }
+        });
+
+        return Array.from(threadsMap.entries()).map(([partnerId, data]) => ({
+            partnerId,
+            ...data
+        }));
+    };
+
+    // Fetch contacts when panel opens and subscribe to real-time message changes
     useEffect(() => {
-        if (isOpen) {
+        if (!isOpen) {
+            setView('list');
+            setSelectedContact(null);
+            return;
+        }
+
+        const refreshContacts = () => {
             setLoadingContacts(true);
             Promise.all([
                 fetchConnectionUserIds(currentUser.id),
-                fetchChattedUserIds(currentUser.id)
-            ]).then(([connIds, chattedIds]) => {
+                fetchChatThreads(currentUser.id)
+            ]).then(([connIds, threadData]) => {
                 const connSet = new Set(connIds);
-                const reqIds = chattedIds.filter(id => !connSet.has(id));
+                const partnerIds = threadData.map(t => t.partnerId);
                 
-                // Also add initialOpenUserId to requests if it's not a connection and not already in chattedIds
-                if (initialOpenUserId && !connSet.has(initialOpenUserId) && !reqIds.includes(initialOpenUserId)) {
-                    reqIds.push(initialOpenUserId);
+                if (initialOpenUserId && !partnerIds.includes(initialOpenUserId)) {
+                    partnerIds.push(initialOpenUserId);
                 }
 
-                Promise.all([
-                    fetchProfilesByIds(connIds),
-                    fetchProfilesByIds(reqIds)
-                ]).then(([connProfiles, reqProfiles]) => {
-                    setConnections(connProfiles);
-                    setRequests(reqProfiles);
-                    setLoadingContacts(false);
+                fetchProfilesByIds(partnerIds).then(fetchedProfiles => {
+                    const profilesMap = new Map(fetchedProfiles.map(p => [p.id, p]));
                     
-                    if (initialOpenUserId) {
-                        const targetUser = [...connProfiles, ...reqProfiles].find(p => p.id === initialOpenUserId);
-                        if (targetUser) {
-                            setSelectedContact(targetUser);
-                            setView('chat');
+                    const sortedContacts = threadData
+                        .map(t => {
+                            const profile = profilesMap.get(t.partnerId);
+                            if (!profile) return null;
+                            return {
+                                ...profile,
+                                lastMessage: t.lastMessage,
+                                unreadCount: t.unreadCount
+                            };
+                        })
+                        .filter(Boolean) as any[];
+
+                    // Add any connections that don't have message threads yet
+                    const chattedSet = new Set(threadData.map(t => t.partnerId));
+                    const unchattedConnIds = connIds.filter(id => !chattedSet.has(id));
+                    
+                    fetchProfilesByIds(unchattedConnIds).then(unchattedProfiles => {
+                        const allConns = [
+                            ...sortedContacts.filter(c => connSet.has(c.id)),
+                            ...unchattedProfiles.map(p => ({ ...p, lastMessage: null, unreadCount: 0 }))
+                        ];
+                        
+                        const allReqs = sortedContacts.filter(c => !connSet.has(c.id));
+                        
+                        if (initialOpenUserId && !chattedSet.has(initialOpenUserId) && !connSet.has(initialOpenUserId)) {
+                            const p = profilesMap.get(initialOpenUserId);
+                            if (p && !allReqs.some(r => r.id === initialOpenUserId)) {
+                                allReqs.unshift({ ...p, lastMessage: null, unreadCount: 0 });
+                            }
                         }
-                    }
+
+                        setConnections(allConns);
+                        setRequests(allReqs);
+                        setLoadingContacts(false);
+                        
+                        if (initialOpenUserId) {
+                            const targetUser = [...allConns, ...allReqs].find(p => p.id === initialOpenUserId);
+                            if (targetUser) {
+                                setSelectedContact(targetUser);
+                                setView('chat');
+                            }
+                        }
+                    });
                 });
             });
-        } else {
-            setView('list');
-            setSelectedContact(null);
-        }
-    }, [isOpen, initialOpenUserId]);
+        };
+
+        refreshContacts();
+
+        // Subscribe to messages changes to keep the chat list updated in real-time
+        const channel = supabase
+            .channel(`chat-list-${currentUser.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'messages'
+                },
+                () => {
+                    refreshContacts();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            channel.unsubscribe();
+        };
+    }, [isOpen, initialOpenUserId, currentUser.id]);
 
     // Load messages when a contact is selected
     useEffect(() => {
         if (view === 'chat' && selectedContact) {
             setLoadingMessages(true);
+            
+            // Mark messages from this sender as read when we open the chat
+            markMessagesAsRead(selectedContact.id, currentUser.id);
+
             fetchMessages(currentUser.id, selectedContact.id).then(data => {
                 setMessages(data);
                 setLoadingMessages(false);
@@ -73,6 +165,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
             });
 
             const subscription = subscribeToMessages(currentUser.id, selectedContact.id, (newMsg) => {
+                // Mark incoming message as read
+                markMessagesAsRead(selectedContact.id, currentUser.id);
                 setMessages(prev => [...prev, newMsg]);
                 scrollToBottom();
             });
@@ -81,7 +175,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                 subscription.unsubscribe();
             };
         }
-    }, [view, selectedContact]);
+    }, [view, selectedContact, currentUser.id]);
 
     const scrollToBottom = () => {
         setTimeout(() => {
@@ -177,27 +271,71 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
                                     : "No message requests yet."}
                             </div>
                         ) : (
-                            displayContacts.map(contact => (
-                                <div 
-                                    key={contact.id}
-                                    onClick={() => { setSelectedContact(contact); setView('chat'); }}
-                                    style={{ 
-                                        display: 'flex', alignItems: 'center', padding: '16px', 
-                                        borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
-                                        transition: 'background 0.2s'
-                                    }}
-                                >
-                                    <img 
-                                        src={contact.avatar_url || 'https://i.pravatar.cc/150'} 
-                                        alt={contact.username} 
-                                        style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', marginRight: '16px' }}
-                                    />
-                                    <div style={{ flex: 1 }}>
-                                        <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: '600' }}>{contact.username}</h3>
-                                        <p style={{ margin: 0, fontSize: '14px', color: '#8e8e93', marginTop: '4px' }}>Tap to chat</p>
+                            displayContacts.map(contact => {
+                                const lastMsg = (contact as any).lastMessage;
+                                const unread = (contact as any).unreadCount || 0;
+                                
+                                const getMessagePreview = () => {
+                                    if (!lastMsg) return 'Tap to chat';
+                                    if (lastMsg.content.startsWith('[SHARE_POST]')) {
+                                        return '📷 Shared a post';
+                                    }
+                                    if (lastMsg.content.startsWith('[VOICE_REACTION]')) {
+                                        return '🎙️ Voice reaction';
+                                    }
+                                    return lastMsg.content;
+                                };
+
+                                return (
+                                    <div 
+                                        key={contact.id}
+                                        onClick={() => { setSelectedContact(contact); setView('chat'); }}
+                                        style={{ 
+                                            display: 'flex', alignItems: 'center', padding: '16px', 
+                                            borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
+                                            transition: 'background 0.2s',
+                                            backgroundColor: unread > 0 ? 'rgba(255, 51, 102, 0.05)' : 'transparent'
+                                        }}
+                                    >
+                                        <img 
+                                            src={contact.avatar_url || 'https://i.pravatar.cc/150'} 
+                                            alt={contact.username} 
+                                            style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', marginRight: '16px' }}
+                                        />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: unread > 0 ? '700' : '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{contact.username}</h3>
+                                                {lastMsg && (
+                                                    <span style={{ fontSize: '11px', color: unread > 0 ? '#ff3366' : '#8e8e93' }}>
+                                                        {new Date(lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                                <p style={{ 
+                                                    margin: 0, fontSize: '14px', 
+                                                    color: unread > 0 ? '#fff' : '#8e8e93',
+                                                    fontWeight: unread > 0 ? '500' : 'normal',
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                    marginRight: '8px', flex: 1
+                                                }}>
+                                                    {getMessagePreview()}
+                                                </p>
+                                                {unread > 0 && (
+                                                    <span style={{ 
+                                                        background: '#ff3366', color: '#fff', fontSize: '11px', 
+                                                        fontWeight: 'bold', borderRadius: '50%', minWidth: '18px', 
+                                                        height: '18px', display: 'flex', alignItems: 'center', 
+                                                        justifyContent: 'center', padding: '0 4px' 
+                                                    }}>
+                                                        {unread}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </>

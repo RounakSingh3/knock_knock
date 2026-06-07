@@ -923,6 +923,20 @@ export async function fetchMessages(user1: string, user2: string): Promise<Messa
     return data || [];
 }
 
+/** Mark messages from a specific sender as read */
+export async function markMessagesAsRead(senderId: string, receiverId: string): Promise<void> {
+    const { error } = await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('sender_id', senderId)
+        .eq('receiver_id', receiverId)
+        .eq('is_read', false);
+
+    if (error) {
+        console.error('Error marking messages as read:', error);
+    }
+}
+
 /** Send a message */
 export async function sendMessage(senderId: string, receiverId: string, content: string): Promise<{ data: MessageData | null; error: Error | null }> {
     const { data, error } = await supabase

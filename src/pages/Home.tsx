@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, type PostData, type StoryData } from '../lib/database';
 import { checkIfLiked, toggleLike } from '../lib/database';
+import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2 } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
@@ -68,6 +69,49 @@ const Home = () => {
     
     // Connection List (like Page 3)
     const [connectionsList, setConnectionsList] = useState<any[]>([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    // Real-time unread chat message badge tracking
+    useEffect(() => {
+        if (!user) return;
+
+        const updateUnreadCount = async () => {
+            try {
+                const { count, error } = await supabase
+                    .from('messages')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('receiver_id', user.id)
+                    .eq('is_read', false);
+                
+                if (!error) {
+                    setUnreadCount(count || 0);
+                }
+            } catch (err) {
+                console.error('Failed to update unread count:', err);
+            }
+        };
+
+        updateUnreadCount();
+
+        const channel = supabase
+            .channel(`unread-count-${user.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'messages'
+                },
+                () => {
+                    updateUnreadCount();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            channel.unsubscribe();
+        };
+    }, [user?.id]);
 
     const loadForYouFeed = () => {
         if (!user) return;
@@ -386,8 +430,25 @@ const Home = () => {
             <header className="home-header-v2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 className="home-brand-title">Knock Knock</h1>
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                    <button onClick={() => { setChatUserId(null); setIsChatOpen(true); }} className="signout-btn-v2" title="Messages" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px' }}>
+                    <button 
+                        onClick={() => { setChatUserId(null); setIsChatOpen(true); }} 
+                        className="signout-btn-v2" 
+                        title="Messages" 
+                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px', position: 'relative' }}
+                    >
                         <MessageCircle size={24} />
+                        {unreadCount > 0 && (
+                            <span style={{
+                                position: 'absolute', top: '2px', right: '2px',
+                                background: '#ff3366', color: '#fff', fontSize: '9px',
+                                fontWeight: 'bold', borderRadius: '50%', minWidth: '15px',
+                                height: '15px', display: 'flex', alignItems: 'center',
+                                justifyContent: 'center', padding: '0 3px',
+                                border: '2px solid #000', boxSizing: 'content-box'
+                            }}>
+                                {unreadCount}
+                            </span>
+                        )}
                     </button>
                     <button onClick={signOut} className="signout-btn-v2" title="Sign Out" type="button" style={{ background: 'none', border: 'none', color: '#ff3b30', cursor: 'pointer', padding: '8px' }}>
                         <LogOut size={20} />
