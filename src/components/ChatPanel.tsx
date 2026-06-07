@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, type ProfileData, type MessageData } from '../lib/database';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 interface ChatContact extends ProfileData {
@@ -336,6 +336,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         }
     };
 
+    const handleDeleteMessage = async (msgId: string) => {
+        if (window.confirm('Delete this message for everyone?')) {
+            const { error } = await deleteMessage(msgId, currentUser.id);
+            if (!error) {
+                setMessages(prev => prev.filter(m => m.id !== msgId));
+            } else {
+                alert('Failed to delete message.');
+            }
+        }
+    };
+
     const formatTime = (iso: string) => {
         const date = new Date(iso);
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -600,9 +611,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         <div style={{ fontSize: '11px', color: '#8e8e93', marginTop: '4px', display: 'flex', alignItems: 'center' }}>
                                             {formatTime(msg.created_at)}
                                             {isMe && (
-                                                <span style={{ marginLeft: '4px' }}>
-                                                    {msg.is_read ? <CheckCheck size={14} color="#34C759" /> : <Check size={14} />}
-                                                </span>
+                                                <>
+                                                    <span style={{ marginLeft: '4px' }}>
+                                                        {msg.is_read ? <CheckCheck size={14} color="#34C759" /> : <Check size={14} />}
+                                                    </span>
+                                                    <button
+                                                        onClick={() => handleDeleteMessage(msg.id)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0 8px', color: '#8e8e93', display: 'flex', alignItems: 'center' }}
+                                                        title="Delete message"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </>
                                             )}
                                         </div>
                                     </div>

@@ -958,6 +958,21 @@ export async function sendMessage(senderId: string, receiverId: string, content:
     return { data, error: null };
 }
 
+/** Delete a message */
+export async function deleteMessage(messageId: string, userId: string): Promise<{ error: Error | null }> {
+    const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', messageId)
+        .eq('sender_id', userId); // Ensure only the sender can delete
+
+    if (error) {
+        console.error('Error deleting message:', error);
+        return { error: new Error(error.message) };
+    }
+    return { error: null };
+}
+
 /** Subscribe to messages for a specific conversation (both sent and received) */
 export function subscribeToMessages(user1: string, user2: string, onNewMessage: (msg: MessageData) => void) {
     return supabase
