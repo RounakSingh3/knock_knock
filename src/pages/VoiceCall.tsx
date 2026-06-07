@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
 import { AppContext } from '../App';
 import { computeMatches, createConnection, checkConnection, type MatchResult, type ConnectionData } from '../lib/database';
+import { supabase } from '../lib/supabase';
 
 const MATCH_PREFERENCES = [
     "Similar Likes ❤️",
@@ -37,6 +38,35 @@ const VoiceCall = () => {
     const currentMatch = matches[currentMatchIndex] || null;
     const localVideoRef = useRef<HTMLVideoElement>(null);
 
+    // Real-time voice call addition states
+    const [isMockMode, setIsMockMode] = useState(false);
+    const [isCaller, setIsCaller] = useState(false);
+    const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
+    const [incomingExtensionRequest, setIncomingExtensionRequest] = useState(false);
+    const [incomingVideoRequest, setIncomingVideoRequest] = useState(false);
+
+    const channelRef = useRef<any>(null);
+    const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+    const localStreamRef = useRef<MediaStream | null>(null);
+    const remoteAudioRef = useRef<HTMLAudioElement>(null);
+    const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+    const pendingInviteRef = useRef<string | null>(null);
+    const searchTimeoutRef = useRef<number | null>(null);
+
+    // State refs to give signaling callbacks the latest values
+    const isSearchingRef = useRef(isSearching);
+    const activePrefRef = useRef(activePref);
+    const currentMatchRef = useRef(currentMatch);
+    const videoRequestStatusRef = useRef(videoRequestStatus);
+    const isMockModeRef = useRef(isMockMode);
+
+    useEffect(() => { isSearchingRef.current = isSearching; }, [isSearching]);
+    useEffect(() => { activePrefRef.current = activePref; }, [activePref]);
+    useEffect(() => { currentMatchRef.current = currentMatch; }, [currentMatch]);
+    useEffect(() => { videoRequestStatusRef.current = videoRequestStatus; }, [videoRequestStatus]);
+    useEffect(() => { isMockModeRef.current = isMockMode; }, [isMockMode]);
+
     // Timer for active call
     useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -58,23 +88,308 @@ const VoiceCall = () => {
         }
     }, [callDuration, inCall, requestStatus]);
 
-    // Setup local webcam when video is accepted
-    useEffect(() => {
-        if (videoRequestStatus === 'accepted' && localVideoRef.current) {
-            navigator.mediaDevices.getUserMedia({ video: true })
-                .then(stream => {
-                    if (localVideoRef.current) {
-                        localVideoRef.current.srcObject = stream;
-                    }
-                })
-                .catch(err => console.error("Error accessing webcam:", err));
-        } else if (videoRequestStatus !== 'accepted') {
-            if (localVideoRef.current && localVideoRef.current.srcObject) {
-                const tracks = (localVideoRef.current.srcObject as MediaStream).getTracks();
-                tracks.forEach(track => track.stop());
+    // WebRTC connection and cleanup functions
+    const closeWebRTC = () => {
+        if (peerConnectionRef.current) {
+            peerConnectionRef.current.close();
+            peerConnectionRef.current = null;
+        }
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(track => track.stop());
+            localStreamRef.current = null;
+        }
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = null;
+        }
+        if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+        }
+        if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = null;
+        }
+    };
+
+    const updatePresence = async (status: 'idle' | 'searching' | 'in-call') => {
+        if (channelRef.current && user?.id) {
+            try {
+                await channelRef.current.track({
+                    user_id: user.id,
+                    username: user.username,
+                    name: user.name,
+                    avatar_url: user.avatar_url,
+                    gender: user.gender,
+                    status: status,
+                    preference: activePrefRef.current,
+                });
+            } catch (e) {
+                console.error("Error tracking presence:", e);
             }
         }
-    }, [videoRequestStatus]);
+    };
+
+    // ── Supabase Realtime channel subscription ──
+    useEffect(() => {
+        if (!user || !user.id) return;
+
+        const channel = supabase.channel('room:voice_calls');
+        channelRef.current = channel;
+
+        channel
+            .on('presence', { event: 'sync' }, () => {
+                const presenceState = channel.presenceState();
+                const list: any[] = [];
+                Object.keys(presenceState).forEach((key) => {
+                    presenceState[key].forEach((presence: any) => {
+                        list.push(presence);
+                    });
+                });
+                setOnlineUsers(list);
+            })
+            .on('broadcast', { event: 'call-invite' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+
+                const callerProfile = payload.callerProfile;
+                const genderMatch = () => {
+                    if (activePrefRef.current === 'Boy to Girl 👫') {
+                        return callerProfile.gender === 'female';
+                    }
+                    if (activePrefRef.current === 'Girl to Boy 👭') {
+                        return callerProfile.gender === 'male';
+                    }
+                    return true;
+                };
+
+                if (isSearchingRef.current && genderMatch()) {
+                    if (searchTimeoutRef.current) {
+                        clearTimeout(searchTimeoutRef.current);
+                        searchTimeoutRef.current = null;
+                    }
+
+                    setIsCaller(false);
+                    setIsMockMode(false);
+                    setMatches([{
+                        profile: callerProfile,
+                        similarityScore: payload.compatibilityPercent / 100,
+                        sharedLikes: payload.sharedLikes,
+                        totalLikes: payload.totalLikes,
+                        compatibilityPercent: payload.compatibilityPercent,
+                    }]);
+                    setCurrentMatchIndex(0);
+                    setIsSearching(false);
+                    setShowMatchCard(true);
+
+                    channel.send({
+                        type: 'broadcast',
+                        event: 'call-accept',
+                        payload: {
+                            callerId: payload.callerId,
+                            receiverId: user.id,
+                            receiverProfile: {
+                                id: user.id,
+                                username: user.username,
+                                name: user.name,
+                                avatar_url: user.avatar_url,
+                                gender: user.gender,
+                                points: user.points,
+                            }
+                        }
+                    });
+                }
+            })
+            .on('broadcast', { event: 'call-accept' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (isSearchingRef.current && pendingInviteRef.current === payload.receiverId) {
+                    if (searchTimeoutRef.current) {
+                        clearTimeout(searchTimeoutRef.current);
+                        searchTimeoutRef.current = null;
+                    }
+
+                    setIsCaller(true);
+                    setIsMockMode(false);
+                    setMatches([{
+                        profile: payload.receiverProfile,
+                        similarityScore: 0.85,
+                        sharedLikes: 3,
+                        totalLikes: 6,
+                        compatibilityPercent: 88,
+                    }]);
+                    setCurrentMatchIndex(0);
+                    setIsSearching(false);
+                    setShowMatchCard(true);
+                    pendingInviteRef.current = null;
+                }
+            })
+            .on('broadcast', { event: 'call-end' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                endCall();
+            })
+            .on('broadcast', { event: 'chat-message' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                setChatMessages(prev => [...prev, { id: payload.id, text: payload.text, isMine: false }]);
+            })
+            .on('broadcast', { event: 'extend-request' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                setIncomingExtensionRequest(true);
+            })
+            .on('broadcast', { event: 'extend-response' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (payload.accepted) {
+                    setRequestStatus('accepted');
+                } else {
+                    setRequestStatus('none');
+                }
+            })
+            .on('broadcast', { event: 'video-request' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                setIncomingVideoRequest(true);
+            })
+            .on('broadcast', { event: 'video-response' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (payload.accepted) {
+                    setVideoRequestStatus('accepted');
+                } else {
+                    setVideoRequestStatus('none');
+                }
+            })
+            .on('broadcast', { event: 'webrtc-offer' }, async ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (peerConnectionRef.current) {
+                    try {
+                        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+                        const answer = await peerConnectionRef.current.createAnswer();
+                        await peerConnectionRef.current.setLocalDescription(answer);
+                        channel.send({
+                            type: 'broadcast',
+                            event: 'webrtc-answer',
+                            payload: {
+                                senderId: user.id,
+                                receiverId: payload.senderId,
+                                sdp: answer,
+                            }
+                        });
+                    } catch (e) {
+                        console.error('Error handling WebRTC offer:', e);
+                    }
+                }
+            })
+            .on('broadcast', { event: 'webrtc-answer' }, async ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (peerConnectionRef.current) {
+                    try {
+                        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+                    } catch (e) {
+                        console.error('Error handling WebRTC answer:', e);
+                    }
+                }
+            })
+            .on('broadcast', { event: 'webrtc-ice' }, async ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (peerConnectionRef.current) {
+                    try {
+                        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+                    } catch (e) {
+                        console.error('Error handling ICE candidate:', e);
+                    }
+                }
+            });
+
+        channel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+                await channel.track({
+                    user_id: user.id,
+                    username: user.username,
+                    name: user.name,
+                    avatar_url: user.avatar_url,
+                    gender: user.gender,
+                    status: isSearching ? 'searching' : inCall ? 'in-call' : 'idle',
+                    preference: activePref,
+                });
+            }
+        });
+
+        return () => {
+            channel.unsubscribe();
+        };
+    }, [user?.id, isSearching, inCall, activePref]);
+
+    // ── WebRTC Connection Management ──
+    useEffect(() => {
+        const startWebRTC = async () => {
+            if (!inCall || isMockMode || !currentMatch) return;
+            closeWebRTC();
+
+            try {
+                const isVideo = videoRequestStatus === 'accepted';
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: isVideo
+                });
+                localStreamRef.current = stream;
+
+                if (isVideo && localVideoRef.current) {
+                    localVideoRef.current.srcObject = stream;
+                }
+
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                peerConnectionRef.current = pc;
+
+                stream.getTracks().forEach(track => {
+                    pc.addTrack(track, stream);
+                });
+
+                pc.onicecandidate = (event) => {
+                    if (event.candidate && channelRef.current && currentMatchRef.current) {
+                        channelRef.current.send({
+                            type: 'broadcast',
+                            event: 'webrtc-ice',
+                            payload: {
+                                senderId: user!.id,
+                                receiverId: currentMatchRef.current.profile.id,
+                                candidate: event.candidate,
+                            }
+                        });
+                    }
+                };
+
+                pc.ontrack = (event) => {
+                    const remoteStream = event.streams[0];
+                    if (isVideo) {
+                        if (remoteVideoRef.current) {
+                            remoteVideoRef.current.srcObject = remoteStream;
+                        }
+                    } else {
+                        if (remoteAudioRef.current) {
+                            remoteAudioRef.current.srcObject = remoteStream;
+                        }
+                    }
+                };
+
+                if (isCaller) {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    channelRef.current.send({
+                        type: 'broadcast',
+                        event: 'webrtc-offer',
+                        payload: {
+                            senderId: user!.id,
+                            receiverId: currentMatchRef.current.profile.id,
+                            sdp: offer,
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to capture stream or create RTCPeerConnection:', e);
+            }
+        };
+
+        startWebRTC();
+
+        return () => {
+            closeWebRTC();
+        };
+    }, [inCall, isMockMode, videoRequestStatus, isCaller, currentMatch?.profile?.id]);
 
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -83,13 +398,41 @@ const VoiceCall = () => {
     };
 
     const handleTalkMore = () => {
-        setRequestStatus('sent');
-        setTimeout(() => setRequestStatus('accepted'), 2000);
+        if (isMockMode) {
+            setRequestStatus('sent');
+            setTimeout(() => setRequestStatus('accepted'), 2000);
+        } else {
+            setRequestStatus('sent');
+            if (channelRef.current && currentMatch) {
+                channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'extend-request',
+                    payload: {
+                        senderId: user!.id,
+                        receiverId: currentMatch.profile.id
+                    }
+                });
+            }
+        }
     };
 
     const handleRequestVideo = () => {
-        setVideoRequestStatus('sent');
-        setTimeout(() => setVideoRequestStatus('accepted'), 2000);
+        if (isMockMode) {
+            setVideoRequestStatus('sent');
+            setTimeout(() => setVideoRequestStatus('accepted'), 2000);
+        } else {
+            setVideoRequestStatus('sent');
+            if (channelRef.current && currentMatch) {
+                channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'video-request',
+                    payload: {
+                        senderId: user!.id,
+                        receiverId: currentMatch.profile.id
+                    }
+                });
+            }
+        }
     };
 
     const handleConnect = async () => {
@@ -125,9 +468,81 @@ const VoiceCall = () => {
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
+        setIsMockMode(false);
+        setIsCaller(false);
+
+        await updatePresence('searching');
+
+        // Check if there is already an online user matching our preference
+        const searchForOnlineMatch = () => {
+            const match = onlineUsers.find(u => {
+                if (u.user_id === user.id) return false;
+                if (u.status !== 'searching') return false;
+                
+                // Match gender based on active preference
+                if (activePref === 'Boy to Girl 👫') {
+                    if (u.gender !== 'female') return false;
+                } else if (activePref === 'Girl to Boy 👭') {
+                    if (u.gender !== 'male') return false;
+                }
+                
+                // Also check if we match their preference
+                if (u.preference === 'Boy to Girl 👫') {
+                    if (user.gender !== 'female') return false;
+                } else if (u.preference === 'Girl to Boy 👭') {
+                    if (user.gender !== 'male') return false;
+                }
+                
+                return true;
+            });
+            return match;
+        };
+
+        const onlineMatch = searchForOnlineMatch();
+        if (onlineMatch) {
+            pendingInviteRef.current = onlineMatch.user_id;
+            
+            const compat = Math.floor(Math.random() * 20) + 80; // 80 - 99%
+            const shared = Math.floor(Math.random() * 4) + 1; // 1 - 4
+            
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'call-invite',
+                payload: {
+                    callerId: user.id,
+                    receiverId: onlineMatch.user_id,
+                    callerProfile: {
+                        id: user.id,
+                        username: user.username,
+                        name: user.name,
+                        avatar_url: user.avatar_url,
+                        gender: user.gender,
+                        points: user.points,
+                    },
+                    compatibilityPercent: compat,
+                    sharedLikes: shared,
+                    totalLikes: 5
+                }
+            });
+
+            searchTimeoutRef.current = window.setTimeout(() => {
+                startMockMatching();
+            }, 3500);
+        } else {
+            searchTimeoutRef.current = window.setTimeout(() => {
+                startMockMatching();
+            }, 3500);
+        }
+    };
+
+    const startMockMatching = async () => {
+        setIsMockMode(true);
+        setIsSearching(true);
+        setNoMatchFound(false);
+        setShowMatchCard(false);
 
         try {
-            const results = await computeMatches(user.id, user.gender || '', activePref);
+            const results = await computeMatches(user!.id, user!.gender || '', activePref);
             if (results.length === 0) {
                 setNoMatchFound(true);
                 setIsSearching(false);
@@ -144,17 +559,31 @@ const VoiceCall = () => {
         }
     };
 
-    const connectToMatch = () => {
+    const connectToMatch = async () => {
         setShowMatchCard(false);
         setInCall(true);
+        await updatePresence('in-call');
     };
 
     const skipToNext = () => {
+        if (!isMockModeRef.current && currentMatchRef.current && channelRef.current) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'call-end',
+                payload: {
+                    senderId: user!.id,
+                    receiverId: currentMatchRef.current.profile.id
+                }
+            });
+        }
+        closeWebRTC();
+
         if (currentMatchIndex < matches.length - 1) {
             setCurrentMatchIndex(prev => prev + 1);
             setInCall(false);
             setShowMatchCard(true);
             resetCallStates();
+            updatePresence('in-call');
         } else {
             endCall();
             setNoMatchFound(true);
@@ -162,10 +591,22 @@ const VoiceCall = () => {
     };
 
     const endCall = () => {
+        if (!isMockModeRef.current && currentMatchRef.current && channelRef.current) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'call-end',
+                payload: {
+                    senderId: user!.id,
+                    receiverId: currentMatchRef.current.profile.id
+                }
+            });
+        }
+        closeWebRTC();
         setInCall(false);
         setShowMatchCard(false);
         setIsSearching(false);
         resetCallStates();
+        updatePresence('idle');
     };
 
     const resetCallStates = () => {
@@ -176,6 +617,15 @@ const VoiceCall = () => {
         setShowConnectionToast(false);
         setShowChat(false);
         setChatMessages([]);
+        setIncomingExtensionRequest(false);
+        setIncomingVideoRequest(false);
+        setIsMockMode(false);
+        setIsCaller(false);
+        pendingInviteRef.current = null;
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+            searchTimeoutRef.current = null;
+        }
     };
 
     const goBack = () => {
@@ -188,14 +638,33 @@ const VoiceCall = () => {
     const sendChatMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (!chatInput.trim()) return;
-        const newMsg = { id: Date.now(), text: chatInput, isMine: true };
-        setChatMessages(prev => [...prev, newMsg]);
-        setChatInput('');
-        
-        // Mock remote reply
-        setTimeout(() => {
-            setChatMessages(prev => [...prev, { id: Date.now(), text: 'Haha yeah! 😄', isMine: false }]);
-        }, 1500);
+
+        if (isMockMode) {
+            const newMsg = { id: Date.now(), text: chatInput, isMine: true };
+            setChatMessages(prev => [...prev, newMsg]);
+            setChatInput('');
+            
+            setTimeout(() => {
+                setChatMessages(prev => [...prev, { id: Date.now(), text: 'Haha yeah! 😄', isMine: false }]);
+            }, 1500);
+        } else {
+            const msgId = Date.now();
+            setChatMessages(prev => [...prev, { id: msgId, text: chatInput, isMine: true }]);
+            const messageText = chatInput;
+            setChatInput('');
+            if (channelRef.current && currentMatch) {
+                channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'chat-message',
+                    payload: {
+                        id: msgId,
+                        senderId: user!.id,
+                        receiverId: currentMatch.profile.id,
+                        text: messageText,
+                    }
+                });
+            }
+        }
     };
 
     // ── Active Call Screen ──
@@ -205,21 +674,32 @@ const VoiceCall = () => {
                 {videoRequestStatus === 'accepted' ? (
                     // Video Call Layout
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-                        {/* Remote Video (Mocked with avatar) */}
+                        {/* Remote Video */}
                         <div style={{ flex: 1, backgroundColor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                            <img
-                                src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
-                                alt={currentMatch.profile.username}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5, filter: 'blur(20px)' }}
-                            />
-                            <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <img
-                                    src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
-                                    alt=""
-                                    style={{ width: '80px', height: '80px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)' }}
+                            {!isMockMode ? (
+                                <video
+                                    ref={remoteVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                 />
-                                <span style={{ marginTop: '8px', fontWeight: 'bold' }}>{currentMatch.profile.name} (Camera Off)</span>
-                            </div>
+                            ) : (
+                                <>
+                                    <img
+                                        src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
+                                        alt={currentMatch.profile.username}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5, filter: 'blur(20px)' }}
+                                    />
+                                    <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                        <img
+                                            src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
+                                            alt=""
+                                            style={{ width: '80px', height: '80px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)' }}
+                                        />
+                                        <span style={{ marginTop: '8px', fontWeight: 'bold' }}>{currentMatch.profile.name} (Camera Off)</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         {/* Local Video */}
@@ -338,8 +818,113 @@ const VoiceCall = () => {
                     </div>
                 )}
 
+                {/* Incoming Extension Request */}
+                {incomingExtensionRequest && (
+                    <div className="connection-toast" style={{ top: '80px', bottom: 'auto' }}>
+                        <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Clock size={20} color="#facc15" />
+                                <span><strong>{currentMatch.profile.name} wants more time!</strong></span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                <button
+                                    className="pill active"
+                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
+                                    onClick={() => {
+                                        setRequestStatus('accepted');
+                                        setIncomingExtensionRequest(false);
+                                        if (channelRef.current) {
+                                            channelRef.current.send({
+                                                type: 'broadcast',
+                                                event: 'extend-response',
+                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    Accept
+                                </button>
+                                <button
+                                    className="pill"
+                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', backgroundColor: '#333' }}
+                                    onClick={() => {
+                                        setIncomingExtensionRequest(false);
+                                        if (channelRef.current) {
+                                            channelRef.current.send({
+                                                type: 'broadcast',
+                                                event: 'extend-response',
+                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    Decline
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Incoming Video Request */}
+                {incomingVideoRequest && (
+                    <div className="connection-toast" style={{ top: '80px', bottom: 'auto' }}>
+                        <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Video size={20} color="#60a5fa" />
+                                <span><strong>{currentMatch.profile.name} wants to switch to Video!</strong></span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                <button
+                                    className="pill active"
+                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
+                                    onClick={() => {
+                                        setVideoRequestStatus('accepted');
+                                        setIncomingVideoRequest(false);
+                                        if (channelRef.current) {
+                                            channelRef.current.send({
+                                                type: 'broadcast',
+                                                event: 'video-response',
+                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    Accept
+                                </button>
+                                <button
+                                    className="pill"
+                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', backgroundColor: '#333' }}
+                                    onClick={() => {
+                                        setIncomingVideoRequest(false);
+                                        if (channelRef.current) {
+                                            channelRef.current.send({
+                                                type: 'broadcast',
+                                                event: 'video-response',
+                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    Decline
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Audio elements */}
+                <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />
+
                 <div className="call-controls" style={{ position: 'absolute', bottom: '20px', left: 0, right: 0, zIndex: 10 }}>
-                    <button className="call-btn btn-mute" onClick={() => setIsMuted(!isMuted)}>
+                    <button className="call-btn btn-mute" onClick={() => {
+                        const newMuted = !isMuted;
+                        setIsMuted(newMuted);
+                        if (localStreamRef.current) {
+                            localStreamRef.current.getAudioTracks().forEach(track => {
+                                track.enabled = !newMuted;
+                            });
+                        }
+                    }}>
                         {isMuted ? <MicOff size={28} color="#ff3b30" /> : <Mic size={28} />}
                     </button>
                     <button className="call-btn btn-end" onClick={endCall}>
