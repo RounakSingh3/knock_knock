@@ -64,9 +64,18 @@ const CreatePost = () => {
             const path = `posts/${fileName}`;
 
             const publicUrl = await uploadMedia(file, path);
-            const finalUrl = selectedFilter !== 'none' 
-                ? `${publicUrl}?filter=${encodeURIComponent(selectedFilter)}`
-                : publicUrl;
+            let finalUrl = publicUrl;
+            if (selectedFilter !== 'none') {
+                try {
+                    const u = new URL(publicUrl);
+                    u.searchParams.set('filter', selectedFilter);
+                    finalUrl = u.toString();
+                } catch (e) {
+                    finalUrl = publicUrl.includes('?') 
+                        ? `${publicUrl}&filter=${encodeURIComponent(selectedFilter)}`
+                        : `${publicUrl}?filter=${encodeURIComponent(selectedFilter)}`;
+                }
+            }
 
             await createNewPost({
                 user_id: user.id,
