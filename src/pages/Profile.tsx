@@ -3,9 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { 
     fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
-    fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow 
+    fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
+    uploadMedia, updateProfile
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera } from 'lucide-react';
 import { isVideoPost } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
@@ -13,7 +14,7 @@ import EditProfileSheet from '../components/EditProfileSheet';
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
     const navigate = useNavigate();
-    const { user: currentUser, points } = useContext(AppContext);
+    const { user: currentUser, setUser, points } = useContext(AppContext);
 
     const [profile, setProfile] = useState<ProfileData | null>(null);
     const [posts, setPosts] = useState<PostData[]>([]);
@@ -26,6 +27,39 @@ const Profile = () => {
     const [isFollowing, setIsFollowing] = useState(false);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
     const [isEditOpen, setIsEditOpen] = useState(false);
+    const [updatingAvatar, setUpdatingAvatar] = useState(false);
+
+    const handleAvatarDirectChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!currentUser || !profile) return;
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            setUpdatingAvatar(true);
+            try {
+                const ext = file.name.split('.').pop();
+                const path = `avatars/${currentUser.id}-${Date.now()}.${ext}`;
+                const publicUrl = await uploadMedia(file, path);
+                
+                const success = await updateProfile(currentUser.id, { avatar_url: publicUrl });
+                if (success) {
+                    setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : null);
+                    
+                    if (setUser) {
+                        setUser(prev => {
+                            if (!prev) return null;
+                            const newProfile = { ...prev, avatar_url: publicUrl };
+                            localStorage.setItem('knock_user_session', JSON.stringify(newProfile));
+                            return newProfile;
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Error uploading avatar:', err);
+                alert('Failed to upload profile picture. Please try again.');
+            } finally {
+                setUpdatingAvatar(false);
+            }
+        }
+    };
 
     useEffect(() => {
         if (!username && currentUser) {
@@ -138,11 +172,55 @@ const Profile = () => {
             <div style={{ padding: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
                     <div style={{ position: 'relative' }}>
-                        <img
-                            src={profile.avatar_url || `https://i.pravatar.cc/150?u=${displayUsername}`}
-                            alt={profile.name}
-                            style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #ff3366' }}
-                        />
+                        {isOwnProfile ? (
+                            <label className="avatar-upload-label" style={{ position: 'relative', cursor: 'pointer', display: 'block' }}>
+                                <img
+                                    src={profile.avatar_url || `https://i.pravatar.cc/150?u=${displayUsername}`}
+                                    alt={profile.name}
+                                    style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #ff3366', transition: 'opacity 0.2s' }}
+                                />
+                                {updatingAvatar ? (
+                                    <div style={{
+                                        position: 'absolute', inset: 0,
+                                        background: 'rgba(0,0,0,0.6)', borderRadius: '50%',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        border: '3px solid #ff3366',
+                                    }}>
+                                        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#fff' }} />
+                                    </div>
+                                ) : (
+                                    <div style={{
+                                        position: 'absolute', inset: 0,
+                                        background: 'rgba(0,0,0,0.4)', borderRadius: '50%',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        opacity: 0, transition: 'opacity 0.2s',
+                                        border: '3px solid #ff3366',
+                                    }}
+                                    className="avatar-hover-overlay"
+                                    >
+                                        <Camera size={20} color="#fff" />
+                                    </div>
+                                )}
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    onChange={handleAvatarDirectChange} 
+                                    disabled={updatingAvatar}
+                                    style={{ display: 'none' }} 
+                                />
+                            </label>
+                        ) : (
+                            <img
+                                src={profile.avatar_url || `https://i.pravatar.cc/150?u=${displayUsername}`}
+                                alt={profile.name}
+                                style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #ff3366' }}
+                            />
+                        )}
+                        <style>{`
+                            .avatar-upload-label:hover .avatar-hover-overlay {
+                                opacity: 1 !important;
+                            }
+                        `}</style>
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', textAlign: 'center', flex: 1, justifyContent: 'center' }}>

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { X, Loader2, Camera } from 'lucide-react';
 import { updateProfile, uploadMedia } from '../lib/database';
+import { AppContext } from '../App';
 
 interface EditProfileSheetProps {
     isOpen: boolean;
@@ -10,6 +11,7 @@ interface EditProfileSheetProps {
 }
 
 const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, currentUser, onUpdated }) => {
+    const { setUser } = useContext(AppContext);
     const [username, setUsername] = useState(currentUser.username || '');
     const [bio, setBio] = useState(currentUser.bio || '');
     const [avatarPreview, setAvatarPreview] = useState(currentUser.avatar_url || '');
@@ -54,6 +56,14 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
                     setSaving(false);
                     return;
                 }
+
+                // Update global state & localStorage so the changes sync everywhere instantly
+                setUser(prev => {
+                    if (!prev) return null;
+                    const newProfile = { ...prev, ...updates };
+                    localStorage.setItem('knock_user_session', JSON.stringify(newProfile));
+                    return newProfile;
+                });
             }
 
             setSaving(false);
