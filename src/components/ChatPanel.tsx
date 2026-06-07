@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, ChevronLeft, Send, Check, CheckCheck } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, type ProfileData, type MessageData } from '../lib/database';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon } from 'lucide-react';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 interface ChatContact extends ProfileData {
@@ -251,6 +251,50 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }, 100);
+    };
+
+    const [isUploadingImage, setIsUploadingImage] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || !e.target.files[0] || !selectedContact) return;
+        const file = e.target.files[0];
+        
+        if (fileInputRef.current) fileInputRef.current.value = '';
+
+        setIsUploadingImage(true);
+        try {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${currentUser.id}-${Date.now()}.${fileExt}`;
+            const path = `chat_images/${fileName}`;
+
+            const publicUrl = await uploadMedia(file, path);
+            const text = `[IMAGE] ${publicUrl}`;
+
+            const optimisticMsg: MessageData = {
+                id: `temp-${Date.now()}`,
+                sender_id: currentUser.id,
+                receiver_id: selectedContact.id,
+                content: text,
+                created_at: new Date().toISOString(),
+                is_read: false,
+            };
+            setMessages(prev => [...prev, optimisticMsg]);
+            scrollToBottom();
+
+            const { data, error } = await sendMessage(currentUser.id, selectedContact.id, text);
+            if (error) {
+                console.error('Failed to send image:', error);
+                setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+            } else if (data) {
+                setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? data : m));
+            }
+        } catch (err) {
+            console.error('Error uploading image:', err);
+            alert('Failed to upload image. Please try again.');
+        } finally {
+            setIsUploadingImage(false);
+        }
     };
 
     const handleSend = async (e: React.FormEvent) => {
@@ -544,6 +588,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                             }}
                                                         />
                                                     </div>
+                                                ) : msg.content.startsWith('[IMAGE]') ? (
+                                                    <img 
+                                                        src={msg.content.replace('[IMAGE] ', '')} 
+                                                        alt="Sent image" 
+                                                        style={{ maxWidth: '100%', borderRadius: '12px', display: 'block' }} 
+                                                    />
                                                 ) : msg.content
                                             )}
                                         </div>
@@ -562,12 +612,32 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         <div ref={messagesEndRef} />
                     </div>
 
-                    <form onSubmit={handleSend} style={{ display: 'flex', padding: '12px', background: '#121212', borderTop: '1px solid #2c2c2e' }}>
+                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: '#121212', borderTop: '1px solid #2c2c2e' }}>
+                        <input 
+                            type="file" 
+                            accept="image/*" 
+                            style={{ display: 'none' }} 
+                            ref={fileInputRef} 
+                            onChange={handleImageUpload} 
+                        />
+                        <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            style={{
+                                background: 'none', border: 'none', color: '#8e8e93',
+                                padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                marginRight: '8px', opacity: isUploadingImage ? 0.5 : 1
+                            }}
+                            disabled={isUploadingImage}
+                        >
+                            <ImageIcon size={24} />
+                        </button>
                         <input
                             type="text"
                             value={messageInput}
                             onChange={(e) => setMessageInput(e.target.value)}
-                            placeholder="Message..."
+                            placeholder={isUploadingImage ? "Uploading..." : "Message..."}
+                            disabled={isUploadingImage}
                             style={{
                                 flex: 1,
                                 background: '#2c2c2e',
