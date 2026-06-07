@@ -57,6 +57,22 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [messageInput, setMessageInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // Hide bottom navigation when ChatPanel is open
+    useEffect(() => {
+        const nav = document.querySelector('.bottom-nav') as HTMLElement;
+        if (!nav) return;
+        
+        if (isOpen) {
+            nav.style.display = 'none';
+        } else {
+            nav.style.display = 'flex';
+        }
+        
+        return () => {
+            if (nav) nav.style.display = 'flex';
+        };
+    }, [isOpen]);
+
     const fetchChatThreads = async (myId: string) => {
         const { data: msgs, error } = await supabase
             .from('messages')
