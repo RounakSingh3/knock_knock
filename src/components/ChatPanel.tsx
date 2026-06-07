@@ -167,7 +167,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose, currentUser, ini
             const subscription = subscribeToMessages(currentUser.id, selectedContact.id, (newMsg) => {
                 // Mark incoming message as read
                 markMessagesAsRead(selectedContact.id, currentUser.id);
-                setMessages(prev => [...prev, newMsg]);
+                setMessages(prev => {
+                    if (prev.some(m => m.id === newMsg.id || (m.id.startsWith('temp-') && m.content === newMsg.content))) {
+                        return prev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
+                    }
+                    return [...prev, newMsg];
+                });
                 scrollToBottom();
             });
 

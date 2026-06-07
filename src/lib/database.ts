@@ -956,7 +956,7 @@ export async function sendMessage(senderId: string, receiverId: string, content:
     return { data, error: null };
 }
 
-/** Subscribe to incoming messages for a specific conversation */
+/** Subscribe to messages for a specific conversation (both sent and received) */
 export function subscribeToMessages(user1: string, user2: string, onNewMessage: (msg: MessageData) => void) {
     return supabase
         .channel(`messages-${user1}-${user2}`)
@@ -966,11 +966,15 @@ export function subscribeToMessages(user1: string, user2: string, onNewMessage: 
                 event: 'INSERT',
                 schema: 'public',
                 table: 'messages',
-                filter: `sender_id=eq.${user2}`, // Listen for messages sent BY the other user
             },
             (payload) => {
-                if (payload.new.receiver_id === user1) {
-                    onNewMessage(payload.new as MessageData);
+                const newMsg = payload.new as MessageData;
+                const isBetween = 
+                    (newMsg.sender_id === user1 && newMsg.receiver_id === user2) ||
+                    (newMsg.sender_id === user2 && newMsg.receiver_id === user1);
+                
+                if (isBetween) {
+                    onNewMessage(newMsg);
                 }
             }
         )
