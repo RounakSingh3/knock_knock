@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
+import ChatPanel from '../components/ChatPanel';
 import PullToRefresh from '../components/PullToRefresh';
 import { isVideoPost } from '../lib/media';
 
@@ -50,6 +51,8 @@ const Explore = () => {
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatUserId, setChatUserId] = useState<string | null>(null);
 
     const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -333,8 +336,28 @@ const Explore = () => {
                 <CommentsSheet postId={commentsPostId} isOpen={isCommentsOpen} currentUser={user as any} onClose={() => setIsCommentsOpen(false)} />
             )}
 
+            {user && (
+                <ChatPanel 
+                    isOpen={isChatOpen} 
+                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
+                    currentUser={{ ...user, username: user.username || 'user' }} 
+                    initialOpenUserId={chatUserId}
+                />
+            )}
+
             {isShareOpen && postToShare && user && (
-                <ShareModal post={postToShare} isOpen={isShareOpen} currentUser={user as any} onClose={() => setIsShareOpen(false)} />
+                <ShareModal 
+                    post={postToShare} 
+                    isOpen={isShareOpen} 
+                    currentUser={user as any} 
+                    onClose={() => setIsShareOpen(false)} 
+                    onViewChat={(userId) => {
+                        setIsShareOpen(false);
+                        setPostToShare(null);
+                        setChatUserId(userId);
+                        setIsChatOpen(true);
+                    }}
+                />
             )}
         </div>
     );

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon } from 'lucide-react';
 import { fetchVideoPosts, trackEngagement, type PostData } from '../lib/database';
 import { AppContext } from '../App';
+import ChatPanel from '../components/ChatPanel';
+import ShareModal from '../components/ShareModal';
 
 export interface ReelData {
     id: string | number;
@@ -212,6 +214,12 @@ const Reels: React.FC = () => {
     const [playStates, setPlayStates] = useState<boolean[]>(REELS_DATA.map(() => true));
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
     const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
+
+    // Chat and share states
+    const [isShareOpen, setIsShareOpen] = useState(false);
+    const [postToShare, setPostToShare] = useState<PostData | null>(null);
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatUserId, setChatUserId] = useState<string | null>(null);
 
     // Watch time & replay tracking
     const watchStartRef = useRef<number>(0);
@@ -631,7 +639,27 @@ const Reels: React.FC = () => {
                                             <MessageCircle size={28} />
                                             <span>{formatCount(reel.comments)}</span>
                                         </button>
-                                        <button className="reel-action-btn">
+                                        <button 
+                                            className="reel-action-btn"
+                                            onClick={() => {
+                                                const mappedPost: PostData = {
+                                                    id: String(reel.id),
+                                                    user_id: '',
+                                                    image_url: reel.videoUrl || reel.posterUrl,
+                                                    caption: reel.caption,
+                                                    media_type: 'video',
+                                                    attached_link: reel.attachedLink,
+                                                    created_at: new Date().toISOString(),
+                                                    likes_count: reel.likes,
+                                                    comments_count: reel.comments,
+                                                    shares_count: reel.shares,
+                                                    username: reel.creator,
+                                                    avatar_url: reel.creatorAvatar
+                                                };
+                                                setPostToShare(mappedPost);
+                                                setIsShareOpen(true);
+                                            }}
+                                        >
                                             <Share2 size={28} />
                                             <span>{formatCount(reel.shares)}</span>
                                         </button>
@@ -652,6 +680,30 @@ const Reels: React.FC = () => {
                         })}
                     </div>
                 </div>
+            )}
+
+            {user && (
+                <ChatPanel 
+                    isOpen={isChatOpen} 
+                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
+                    currentUser={{ ...user, username: user.username || 'user' }} 
+                    initialOpenUserId={chatUserId}
+                />
+            )}
+
+            {isShareOpen && postToShare && user && (
+                <ShareModal 
+                    isOpen={isShareOpen} 
+                    onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
+                    post={postToShare}
+                    currentUser={{ ...user, username: user.username || 'user' }} 
+                    onViewChat={(userId) => {
+                        setIsShareOpen(false);
+                        setPostToShare(null);
+                        setChatUserId(userId);
+                        setIsChatOpen(true);
+                    }}
+                />
             )}
         </div>
     );

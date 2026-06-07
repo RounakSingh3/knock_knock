@@ -8,6 +8,7 @@ import Stories from './pages/Stories';
 import Explore from './pages/Explore';
 import Connections from './pages/Connections';
 import Boost from './pages/Boost';
+import Reels from './pages/Reels';
 import VoiceCall from './pages/VoiceCall';
 import Login from './pages/Login';
 import Profile from './pages/Profile';
@@ -217,6 +218,7 @@ function App() {
                                 <Route path="/connections" element={<Connections />} />
                                 <Route path="/create" element={<CreatePost />} />
                                 <Route path="/boost" element={<Boost />} />
+                                <Route path="/reels" element={<Reels />} />
                                 <Route path="/call" element={<VoiceCall />} />
                                 <Route path="/settings" element={<Settings />} />
                                 <Route path="/profile" element={<Profile />} />

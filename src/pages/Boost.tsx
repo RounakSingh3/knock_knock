@@ -6,6 +6,7 @@ import { buildInterestProfile, assembleFeed } from '../lib/algorithm';
 import { PostModalContent } from '../components/PostModal';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
+import ChatPanel from '../components/ChatPanel';
 
 const Boost: React.FC = () => {
     const { user, points, setPoints } = useContext(AppContext);
@@ -18,6 +19,8 @@ const Boost: React.FC = () => {
     const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [postToShare, setPostToShare] = useState<PostData | null>(null);
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatUserId, setChatUserId] = useState<string | null>(null);
     
     // Select Mode State
     const [userPosts, setUserPosts] = useState<PostData[]>([]);
@@ -220,8 +223,28 @@ const Boost: React.FC = () => {
                 <CommentsSheet postId={commentsPostId} isOpen={isCommentsOpen} currentUser={user as any} onClose={() => setIsCommentsOpen(false)} />
             )}
 
+            {user && (
+                <ChatPanel 
+                    isOpen={isChatOpen} 
+                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
+                    currentUser={{ ...user, username: user.username || 'user' }} 
+                    initialOpenUserId={chatUserId}
+                />
+            )}
+
             {isShareOpen && postToShare && user && (
-                <ShareModal post={postToShare} isOpen={isShareOpen} currentUser={user as any} onClose={() => setIsShareOpen(false)} />
+                <ShareModal 
+                    post={postToShare} 
+                    isOpen={isShareOpen} 
+                    currentUser={user as any} 
+                    onClose={() => setIsShareOpen(false)} 
+                    onViewChat={(userId) => {
+                        setIsShareOpen(false);
+                        setPostToShare(null);
+                        setChatUserId(userId);
+                        setIsChatOpen(true);
+                    }}
+                />
             )}
         </div>
     );
