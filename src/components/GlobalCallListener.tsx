@@ -30,6 +30,13 @@ const GlobalCallListener: React.FC = () => {
                 const callerProfile = profiles.length > 0 ? profiles[0] : null;
                 
                 setIncomingCall({ callerId, callerProfile, type: type || 'audio', room });
+
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    new Notification(`Incoming call from ${callerProfile?.username || 'Someone'}`, {
+                        body: 'Click to open Knock Knock',
+                        icon: callerProfile?.avatar_url || '/logo192.png',
+                    });
+                }
             }
         });
 
@@ -42,8 +49,40 @@ const GlobalCallListener: React.FC = () => {
 
         channel.subscribe();
 
+        // Listen for new messages globally for native notifications
+        const messageChannel = supabase.channel(`global-messages-${user.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `receiver_id=eq.${user.id}`
+                },
+                async (payload) => {
+                    const newMsg = payload.new as any;
+                    
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        // Optionally fetch sender profile for the icon
+                        const senderProfiles = await fetchProfilesByIds([newMsg.sender_id]);
+                        const sender = senderProfiles[0];
+                        
+                        let bodyText = newMsg.content;
+                        if (bodyText.startsWith('[SHARE_POST]')) bodyText = 'Shared a post with you';
+                        if (bodyText.startsWith('[VOICE_REACTION]')) bodyText = 'Sent a voice reaction 🎙️';
+
+                        new Notification(`New message from ${sender?.username || 'Someone'}`, {
+                            body: bodyText,
+                            icon: sender?.avatar_url || '/logo192.png',
+                        });
+                    }
+                }
+            )
+            .subscribe();
+
         return () => {
             supabase.removeChannel(channel);
+            supabase.removeChannel(messageChannel);
         };
     }, [user]);
 
