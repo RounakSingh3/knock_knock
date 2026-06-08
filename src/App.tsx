@@ -15,6 +15,7 @@ import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import CreatePost from './pages/CreatePost';
 import OnboardingOverlay from './components/OnboardingOverlay';
+import GlobalCallListener from './components/GlobalCallListener';
 
 // Global Context for Points & Auth
 interface AppContextType {
@@ -219,6 +220,7 @@ function App() {
                             </>
                         )}
                     </Routes>
+                    {isAuthenticated && <GlobalCallListener />}
                     {isAuthenticated && !onboardingDone && (
                         <OnboardingOverlay onComplete={() => setOnboardingDone(true)} />
                     )}

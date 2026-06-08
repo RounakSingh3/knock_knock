@@ -6,10 +6,11 @@ import {
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
     uploadMedia, updateProfile
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone } from 'lucide-react';
 import { isVideoPost } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
+import { supabase } from '../lib/supabase';
 
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
@@ -27,6 +28,7 @@ const Profile = () => {
     const [isFollowing, setIsFollowing] = useState(false);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
     const [isEditOpen, setIsEditOpen] = useState(false);
+    const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
     const [updatingAvatar, setUpdatingAvatar] = useState(false);
 
     const handleAvatarDirectChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,6 +143,47 @@ const Profile = () => {
 
     const displayUsername = username;
     const isOwnProfile = currentUser && currentUser.username === username;
+
+    const handleDirectCall = () => {
+        if (!currentUser || !profile) return;
+        
+        const room = `direct-${currentUser.id}-${profile.id}-${Date.now()}`;
+        setCallingStatus('calling');
+
+        // Send invite
+        supabase.channel('direct-calls').send({
+            type: 'broadcast',
+            event: 'call-invite',
+            payload: {
+                callerId: currentUser.id,
+                receiverId: profile.id,
+                type: 'audio',
+                room
+            }
+        });
+
+        // Wait for accept
+        const channel = supabase.channel('direct-calls');
+        channel.on('broadcast', { event: 'call-accept' }, (payload) => {
+            if (payload.payload.callerId === currentUser.id && payload.payload.receiverId === profile.id) {
+                setCallingStatus('none');
+                navigate(`/call?direct=true&partnerId=${profile.id}&role=caller&room=${payload.payload.room}`);
+            }
+        });
+        channel.on('broadcast', { event: 'call-decline' }, (payload) => {
+            if (payload.payload.callerId === currentUser.id && payload.payload.receiverId === profile.id) {
+                setCallingStatus('none');
+                alert(`${profile.username} declined your call.`);
+            }
+        });
+        channel.subscribe();
+
+        // Timeout after 30s
+        setTimeout(() => {
+            setCallingStatus('none');
+            supabase.removeChannel(channel);
+        }, 30000);
+    };
 
     // Derived stats
     const videoPosts = posts.filter((p) => isVideoPost(p));
@@ -262,14 +305,25 @@ const Profile = () => {
                             </button>
                         </>
                     ) : (
-                        <button 
-                            className="profile-action-btn" 
-                            style={{ background: isFollowing ? '#2c2c2e' : '#ff3366', color: '#fff' }}
-                            onClick={handleFollowToggle}
-                        >
-                            {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
-                            {isFollowing ? ' Unfriend' : ' Friend'}
-                        </button>
+                        <>
+                            <button 
+                                className="profile-action-btn" 
+                                style={{ background: isFollowing ? '#2c2c2e' : '#ff3366', color: '#fff' }}
+                                onClick={handleFollowToggle}
+                            >
+                                {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
+                                {isFollowing ? ' Unfriend' : ' Friend'}
+                            </button>
+                            <button 
+                                className="profile-action-btn" 
+                                style={{ background: '#34C759', color: '#fff', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
+                                onClick={handleDirectCall}
+                                disabled={callingStatus === 'calling'}
+                            >
+                                {callingStatus === 'calling' ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />} 
+                                {callingStatus === 'calling' ? ' Calling...' : ' Call'}
+                            </button>
+                        </>
                     )}
                     <button className="profile-action-btn">Share Profile</button>
                 </div>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
 import { AppContext } from '../App';
-import { computeMatches, createConnection, checkConnection, type MatchResult, type ConnectionData } from '../lib/database';
+import { useSearchParams } from 'react-router-dom';
+import { computeMatches, createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 const MATCH_PREFERENCES = [
@@ -14,6 +15,14 @@ const MATCH_PREFERENCES = [
 
 const VoiceCall = () => {
     const { user } = useContext(AppContext);
+    const [searchParams] = useSearchParams();
+    
+    // Direct call params
+    const isDirectCall = searchParams.get('direct') === 'true';
+    const directPartnerId = searchParams.get('partnerId');
+    const directRole = searchParams.get('role'); // 'caller' | 'answerer'
+    const directRoom = searchParams.get('room');
+
     const [isSearching, setIsSearching] = useState(false);
     const [inCall, setInCall] = useState(false);
     const [activePref, setActivePref] = useState(MATCH_PREFERENCES[0]);
@@ -66,6 +75,45 @@ const VoiceCall = () => {
     useEffect(() => { currentMatchRef.current = currentMatch; }, [currentMatch]);
     useEffect(() => { videoRequestStatusRef.current = videoRequestStatus; }, [videoRequestStatus]);
     useEffect(() => { isMockModeRef.current = isMockMode; }, [isMockMode]);
+
+    // Handle Direct Calls Initialization
+    useEffect(() => {
+        if (!user || !user.id || !isDirectCall || !directPartnerId) return;
+
+        const initializeDirectCall = async () => {
+            const profiles = await fetchProfilesByIds([directPartnerId]);
+            if (profiles.length === 0) {
+                alert("User not found.");
+                return;
+            }
+            const partnerProfile = profiles[0];
+
+            setIsCaller(directRole === 'caller');
+            setIsMockMode(false);
+            setMatches([{
+                profile: partnerProfile,
+                similarityScore: 1.0,
+                sharedLikes: 0,
+                totalLikes: 0,
+                compatibilityPercent: 100,
+            }]);
+            setCurrentMatchIndex(0);
+            setIsSearching(false);
+            setShowMatchCard(false);
+
+            if (directRoom) {
+                pendingInviteRef.current = directRoom;
+            } else {
+                pendingInviteRef.current = `direct-${directRole === 'caller' ? user.id : directPartnerId}-${directRole === 'caller' ? directPartnerId : user.id}`;
+            }
+
+            setInCall(true);
+            await updatePresence('in-call');
+        };
+
+        initializeDirectCall();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isDirectCall, directPartnerId, directRole, directRoom, user?.id]);
 
     // Timer for active call
     useEffect(() => {
