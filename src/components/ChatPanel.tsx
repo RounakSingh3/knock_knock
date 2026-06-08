@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2 } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, type ProfileData, type MessageData } from '../lib/database';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchChatThreads, fetchFollowing, fetchFollowers, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 interface ChatContact extends ProfileData {
@@ -106,8 +106,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         setLoadingContacts(true);
         Promise.all([
             fetchConnectionUserIds(currentUser.id),
+            fetchFollowing(currentUser.id),
+            fetchFollowers(currentUser.id),
             fetchChatThreads(currentUser.id),
-        ]).then(([connIds, threadData]) => {
+        ]).then(([connIds, followingProfiles, followerProfiles, threadData]) => {
             const partnerIds = threadData.map(t => t.partnerId);
 
             if (initialOpenUserId && !partnerIds.includes(initialOpenUserId)) {
@@ -136,7 +138,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 });
 
                 const chattedSet = new Set(threadData.map(t => t.partnerId));
-                const unchattedConnIds = connIds.filter(id => !chattedSet.has(id));
+                
+                const allFriendIds = new Set([
+                    ...connIds,
+                    ...followingProfiles.map(p => p.id),
+                    ...followerProfiles.map(p => p.id)
+                ]);
+                
+                const unchattedConnIds = Array.from(allFriendIds).filter(id => !chattedSet.has(id));
 
                 fetchProfilesByIds(unchattedConnIds).then(unchattedProfiles => {
                     const unchattedConns: ChatContact[] = unchattedProfiles.map(p => ({
@@ -428,8 +437,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         {loadingContacts ? (
                             <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>Loading...</div>
                         ) : allContacts.length === 0 ? (
-                            <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>
-                                No messages yet. Share a reel or post to start chatting!
+                            <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93', lineHeight: '1.6' }}>
+                                No friends yet! Follow people to see them here.<br/><br/>
+                                On Knock Knock, you can talk, send messages, and share reels and photos with your friends!
                             </div>
                         ) : (
                             <>
