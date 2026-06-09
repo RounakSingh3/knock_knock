@@ -40,7 +40,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  INSERT INTO public.profiles (id, username, name, gender, dob, avatar_url)
+  INSERT INTO public.profiles (id, username, name, gender, dob, avatar_url, points)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
@@ -50,7 +50,8 @@ BEGIN
     COALESCE(
       NEW.raw_user_meta_data->>'avatar_url',
       'https://i.pravatar.cc/150?u=' || COALESCE(NEW.raw_user_meta_data->>'username', NEW.id::text)
-    )
+    ),
+    100
   )
   ON CONFLICT (id) DO UPDATE SET
     username = COALESCE(EXCLUDED.username, profiles.username),
