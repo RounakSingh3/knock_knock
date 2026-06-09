@@ -120,10 +120,10 @@ const Boost: React.FC = () => {
     };
 
     return (
-        <div style={{ background: '#000', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: '#1c1c1e', zIndex: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--surface-color)', zIndex: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-active)' }}>
                     <Rocket size={24} color="#ff3366" />
                     <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>Spotlight</h1>
                 </div>
@@ -132,14 +132,14 @@ const Boost: React.FC = () => {
                     {mode === 'feed' ? (
                         <button 
                             onClick={handleSwitchToSelect}
-                            style={{ background: 'linear-gradient(45deg, #ff3366, #ff9933)', border: 'none', borderRadius: '20px', padding: '6px 12px', color: '#fff', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            style={{ background: 'linear-gradient(45deg, #ff3366, #ff9933)', border: 'none', borderRadius: '20px', padding: '6px 12px', color: 'var(--text-active)', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}
                         >
                             <PlusCircle size={14} /> Boost
                         </button>
                     ) : (
                         <button 
                             onClick={() => setMode('feed')}
-                            style={{ background: '#2c2c2e', border: 'none', borderRadius: '20px', padding: '6px 12px', color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                            style={{ background: 'var(--border-color)', border: 'none', borderRadius: '20px', padding: '6px 12px', color: 'var(--text-active)', fontSize: '12px', fontWeight: 'bold' }}
                         >
                             Cancel
                         </button>
@@ -155,10 +155,10 @@ const Boost: React.FC = () => {
                 >
                     {isLoadingFeed ? (
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                         </div>
                     ) : boostedPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
+                        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
                             <Rocket size={48} style={{ margin: '0 auto', marginBottom: '16px', opacity: 0.5 }} />
                             <p>No active boosted posts right now.</p>
                             <p style={{ fontSize: '13px', marginTop: '8px' }}>Be the first to boost a post!</p>
@@ -185,17 +185,17 @@ const Boost: React.FC = () => {
                 </div>
             ) : (
                 <div style={{ padding: '16px', paddingBottom: '80px', flex: 1, overflowY: 'auto' }}>
-                    <h2 style={{ color: '#fff', fontSize: '18px', marginBottom: '16px' }}>Select a post to boost</h2>
-                    <p style={{ color: '#8e8e93', fontSize: '14px', marginBottom: '24px' }}>
+                    <h2 style={{ color: 'var(--text-active)', fontSize: '18px', marginBottom: '16px' }}>Select a post to boost</h2>
+                    <p style={{ color: 'var(--text-inactive)', fontSize: '14px', marginBottom: '24px' }}>
                         Boosting a post costs 100 points. It will appear in the Spotlight feed for 24 hours, guaranteeing 100 targeted views to users interested in its category!
                     </p>
                     
                     {isLoadingPosts ? (
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                         </div>
                     ) : userPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
+                        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
                             <p>You haven't posted anything yet.</p>
                         </div>
                     ) : (
@@ -213,7 +213,7 @@ const Boost: React.FC = () => {
                                 <div 
                                     key={post.id} 
                                     onClick={() => handleBoostPost(post)}
-                                    style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', background: '#2c2c2e' }}
+                                    style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', background: 'var(--border-color)' }}
                                 >
                                     {post.image_url.endsWith('.mp4') ? (
                                         <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} muted playsInline />
@@ -221,7 +221,7 @@ const Boost: React.FC = () => {
                                         <img src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} alt="" />
                                     )}
                                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }} onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0'}>
-                                        <span style={{ color: '#fff', fontWeight: 'bold', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Boost</span>
+                                        <span style={{ color: 'var(--text-active)', fontWeight: 'bold', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Boost</span>
                                     </div>
                                 </div>
                                 );

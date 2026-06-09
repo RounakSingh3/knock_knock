@@ -140,7 +140,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
             animation: 'fadeIn 0.2s ease-out'
         }} onClick={onClose}>
             <div style={{
-                background: '#1c1c1e', width: '100%', maxWidth: '500px',
+                background: 'var(--surface-color)', width: '100%', maxWidth: '500px',
                 borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
                 padding: '24px 0 0 0', display: 'flex', flexDirection: 'column',
                 maxHeight: '90vh',
@@ -149,22 +149,22 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                 
                 {/* Header */}
                 <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 24px 16px', borderBottom: '1px solid #2c2c2e' }}>
-                    <h2 style={{ color: '#fff', margin: 0, fontSize: '18px', fontWeight: 'bold' }}>Share</h2>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer' }}>
+                    <h2 style={{ color: 'var(--text-active)', margin: 0, fontSize: '18px', fontWeight: 'bold' }}>Share</h2>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }}>
                         <X size={24} />
                     </button>
                 </header>
 
                 {/* Direct Message List (Horizontal Scroll) */}
                 <div style={{ padding: '20px 24px', borderBottom: '1px solid #2c2c2e' }}>
-                    <h3 style={{ color: '#8e8e93', fontSize: '14px', margin: '0 0 16px 0', fontWeight: '600' }}>Direct Message</h3>
+                    <h3 style={{ color: 'var(--text-inactive)', fontSize: '14px', margin: '0 0 16px 0', fontWeight: '600' }}>Direct Message</h3>
                     
                     {loading ? (
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
                             <Loader2 size={24} className="animate-spin" color="#8e8e93" />
                         </div>
                     ) : connections.length === 0 ? (
-                        <div style={{ color: '#8e8e93', fontSize: '14px', textAlign: 'center' }}>No connections to share with.</div>
+                        <div style={{ color: 'var(--text-inactive)', fontSize: '14px', textAlign: 'center' }}>No connections to share with.</div>
                     ) : (
                         <div style={{ 
                             display: 'flex', gap: '16px', overflowX: 'auto', paddingBottom: '8px',
@@ -180,18 +180,18 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                                         />
                                         {sentTo[contact.id] && (
                                             <div style={{ position: 'absolute', bottom: 0, right: 0, background: '#34C759', borderRadius: '50%', padding: '2px' }}>
-                                                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#fff' }} />
+                                                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--text-active)' }} />
                                             </div>
                                         )}
                                     </div>
-                                    <span style={{ color: '#fff', fontSize: '12px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
+                                    <span style={{ color: 'var(--text-active)', fontSize: '12px', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
                                         {contact.username}
                                     </span>
                                     
                                     {sentTo[contact.id] ? (
                                         <button 
                                             onClick={() => onViewChat?.(contact.id)}
-                                            style={{ marginTop: '8px', background: '#2c2c2e', color: '#fff', border: 'none', padding: '4px 12px', borderRadius: '12px', fontSize: '11px', cursor: 'pointer' }}
+                                            style={{ marginTop: '8px', background: 'var(--border-color)', color: 'var(--text-active)', border: 'none', padding: '4px 12px', borderRadius: '12px', fontSize: '11px', cursor: 'pointer' }}
                                         >
                                             View
                                         </button>
@@ -199,7 +199,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                                         <button 
                                             onClick={() => handleSend(contact.id)}
                                             disabled={sendingTo[contact.id]}
-                                            style={{ marginTop: '8px', background: sendingTo[contact.id] ? '#2c2c2e' : '#ff3366', color: '#fff', border: 'none', padding: '4px 12px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                                            style={{ marginTop: '8px', background: sendingTo[contact.id] ? 'var(--border-color)' : '#ff3366', color: 'var(--text-active)', border: 'none', padding: '4px 12px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
                                         >
                                             {sendingTo[contact.id] ? <Loader2 size={12} className="animate-spin" /> : 'Send'}
                                         </button>
@@ -218,22 +218,22 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                     }}>
                         
                         <button onClick={handleAddToStory} style={actionButtonStyle}>
-                            <div style={iconCircleStyle}><PlusCircle size={24} color="#fff" /></div>
+                            <div style={iconCircleStyle}><PlusCircle size={24} color="var(--text-active)" /></div>
                             <span style={actionLabelStyle}>Add to Story</span>
                         </button>
 
                         <button onClick={handleCopyLink} style={actionButtonStyle}>
-                            <div style={iconCircleStyle}><LinkIcon size={24} color="#fff" /></div>
+                            <div style={iconCircleStyle}><LinkIcon size={24} color="var(--text-active)" /></div>
                             <span style={actionLabelStyle}>Copy Link</span>
                         </button>
 
                         <button onClick={handleNativeShare} style={actionButtonStyle}>
-                            <div style={iconCircleStyle}><Share size={24} color="#fff" /></div>
+                            <div style={iconCircleStyle}><Share size={24} color="var(--text-active)" /></div>
                             <span style={actionLabelStyle}>Share via...</span>
                         </button>
 
                         <button onClick={handleDownload} style={actionButtonStyle}>
-                            <div style={iconCircleStyle}><Download size={24} color="#fff" /></div>
+                            <div style={iconCircleStyle}><Download size={24} color="var(--text-active)" /></div>
                             <span style={actionLabelStyle}>Download</span>
                         </button>
 
@@ -261,12 +261,12 @@ const actionButtonStyle: React.CSSProperties = {
 };
 
 const iconCircleStyle: React.CSSProperties = {
-    width: '54px', height: '54px', borderRadius: '50%', background: '#2c2c2e', 
+    width: '54px', height: '54px', borderRadius: '50%', background: 'var(--border-color)', 
     display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '8px'
 };
 
 const actionLabelStyle: React.CSSProperties = {
-    color: '#fff', fontSize: '12px', textAlign: 'center'
+    color: 'var(--text-active)', fontSize: '12px', textAlign: 'center'
 };
 
 export default ShareModal;

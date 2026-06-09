@@ -436,13 +436,13 @@ const Home = () => {
                         onClick={() => { setChatUserId(null); setIsChatOpen(true); }} 
                         className="signout-btn-v2" 
                         title="Messages" 
-                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px', position: 'relative' }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', padding: '8px', position: 'relative' }}
                     >
                         <MessageCircle size={24} />
                         {unreadCount > 0 && (
                             <span style={{
                                 position: 'absolute', top: '2px', right: '2px',
-                                background: '#ff3366', color: '#fff', fontSize: '9px',
+                                background: '#ff3366', color: 'var(--text-active)', fontSize: '9px',
                                 fontWeight: 'bold', borderRadius: '50%', minWidth: '15px',
                                 height: '15px', display: 'flex', alignItems: 'center',
                                 justifyContent: 'center', padding: '0 3px',
@@ -522,12 +522,12 @@ const Home = () => {
                     // Connections Feed
                     loadingConnPosts ? (
                         <div className="feed-state-msg">
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                         </div>
                     ) : unifiedConnectionItems.length === 0 ? (
                         <div className="feed-state-msg">
-                            <Users size={32} style={{ color: '#8e8e93', marginBottom: '8px' }} />
-                            <p style={{ color: '#8e8e93' }}>No posts or stories from connections yet.</p>
+                            <Users size={32} style={{ color: 'var(--text-inactive)', marginBottom: '8px' }} />
+                            <p style={{ color: 'var(--text-inactive)' }}>No posts or stories from connections yet.</p>
                             <p style={{ color: '#6e6e73', fontSize: '0.8rem', marginTop: '4px' }}>Match via Voice Roulette & Connect to see their updates here!</p>
                         </div>
                     ) : (
@@ -538,7 +538,7 @@ const Home = () => {
                                         <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'linear-gradient(45deg, #ff3366, #ff9933)', padding: 2 }}>
                                             <img src={item.avatarUrl || 'https://i.pravatar.cc/150'} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '2px solid #000' }} />
                                         </div>
-                                        <span style={{ fontSize: '11px', marginTop: 4, color: '#fff' }}>{item.username.substring(0, 8)}</span>
+                                        <span style={{ fontSize: '11px', marginTop: 4, color: 'var(--text-active)' }}>{item.username.substring(0, 8)}</span>
                                     </div>
                                 ))}
                             </div>
@@ -575,11 +575,11 @@ const Home = () => {
                         </div>
                     ) : loading ? (
                         <div className="feed-state-msg">
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                         </div>
                     ) : posts.length === 0 ? (
                         <div className="feed-state-msg">
-                            <p style={{ color: '#8e8e93' }}>No posts yet. Be the first to post!</p>
+                            <p style={{ color: 'var(--text-inactive)' }}>No posts yet. Be the first to post!</p>
                         </div>
                     ) : (
                         <PullToRefresh onRefresh={handleRefresh}>
@@ -600,21 +600,21 @@ const Home = () => {
                                         className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
                                         onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
                                     >
-                                        <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : '#fff'} />
+                                        <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : 'var(--text-active)'} />
                                     </button>
                                     <button
                                         className="masonry-like-btn"
                                         style={{ bottom: '48px' }}
                                         onClick={(e) => { e.stopPropagation(); setChatUserId(post.user_id); setIsChatOpen(true); }}
                                     >
-                                        <MessageCircle size={16} color="#fff" />
+                                        <MessageCircle size={16} color="var(--text-active)" />
                                     </button>
                                     <button
                                         className="masonry-like-btn"
                                         style={{ bottom: '80px' }}
                                         onClick={(e) => { e.stopPropagation(); setPostToShare(post); setIsShareOpen(true); }}
                                     >
-                                        <Send size={16} color="#fff" />
+                                        <Send size={16} color="var(--text-active)" />
                                     </button>
                                     {user && post.user_id && post.user_id !== user.id && (
                                         <div style={{ position: 'absolute', bottom: '112px', right: '8px', zIndex: 5 }}>
@@ -646,7 +646,7 @@ const Home = () => {
                                         </div>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setCommentsPostId(post.id); setIsCommentsOpen(true); }}
-                                            style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                            style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
                                         >
                                             <MessageCircle size={12} /> {post.comments_count || 0}
                                         </button>
@@ -662,7 +662,7 @@ const Home = () => {
                                     style={{
                                         background: 'linear-gradient(45deg, #ff3366, #ff9933)',
                                         border: 'none', borderRadius: '24px',
-                                        padding: '12px 32px', color: '#fff', fontWeight: 'bold',
+                                        padding: '12px 32px', color: 'var(--text-active)', fontWeight: 'bold',
                                         fontSize: '14px', cursor: 'pointer'
                                     }}
                                 >
@@ -765,7 +765,7 @@ const Home = () => {
                                     className={`modal-action-btn ${likedPosts[selectedPost.id] ? 'liked' : ''}`}
                                     onClick={() => handleLikeToggle(selectedPost.id)}
                                 >
-                                    <Heart size={22} fill={likedPosts[selectedPost.id] ? '#ff3366' : 'none'} color={likedPosts[selectedPost.id] ? '#ff3366' : '#fff'} />
+                                    <Heart size={22} fill={likedPosts[selectedPost.id] ? '#ff3366' : 'none'} color={likedPosts[selectedPost.id] ? '#ff3366' : 'var(--text-active)'} />
                                     <span>{likeCounts[selectedPost.id] || 0}</span>
                                 </button>
                                 <button className="modal-action-btn" onClick={() => { setCommentsPostId(selectedPost.id); setIsCommentsOpen(true); }}>

@@ -145,11 +145,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 <div className="story-actions">
                     {currentStory.user_id === currentUserId && (
                         <button onClick={handleDelete} className="icon-btn" style={{ marginRight: 15 }}>
-                            <Trash2 size={24} color="white" />
+                            <Trash2 size={24} color="var(--text-active)" />
                         </button>
                     )}
                     <button onClick={onClose} className="icon-btn">
-                        <X size={28} color="white" />
+                        <X size={28} color="var(--text-active)" />
                     </button>
                 </div>
             </div>
@@ -194,7 +194,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     left: 0;
                     width: 100vw;
                     height: 100vh;
-                    background: #000;
+                    background: var(--bg-color);
                     z-index: 9999;
                     display: flex;
                     flex-direction: column;
@@ -243,7 +243,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     object-fit: cover;
                 }
                 .story-username {
-                    color: white;
+                    color: var(--text-active);
                     font-weight: 600;
                     font-size: 14px;
                     text-shadow: 0 1px 3px rgba(0,0,0,0.8);
@@ -278,7 +278,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     left: 20px;
                     right: 20px;
                     background: rgba(0,0,0,0.6);
-                    color: white;
+                    color: var(--text-active);
                     padding: 12px 16px;
                     border-radius: 12px;
                     backdrop-filter: blur(5px);

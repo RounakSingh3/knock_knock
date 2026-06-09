@@ -257,10 +257,10 @@ const Settings = () => {
                 {/* My Posts Grid */}
                 <div className="settings-group-premium" style={{ marginTop: '1.5rem', background: 'transparent', padding: 0 }}>
                     <div className="settings-group-title" style={{ paddingLeft: '0.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Grid size={18} color="#fff" /> My Posts
+                        <Grid size={18} color="var(--text-active)" /> My Posts
                     </div>
                     {userPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '2rem', color: '#8e8e93', background: 'rgba(255,255,255,0.03)', borderRadius: '16px' }}>
+                        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-inactive)', background: 'rgba(255,255,255,0.03)', borderRadius: '16px' }}>
                             <p>You haven't uploaded any photos or videos yet.</p>
                             <button className="retry-btn-v2" style={{ marginTop: '1rem' }} onClick={() => navigate('/create')}>Create Post</button>
                         </div>
@@ -281,9 +281,9 @@ const Settings = () => {
                                     )}
                                     <div className="settings-post-overlay">
                                         <div className="settings-engagement-stats">
-                                            <span><Heart size={14} fill="#fff" /> {post.likes_count || 0}</span>
-                                            <span><MessageCircle size={14} fill="#fff" /> {post.comments_count || 0}</span>
-                                            <span><Send size={14} fill="#fff" /> {post.shares_count || 0}</span>
+                                            <span><Heart size={14} fill="var(--text-active)" /> {post.likes_count || 0}</span>
+                                            <span><MessageCircle size={14} fill="var(--text-active)" /> {post.comments_count || 0}</span>
+                                            <span><Send size={14} fill="var(--text-active)" /> {post.shares_count || 0}</span>
                                         </div>
                                     </div>
                                     <button

@@ -78,7 +78,7 @@ const VoiceReaction: React.FC<VoiceReactionProps> = ({ postId, postCategory, cur
     if (isSending) {
         return (
             <button className="masonry-like-btn" style={{ cursor: 'default' }}>
-                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} color="#fff" />
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} color="var(--text-active)" />
             </button>
         );
     }
@@ -96,7 +96,7 @@ const VoiceReaction: React.FC<VoiceReactionProps> = ({ postId, postCategory, cur
                 animation: isRecording ? 'pulse 1s ease-in-out infinite' : undefined,
             }}
         >
-            {isRecording ? <Square size={14} color="#fff" /> : <Mic size={16} color="#fff" />}
+            {isRecording ? <Square size={14} color="var(--text-active)" /> : <Mic size={16} color="var(--text-active)" />}
         </button>
     );
 };

@@ -459,7 +459,7 @@ const Reels: React.FC = () => {
                         border: 'none',
                         borderRadius: '20px',
                         padding: '8px 16px',
-                        color: 'white',
+                        color: 'var(--text-active)',
                         fontWeight: 'bold',
                         fontSize: '0.9rem',
                         cursor: 'pointer',
@@ -484,23 +484,23 @@ const Reels: React.FC = () => {
                             position: 'absolute',
                             top: 8,
                             right: 8,
-                            color: 'white',
+                            color: 'var(--text-active)',
                             textShadow: '0 1px 3px rgba(0,0,0,0.8)'
                         }}>
-                            <Play size={16} fill="white" />
+                            <Play size={16} fill="var(--text-active)" />
                         </div>
                         <div style={{
                             position: 'absolute',
                             bottom: 8,
                             left: 8,
-                            color: 'white',
+                            color: 'var(--text-active)',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '4px',
                             fontSize: '0.75rem',
                             textShadow: '0 1px 3px rgba(0,0,0,0.8)'
                         }}>
-                            <Heart size={12} fill="white" stroke="none" />
+                            <Heart size={12} fill="var(--text-active)" stroke="none" />
                             {formatCount(reel.likes)}
                         </div>
                     </div>
@@ -516,7 +516,7 @@ const Reels: React.FC = () => {
                     width: '100vw',
                     height: '100vh',
                     zIndex: 9999,
-                    background: '#000'
+                    background: 'var(--bg-color)'
                 }}>
                     {/* Modal Controls */}
                     <div style={{
@@ -532,7 +532,7 @@ const Reels: React.FC = () => {
                         <button 
                             onClick={closePlayer}
                             style={{ 
-                                background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', 
+                                background: 'rgba(0,0,0,0.5)', border: 'none', color: 'var(--text-active)', 
                                 padding: '10px 16px', borderRadius: '20px', pointerEvents: 'auto',
                                 backdropFilter: 'blur(10px)', fontSize: '0.9rem', fontWeight: 600
                             }}
@@ -547,7 +547,7 @@ const Reels: React.FC = () => {
                                 });
                             }}
                             style={{ 
-                                background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', 
+                                background: 'rgba(0,0,0,0.5)', border: 'none', color: 'var(--text-active)', 
                                 width: '40px', height: '40px', borderRadius: '50%', pointerEvents: 'auto',
                                 backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
                             }}
@@ -593,7 +593,7 @@ const Reels: React.FC = () => {
                                     {/* Link Indicator */}
                                     {reel.attachedLink && (
                                         <div style={{ position: 'absolute', top: 100, right: 20, zIndex: 10, background: 'rgba(0,0,0,0.6)', padding: '8px', borderRadius: '50%', display: 'flex' }}>
-                                            <LinkIcon size={20} color="#fff" />
+                                            <LinkIcon size={20} color="var(--text-active)" />
                                         </div>
                                     )}
 
@@ -611,7 +611,7 @@ const Reels: React.FC = () => {
                                     {/* Pause indicator */}
                                     {!playStates[idx] && (
                                         <div className="reel-pause-indicator">
-                                            <Play size={54} fill="white" stroke="none" />
+                                            <Play size={54} fill="var(--text-active)" stroke="none" />
                                         </div>
                                     )}
 
@@ -645,7 +645,7 @@ const Reels: React.FC = () => {
                                             <Heart
                                                 size={28}
                                                 fill={isLiked ? '#ff3366' : 'none'}
-                                                stroke={isLiked ? '#ff3366' : 'white'}
+                                                stroke={isLiked ? '#ff3366' : 'var(--text-active)'}
                                             />
                                             <span>{formatCount(reel.likes + (isLiked ? 1 : 0))}</span>
                                         </button>

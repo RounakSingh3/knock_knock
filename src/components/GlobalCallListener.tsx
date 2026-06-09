@@ -131,7 +131,7 @@ const GlobalCallListener: React.FC = () => {
             animation: 'fadeIn 0.3s ease-out'
         }}>
             <div style={{
-                background: '#1c1c1e', padding: '40px', borderRadius: '24px',
+                background: 'var(--surface-color)', padding: '40px', borderRadius: '24px',
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
                 boxShadow: '0 20px 40px rgba(0,0,0,0.5)', width: '80%', maxWidth: '320px',
                 animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
@@ -147,10 +147,10 @@ const GlobalCallListener: React.FC = () => {
                     }}
                 />
                 
-                <h2 style={{ color: '#fff', margin: '0 0 8px 0', fontSize: '22px', fontWeight: 'bold' }}>
+                <h2 style={{ color: 'var(--text-active)', margin: '0 0 8px 0', fontSize: '22px', fontWeight: 'bold' }}>
                     {incomingCall.callerProfile?.username || 'Someone'}
                 </h2>
-                <p style={{ color: '#8e8e93', margin: '0 0 32px 0', fontSize: '15px' }}>
+                <p style={{ color: 'var(--text-inactive)', margin: '0 0 32px 0', fontSize: '15px' }}>
                     is calling you...
                 </p>
 
@@ -159,7 +159,7 @@ const GlobalCallListener: React.FC = () => {
                         onClick={handleDecline}
                         style={{
                             width: '60px', height: '60px', borderRadius: '50%',
-                            background: '#FF3B30', border: 'none', color: '#fff',
+                            background: '#FF3B30', border: 'none', color: 'var(--text-active)',
                             display: 'flex', justifyContent: 'center', alignItems: 'center',
                             cursor: 'pointer', boxShadow: '0 4px 12px rgba(255, 59, 48, 0.4)'
                         }}
@@ -171,7 +171,7 @@ const GlobalCallListener: React.FC = () => {
                         onClick={handleAccept}
                         style={{
                             width: '60px', height: '60px', borderRadius: '50%',
-                            background: '#34C759', border: 'none', color: '#fff',
+                            background: '#34C759', border: 'none', color: 'var(--text-active)',
                             display: 'flex', justifyContent: 'center', alignItems: 'center',
                             cursor: 'pointer', boxShadow: '0 4px 12px rgba(52, 199, 89, 0.4)',
                             animation: 'bounce 2s infinite'

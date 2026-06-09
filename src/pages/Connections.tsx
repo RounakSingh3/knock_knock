@@ -112,7 +112,7 @@ const Connections = () => {
             <div className="connections-list">
                 {loading ? (
                     <div className="connections-empty">
-                        <Loader2 size={36} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                        <Loader2 size={36} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                     </div>
                 ) : connections.length === 0 ? (
                     <div className="connections-empty">

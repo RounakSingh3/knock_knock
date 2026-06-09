@@ -200,7 +200,7 @@ function App() {
                     <h1 className="app-title text-4xl mb-2" style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, letterSpacing: '-1.5px', background: 'var(--primary-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                         Knock Knock
                     </h1>
-                    <p style={{ color: '#8e8e93', marginTop: '1rem' }}>Loading...</p>
+                    <p style={{ color: 'var(--text-inactive)', marginTop: '1rem' }}>Loading...</p>
                 </div>
             </div>
         );

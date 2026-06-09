@@ -751,7 +751,7 @@ const VoiceCall = () => {
                         </div>
 
                         {/* Local Video */}
-                        <div style={{ position: 'absolute', top: '16px', right: '16px', width: '100px', height: '140px', backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)' }}>
+                        <div style={{ position: 'absolute', top: '16px', right: '16px', width: '100px', height: '140px', backgroundColor: 'var(--bg-color)', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)' }}>
                             <video
                                 ref={localVideoRef}
                                 autoPlay
@@ -788,7 +788,7 @@ const VoiceCall = () => {
                     <div className="text-4xl font-mono" style={{ display: videoRequestStatus === 'accepted' ? 'none' : 'block' }}>
                         {formatTime(callDuration)}
                         {requestStatus !== 'accepted' && (
-                            <span style={{ display: 'block', fontSize: '0.8rem', color: '#8e8e93', marginTop: '4px' }}>Voice Limit: 3:00</span>
+                            <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-inactive)', marginTop: '4px' }}>Voice Limit: 3:00</span>
                         )}
                     </div>
                 </div>
@@ -991,7 +991,7 @@ const VoiceCall = () => {
                             <button onClick={() => setShowChat(false)}><X size={18} /></button>
                         </div>
                         <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! 👋</p>}
+                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-inactive)', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! 👋</p>}
                             {chatMessages.map(msg => (
                                 <div key={msg.id} style={{ alignSelf: msg.isMine ? 'flex-end' : 'flex-start', background: msg.isMine ? 'var(--primary-color)' : '#333', padding: '8px 12px', borderRadius: '12px', maxWidth: '80%', fontSize: '0.9rem' }}>
                                     {msg.text}
@@ -1004,9 +1004,9 @@ const VoiceCall = () => {
                                 value={chatInput}
                                 onChange={(e) => setChatInput(e.target.value)}
                                 placeholder="Type a message..."
-                                style={{ flex: 1, background: '#111', border: 'none', padding: '10px 16px', borderRadius: '20px', color: '#fff', marginRight: '8px', fontSize: '0.9rem' }}
+                                style={{ flex: 1, background: '#111', border: 'none', padding: '10px 16px', borderRadius: '20px', color: 'var(--text-active)', marginRight: '8px', fontSize: '0.9rem' }}
                             />
-                            <button type="submit" style={{ background: 'var(--primary-color)', border: 'none', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                            <button type="submit" style={{ background: 'var(--primary-color)', border: 'none', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-active)' }}>
                                 <Send size={18} />
                             </button>
                         </form>

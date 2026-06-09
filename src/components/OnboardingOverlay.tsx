@@ -80,7 +80,7 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onComplete }) => 
                 onClick={handleSkip}
                 style={{
                     position: 'absolute', top: '16px', right: '20px',
-                    background: 'none', border: 'none', color: '#8e8e93',
+                    background: 'none', border: 'none', color: 'var(--text-inactive)',
                     fontSize: '15px', cursor: 'pointer',
                 }}
             >
@@ -99,7 +99,7 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onComplete }) => 
 
             {/* Title */}
             <h1 style={{
-                color: '#fff', fontSize: '26px', fontWeight: 'bold',
+                color: 'var(--text-active)', fontSize: '26px', fontWeight: 'bold',
                 textAlign: 'center', marginBottom: '16px',
                 animation: 'fadeInUp 0.5s ease-out',
             }}>
@@ -132,7 +132,7 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onComplete }) => 
                 style={{
                     background: 'linear-gradient(45deg, #ff3366, #ff9933)',
                     border: 'none', borderRadius: '30px',
-                    padding: '16px 48px', color: '#fff',
+                    padding: '16px 48px', color: 'var(--text-active)',
                     fontWeight: 'bold', fontSize: '17px', cursor: 'pointer',
                     boxShadow: '0 4px 20px rgba(255,51,102,0.4)',
                 }}

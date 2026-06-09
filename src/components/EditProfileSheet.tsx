@@ -83,14 +83,14 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
             display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
         }} onClick={onClose}>
             <div style={{
-                background: '#1c1c1e', width: '100%', maxWidth: '500px',
+                background: 'var(--surface-color)', width: '100%', maxWidth: '500px',
                 borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
                 padding: '24px', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
             }} onClick={e => e.stopPropagation()}>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                    <h3 style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 'bold' }}>Edit Profile</h3>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer' }}>
+                    <h3 style={{ margin: 0, color: 'var(--text-active)', fontSize: '18px', fontWeight: 'bold' }}>Edit Profile</h3>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }}>
                         <X size={22} />
                     </button>
                 </div>
@@ -115,7 +115,7 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
                             width: '28px', height: '28px', display: 'flex',
                             alignItems: 'center', justifyContent: 'center',
                         }}>
-                            <Camera size={14} color="#fff" />
+                            <Camera size={14} color="var(--text-active)" />
                         </div>
                         <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
                     </label>
@@ -123,13 +123,13 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
 
                 {/* Username */}
                 <div style={{ marginBottom: '16px' }}>
-                    <label style={{ fontSize: '13px', color: '#8e8e93', display: 'block', marginBottom: '6px' }}>Username</label>
+                    <label style={{ fontSize: '13px', color: 'var(--text-inactive)', display: 'block', marginBottom: '6px' }}>Username</label>
                     <input
                         type="text" value={username}
                         onChange={e => setUsername(e.target.value)}
                         style={{
-                            width: '100%', background: '#2c2c2e', border: 'none',
-                            borderRadius: '12px', padding: '12px 16px', color: '#fff',
+                            width: '100%', background: 'var(--border-color)', border: 'none',
+                            borderRadius: '12px', padding: '12px 16px', color: 'var(--text-active)',
                             fontSize: '15px', outline: 'none', boxSizing: 'border-box',
                         }}
                     />
@@ -137,7 +137,7 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
 
                 {/* Bio */}
                 <div style={{ marginBottom: '24px' }}>
-                    <label style={{ fontSize: '13px', color: '#8e8e93', display: 'block', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '13px', color: 'var(--text-inactive)', display: 'block', marginBottom: '6px' }}>
                         Bio <span style={{ float: 'right' }}>{bio.length}/150</span>
                     </label>
                     <textarea
@@ -145,8 +145,8 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
                         onChange={e => { if (e.target.value.length <= 150) setBio(e.target.value); }}
                         placeholder="Tell people about yourself..."
                         style={{
-                            width: '100%', background: '#2c2c2e', border: 'none',
-                            borderRadius: '12px', padding: '12px 16px', color: '#fff',
+                            width: '100%', background: 'var(--border-color)', border: 'none',
+                            borderRadius: '12px', padding: '12px 16px', color: 'var(--text-active)',
                             fontSize: '15px', outline: 'none', resize: 'none',
                             minHeight: '80px', fontFamily: 'inherit', boxSizing: 'border-box',
                         }}
@@ -157,9 +157,9 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
                     onClick={handleSave}
                     disabled={saving}
                     style={{
-                        width: '100%', background: saving ? '#2c2c2e' : 'linear-gradient(45deg, #ff3366, #ff9933)',
+                        width: '100%', background: saving ? 'var(--border-color)' : 'linear-gradient(45deg, #ff3366, #ff9933)',
                         border: 'none', borderRadius: '24px', padding: '14px',
-                        color: '#fff', fontWeight: 'bold', fontSize: '16px',
+                        color: 'var(--text-active)', fontWeight: 'bold', fontSize: '16px',
                         cursor: saving ? 'not-allowed' : 'pointer',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}

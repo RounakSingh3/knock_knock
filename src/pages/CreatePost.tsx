@@ -100,12 +100,12 @@ const CreatePost = () => {
     };
 
     return (
-        <div style={{ padding: '16px', background: '#000', minHeight: '100vh', color: '#fff' }}>
+        <div style={{ padding: '16px', background: 'var(--bg-color)', minHeight: '100vh', color: 'var(--text-active)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <h1 style={{ fontSize: '24px', fontWeight: 'bold' }}>New Post</h1>
                 <button 
                     onClick={() => navigate(-1)}
-                    style={{ background: 'none', border: 'none', color: '#8e8e93', fontSize: '16px' }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', fontSize: '16px' }}
                 >
                     Cancel
                 </button>
@@ -117,10 +117,10 @@ const CreatePost = () => {
                 <label style={{
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                     border: '2px dashed #2c2c2e', borderRadius: '16px', height: '300px', cursor: 'pointer',
-                    background: '#121212', marginBottom: '24px'
+                    background: 'var(--surface-color)', marginBottom: '24px'
                 }}>
                     <ImagePlus size={48} color="#8e8e93" style={{ marginBottom: '16px' }} />
-                    <span style={{ color: '#8e8e93' }}>Tap to select photo or video</span>
+                    <span style={{ color: 'var(--text-inactive)' }}>Tap to select photo or video</span>
                     <input 
                         type="file" 
                         accept="image/*,video/*" 
@@ -130,7 +130,7 @@ const CreatePost = () => {
                     />
                 </label>
             ) : (
-                <div style={{ position: 'relative', marginBottom: '16px', borderRadius: '16px', overflow: 'hidden', background: '#121212', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+                <div style={{ position: 'relative', marginBottom: '16px', borderRadius: '16px', overflow: 'hidden', background: 'var(--surface-color)', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
                     {file?.type.startsWith('video/') ? (
                         <video src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%', filter: selectedFilter }} controls autoPlay playsInline loop />
                     ) : (
@@ -162,7 +162,7 @@ const CreatePost = () => {
                             >
                                 <div style={{ 
                                     width: '60px', height: '60px', borderRadius: '12px', 
-                                    background: '#2c2c2e', marginBottom: '8px', overflow: 'hidden',
+                                    background: 'var(--border-color)', marginBottom: '8px', overflow: 'hidden',
                                     border: selectedFilter === f.filter ? '2px solid #ff3366' : '2px solid transparent'
                                 }}>
                                     {file?.type.startsWith('video/') ? (
@@ -171,7 +171,7 @@ const CreatePost = () => {
                                         <img src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: f.filter }} alt="" />
                                     )}
                                 </div>
-                                <span style={{ color: '#fff', fontSize: '11px', fontWeight: selectedFilter === f.filter ? 'bold' : 'normal' }}>
+                                <span style={{ color: 'var(--text-active)', fontSize: '11px', fontWeight: selectedFilter === f.filter ? 'bold' : 'normal' }}>
                                     {f.name}
                                 </span>
                             </button>
@@ -187,11 +187,11 @@ const CreatePost = () => {
                     onChange={(e) => setCaption(e.target.value)}
                     style={{
                         width: '100%',
-                        background: '#121212',
+                        background: 'var(--surface-color)',
                         border: '1px solid #2c2c2e',
                         borderRadius: '12px',
                         padding: '16px',
-                        color: '#fff',
+                        color: 'var(--text-active)',
                         minHeight: '100px',
                         fontFamily: 'inherit',
                         resize: 'vertical'
@@ -200,7 +200,7 @@ const CreatePost = () => {
             </div>
 
             <div style={{ marginBottom: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', background: '#121212', border: '1px solid #2c2c2e', borderRadius: '12px', padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface-color)', border: '1px solid #2c2c2e', borderRadius: '12px', padding: '12px 16px' }}>
                     <LinkIcon size={20} color="#8e8e93" style={{ marginRight: '12px' }} />
                     <input 
                         type="url"
@@ -211,29 +211,29 @@ const CreatePost = () => {
                             flex: 1,
                             background: 'transparent',
                             border: 'none',
-                            color: '#fff',
+                            color: 'var(--text-active)',
                             outline: 'none',
                             fontSize: '15px'
                         }}
                     />
                 </div>
-                <p style={{ fontSize: '12px', color: '#8e8e93', marginTop: '8px', paddingLeft: '4px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-inactive)', marginTop: '8px', paddingLeft: '4px' }}>
                     Users can swipe left on your post to open this link.
                 </p>
             </div>
 
             <div style={{ marginBottom: '24px' }}>
-                <label style={{ fontSize: '14px', color: '#8e8e93', marginBottom: '8px', display: 'block' }}>Category</label>
+                <label style={{ fontSize: '14px', color: 'var(--text-inactive)', marginBottom: '8px', display: 'block' }}>Category</label>
                 <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     style={{
                         width: '100%',
-                        background: '#121212',
+                        background: 'var(--surface-color)',
                         border: '1px solid #2c2c2e',
                         borderRadius: '12px',
                         padding: '14px 16px',
-                        color: '#fff',
+                        color: 'var(--text-active)',
                         fontSize: '15px',
                         outline: 'none',
                         appearance: 'none',
@@ -244,7 +244,7 @@ const CreatePost = () => {
                     }}
                 >
                     {CONTENT_CATEGORIES.map(cat => (
-                        <option key={cat} value={cat} style={{ background: '#1c1c1e' }}>{cat}</option>
+                        <option key={cat} value={cat} style={{ background: 'var(--surface-color)' }}>{cat}</option>
                     ))}
                 </select>
             </div>
@@ -254,8 +254,8 @@ const CreatePost = () => {
                 disabled={loading || !file}
                 style={{
                     width: '100%',
-                    background: loading || !file ? '#2c2c2e' : '#ff3366',
-                    color: loading || !file ? '#8e8e93' : '#fff',
+                    background: loading || !file ? 'var(--border-color)' : '#ff3366',
+                    color: loading || !file ? 'var(--text-inactive)' : 'var(--text-active)',
                     border: 'none',
                     borderRadius: '30px',
                     padding: '16px',

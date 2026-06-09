@@ -146,7 +146,7 @@ const Explore = () => {
 
     const tabStyle = (tab: string) => ({
         flex: 1, padding: '10px', background: 'none', border: 'none',
-        color: activeTab === tab ? '#ff3366' : '#8e8e93',
+        color: activeTab === tab ? '#ff3366' : 'var(--text-inactive)',
         borderBottom: activeTab === tab ? '2px solid #ff3366' : '2px solid transparent',
         fontWeight: activeTab === tab ? 'bold' as const : 'normal' as const,
         fontSize: '14px', cursor: 'pointer' as const,
@@ -156,11 +156,11 @@ const Explore = () => {
     const isSearching = searchTerm.trim().length > 0;
 
     return (
-        <div className="explore-page pb-20" style={{ background: '#000', minHeight: '100vh' }}>
+        <div className="explore-page pb-20" style={{ background: 'var(--bg-color)', minHeight: '100vh' }}>
             {/* Search Bar */}
             <div style={{ padding: '16px', paddingBottom: '8px' }}>
                 <div style={{
-                    background: '#1c1c1e', padding: '10px 16px', borderRadius: '14px',
+                    background: 'var(--surface-color)', padding: '10px 16px', borderRadius: '14px',
                     display: 'flex', alignItems: 'center', gap: '10px',
                 }}>
                     <Search size={20} color="#8e8e93" />
@@ -169,7 +169,7 @@ const Explore = () => {
                         placeholder="Search people, posts, or tags..."
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        style={{ background: 'transparent', border: 'none', color: '#fff', width: '100%', outline: 'none', fontSize: '15px' }}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-active)', width: '100%', outline: 'none', fontSize: '15px' }}
                     />
                 </div>
             </div>
@@ -197,10 +197,10 @@ const Explore = () => {
                         /* Discover Feed (Default View) */
                         isDiscoverLoading ? (
                             <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                                <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                                <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                             </div>
                         ) : discoverPosts.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
+                            <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
                                 No content found for this category.
                             </div>
                         ) : (
@@ -212,7 +212,7 @@ const Explore = () => {
                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                         {isVideoPost(post) && (
                                             <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
-                                                <Play size={16} color="#fff" fill="#fff" />
+                                                <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
                                             </div>
                                         )}
                                     </div>
@@ -224,13 +224,13 @@ const Explore = () => {
                     /* Search Results View */
                     loadingSearch ? (
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                         </div>
                     ) : (
                         <>
                             {activeTab === 'people' && (
                                 peopleResults.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
+                                    <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
                                         No users found for "{searchTerm}"
                                     </div>
                                 ) : (
@@ -245,8 +245,8 @@ const Explore = () => {
                                                 style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover', marginRight: '14px', cursor: 'pointer' }}
                                             />
                                             <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => navigate(`/profile/${person.username}`)}>
-                                                <h4 style={{ margin: 0, color: '#fff', fontSize: '15px', fontWeight: '600' }}>{person.username}</h4>
-                                                {person.bio && <p style={{ margin: '2px 0 0', color: '#8e8e93', fontSize: '13px' }}>{person.bio}</p>}
+                                                <h4 style={{ margin: 0, color: 'var(--text-active)', fontSize: '15px', fontWeight: '600' }}>{person.username}</h4>
+                                                {person.bio && <p style={{ margin: '2px 0 0', color: 'var(--text-inactive)', fontSize: '13px' }}>{person.bio}</p>}
                                             </div>
                                             {user && person.id !== user.id && (
                                                 <button
@@ -254,7 +254,7 @@ const Explore = () => {
                                                     style={{
                                                         background: followingMap[person.id] ? 'transparent' : '#ff3366',
                                                         border: followingMap[person.id] ? '1px solid #3a3a3c' : 'none',
-                                                        color: '#fff', borderRadius: '20px',
+                                                        color: 'var(--text-active)', borderRadius: '20px',
                                                         padding: '8px 18px', fontSize: '13px', fontWeight: 'bold',
                                                         cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px',
                                                     }}
@@ -269,7 +269,7 @@ const Explore = () => {
 
                             {activeTab === 'posts' && (
                                 postResults.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
+                                    <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
                                         No posts found
                                     </div>
                                 ) : (
@@ -280,7 +280,7 @@ const Explore = () => {
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 {isVideoPost(post) && (
                                                     <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
-                                                        <Play size={16} color="#fff" fill="#fff" />
+                                                        <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
                                                     </div>
                                                 )}
                                             </div>
@@ -297,12 +297,12 @@ const Explore = () => {
                                                 <img src={group.stories[0].image_url} alt="" loading="lazy" style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
                                                 <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.5)', padding: '3px 8px', borderRadius: '10px' }}>
                                                     <img src={group.avatarUrl} alt="" style={{ width: '16px', height: '16px', borderRadius: '50%' }} />
-                                                    <span style={{ color: '#fff', fontSize: '10px', fontWeight: 'bold' }}>{group.username}</span>
+                                                    <span style={{ color: 'var(--text-active)', fontSize: '10px', fontWeight: 'bold' }}>{group.username}</span>
                                                 </div>
                                             </div>
                                         ))
                                     ) : (
-                                        <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px', color: '#8e8e93' }}>
+                                        <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
                                             No stories found
                                         </div>
                                     )}

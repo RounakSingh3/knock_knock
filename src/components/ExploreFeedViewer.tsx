@@ -107,7 +107,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                                 isActive={post.id === activePostId}
                             />
                         ) : (
-                            <div style={{ width: '100%', height: '100%', background: '#000' }} />
+                            <div style={{ width: '100%', height: '100%', background: 'var(--bg-color)' }} />
                         )}
                     </div>
                 );

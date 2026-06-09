@@ -62,7 +62,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                         className={`masonry-like-btn ${isLiked ? 'liked' : ''}`}
                         onClick={(e) => { e.stopPropagation(); onLikeToggle(item.post!.id); }}
                     >
-                        <Heart size={16} fill={isLiked ? '#ff3366' : 'none'} color={isLiked ? '#ff3366' : '#fff'} />
+                        <Heart size={16} fill={isLiked ? '#ff3366' : 'none'} color={isLiked ? '#ff3366' : 'var(--text-active)'} />
                     </button>
                     {onShare && (
                         <button
@@ -70,7 +70,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                             style={{ bottom: '48px' }}
                             onClick={(e) => { e.stopPropagation(); onShare(item.post!); }}
                         >
-                            <Send size={16} color="#fff" />
+                            <Send size={16} color="var(--text-active)" />
                         </button>
                     )}
                     <div className="masonry-card-info">
@@ -86,7 +86,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
             )}
 
             {showStory && item.story && (
-                <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, background: '#000' }}>
+                <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, background: 'var(--bg-color)' }}>
                     <img src={item.story.image_url} className="masonry-card-img" style={{ objectFit: 'contain' }} alt="Story" />
                     <div className="masonry-connection-badge" style={{ background: '#af52de' }}>
                         Story Time
@@ -106,7 +106,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                         <button 
                             className="nav-btn-round" 
                             onClick={(e) => { e.stopPropagation(); setViewIndex(1); }}
-                            style={{ background: 'rgba(0,0,0,0.6)', color: 'white', padding: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
+                            style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--text-active)', padding: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
                         >
                             <ChevronRight size={20} />
                         </button>
@@ -114,7 +114,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                         <button 
                             className="nav-btn-round" 
                             onClick={(e) => { e.stopPropagation(); setViewIndex(0); }}
-                            style={{ position: 'absolute', right: 'auto', left: '-280px', background: 'rgba(0,0,0,0.6)', color: 'white', padding: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
+                            style={{ position: 'absolute', right: 'auto', left: '-280px', background: 'rgba(0,0,0,0.6)', color: 'var(--text-active)', padding: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
                         >
                             <ChevronLeft size={20} />
                         </button>
@@ -127,7 +127,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                     <button 
                         className="nav-btn-round" 
                         onClick={(e) => { e.stopPropagation(); setViewIndex(0); }}
-                        style={{ background: 'rgba(0,0,0,0.6)', color: 'white', padding: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
+                        style={{ background: 'rgba(0,0,0,0.6)', color: 'var(--text-active)', padding: '8px', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
                     >
                         <ChevronLeft size={20} />
                     </button>

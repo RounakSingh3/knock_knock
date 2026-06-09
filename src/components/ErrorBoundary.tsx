@@ -34,14 +34,14 @@ class ErrorBoundary extends Component<Props, State> {
                     alignItems: 'center',
                     justifyContent: 'center',
                     minHeight: '100vh',
-                    backgroundColor: '#000',
-                    color: '#fff',
+                    backgroundColor: 'var(--bg-color)',
+                    color: 'var(--text-active)',
                     padding: '20px',
                     textAlign: 'center'
                 }}>
                     <AlertTriangle size={64} color="#ff3b30" style={{ marginBottom: '20px' }} />
                     <h1 style={{ fontSize: '24px', marginBottom: '10px' }}>Oops, something went wrong</h1>
-                    <p style={{ color: '#8e8e93', marginBottom: '30px', maxWidth: '400px' }}>
+                    <p style={{ color: 'var(--text-inactive)', marginBottom: '30px', maxWidth: '400px' }}>
                         {this.state.error?.message || "An unexpected error occurred."}
                     </p>
                     <button
@@ -51,7 +51,7 @@ class ErrorBoundary extends Component<Props, State> {
                             alignItems: 'center',
                             gap: '8px',
                             background: '#ff3366',
-                            color: '#fff',
+                            color: 'var(--text-active)',
                             border: 'none',
                             padding: '12px 24px',
                             borderRadius: '24px',

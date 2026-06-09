@@ -445,7 +445,7 @@ const Stories = () => {
                             </div>
                         ))
                     ) : (
-                        <p style={{ color: '#8e8e93', gridColumn: '1 / -1', padding: '1rem 0', fontSize: '14px' }}>
+                        <p style={{ color: 'var(--text-inactive)', gridColumn: '1 / -1', padding: '1rem 0', fontSize: '14px' }}>
                             No boosted stories yet — capture a snap above and tap Boost (10 pts).
                         </p>
                     )}

@@ -175,7 +175,7 @@ const Login = () => {
                                     alignItems: 'center',
                                 }}>
                                     {usernameStatus === 'checking' && (
-                                        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                                        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                                     )}
                                     {usernameStatus === 'available' && (
                                         <Check size={18} style={{ color: '#34C759' }} />
@@ -288,7 +288,7 @@ const Login = () => {
                         style={{
                             background: 'none',
                             border: 'none',
-                            color: '#8e8e93',
+                            color: 'var(--text-inactive)',
                             cursor: 'pointer',
                             fontSize: '14px',
                         }}

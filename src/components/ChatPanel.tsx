@@ -388,7 +388,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 </div>
                 <div style={{
                     position: 'relative', width: '200px', height: '260px',
-                    borderRadius: '12px', overflow: 'hidden', background: '#1c1c1e',
+                    borderRadius: '12px', overflow: 'hidden', background: 'var(--surface-color)',
                 }}>
                     {isVideo ? (
                         <video
@@ -423,23 +423,23 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     return (
         <div style={{
             position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-            background: '#000', zIndex: 1000, display: 'flex', flexDirection: 'column',
+            background: 'var(--bg-color)', zIndex: 1000, display: 'flex', flexDirection: 'column',
             animation: 'slideInRight 0.3s ease-out',
         }}>
             {view === 'list' ? (
                 <>
-                    <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: '#121212' }}>
-                        <h2 style={{ flex: 1, fontSize: '20px', fontWeight: 'bold', color: '#fff', margin: 0 }}>Messages</h2>
-                        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#8e8e93' }}>
+                    <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: 'var(--surface-color)' }}>
+                        <h2 style={{ flex: 1, fontSize: '20px', fontWeight: 'bold', color: 'var(--text-active)', margin: 0 }}>Messages</h2>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)' }}>
                             <X size={24} />
                         </button>
                     </header>
 
                     <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
                         {loadingContacts ? (
-                            <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93' }}>Loading...</div>
+                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-inactive)' }}>Loading...</div>
                         ) : allContacts.length === 0 ? (
-                            <div style={{ padding: '24px', textAlign: 'center', color: '#8e8e93', lineHeight: '1.6' }}>
+                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-inactive)', lineHeight: '1.6' }}>
                                 No friends yet! Follow people to see them here.<br/><br/>
                                 On Knock Knock, you can talk, send messages, and share reels and photos with your friends!
                             </div>
@@ -478,20 +478,20 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                     <h3 style={{
-                                                        margin: 0, fontSize: '16px', color: '#fff',
+                                                        margin: 0, fontSize: '16px', color: 'var(--text-active)',
                                                         fontWeight: unread > 0 ? '700' : '600',
                                                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                                     }}>
                                                         {contact.username}
                                                     </h3>
-                                                    <span style={{ fontSize: '11px', color: unread > 0 ? '#ff3366' : '#8e8e93' }}>
+                                                    <span style={{ fontSize: '11px', color: unread > 0 ? '#ff3366' : 'var(--text-inactive)' }}>
                                                         {new Date(lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                     </span>
                                                 </div>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                                                     <p style={{
                                                         margin: 0, fontSize: '14px',
-                                                        color: unread > 0 ? '#fff' : '#8e8e93',
+                                                        color: unread > 0 ? 'var(--text-active)' : 'var(--text-inactive)',
                                                         fontWeight: unread > 0 ? '500' : 'normal',
                                                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                                         marginRight: '8px', flex: 1,
@@ -500,7 +500,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     </p>
                                                     {unread > 0 && (
                                                         <span style={{
-                                                            background: '#ff3366', color: '#fff', fontSize: '11px',
+                                                            background: '#ff3366', color: 'var(--text-active)', fontSize: '11px',
                                                             fontWeight: 'bold', borderRadius: '50%', minWidth: '18px',
                                                             height: '18px', display: 'flex', alignItems: 'center',
                                                             justifyContent: 'center', padding: '0 4px',
@@ -515,7 +515,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 })}
 
                                 {unchattedContacts.length > 0 && chattedContacts.length > 0 && (
-                                    <div style={{ padding: '12px 16px 8px', color: '#8e8e93', fontSize: '13px', fontWeight: '600' }}>
+                                    <div style={{ padding: '12px 16px 8px', color: 'var(--text-inactive)', fontSize: '13px', fontWeight: '600' }}>
                                         Connections
                                     </div>
                                 )}
@@ -535,10 +535,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', marginRight: '16px' }}
                                         />
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <h3 style={{ margin: 0, fontSize: '16px', color: '#fff', fontWeight: '600' }}>
+                                            <h3 style={{ margin: 0, fontSize: '16px', color: 'var(--text-active)', fontWeight: '600' }}>
                                                 {contact.username}
                                             </h3>
-                                            <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8e8e93' }}>
+                                            <p style={{ margin: '4px 0 0', fontSize: '14px', color: 'var(--text-inactive)' }}>
                                                 Tap to chat
                                             </p>
                                         </div>
@@ -550,7 +550,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 </>
             ) : (
                 <>
-                    <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: '#121212' }}>
+                    <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: 'var(--surface-color)' }}>
                         <button
                             onClick={() => {
                                 setView('list');
@@ -577,17 +577,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', marginRight: '12px' }}
                             />
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#fff', margin: 0 }}>
+                                <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-active)', margin: 0 }}>
                                     {selectedContact?.username || selectedContact?.first_name || 'User'}
                                 </h2>
-                                <span style={{ fontSize: '12px', color: '#8e8e93' }}>View Profile</span>
+                                <span style={{ fontSize: '12px', color: 'var(--text-inactive)' }}>View Profile</span>
                             </div>
                         </div>
                     </header>
 
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', background: '#0a0a0a' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', background: 'var(--bg-color)' }}>
                         {loadingMessages ? (
-                            <div style={{ textAlign: 'center', color: '#8e8e93', margin: 'auto' }}>Loading chat...</div>
+                            <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto' }}>Loading chat...</div>
                         ) : (
                             messages.map(msg => {
                                 const isMe = msg.sender_id === currentUser.id;
@@ -603,8 +603,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         }}
                                     >
                                         <div style={{
-                                            background: isMe ? '#ff3366' : '#2c2c2e',
-                                            color: '#fff',
+                                            background: isMe ? '#ff3366' : 'var(--border-color)',
+                                            color: 'var(--text-active)',
                                             padding: isShare ? '8px' : '12px 16px',
                                             borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                                             maxWidth: '75%',
@@ -637,7 +637,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                 ) : msg.content
                                             )}
                                         </div>
-                                        <div style={{ fontSize: '11px', color: '#8e8e93', marginTop: '4px', display: 'flex', alignItems: 'center' }}>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-inactive)', marginTop: '4px', display: 'flex', alignItems: 'center' }}>
                                             {formatTime(msg.created_at)}
                                             {isMe && (
                                                 <>
@@ -646,7 +646,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     </span>
                                                     <button
                                                         onClick={() => handleDeleteMessage(msg.id)}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0 8px', color: '#8e8e93', display: 'flex', alignItems: 'center' }}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0 8px', color: 'var(--text-inactive)', display: 'flex', alignItems: 'center' }}
                                                         title="Delete message"
                                                     >
                                                         <Trash2 size={13} />
@@ -661,7 +661,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         <div ref={messagesEndRef} />
                     </div>
 
-                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: '#121212', borderTop: '1px solid #2c2c2e' }}>
+                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid #2c2c2e' }}>
                         <input 
                             type="file" 
                             accept="image/*" 
@@ -673,7 +673,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
                             style={{
-                                background: 'none', border: 'none', color: '#8e8e93',
+                                background: 'none', border: 'none', color: 'var(--text-inactive)',
                                 padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
                                 marginRight: '8px', opacity: isUploadingImage ? 0.5 : 1
                             }}
@@ -689,11 +689,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             disabled={isUploadingImage}
                             style={{
                                 flex: 1,
-                                background: '#2c2c2e',
+                                background: 'var(--border-color)',
                                 border: 'none',
                                 borderRadius: '24px',
                                 padding: '12px 16px',
-                                color: '#fff',
+                                color: 'var(--text-active)',
                                 outline: 'none',
                                 fontSize: '15px',
                             }}
@@ -702,8 +702,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             type="submit"
                             disabled={!messageInput.trim()}
                             style={{
-                                background: messageInput.trim() ? '#ff3366' : '#2c2c2e',
-                                color: '#fff',
+                                background: messageInput.trim() ? '#ff3366' : 'var(--border-color)',
+                                color: 'var(--text-active)',
                                 border: 'none',
                                 borderRadius: '50%',
                                 width: '44px',

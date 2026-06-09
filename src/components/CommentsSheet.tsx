@@ -129,7 +129,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
             display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
         }} onClick={onClose}>
             <div style={{
-                background: '#1c1c1e', width: '100%', maxWidth: '500px',
+                background: 'var(--surface-color)', width: '100%', maxWidth: '500px',
                 borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
                 display: 'flex', flexDirection: 'column', maxHeight: '70vh',
                 animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -140,10 +140,10 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     padding: '16px 20px', borderBottom: '1px solid #2c2c2e',
                 }}>
-                    <h3 style={{ margin: 0, color: '#fff', fontSize: '17px', fontWeight: 'bold' }}>
-                        Comments {comments.length > 0 && <span style={{ color: '#8e8e93', fontWeight: 'normal' }}>({comments.length})</span>}
+                    <h3 style={{ margin: 0, color: 'var(--text-active)', fontSize: '17px', fontWeight: 'bold' }}>
+                        Comments {comments.length > 0 && <span style={{ color: 'var(--text-inactive)', fontWeight: 'normal' }}>({comments.length})</span>}
                     </h3>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer' }}>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }}>
                         <X size={22} />
                     </button>
                 </div>
@@ -151,11 +151,11 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                 {/* Comments List */}
                 <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 20px' }}>
                     {loading ? (
-                        <div style={{ textAlign: 'center', padding: '32px', color: '#8e8e93' }}>
+                        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-inactive)' }}>
                             <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
                         </div>
                     ) : comments.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '32px', color: '#8e8e93' }}>
+                        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-inactive)' }}>
                             No comments yet. Be the first! 💬
                         </div>
                     ) : (
@@ -170,8 +170,8 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                                 />
                                 <div style={{ flex: 1 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ color: '#fff', fontSize: '14px', fontWeight: '600' }}>{comment.username}</span>
-                                        <span style={{ color: '#8e8e93', fontSize: '12px' }}>{timeAgo(comment.created_at)}</span>
+                                        <span style={{ color: 'var(--text-active)', fontSize: '14px', fontWeight: '600' }}>{comment.username}</span>
+                                        <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>{timeAgo(comment.created_at)}</span>
                                     </div>
                                     {comment.is_voice && comment.voice_url ? (
                                         <audio
@@ -190,7 +190,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                                 {comment.user_id === currentUser.id && (
                                     <button
                                         onClick={() => handleDelete(comment.id)}
-                                        style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer', padding: '4px', alignSelf: 'flex-start' }}
+                                        style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', padding: '4px', alignSelf: 'flex-start' }}
                                     >
                                         <Trash2 size={14} />
                                     </button>
@@ -203,7 +203,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                 {/* Input Bar */}
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '12px 16px', borderTop: '1px solid #2c2c2e', background: '#121212',
+                    padding: '12px 16px', borderTop: '1px solid #2c2c2e', background: 'var(--surface-color)',
                 }}>
                     <img
                         src={currentUser.avatar_url || 'https://i.pravatar.cc/150'}
@@ -215,8 +215,8 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                         onKeyDown={e => e.key === 'Enter' && handleSendText()}
                         placeholder="Add a comment..."
                         style={{
-                            flex: 1, background: '#2c2c2e', border: 'none', borderRadius: '20px',
-                            padding: '10px 16px', color: '#fff', fontSize: '14px', outline: 'none',
+                            flex: 1, background: 'var(--border-color)', border: 'none', borderRadius: '20px',
+                            padding: '10px 16px', color: 'var(--text-active)', fontSize: '14px', outline: 'none',
                         }}
                     />
                     {/* Voice comment button */}
@@ -224,14 +224,14 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                         onClick={isRecording ? stopVoiceComment : startVoiceComment}
                         disabled={sending}
                         style={{
-                            background: isRecording ? '#ff3366' : '#2c2c2e',
+                            background: isRecording ? '#ff3366' : 'var(--border-color)',
                             border: 'none', borderRadius: '50%', width: '38px', height: '38px',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             cursor: 'pointer', transition: 'all 0.2s',
                             animation: isRecording ? 'pulse 1s ease-in-out infinite' : 'none',
                         }}
                     >
-                        {isRecording ? <Square size={16} color="#fff" /> : <Mic size={18} color="#fff" />}
+                        {isRecording ? <Square size={16} color="var(--text-active)" /> : <Mic size={18} color="var(--text-active)" />}
                     </button>
                     {isRecording && (
                         <span style={{ color: '#ff3366', fontSize: '13px', fontWeight: 'bold', minWidth: '24px' }}>
@@ -249,7 +249,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                                 alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
                             }}
                         >
-                            {sending ? <Loader2 size={16} color="#fff" style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={16} color="#fff" />}
+                            {sending ? <Loader2 size={16} color="var(--text-active)" style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={16} color="var(--text-active)" />}
                         </button>
                     )}
                 </div>

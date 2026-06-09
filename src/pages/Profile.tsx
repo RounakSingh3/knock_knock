@@ -128,14 +128,14 @@ const Profile = () => {
     if (loading) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', paddingBottom: '60px' }}>
-                <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: '#8e8e93' }} />
+                <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
             </div>
         );
     }
 
     if (error || !profile) {
         return (
-            <div style={{ textAlign: 'center', padding: '3rem', color: '#8e8e93' }}>
+            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-inactive)' }}>
                 <p>{error || 'User not found'}</p>
             </div>
         );
@@ -201,7 +201,7 @@ const Profile = () => {
                     {isOwnProfile && (
                         <button
                             type="button"
-                            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer' }}
                             onClick={() => navigate('/settings')}
                             aria-label="Settings"
                         >
@@ -229,7 +229,7 @@ const Profile = () => {
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         border: '3px solid #ff3366',
                                     }}>
-                                        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#fff' }} />
+                                        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-active)' }} />
                                     </div>
                                 ) : (
                                     <div style={{
@@ -241,7 +241,7 @@ const Profile = () => {
                                     }}
                                     className="avatar-hover-overlay"
                                     >
-                                        <Camera size={20} color="#fff" />
+                                        <Camera size={20} color="var(--text-active)" />
                                     </div>
                                 )}
                                 <input 
@@ -269,15 +269,15 @@ const Profile = () => {
                     <div style={{ display: 'flex', gap: '8px', textAlign: 'center', flex: 1, justifyContent: 'center' }}>
                         <button className="stat-btn" onClick={() => setActiveTab('posts')}>
                             <div className="font-bold text-lg">{posts.length}</div>
-                            <div style={{ fontSize: '13px', color: activeTab === 'posts' ? '#ff3366' : '#8e8e93' }}>Posts</div>
+                            <div style={{ fontSize: '13px', color: activeTab === 'posts' ? '#ff3366' : 'var(--text-inactive)' }}>Posts</div>
                         </button>
                         <button className="stat-btn" onClick={() => setActiveTab('followers')}>
                             <div className="font-bold text-lg">{followStats.followers}</div>
-                            <div style={{ fontSize: '13px', color: activeTab === 'followers' ? '#ff3366' : '#8e8e93' }}>Followers</div>
+                            <div style={{ fontSize: '13px', color: activeTab === 'followers' ? '#ff3366' : 'var(--text-inactive)' }}>Followers</div>
                         </button>
                         <button className="stat-btn" onClick={() => setActiveTab('following')}>
                             <div className="font-bold text-lg">{followStats.following}</div>
-                            <div style={{ fontSize: '13px', color: activeTab === 'following' ? '#ff3366' : '#8e8e93' }}>Following</div>
+                            <div style={{ fontSize: '13px', color: activeTab === 'following' ? '#ff3366' : 'var(--text-inactive)' }}>Following</div>
                         </button>
                     </div>
                 </div>
@@ -287,7 +287,7 @@ const Profile = () => {
                     {profile.bio && (
                         <p style={{ fontSize: '14px', color: '#e0e0e0', margin: '6px 0', lineHeight: '1.4' }}>{profile.bio}</p>
                     )}
-                    <div style={{ fontSize: '14px', marginTop: '4px', color: '#8e8e93' }}>
+                    <div style={{ fontSize: '14px', marginTop: '4px', color: 'var(--text-inactive)' }}>
                         {profile.gender === 'male' ? '♂️' : profile.gender === 'female' ? '♀️' : '🌈'} • Joined Knock Knock
                     </div>
                 </div>
@@ -298,7 +298,7 @@ const Profile = () => {
                             <button className="profile-action-btn" onClick={() => setIsEditOpen(true)}>Edit Profile</button>
                             <button 
                                 className="profile-action-btn" 
-                                style={{ background: '#ff3366', color: '#fff', border: 'none' }}
+                                style={{ background: '#ff3366', color: 'var(--text-active)', border: 'none' }}
                                 onClick={() => navigate('/create')}
                             >
                                 + Create Post
@@ -308,7 +308,7 @@ const Profile = () => {
                         <>
                             <button 
                                 className="profile-action-btn" 
-                                style={{ background: isFollowing ? '#2c2c2e' : '#ff3366', color: '#fff' }}
+                                style={{ background: isFollowing ? 'var(--border-color)' : '#ff3366', color: 'var(--text-active)' }}
                                 onClick={handleFollowToggle}
                             >
                                 {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
@@ -316,7 +316,7 @@ const Profile = () => {
                             </button>
                             <button 
                                 className="profile-action-btn" 
-                                style={{ background: '#34C759', color: '#fff', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
+                                style={{ background: '#34C759', color: 'var(--text-active)', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
                                 onClick={handleDirectCall}
                                 disabled={callingStatus === 'calling'}
                             >
@@ -335,17 +335,17 @@ const Profile = () => {
                     <div className="upload-summary-card">
                         <Grid size={20} color="#ff3366" />
                         <span className="font-bold">{photoPosts.length}</span>
-                        <span style={{ color: '#8e8e93', fontSize: '12px' }}>Photos</span>
+                        <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Photos</span>
                     </div>
                     <div className="upload-summary-card">
                         <Film size={20} color="#af52de" />
                         <span className="font-bold">{videoPosts.length}</span>
-                        <span style={{ color: '#8e8e93', fontSize: '12px' }}>Videos</span>
+                        <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Videos</span>
                     </div>
                     <div className="upload-summary-card">
                         <TrendingUp size={20} color="#facc15" />
                         <span className="font-bold">{posts.length}</span>
-                        <span style={{ color: '#8e8e93', fontSize: '12px' }}>Total</span>
+                        <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Total</span>
                     </div>
                 </div>
             </div>
@@ -384,7 +384,7 @@ const Profile = () => {
                                     style={{
                                         position: 'relative',
                                         aspectRatio: '1/1',
-                                        background: '#2c2c2e',
+                                        background: 'var(--border-color)',
                                         overflow: 'hidden',
                                         cursor: 'pointer',
                                     }}
@@ -409,7 +409,7 @@ const Profile = () => {
                                                 borderRadius: 4,
                                                 padding: '2px 6px',
                                                 fontSize: 10,
-                                                color: '#fff',
+                                                color: 'var(--text-active)',
                                                 pointerEvents: 'none',
                                             }}
                                         >
@@ -420,9 +420,9 @@ const Profile = () => {
                             ))}
                         </div>
                         {posts.length === 0 && (
-                            <div style={{ textAlign: 'center', padding: '3rem 2rem', color: '#8e8e93' }}>
+                            <div style={{ textAlign: 'center', padding: '3rem 2rem', color: 'var(--text-inactive)' }}>
                                 <Grid size={40} color="#2c2c2e" style={{ margin: '0 auto 1rem' }} />
-                                <div className="font-bold" style={{ color: '#fff', marginBottom: '4px' }}>No Posts Yet</div>
+                                <div className="font-bold" style={{ color: 'var(--text-active)', marginBottom: '4px' }}>No Posts Yet</div>
                                 <p>When {isOwnProfile ? 'you share' : `${displayUsername} shares`} photos and videos, they will appear here.</p>
                             </div>
                         )}
@@ -433,14 +433,14 @@ const Profile = () => {
                 {activeTab === 'followers' && (
                     <div style={{ padding: '8px 0' }}>
                         {followersList.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '3rem', color: '#8e8e93' }}>No followers yet</div>
+                            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-inactive)' }}>No followers yet</div>
                         ) : (
                             followersList.map(f => (
                                 <div key={f.id} className="user-list-item" onClick={() => navigate(`/profile/${f.username}`)}>
                                     <img src={f.avatar_url} alt={f.name} className="user-list-avatar" />
                                     <div style={{ flex: 1 }}>
                                         <div className="font-bold" style={{ fontSize: '14px' }}>{f.username}</div>
-                                        <div style={{ fontSize: '13px', color: '#8e8e93' }}>{f.name}</div>
+                                        <div style={{ fontSize: '13px', color: 'var(--text-inactive)' }}>{f.name}</div>
                                     </div>
                                     {isOwnProfile && (
                                         <button className="profile-action-btn" style={{ flex: 'none', padding: '6px 16px', fontSize: '13px' }}>
@@ -457,14 +457,14 @@ const Profile = () => {
                 {activeTab === 'following' && (
                     <div style={{ padding: '8px 0' }}>
                         {followingList.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '3rem', color: '#8e8e93' }}>Not following anyone yet</div>
+                            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-inactive)' }}>Not following anyone yet</div>
                         ) : (
                             followingList.map(f => (
                                 <div key={f.id} className="user-list-item" onClick={() => navigate(`/profile/${f.username}`)}>
                                     <img src={f.avatar_url} alt={f.name} className="user-list-avatar" />
                                     <div style={{ flex: 1 }}>
                                         <div className="font-bold" style={{ fontSize: '14px' }}>{f.username}</div>
-                                        <div style={{ fontSize: '13px', color: '#8e8e93' }}>{f.name}</div>
+                                        <div style={{ fontSize: '13px', color: 'var(--text-inactive)' }}>{f.name}</div>
                                     </div>
                                 </div>
                             ))
