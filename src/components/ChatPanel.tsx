@@ -562,10 +562,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         </button>
                         <div 
                             style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }}
-                            onClick={() => {
-                                if (selectedContact?.username) {
-                                    navigate(`/profile/${selectedContact.username}`);
-                                    onClose();
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                const username = selectedContact?.username;
+                                if (username) {
+                                    onClose(); // close modal
+                                    setTimeout(() => {
+                                        navigate(`/profile/${encodeURIComponent(username)}`);
+                                    }, 50);
                                 }
                             }}
                         >
@@ -574,7 +579,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 alt=""
                                 style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', marginRight: '12px' }}
                             />
-                            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#fff', margin: 0 }}>{selectedContact?.username}</h2>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#fff', margin: 0 }}>
+                                    {selectedContact?.username || selectedContact?.first_name || 'User'}
+                                </h2>
+                                <span style={{ fontSize: '12px', color: '#8e8e93' }}>View Profile</span>
+                            </div>
                         </div>
                     </header>
 
