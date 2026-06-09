@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchChatThreads, fetchFollowing, fetchFollowers, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
@@ -48,6 +49,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 }) => {
     const [allContacts, setAllContacts] = useState<ChatContact[]>([]);
     const [loadingContacts, setLoadingContacts] = useState(false);
+    const navigate = useNavigate();
 
     const [view, setView] = useState<'list' | 'chat'>('list');
     const [selectedContact, setSelectedContact] = useState<ChatContact | null>(null);
@@ -558,12 +560,22 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         >
                             <ChevronLeft size={24} />
                         </button>
-                        <img
-                            src={selectedContact?.avatar_url || 'https://i.pravatar.cc/150'}
-                            alt=""
-                            style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', marginRight: '12px' }}
-                        />
-                        <h2 style={{ flex: 1, fontSize: '18px', fontWeight: '600', color: '#fff', margin: 0 }}>{selectedContact?.username}</h2>
+                        <div 
+                            style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }}
+                            onClick={() => {
+                                if (selectedContact?.username) {
+                                    navigate(`/profile/${selectedContact.username}`);
+                                    onClose();
+                                }
+                            }}
+                        >
+                            <img
+                                src={selectedContact?.avatar_url || 'https://i.pravatar.cc/150'}
+                                alt=""
+                                style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', marginRight: '12px' }}
+                            />
+                            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#fff', margin: 0 }}>{selectedContact?.username}</h2>
+                        </div>
                     </header>
 
                     <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', background: '#0a0a0a' }}>
