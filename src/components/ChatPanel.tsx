@@ -563,14 +563,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         <div 
                             style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }}
                             onClick={(e) => {
-                                e.stopPropagation();
                                 e.preventDefault();
                                 const username = selectedContact?.username;
                                 if (username) {
-                                    onClose(); // close modal
-                                    setTimeout(() => {
-                                        navigate(`/profile/${encodeURIComponent(username)}`);
-                                    }, 50);
+                                    navigate(`/profile/${encodeURIComponent(username)}`);
+                                    onClose(); 
                                 }
                             }}
                         >
