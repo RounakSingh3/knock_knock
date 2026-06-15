@@ -78,13 +78,18 @@ export async function fetchUserPosts(username: string): Promise<PostData[]> {
     return data || [];
 }
 
-export async function uploadMedia(file: File, path: string): Promise<string> {
+export async function uploadMedia(
+    file: File, 
+    path: string,
+    onProgress?: (progress: { loaded: number; total: number }) => void
+): Promise<string> {
     const { error } = await supabase.storage
         .from(STORAGE_BUCKET)
         .upload(path, file, {
             cacheControl: '3600',
             upsert: false,
             contentType: file.type || undefined,
+            onUploadProgress: onProgress,
         });
 
     if (error) {

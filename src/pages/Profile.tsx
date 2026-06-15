@@ -7,7 +7,7 @@ import {
     uploadMedia, updateProfile
 } from '../lib/database';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone } from 'lucide-react';
-import { isVideoPost } from '../lib/media';
+import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
 import { supabase } from '../lib/supabase';
@@ -39,7 +39,13 @@ const Profile = () => {
             try {
                 const ext = file.name.split('.').pop();
                 const path = `avatars/${currentUser.id}-${Date.now()}.${ext}`;
-                const publicUrl = await uploadMedia(file, path);
+                let fileToUpload = file;
+                try {
+                    fileToUpload = await compressImage(file, 400, 400, 0.85);
+                } catch (compErr) {
+                    console.error('Avatar compression failed, using original file:', compErr);
+                }
+                const publicUrl = await uploadMedia(fileToUpload, path);
                 
                 const success = await updateProfile(currentUser.id, { avatar_url: publicUrl });
                 if (success) {

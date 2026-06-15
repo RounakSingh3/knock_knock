@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchChatThreads, fetchFollowing, fetchFollowers, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
+import { compressImage } from '../lib/media';
 
 interface ChatContact extends ProfileData {
     lastMessage?: MessageData | null;
@@ -275,11 +276,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
         setIsUploadingImage(true);
         try {
-            const fileExt = file.name.split('.').pop();
+            let fileToUpload = file;
+            try {
+                fileToUpload = await compressImage(file, 1000, 1000, 0.75);
+            } catch (compErr) {
+                console.error('Chat image compression failed, using original file:', compErr);
+            }
+            const fileExt = fileToUpload.name.split('.').pop();
             const fileName = `${currentUser.id}-${Date.now()}.${fileExt}`;
             const path = `chat_images/${fileName}`;
 
-            const publicUrl = await uploadMedia(file, path);
+            const publicUrl = await uploadMedia(fileToUpload, path);
             const text = `[IMAGE] ${publicUrl}`;
 
             const optimisticMsg: MessageData = {

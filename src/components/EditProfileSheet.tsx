@@ -2,6 +2,7 @@ import React, { useState, useContext } from 'react';
 import { X, Loader2, Camera } from 'lucide-react';
 import { updateProfile, uploadMedia } from '../lib/database';
 import { AppContext } from '../App';
+import { compressImage } from '../lib/media';
 
 interface EditProfileSheetProps {
     isOpen: boolean;
@@ -45,7 +46,13 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
             if (avatarFile) {
                 const ext = avatarFile.name.split('.').pop();
                 const path = `avatars/${currentUser.id}-${Date.now()}.${ext}`;
-                const publicUrl = await uploadMedia(avatarFile, path);
+                let fileToUpload = avatarFile;
+                try {
+                    fileToUpload = await compressImage(avatarFile, 400, 400, 0.85);
+                } catch (compErr) {
+                    console.error('Avatar compression failed, using original file:', compErr);
+                }
+                const publicUrl = await uploadMedia(fileToUpload, path);
                 updates.avatar_url = publicUrl;
             }
 

@@ -2,7 +2,7 @@ import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { uploadMedia, createNewPost } from '../lib/database';
-import { getMediaTypeFromFile } from '../lib/media';
+import { getMediaTypeFromFile, compressImage } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2 } from 'lucide-react';
 
@@ -33,6 +33,7 @@ const CreatePost = () => {
     const [category, setCategory] = useState('General');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -57,13 +58,39 @@ const CreatePost = () => {
 
         setLoading(true);
         setError('');
+        setUploadProgress(null);
 
         try {
-            const fileExt = file.name.split('.').pop();
+            const mediaType = getMediaTypeFromFile(file);
+            let fileToUpload = file;
+
+            if (mediaType === 'image') {
+                try {
+                    setError('Compressing image for fast upload...');
+                    fileToUpload = await compressImage(file, 1200, 1200, 0.8);
+                    setError('');
+                } catch (compErr) {
+                    console.error('Image compression failed, using original file:', compErr);
+                }
+            } else if (mediaType === 'video') {
+                const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
+                if (file.size > MAX_VIDEO_SIZE) {
+                    setError(`This video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please select a video smaller than 50MB.`);
+                    setLoading(false);
+                    return;
+                }
+            }
+
+            setUploadProgress(0);
+            const fileExt = fileToUpload.name.split('.').pop();
             const fileName = `${user.id}-${Date.now()}.${fileExt}`;
             const path = `posts/${fileName}`;
 
-            const publicUrl = await uploadMedia(file, path);
+            const publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
+                const percentage = Math.round((progress.loaded / progress.total) * 100);
+                setUploadProgress(percentage);
+            });
+
             let finalUrl = publicUrl;
             if (selectedFilter !== 'none') {
                 try {
@@ -84,7 +111,7 @@ const CreatePost = () => {
                 image_url: finalUrl,
                 caption,
                 attached_link: attachedLink || undefined,
-                media_type: getMediaTypeFromFile(file),
+                media_type: mediaType,
                 category,
                 css_filter: selectedFilter,
             });
@@ -96,6 +123,7 @@ const CreatePost = () => {
             setError(message);
         } finally {
             setLoading(false);
+            setUploadProgress(null);
         }
     };
 
@@ -249,27 +277,57 @@ const CreatePost = () => {
                 </select>
             </div>
 
-            <button 
-                onClick={handleUpload}
-                disabled={loading || !file}
-                style={{
+            {loading ? (
+                <div style={{
                     width: '100%',
-                    background: loading || !file ? 'var(--border-color)' : '#ff3366',
-                    color: loading || !file ? 'var(--text-inactive)' : 'var(--text-active)',
-                    border: 'none',
+                    background: 'var(--surface-color)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '30px',
                     padding: '16px',
-                    fontSize: '16px',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    cursor: loading || !file ? 'not-allowed' : 'pointer',
-                    transition: 'background 0.2s'
-                }}
-            >
-                {loading ? <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} /> : 'Share Post'}
-            </button>
+                    boxSizing: 'border-box',
+                    marginBottom: '16px'
+                }}>
+                    {uploadProgress !== null ? (
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: 'var(--text-active)', fontWeight: 'bold' }}>
+                                <span>Uploading {file ? getMediaTypeFromFile(file) : 'file'}...</span>
+                                <span>{uploadProgress}%</span>
+                            </div>
+                            <div style={{ width: '100%', height: '8px', background: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{ width: `${uploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #ff3366, #ff9933)', transition: 'width 0.1s ease-out' }} />
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--text-active)' }}>
+                            <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                            <span>Processing media...</span>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <button 
+                    onClick={handleUpload}
+                    disabled={!file}
+                    style={{
+                        width: '100%',
+                        background: !file ? 'var(--border-color)' : 'linear-gradient(45deg, #ff3366, #ff9933)',
+                        color: !file ? 'var(--text-inactive)' : 'var(--text-active)',
+                        border: 'none',
+                        borderRadius: '30px',
+                        padding: '16px',
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        cursor: !file ? 'not-allowed' : 'pointer',
+                        transition: 'background 0.2s',
+                        marginBottom: '16px'
+                    }}
+                >
+                    Share Post
+                </button>
+            )}
         </div>
     );
 };
