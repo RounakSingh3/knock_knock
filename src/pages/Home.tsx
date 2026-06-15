@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, type PostData, type StoryData, type MessageData } from '../lib/database';
-import { checkIfLiked, toggleLike } from '../lib/database';
+import { checkIfLiked, checkIfLikedBatch, toggleLike } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2 } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
@@ -100,9 +100,10 @@ const Home = () => {
             .on(
                 'postgres_changes',
                 {
-                    event: '*',
+                    event: 'INSERT',
                     schema: 'public',
-                    table: 'messages'
+                    table: 'messages',
+                    filter: `receiver_id=eq.${user.id}`
                 },
                 () => {
                     updateUnreadCount();
@@ -135,11 +136,14 @@ const Home = () => {
             firstPage.forEach(s => { counts[s.post.id] = s.post.likes_count; });
             setLikeCounts(counts);
             
+            // Batch check all likes in one query instead of N individual queries
+            const postIds = firstPage.map(s => s.post.id);
+            checkIfLikedBatch(user.id, postIds).then(likedMap => {
+                setLikedPosts(prev => ({ ...prev, ...likedMap }));
+            });
+            
+            // Track view engagements
             firstPage.forEach(s => {
-                checkIfLiked(user.id, s.post.id).then(liked => {
-                    setLikedPosts(prev => ({ ...prev, [s.post.id]: liked }));
-                });
-                // Track view engagement silently
                 trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
             });
             
@@ -225,12 +229,13 @@ const Home = () => {
             setScoredFeed(prev => [...prev, ...nextBatch]);
             setPosts(prev => [...prev, ...nextBatch.map(s => s.post)]);
             setFeedPage(nextPage);
-            // Track views on new batch
+            // Batch check likes for new posts
+            const newPostIds = nextBatch.map(s => s.post.id);
+            checkIfLikedBatch(user.id, newPostIds).then(likedMap => {
+                setLikedPosts(prev => ({ ...prev, ...likedMap }));
+            });
             nextBatch.forEach(s => {
                 trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
-                checkIfLiked(user.id, s.post.id).then(liked => {
-                    setLikedPosts(prev => ({ ...prev, [s.post.id]: liked }));
-                });
                 setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
             });
         }

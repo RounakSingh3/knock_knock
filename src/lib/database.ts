@@ -163,6 +163,21 @@ export async function checkIfLiked(userId: string, postId: string): Promise<bool
     return !!data;
 }
 
+// Batch check: fetch all liked post IDs in one query instead of N individual queries
+export async function checkIfLikedBatch(userId: string, postIds: string[]): Promise<Record<string, boolean>> {
+    if (postIds.length === 0) return {};
+    const { data } = await supabase
+        .from('likes')
+        .select('post_id')
+        .eq('user_id', userId)
+        .in('post_id', postIds);
+
+    const result: Record<string, boolean> = {};
+    postIds.forEach(id => { result[id] = false; });
+    (data || []).forEach((row: any) => { result[row.post_id] = true; });
+    return result;
+}
+
 export async function toggleLike(userId: string, postId: string, currentlyLiked: boolean) {
     if (currentlyLiked) {
         const { error } = await supabase

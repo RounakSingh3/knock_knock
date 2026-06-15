@@ -96,6 +96,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
             className={className}
             style={{ ...style, filter: extractedFilter }}
             loading="lazy"
+            decoding="async"
         />
     );
 };

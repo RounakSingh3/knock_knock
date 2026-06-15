@@ -1,21 +1,22 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { fetchProfile, updatePoints, setUserOnlineStatus, type ProfileData } from './lib/database';
 import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSession } from './lib/auth';
 import BottomNav from './components/BottomNav';
-import Home from './pages/Home';
-import Stories from './pages/Stories';
-import Explore from './pages/Explore';
-import Connections from './pages/Connections';
-import Boost from './pages/Boost';
-import Reels from './pages/Reels';
-import VoiceCall from './pages/VoiceCall';
-import Login from './pages/Login';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
-import CreatePost from './pages/CreatePost';
 import OnboardingOverlay from './components/OnboardingOverlay';
 import GlobalCallListener from './components/GlobalCallListener';
+
+const Home = lazy(() => import('./pages/Home'));
+const Stories = lazy(() => import('./pages/Stories'));
+const Explore = lazy(() => import('./pages/Explore'));
+const Connections = lazy(() => import('./pages/Connections'));
+const Boost = lazy(() => import('./pages/Boost'));
+const Reels = lazy(() => import('./pages/Reels'));
+const VoiceCall = lazy(() => import('./pages/VoiceCall'));
+const Login = lazy(() => import('./pages/Login'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Settings = lazy(() => import('./pages/Settings'));
+const CreatePost = lazy(() => import('./pages/CreatePost'));
 
 // Global Context for Points & Auth
 interface AppContextType {
@@ -210,6 +211,7 @@ function App() {
         <AppContext.Provider value={{ points, setPoints, user, setUser, isAuthenticated, signOut }}>
             <Router>
                 <div className="app-container">
+                    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '80vh' }}><div style={{ width: 32, height: 32, border: '3px solid var(--primary-color)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}>
                     <Routes>
                         {!isAuthenticated ? (
                             <>
@@ -234,6 +236,7 @@ function App() {
                             </>
                         )}
                     </Routes>
+                    </Suspense>
                     {isAuthenticated && <GlobalCallListener />}
                     {isAuthenticated && !onboardingDone && (
                         <OnboardingOverlay onComplete={() => setOnboardingDone(true)} />
