@@ -6,11 +6,11 @@ import { computeMatches, createConnection, checkConnection, fetchProfilesByIds, 
 import { supabase } from '../lib/supabase';
 
 const MATCH_PREFERENCES = [
-    "Similar Likes ÔØñ´©Å",
-    "Boy to Girl ­ƒæ½",
-    "Girl to Boy ­ƒæ¡",
-    "Same Country ­ƒîì",
-    "Random ­ƒÄ▓"
+    "Similar Likes 💖",
+    "Boy to Girl 👦",
+    "Girl to Boy 👧",
+    "Same Country 🌍",
+    "Random 🎲"
 ];
 
 const VoiceCall = () => {
@@ -200,10 +200,10 @@ const VoiceCall = () => {
 
                 const callerProfile = payload.callerProfile;
                 const genderMatch = () => {
-                    if (activePrefRef.current === 'Boy to Girl ­ƒæ½') {
+                    if (activePrefRef.current === 'Boy to Girl 👦') {
                         return callerProfile.gender === 'female';
                     }
-                    if (activePrefRef.current === 'Girl to Boy ­ƒæ¡') {
+                    if (activePrefRef.current === 'Girl to Boy 👧') {
                         return callerProfile.gender === 'male';
                     }
                     return true;
@@ -530,16 +530,16 @@ const VoiceCall = () => {
                 if (u.status !== 'searching') return false;
                 
                 // Match gender based on active preference
-                if (activePref === 'Boy to Girl ­ƒæ½') {
+                if (activePref === 'Boy to Girl 👦') {
                     if (u.gender !== 'female') return false;
-                } else if (activePref === 'Girl to Boy ­ƒæ¡') {
+                } else if (activePref === 'Girl to Boy 👧') {
                     if (u.gender !== 'male') return false;
                 }
                 
                 // Also check if we match their preference
-                if (u.preference === 'Boy to Girl ­ƒæ½') {
+                if (u.preference === 'Boy to Girl 👦') {
                     if (user.gender !== 'female') return false;
-                } else if (u.preference === 'Girl to Boy ­ƒæ¡') {
+                } else if (u.preference === 'Girl to Boy 👧') {
                     if (user.gender !== 'male') return false;
                 }
                 
