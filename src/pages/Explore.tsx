@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, RefreshCw, Play } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
-import { CONTENT_CATEGORIES, buildInterestProfile, assembleFeed, shuffleFeedForRefresh } from '../lib/algorithm';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye } from 'lucide-react';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
+import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { AppContext } from '../App';
@@ -12,6 +12,7 @@ import ShareModal from '../components/ShareModal';
 import ChatPanel from '../components/ChatPanel';
 import PullToRefresh from '../components/PullToRefresh';
 import { isVideoPost } from '../lib/media';
+import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -37,6 +38,20 @@ const Explore = () => {
     const [isDiscoverLoading, setIsDiscoverLoading] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
+    // Infinite scroll state
+    const [feedPage, setFeedPage] = useState(0);
+    const [allScoredPosts, setAllScoredPosts] = useState<ScoredPost[]>([]);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
+    const sentinelRef = useRef<HTMLDivElement>(null);
+
+    // Trending posts (FOMO)
+    const [trendingPosts, setTrendingPosts] = useState<PostData[]>([]);
+    const [isTrendingLoading, setIsTrendingLoading] = useState(true);
+
+    // Viewport tracking for engagement
+    const observedPostsRef = useRef<Set<string>>(new Set());
+
     // Search Results State
     const [loadingSearch, setLoadingSearch] = useState(false);
     const [peopleResults, setPeopleResults] = useState<ProfileData[]>([]);
@@ -58,19 +73,42 @@ const Explore = () => {
 
     const [isRefreshing, setIsRefreshing] = useState(false);
 
+    // Raw posts cache for infinite scroll pagination
+    const rawPostsCacheRef = useRef<any[]>([]);
+    const userProfileRef = useRef<any>(null);
+
+    const PAGE_SIZE = 12;
+
+    // Load Trending Posts (FOMO banner)
+    useEffect(() => {
+        setIsTrendingLoading(true);
+        fetchTrendingPosts(6).then(posts => {
+            setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0));
+            setIsTrendingLoading(false);
+        });
+    }, []);
+
     // Load Discover Feed
     const loadDiscoverFeed = async () => {
         setIsDiscoverLoading(true);
+        setFeedPage(0);
+        setHasMore(true);
+        observedPostsRef.current.clear();
         try {
-            const rawPosts = await fetchDiscoverPosts(selectedCategory, 100);
+            const rawPosts = await fetchDiscoverPosts(selectedCategory, 200);
+            rawPostsCacheRef.current = rawPosts;
             if (user) {
                 const engagements = await fetchUserEngagements(user.id);
                 const profile = buildInterestProfile(engagements);
-                const scoredPosts = assembleFeed(rawPosts, profile, 0, 30);
-                const shuffled = shuffleFeedForRefresh(scoredPosts);
+                userProfileRef.current = profile;
+                const scored = assembleFeed(rawPosts, profile, 0, PAGE_SIZE);
+                const shuffled = shuffleFeedForRefresh(scored);
+                setAllScoredPosts(shuffled);
                 setDiscoverPosts(shuffled.map(s => s.post));
+                setHasMore(rawPosts.length > PAGE_SIZE);
             } else {
-                setDiscoverPosts(rawPosts.slice(0, 30));
+                setDiscoverPosts(rawPosts.slice(0, PAGE_SIZE));
+                setHasMore(rawPosts.length > PAGE_SIZE);
             }
         } catch (e) {
             console.error('Error loading discover feed:', e);
@@ -84,9 +122,84 @@ const Explore = () => {
         loadDiscoverFeed();
     }, [selectedCategory, searchTerm, user]);
 
+    // Infinite Scroll — Load More
+    const loadMore = useCallback(async () => {
+        if (isLoadingMore || !hasMore) return;
+        setIsLoadingMore(true);
+        const nextPage = feedPage + 1;
+        
+        try {
+            if (user && userProfileRef.current) {
+                const more = assembleFeed(rawPostsCacheRef.current, userProfileRef.current, nextPage, PAGE_SIZE);
+                if (more.length === 0) {
+                    setHasMore(false);
+                } else {
+                    setAllScoredPosts(prev => [...prev, ...more]);
+                    setDiscoverPosts(prev => [...prev, ...more.map(s => s.post)]);
+                    setFeedPage(nextPage);
+                }
+            } else {
+                const start = (nextPage) * PAGE_SIZE;
+                const morePosts = rawPostsCacheRef.current.slice(start, start + PAGE_SIZE);
+                if (morePosts.length === 0) {
+                    setHasMore(false);
+                } else {
+                    setDiscoverPosts(prev => [...prev, ...morePosts]);
+                    setFeedPage(nextPage);
+                }
+            }
+        } catch (e) {
+            console.error('Error loading more posts:', e);
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [feedPage, isLoadingMore, hasMore, user]);
+
+    // IntersectionObserver for infinite scroll sentinel
+    useEffect(() => {
+        if (!sentinelRef.current) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && !isDiscoverLoading && !isLoadingMore && hasMore && searchTerm.trim().length === 0) {
+                    loadMore();
+                }
+            },
+            { rootMargin: '200px' }
+        );
+        observer.observe(sentinelRef.current);
+        return () => observer.disconnect();
+    }, [loadMore, isDiscoverLoading, isLoadingMore, hasMore, searchTerm]);
+
+    // IntersectionObserver for viewport engagement tracking
+    const trackViewRef = useCallback((node: HTMLDivElement | null) => {
+        if (!node || !user) return;
+        const postId = node.dataset.postid;
+        if (!postId || observedPostsRef.current.has(postId)) return;
+        
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const pid = (entry.target as HTMLElement).dataset.postid;
+                        if (pid && !observedPostsRef.current.has(pid)) {
+                            observedPostsRef.current.add(pid);
+                            const post = discoverPosts.find(p => p.id === pid);
+                            trackEngagement(user.id, pid, 'view', 1, post?.category || 'General');
+                        }
+                        observer.unobserve(entry.target);
+                    }
+                });
+            },
+            { threshold: 0.5 }
+        );
+        observer.observe(node);
+    }, [user, discoverPosts]);
+
     const handleRefresh = async () => {
         setIsRefreshing(true);
         await loadDiscoverFeed();
+        // Reload trending too
+        fetchTrendingPosts(6).then(posts => setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0)));
         setIsRefreshing(false);
     };
 
@@ -155,6 +268,11 @@ const Explore = () => {
 
     const isSearching = searchTerm.trim().length > 0;
 
+    // Check if a post is a surprise injection
+    const isSurprisePost = (postId: string): boolean => {
+        return allScoredPosts.some(s => s.post.id === postId && s.isSurprise);
+    };
+
     return (
         <div className="explore-page pb-20" style={{ background: 'var(--bg-color)', minHeight: '100vh' }}>
             {/* Search Bar */}
@@ -174,7 +292,6 @@ const Explore = () => {
                 </div>
             </div>
 
-            {/* Category Chips removed to allow silent algorithmic learning */}
             {/* Search Tabs (Only shown when searching) */}
             {isSearching && (
                 <div style={{ display: 'flex', borderBottom: '1px solid #2c2c2e', marginTop: '8px' }}>
@@ -195,31 +312,117 @@ const Explore = () => {
                 <div style={{ padding: '8px 16px' }}>
                     {!isSearching ? (
                         /* Discover Feed (Default View) */
-                        isDiscoverLoading ? (
-                            <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                                <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
-                            </div>
-                        ) : discoverPosts.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
-                                No content found for this category.
-                            </div>
-                        ) : (
-                            <>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px' }}>
-                                    {discoverPosts.map((post, idx) => (
-                                    <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}>
-                                        <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        {isVideoPost(post) && (
-                                            <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
-                                                <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
-                                            </div>
-                                        )}
+                        <>
+                            {/* 🔥 Trending Now Banner — FOMO */}
+                            {!isTrendingLoading && trendingPosts.length > 0 && (
+                                <div style={{ marginBottom: '16px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                        <Flame size={18} color="#ff3366" />
+                                        <span style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-active)' }}>Trending Now</span>
+                                        <span style={{ fontSize: '12px', color: 'var(--text-inactive)', marginLeft: 'auto' }}>Last 24h</span>
                                     </div>
-                                ))}
-                            </div>
-                            </>
-                        )
+                                    <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' }}>
+                                        {trendingPosts.slice(0, 4).map((post, idx) => (
+                                            <div
+                                                key={post.id}
+                                                style={{
+                                                    flexShrink: 0, width: '140px', height: '180px', borderRadius: '16px',
+                                                    overflow: 'hidden', position: 'relative', cursor: 'pointer',
+                                                    border: '2px solid rgba(255,51,102,0.3)',
+                                                }}
+                                                onClick={() => setActiveFeedState({ posts: trendingPosts, index: idx })}
+                                            >
+                                                <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                <div style={{
+                                                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                                                    background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+                                                    padding: '24px 8px 8px', display: 'flex', flexDirection: 'column', gap: '2px',
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <TrendingUp size={12} color="#ff3366" />
+                                                        <span style={{ fontSize: '11px', color: '#ff3366', fontWeight: 'bold' }}>
+                                                            {post.likes_count} likes
+                                                        </span>
+                                                    </div>
+                                                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.7)' }}>@{post.username}</span>
+                                                </div>
+                                                {isVideoPost(post) && (
+                                                    <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
+                                                        <Play size={14} color="#fff" fill="#fff" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {isTrendingLoading && <TrendingSkeleton />}
+
+                            {/* Discover Grid */}
+                            {isDiscoverLoading ? (
+                                <GridSkeleton count={12} />
+                            ) : discoverPosts.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
+                                    No content found for this category.
+                                </div>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px' }}>
+                                        {discoverPosts.map((post, idx) => (
+                                        <div 
+                                            key={post.id} 
+                                            ref={trackViewRef}
+                                            data-postid={post.id}
+                                            style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} 
+                                            onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}
+                                        >
+                                            <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            {isVideoPost(post) && (
+                                                <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
+                                                    <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
+                                                </div>
+                                            )}
+                                            {/* 🎰 Variable Reward — "Picked for you" badge */}
+                                            {isSurprisePost(post.id) && (
+                                                <div style={{
+                                                    position: 'absolute', bottom: '6px', left: '6px',
+                                                    background: 'linear-gradient(135deg, rgba(255,51,102,0.9), rgba(255,153,51,0.9))',
+                                                    padding: '2px 6px', borderRadius: '6px',
+                                                    fontSize: '9px', fontWeight: 'bold', color: '#fff',
+                                                    display: 'flex', alignItems: 'center', gap: '2px',
+                                                }}>
+                                                    ✨ For you
+                                                </div>
+                                            )}
+                                            {/* 😰 FOMO — Engagement badge */}
+                                            {(post.likes_count || 0) >= 5 && !isSurprisePost(post.id) && (
+                                                <div style={{
+                                                    position: 'absolute', bottom: '6px', left: '6px',
+                                                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                                                    padding: '2px 6px', borderRadius: '6px',
+                                                    fontSize: '9px', color: 'rgba(255,255,255,0.8)',
+                                                    display: 'flex', alignItems: 'center', gap: '3px',
+                                                }}>
+                                                    <Flame size={9} color="#ff3366" /> {post.likes_count}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                    {/* 📜 Infinite Scroll Sentinel */}
+                                    <div ref={sentinelRef} style={{ height: '1px' }} />
+                                    {isLoadingMore && <GridSkeleton count={6} />}
+                                    {!hasMore && discoverPosts.length > 12 && (
+                                        <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-inactive)', fontSize: '13px' }}>
+                                            You've seen it all! Pull down to refresh ✨
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </>
                 ) : (
                     /* Search Results View */
                     loadingSearch ? (

@@ -1372,3 +1372,54 @@ export async function fetchActiveBoostedPosts(): Promise<PostData[]> {
     
     return data || [];
 }
+
+// ── Engagement Psychology Helpers ──────────────────────────
+
+/** Fetch trending posts — most liked in the last 24 hours */
+export async function fetchTrendingPosts(limit: number = 6): Promise<PostData[]> {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .gte('created_at', oneDayAgo)
+        .order('likes_count', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        console.error('Error fetching trending posts:', error);
+        return [];
+    }
+    return data || [];
+}
+
+/** Count stories posted in the last hour (for FOMO indicator) */
+export async function fetchRecentStoriesCount(): Promise<number> {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count, error } = await supabase
+        .from('stories')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', oneHourAgo);
+
+    if (error) {
+        console.error('Error fetching recent stories count:', error);
+        return 0;
+    }
+    return count || 0;
+}
+
+/** Fetch top 3 streak users for the leaderboard */
+export async function fetchTopStreakUsers(limit: number = 3): Promise<ProfileData[]> {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .gt('streak_count', 0)
+        .order('streak_count', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        console.error('Error fetching top streak users:', error);
+        return [];
+    }
+    return data || [];
+}
+

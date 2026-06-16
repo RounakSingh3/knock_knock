@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useContext } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
 import { AppContext } from '../App';
 import { useSearchParams } from 'react-router-dom';
@@ -1100,12 +1100,51 @@ const VoiceCall = () => {
         );
     }
 
-    // ÔöÇÔöÇ Main Search Screen ÔöÇÔöÇ
+    // Count online users (for FOMO)
+    const searchingUserCount = onlineUsers.filter((u: any) => u.status === 'searching' && u.user_id !== user?.id).length;
+    const totalOnlineCount = onlineUsers.filter((u: any) => u.user_id !== user?.id).length;
+
+    // Peak hours insight
+    const currentHour = new Date().getHours();
+    const isPeakHour = currentHour >= 20 || currentHour <= 22; // 8-10 PM
+
+    // ── Main Search Screen ──
     return (
         <div className="call-hub-bg pb-20">
             <div className="text-center mb-8">
                 <h2 className="title mb-2">Voice Roulette</h2>
                 <p className="text-gray-400">Connect with similar minds securely.</p>
+            </div>
+
+            {/* 🟢 FOMO — Live Online Counter */}
+            <div style={{
+                display: 'flex', justifyContent: 'center', gap: '16px', marginBottom: '1.5rem',
+                flexWrap: 'wrap', padding: '0 16px',
+            }}>
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    background: 'rgba(52,199,89,0.15)', padding: '6px 14px', borderRadius: '20px',
+                }}>
+                    <span style={{
+                        width: '8px', height: '8px', borderRadius: '50%', background: '#34C759',
+                        boxShadow: '0 0 8px #34C759',
+                        animation: 'pulse 2s ease-in-out infinite',
+                    }} />
+                    <span style={{ color: '#34C759', fontSize: '13px', fontWeight: 'bold' }}>
+                        {totalOnlineCount} online
+                    </span>
+                </div>
+                {searchingUserCount > 0 && (
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        background: 'rgba(255,51,102,0.15)', padding: '6px 14px', borderRadius: '20px',
+                    }}>
+                        <Phone size={12} color="#ff3366" />
+                        <span style={{ color: '#ff3366', fontSize: '13px', fontWeight: 'bold' }}>
+                            {searchingUserCount} searching now
+                        </span>
+                    </div>
+                )}
             </div>
 
             <div className="match-radar">
@@ -1128,7 +1167,7 @@ const VoiceCall = () => {
             {noMatchFound && (
                 <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
                     <p style={{ color: '#ff9933', fontSize: '0.9rem', marginBottom: '8px' }}>
-                        No matches found with this preference ­ƒÿö
+                        No matches found with this preference 😖
                     </p>
                     <p style={{ color: '#6e6e73', fontSize: '0.8rem' }}>
                         Try a different preference or check back later!
@@ -1152,6 +1191,7 @@ const VoiceCall = () => {
                 ))}
             </div>
 
+            {/* 🎰 Pulsing Search Button — urgency animation when users are online */}
             <button
                 className="premium-btn"
                 onClick={startSearch}
@@ -1164,6 +1204,7 @@ const VoiceCall = () => {
                     fontSize: '1.1rem',
                     padding: '14px 24px',
                     marginTop: '1rem',
+                    animation: !isSearching && totalOnlineCount > 0 ? 'btnPulse 2s ease-in-out infinite' : 'none',
                 }}
             >
                 {isSearching ? (
@@ -1176,6 +1217,28 @@ const VoiceCall = () => {
                 )}
             </button>
 
+            {/* 💡 Peak Hours Insight — drives return visits */}
+            <div style={{
+                textAlign: 'center', marginTop: '1.5rem', padding: '0 32px',
+            }}>
+                {isPeakHour ? (
+                    <p style={{ color: '#34C759', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                        <Flame size={12} /> Peak hour! Most users are active now
+                    </p>
+                ) : (
+                    <p style={{ color: '#6e6e73', fontSize: '0.8rem' }}>
+                        💡 Peak hours: 8 PM - 10 PM • Come back for more matches!
+                    </p>
+                )}
+            </div>
+
+            {/* Pulsing button animation */}
+            <style>{`
+                @keyframes btnPulse {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(255,51,102,0.4); }
+                    50% { box-shadow: 0 0 0 12px rgba(255,51,102,0); }
+                }
+            `}</style>
 
         </div>
     );

@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect, useContext } from 'react';
+import React, { useRef, useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock } from 'lucide-react';
+import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock, Eye, HelpCircle, Users } from 'lucide-react';
 import { AppContext } from '../App';
 import {
     fetchBoostedStories,
@@ -11,9 +11,12 @@ import {
     createStory,
     uploadStoryImage,
     fetchProfile,
+    fetchRecentStoriesCount,
+    fetchTopStreakUsers,
     type StoryData,
     type UserStoryGroup,
     type PostData,
+    type ProfileData,
 } from '../lib/database';
 import StoryViewer from '../components/StoryViewer';
 
@@ -58,6 +61,16 @@ const Stories = () => {
     const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
     const [viewerStoryGroups, setViewerStoryGroups] = useState<UserStoryGroup[]>([]);
 
+    // FOMO states
+    const [recentStoriesCount, setRecentStoriesCount] = useState(0);
+    const [topStreakUsers, setTopStreakUsers] = useState<ProfileData[]>([]);
+    const [mysteryStory, setMysteryStory] = useState<StoryData | null>(null);
+    const [isMysteryRevealed, setIsMysteryRevealed] = useState(false);
+
+    // Infinite scroll for boosted stories
+    const [visibleBoostedCount, setVisibleBoostedCount] = useState(6);
+    const boostedSentinelRef = useRef<HTMLDivElement>(null);
+
     const navigate = useNavigate();
 
     // Streak states
@@ -72,8 +85,17 @@ const Stories = () => {
 
     // Fetch data on mount
     useEffect(() => {
-        fetchBoostedStories().then((stories) => setBoostedStories(stories));
+        fetchBoostedStories().then((stories) => {
+            setBoostedStories(stories);
+            // Pick a random mystery story
+            if (stories.length > 2) {
+                const randomIdx = Math.floor(Math.random() * stories.length);
+                setMysteryStory(stories[randomIdx]);
+            }
+        });
         fetchVideoPosts().then((posts) => setVideoClips(posts));
+        fetchRecentStoriesCount().then(setRecentStoriesCount);
+        fetchTopStreakUsers(3).then(setTopStreakUsers);
         if (user) {
             fetchUserStories(user.id).then((stories) => setMyStories(stories));
             fetchProfile(user.id).then((profile) => {
@@ -84,6 +106,21 @@ const Stories = () => {
             });
         }
     }, [user]);
+
+    // Infinite scroll observer for boosted stories
+    useEffect(() => {
+        if (!boostedSentinelRef.current) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && visibleBoostedCount < boostedStories.length) {
+                    setVisibleBoostedCount(prev => Math.min(prev + 6, boostedStories.length));
+                }
+            },
+            { rootMargin: '200px' }
+        );
+        observer.observe(boostedSentinelRef.current);
+        return () => observer.disconnect();
+    }, [visibleBoostedCount, boostedStories.length]);
 
     // How long streak is alive
     const isStreakAlive = () => {
@@ -331,6 +368,13 @@ const Stories = () => {
         <div className="stories-hub pb-20">
             <header style={{ padding: '16px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <h1 className="font-bold text-2xl">Boost & Stories</h1>
+                {/* 😰 FOMO — Recent stories counter */}
+                {recentStoriesCount > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,51,102,0.15)', padding: '4px 10px', borderRadius: '12px' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ff3366', animation: 'pulse 2s ease-in-out infinite' }} />
+                        <span style={{ fontSize: '12px', color: '#ff3366', fontWeight: 'bold' }}>{recentStoriesCount} in last hour</span>
+                    </div>
+                )}
             </header>
 
             {/* Streak Points Earned Toast */}
@@ -426,12 +470,86 @@ const Stories = () => {
                 </div>
             )}
 
+            {/* 🏆 Streak Leaderboard — FOMO/Competition */}
+            {topStreakUsers.length > 0 && (
+                <div className="section-block">
+                    <h3 className="section-title">🏆 Streak Leaders</h3>
+                    <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '8px' }}>
+                        {topStreakUsers.map((u, i) => (
+                            <div key={u.id} style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                background: 'var(--surface-color)', padding: '10px 14px', borderRadius: '14px',
+                                flexShrink: 0, minWidth: '160px',
+                                border: i === 0 ? '1px solid rgba(250,204,21,0.4)' : '1px solid var(--border-color)',
+                            }}>
+                                <span style={{ fontSize: '18px' }}>{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</span>
+                                <img src={u.avatar_url || 'https://i.pravatar.cc/150'} alt="" style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} />
+                                <div>
+                                    <div style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--text-active)' }}>{u.username || u.name}</div>
+                                    <div style={{ fontSize: '11px', color: '#facc15', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                        <Flame size={10} /> {u.streak_count || 0} day streak
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* 🎰 Mystery Story — Variable Reward */}
+            {mysteryStory && (
+                <div className="section-block">
+                    <h3 className="section-title">🎰 Mystery Story</h3>
+                    <div
+                        style={{
+                            position: 'relative', height: '200px', borderRadius: '16px', overflow: 'hidden',
+                            cursor: 'pointer', border: '2px solid rgba(255,153,51,0.4)',
+                        }}
+                        onClick={() => {
+                            if (!isMysteryRevealed) {
+                                setIsMysteryRevealed(true);
+                            } else {
+                                openStoryViewer(mysteryStory);
+                            }
+                        }}
+                    >
+                        <img
+                            src={mysteryStory.image_url} alt="Mystery"
+                            style={{
+                                width: '100%', height: '100%', objectFit: 'cover',
+                                filter: isMysteryRevealed ? 'none' : 'blur(20px) brightness(0.5)',
+                                transition: 'filter 0.6s ease-out',
+                            }}
+                        />
+                        {!isMysteryRevealed && (
+                            <div style={{
+                                position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                                alignItems: 'center', justifyContent: 'center', gap: '8px',
+                            }}>
+                                <HelpCircle size={48} color="#ff9933" style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+                                <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '16px' }}>Tap to Reveal</span>
+                                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>A surprise story picked for you</span>
+                            </div>
+                        )}
+                        {isMysteryRevealed && mysteryStory.username && (
+                            <div style={{
+                                position: 'absolute', bottom: '12px', left: '12px',
+                                background: 'rgba(0,0,0,0.6)', padding: '4px 10px', borderRadius: '8px',
+                                fontSize: '13px', color: '#fff', fontWeight: 'bold',
+                            }}>
+                                @{mysteryStory.username}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* ── Trending Boosted Stories ── */}
             <div className="section-block">
                 <h3 className="section-title">Trending Boosted 🔥</h3>
                 <div className="boosted-grid">
                     {boostedStories.length > 0 ? (
-                        boostedStories.map((story) => (
+                        boostedStories.slice(0, visibleBoostedCount).map((story) => (
                             <div
                                 key={story.id}
                                 className="boosted-story"
@@ -450,6 +568,10 @@ const Stories = () => {
                         </p>
                     )}
                 </div>
+                {/* Infinite scroll sentinel for boosted stories */}
+                {visibleBoostedCount < boostedStories.length && (
+                    <div ref={boostedSentinelRef} style={{ height: '1px' }} />
+                )}
             </div>
 
             {videoClips.length > 0 && (

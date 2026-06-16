@@ -200,3 +200,47 @@ export function shuffleFeedForRefresh(feed: ScoredPost[]): ScoredPost[] {
     }
     return shuffled;
 }
+
+// ── Conversation Starters (VoiceCall) ──────────────────────
+
+const CONVERSATION_PROMPTS: Record<string, string[]> = {
+    Travel: ["What's your dream travel destination?", "Best trip you've ever been on?", "Mountains or beaches?"],
+    Food: ["What's your favorite cuisine?", "Can you cook? What's your signature dish?", "Best restaurant you've been to?"],
+    Music: ["What are you listening to lately?", "Ever been to a live concert?", "What genre gets you hyped?"],
+    Sports: ["Do you play any sports?", "Which team do you support?", "What's the best game you've ever watched?"],
+    Gaming: ["What games are you playing right now?", "PC or console?", "What's your all-time favorite game?"],
+    Comedy: ["Who's your favorite comedian?", "Tell me a joke!", "What's the funniest thing that happened to you?"],
+    Art: ["Do you create any art?", "What's your favorite art style?", "Been to any cool museums lately?"],
+    Tech: ["What's the coolest tech you've seen recently?", "Are you a coder?", "AI — exciting or scary?"],
+    Fashion: ["How would you describe your style?", "What's your favorite brand?", "Sneakers or boots?"],
+    Nature: ["Favorite place in nature?", "Do you like hiking?", "Have you seen the Northern Lights?"],
+    Dance: ["Do you dance?", "What's your favorite dance style?", "Best dance video you've seen?"],
+    Animals: ["Do you have any pets?", "What's your favorite animal?", "Dogs or cats?"],
+    Education: ["What are you studying or passionate about learning?", "Best book you've read recently?", "Any skills you want to learn?"],
+    Lifestyle: ["Morning person or night owl?", "What does your perfect weekend look like?", "What's your daily routine?"],
+    General: ["What's the most interesting thing about you?", "If you could have dinner with anyone, who would it be?", "What's on your bucket list?"],
+};
+
+/**
+ * Get random conversation starters based on shared interest categories.
+ * Returns 2-3 prompts relevant to the users' common interests.
+ */
+export function getConversationStarters(sharedCategories: string[]): string[] {
+    const starters: string[] = [];
+    const cats = sharedCategories.length > 0 ? sharedCategories : ['General'];
+    
+    for (const cat of cats.slice(0, 2)) {
+        const prompts = CONVERSATION_PROMPTS[cat] || CONVERSATION_PROMPTS['General'];
+        const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
+        starters.push(randomPrompt);
+    }
+    
+    // Always add one wildcard from General
+    if (starters.length < 3) {
+        const generalPrompts = CONVERSATION_PROMPTS['General'];
+        starters.push(generalPrompts[Math.floor(Math.random() * generalPrompts.length)]);
+    }
+    
+    return starters;
+}
+
