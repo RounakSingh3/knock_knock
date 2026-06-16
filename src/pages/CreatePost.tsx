@@ -1,7 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { uploadMedia, createNewPost } from '../lib/database';
+import { uploadMedia, createNewPost, updatePoints } from '../lib/database';
 import { getMediaTypeFromFile, compressImage } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2 } from 'lucide-react';
@@ -22,8 +22,11 @@ const CSS_FILTERS = [
 ];
 
 const CreatePost = () => {
-    const { user } = useContext(AppContext);
+    const { user, points, setPoints } = useContext(AppContext);
     const navigate = useNavigate();
+
+    const queryParams = new URLSearchParams(window.location.search);
+    const isFromSpotlight = queryParams.get('redirect') === 'boost';
 
     const [file, setFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -34,6 +37,7 @@ const CreatePost = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+    const [boostToSpotlight, setBoostToSpotlight] = useState(isFromSpotlight && points >= 100);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -87,7 +91,8 @@ const CreatePost = () => {
             const path = `posts/${fileName}`;
 
             const publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
-                const percentage = Math.round((progress.loaded / progress.total) * 100);
+                const total = progress.total || fileToUpload.size || 1;
+                const percentage = Math.round((progress.loaded / total) * 100);
                 setUploadProgress(percentage);
             });
 
@@ -104,6 +109,11 @@ const CreatePost = () => {
                 }
             }
 
+            // Expiry is 24 hours from now
+            const boostExpiresAt = boostToSpotlight 
+                ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+                : null;
+
             await createNewPost({
                 user_id: user.id,
                 username: user.username || 'user',
@@ -114,9 +124,24 @@ const CreatePost = () => {
                 media_type: mediaType,
                 category,
                 css_filter: selectedFilter,
+                boost_expires_at: boostExpiresAt,
+                boost_impressions_remaining: boostToSpotlight ? 100 : 0
             });
 
-            navigate('/home');
+            if (boostToSpotlight) {
+                const newPoints = points - 100;
+                await updatePoints(user.id, newPoints);
+                setPoints(newPoints);
+            }
+
+            const redirect = queryParams.get('redirect');
+            if (redirect === 'boost') {
+                navigate('/boost?mode=select');
+            } else if (redirect) {
+                navigate(`/${redirect}`);
+            } else {
+                navigate('/home');
+            }
         } catch (err: unknown) {
             console.error('Upload Error:', err);
             const message = err instanceof Error ? err.message : 'An error occurred during upload.';
@@ -275,6 +300,52 @@ const CreatePost = () => {
                         <option key={cat} value={cat} style={{ background: 'var(--surface-color)' }}>{cat}</option>
                     ))}
                 </select>
+            </div>
+
+            <div style={{ 
+                marginBottom: '24px', 
+                padding: '16px', 
+                background: 'rgba(255, 51, 102, 0.05)', 
+                border: '1px solid rgba(255, 51, 102, 0.2)', 
+                borderRadius: '16px' 
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '20px' }}>🚀</span>
+                        <div>
+                            <span style={{ color: 'var(--text-active)', fontWeight: 'bold', display: 'block' }}>Boost to Spotlight</span>
+                            <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Feature on Spotlight for 24h (Costs 100 pts)</span>
+                        </div>
+                    </div>
+                    {points >= 100 ? (
+                        <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px' }}>
+                            <input 
+                                type="checkbox" 
+                                checked={boostToSpotlight} 
+                                onChange={(e) => setBoostToSpotlight(e.target.checked)}
+                                style={{ opacity: 0, width: 0, height: 0 }}
+                            />
+                            <span style={{ 
+                                position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, 
+                                backgroundColor: boostToSpotlight ? '#ff3366' : '#555', 
+                                transition: '.4s', borderRadius: '24px' 
+                            }}>
+                                <span style={{ 
+                                    position: 'absolute', content: '""', height: '18px', width: '18px', 
+                                    left: boostToSpotlight ? '22px' : '4px', bottom: '3px', 
+                                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%' 
+                                }} />
+                            </span>
+                        </label>
+                    ) : (
+                        <span style={{ color: '#ff3366', fontSize: '12px', fontWeight: 'bold' }}>Need 100 pts</span>
+                    )}
+                </div>
+                {points < 100 && (
+                    <p style={{ color: 'var(--text-inactive)', fontSize: '11px', marginTop: '8px', marginBottom: 0 }}>
+                        You currently have {points} points. Stay active or make posts to earn more points!
+                    </p>
+                )}
             </div>
 
             {loading ? (

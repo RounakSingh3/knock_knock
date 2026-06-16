@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Rocket, PlusCircle } from 'lucide-react';
 import { AppContext } from '../App';
 import { fetchActiveBoostedPosts, fetchUserEngagements, boostPost, type PostData, fetchUserPosts, trackEngagement, type MessageData } from '../lib/database';
@@ -10,7 +11,20 @@ import ChatPanel from '../components/ChatPanel';
 
 const Boost: React.FC = () => {
     const { user, points, setPoints } = useContext(AppContext);
-    const [mode, setMode] = useState<'feed' | 'select'>('feed');
+    const navigate = useNavigate();
+    const location = useLocation();
+    
+    const params = new URLSearchParams(location.search);
+    const initialMode = params.get('mode') === 'select' ? 'select' : 'feed';
+    const [mode, setMode] = useState<'feed' | 'select'>(initialMode);
+
+    useEffect(() => {
+        const queryParams = new URLSearchParams(location.search);
+        const m = queryParams.get('mode');
+        if (m === 'select' || m === 'feed') {
+            setMode(m);
+        }
+    }, [location.search]);
     
     // Feed Mode State
     const [boostedPosts, setBoostedPosts] = useState<PostData[]>([]);
@@ -190,13 +204,51 @@ const Boost: React.FC = () => {
                         Boosting a post costs 100 points. It will appear in the Spotlight feed for 24 hours, guaranteeing 100 targeted views to users interested in its category!
                     </p>
                     
+                    <button 
+                        onClick={() => navigate('/create?redirect=boost')}
+                        style={{ 
+                            width: '100%', 
+                            background: 'rgba(255, 51, 102, 0.1)', 
+                            border: '1.5px dashed #ff3366', 
+                            borderRadius: '12px', 
+                            padding: '14px', 
+                            color: '#ff3366', 
+                            fontSize: '14px', 
+                            fontWeight: 'bold', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            gap: '8px', 
+                            cursor: 'pointer',
+                            marginBottom: '20px',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <PlusCircle size={18} /> Upload New Photo or Video
+                    </button>
+                    
                     {isLoadingPosts ? (
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
                             <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
                         </div>
                     ) : userPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
-                            <p>You haven't posted anything yet.</p>
+                        <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-inactive)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                            <p style={{ margin: 0 }}>You haven't posted anything yet.</p>
+                            <button 
+                                onClick={() => navigate('/create?redirect=boost')}
+                                style={{ 
+                                    background: 'linear-gradient(45deg, #ff3366, #ff9933)', 
+                                    border: 'none', 
+                                    borderRadius: '24px', 
+                                    padding: '10px 24px', 
+                                    color: '#fff', 
+                                    fontSize: '14px', 
+                                    fontWeight: 'bold', 
+                                    cursor: 'pointer' 
+                                }}
+                            >
+                                Upload Photo / Video
+                            </button>
                         </div>
                     ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>

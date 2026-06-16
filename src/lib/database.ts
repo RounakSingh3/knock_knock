@@ -124,6 +124,8 @@ export async function createNewPost(post: {
     media_type?: MediaType;
     category?: string;
     css_filter?: string;
+    boost_expires_at?: string | null;
+    boost_impressions_remaining?: number;
 }) {
     const row: Record<string, unknown> = {
         username: post.username,
@@ -136,8 +138,12 @@ export async function createNewPost(post: {
     };
     if (post.user_id) row.user_id = post.user_id;
     if (post.attached_link) row.attached_link = post.attached_link;
+    if (post.boost_expires_at) row.boost_expires_at = post.boost_expires_at;
+    if (post.boost_impressions_remaining !== undefined) {
+        row.boost_impressions_remaining = post.boost_impressions_remaining;
+    }
 
-    const { data, error } = await supabase.from('posts').insert(row);
+    const { data, error } = await supabase.from('posts').insert(row).select();
 
     if (error) {
         console.error('Error creating post:', error);
