@@ -511,10 +511,7 @@ const Reels: React.FC = () => {
             {selectedReelIndex !== null && (
                 <div style={{
                     position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100dvh',
+                    inset: 0,
                     zIndex: 9999,
                     background: 'var(--bg-color)'
                 }}>
@@ -579,13 +576,13 @@ const Reels: React.FC = () => {
                                             muted={mutedAll}
                                             onTimeUpdate={() => handleTimeUpdate(idx)}
                                             onEnded={() => handleReelEnd(idx)}
-                                            className="w-full h-full"
-                                            style={{ objectFit: 'contain', width: '100%', height: '100%', filter: reel.css_filter || 'none' }}
+                                            className="w-full h-full object-cover"
+                                            style={{ filter: reel.css_filter || 'none' }}
                                             onClick={(e) => handleDoubleTap(idx, e)}
                                         />
                                     ) : (
                                         <div className="absolute inset-0 z-0 bg-black">
-                                            <img src={reel.posterUrl} alt="Poster" className="w-full h-full" style={{ objectFit: 'contain', width: '100%', height: '100%', filter: reel.css_filter || 'none', opacity: 0.3 }} />
+                                            <img src={reel.posterUrl} alt="Poster" className="w-full h-full object-cover opacity-30" style={{ filter: reel.css_filter || 'none' }} />
                                             <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl" />
                                         </div>
                                     )}
