@@ -574,8 +574,6 @@ const Reels: React.FC = () => {
                                             playsInline
                                             autoPlay={idx === selectedReelIndex}
                                             muted={mutedAll}
-                                            onTimeUpdate={() => handleTimeUpdate(idx)}
-                                            onEnded={() => handleReelEnd(idx)}
                                             className="w-full h-full object-cover"
                                             style={{ filter: reel.css_filter || 'none' }}
                                             onClick={(e) => handleDoubleTap(idx, e)}

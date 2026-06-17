@@ -1773,8 +1773,7 @@ body {
    ═══════════════════════════════════════════ */
 
 .reels-page {
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
     overflow-y: scroll;
     scroll-snap-type: y mandatory;
     scrollbar-width: none;
@@ -1823,8 +1822,7 @@ body {
 
 /* Individual Reel Card */
 .reel-card {
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
     width: 100%;
     scroll-snap-align: start;
     scroll-snap-stop: always;
