@@ -1825,6 +1825,7 @@ body {
     height: 100%;
     width: 100%;
     scroll-snap-align: start;
+    scroll-snap-stop: always;
     position: relative;
     overflow: hidden;
     background: #000;
