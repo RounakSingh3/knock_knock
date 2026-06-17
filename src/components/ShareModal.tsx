@@ -134,7 +134,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
 
     return (
         <div style={{
-            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+            position: 'fixed', inset: 0,
             background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex',
             justifyContent: 'center', alignItems: 'flex-end',
             animation: 'fadeIn 0.2s ease-out'
@@ -143,7 +143,8 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                 background: 'var(--surface-color)', width: '100%', maxWidth: '500px',
                 borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
                 padding: '24px 0 0 0', display: 'flex', flexDirection: 'column',
-                maxHeight: '90vh',
+                maxHeight: '85%',
+                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
                 animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
             }} onClick={e => e.stopPropagation()}>
                 

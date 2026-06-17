@@ -1882,13 +1882,14 @@ body {
 /* Creator info overlay */
 .reel-info {
     position: absolute;
-    bottom: 80px;
+    bottom: 16px;
     left: 12px;
     right: 80px;
     z-index: 10;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .reel-creator {
@@ -1961,12 +1962,13 @@ body {
 .reel-actions {
     position: absolute;
     right: 10px;
-    bottom: 120px;
+    bottom: 60px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 20px;
     z-index: 10;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .reel-action-btn {
@@ -2020,7 +2022,7 @@ body {
 /* Progress bar */
 .reel-progress-bar {
     position: absolute;
-    bottom: 60px;
+    bottom: 8px;
     left: 0;
     right: 0;
     height: 3px;

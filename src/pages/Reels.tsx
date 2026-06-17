@@ -608,7 +608,7 @@ const Reels: React.FC = () => {
                                     <div className="reel-gradient-bottom" />
 
                                     {/* Creator info & caption */}
-                                    <div className="reel-info" style={{ paddingBottom: '30px' }}>
+                                    <div className="reel-info">
                                         <div className="reel-creator">
                                             <img
                                                 src={reel.creatorAvatar}
@@ -626,7 +626,7 @@ const Reels: React.FC = () => {
                                     </div>
 
                                     {/* Side actions */}
-                                    <div className="reel-actions" style={{ paddingBottom: '30px' }}>
+                                    <div className="reel-actions">
                                         <button
                                             className={`reel-action-btn ${isLiked ? 'liked' : ''}`}
                                             onClick={() => toggleLike(reel.id)}

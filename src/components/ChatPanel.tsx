@@ -429,7 +429,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
     return (
         <div style={{
-            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+            position: 'fixed', inset: 0,
             background: 'var(--bg-color)', zIndex: 1000, display: 'flex', flexDirection: 'column',
             animation: 'slideInRight 0.3s ease-out',
         }}>
