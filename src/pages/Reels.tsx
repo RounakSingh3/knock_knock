@@ -574,14 +574,14 @@ const Reels: React.FC = () => {
                                             playsInline
                                             autoPlay={idx === selectedReelIndex}
                                             muted={mutedAll}
-                                            className="w-full h-full object-cover"
+                                            className="reel-video"
                                             style={{ filter: reel.css_filter || 'none' }}
                                             onClick={(e) => handleDoubleTap(idx, e)}
                                         />
                                     ) : (
-                                        <div className="absolute inset-0 z-0 bg-black">
-                                            <img src={reel.posterUrl} alt="Poster" className="w-full h-full object-cover opacity-30" style={{ filter: reel.css_filter || 'none' }} />
-                                            <div className="absolute inset-0 bg-black/40 backdrop-blur-3xl" />
+                                        <div style={{ position: 'absolute', inset: 0, zIndex: 0, backgroundColor: '#000' }}>
+                                            <img src={reel.posterUrl} alt="Poster" className="reel-video" style={{ opacity: 0.3, filter: reel.css_filter || 'none' }} />
+                                            <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }} />
                                         </div>
                                     )}
 
