@@ -18,6 +18,45 @@ const Profile = lazy(() => import('./pages/Profile'));
 const Settings = lazy(() => import('./pages/Settings'));
 const CreatePost = lazy(() => import('./pages/CreatePost'));
 
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+  constructor(props: {children: React.ReactNode}) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    if (error.name === 'ChunkLoadError' || (error.message && error.message.includes('fetch dynamically imported module'))) {
+      if (!sessionStorage.getItem('chunk_reloaded')) {
+        sessionStorage.setItem('chunk_reloaded', 'true');
+        window.location.reload();
+      }
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-active)', background: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <h2 style={{ marginBottom: '16px' }}>Oops, something went wrong.</h2>
+            <p style={{ color: 'var(--text-inactive)', marginBottom: '24px' }}>The app encountered an error. This usually happens after an update.</p>
+            <button 
+                onClick={() => { sessionStorage.removeItem('chunk_reloaded'); window.location.reload(); }} 
+                style={{ padding: '12px 24px', background: 'linear-gradient(45deg, #ff3366, #ff9933)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+                Reload App
+            </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // Global Context for Points & Auth
 interface AppContextType {
     points: number;
@@ -211,6 +250,7 @@ function App() {
         <AppContext.Provider value={{ points, setPoints, user, setUser, isAuthenticated, signOut }}>
             <Router>
                 <div className="app-container">
+                    <ErrorBoundary>
                     <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '80vh' }}><div style={{ width: 32, height: 32, border: '3px solid var(--primary-color)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /></div>}>
                     <Routes>
                         {!isAuthenticated ? (
@@ -237,6 +277,7 @@ function App() {
                         )}
                     </Routes>
                     </Suspense>
+                    </ErrorBoundary>
                     {isAuthenticated && <GlobalCallListener />}
                     {isAuthenticated && !onboardingDone && (
                         <OnboardingOverlay onComplete={() => setOnboardingDone(true)} />
