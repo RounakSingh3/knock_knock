@@ -37,7 +37,8 @@ const CreatePost = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-    const [boostToSpotlight, setBoostToSpotlight] = useState(isFromSpotlight && points >= 100);
+    const [boostToSpotlight, setBoostToSpotlight] = useState(isFromSpotlight && points >= 10);
+    const [boostAmount, setBoostAmount] = useState(points >= 100 ? 100 : Math.max(10, points));
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -125,11 +126,11 @@ const CreatePost = () => {
                 category,
                 css_filter: selectedFilter,
                 boost_expires_at: boostExpiresAt,
-                boost_impressions_remaining: boostToSpotlight ? 100 : 0
+                boost_impressions_remaining: boostToSpotlight ? boostAmount : 0
             });
 
             if (boostToSpotlight) {
-                const newPoints = points - 100;
+                const newPoints = points - boostAmount;
                 await updatePoints(user.id, newPoints);
                 setPoints(newPoints);
             }
@@ -314,10 +315,10 @@ const CreatePost = () => {
                         <span style={{ fontSize: '20px' }}>🚀</span>
                         <div>
                             <span style={{ color: 'var(--text-active)', fontWeight: 'bold', display: 'block' }}>Boost to Spotlight</span>
-                            <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Feature on Spotlight for 24h (Costs 100 pts)</span>
+                            <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Feature on Spotlight for 24h</span>
                         </div>
                     </div>
-                    {points >= 100 ? (
+                    {points > 0 ? (
                         <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px' }}>
                             <input 
                                 type="checkbox" 
@@ -338,10 +339,26 @@ const CreatePost = () => {
                             </span>
                         </label>
                     ) : (
-                        <span style={{ color: '#ff3366', fontSize: '12px', fontWeight: 'bold' }}>Need 100 pts</span>
+                        <span style={{ color: '#ff3366', fontSize: '12px', fontWeight: 'bold' }}>Need points</span>
                     )}
                 </div>
-                {points < 100 && (
+                {boostToSpotlight && points > 0 && (
+                    <div style={{ marginTop: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-active)' }}>Points to spend: <strong style={{ color: '#ffcc00' }}>{boostAmount}</strong></span>
+                            <span style={{ fontSize: '13px', color: 'var(--text-inactive)' }}>Guarantees {boostAmount} views</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            min="1" 
+                            max={Math.max(1, points)} 
+                            value={boostAmount} 
+                            onChange={(e) => setBoostAmount(parseInt(e.target.value))}
+                            style={{ width: '100%', accentColor: '#ff3366' }}
+                        />
+                    </div>
+                )}
+                {points === 0 && (
                     <p style={{ color: 'var(--text-inactive)', fontSize: '11px', marginTop: '8px', marginBottom: 0 }}>
                         You currently have {points} points. Stay active or make posts to earn more points!
                     </p>

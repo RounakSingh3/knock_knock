@@ -117,15 +117,24 @@ const Boost: React.FC = () => {
     const handleBoostPost = async (post: PostData) => {
         if (!user) return;
         
-        if (points < 100) {
-            alert('You need 100 points to boost a post.');
+        const amountStr = prompt(`You have ${points} points. How many points do you want to spend? (1 point = 1 view)`, '100');
+        if (!amountStr) return;
+        
+        const amount = parseInt(amountStr, 10);
+        if (isNaN(amount) || amount <= 0) {
+            alert('Please enter a valid amount.');
             return;
         }
         
-        if (confirm(`Spend 100 points to boost this post for 24 hours?`)) {
-            const success = await boostPost(post.id, user.id as string, points);
+        if (points < amount) {
+            alert(`You don't have enough points. You only have ${points} points.`);
+            return;
+        }
+        
+        if (confirm(`Spend ${amount} points to boost this post for 24 hours?`)) {
+            const success = await boostPost(post.id, user.id as string, points, amount);
             if (success) {
-                setPoints(prev => prev - 100);
+                setPoints(prev => prev - amount);
                 alert('Post boosted successfully!');
                 setMode('feed');
             } else {
@@ -202,7 +211,7 @@ const Boost: React.FC = () => {
                 <div style={{ padding: '16px', paddingBottom: '80px', flex: 1, overflowY: 'auto' }}>
                     <h2 style={{ color: 'var(--text-active)', fontSize: '18px', marginBottom: '16px' }}>Select a post to boost</h2>
                     <p style={{ color: 'var(--text-inactive)', fontSize: '14px', marginBottom: '24px' }}>
-                        Boosting a post costs 100 points. It will appear in the Spotlight feed for 24 hours, guaranteeing 100 targeted views to users interested in its category!
+                        Boosting a post puts it in the Spotlight feed for 24 hours. You can choose how many points to spend to guarantee targeted views!
                     </p>
                     
                     <button 

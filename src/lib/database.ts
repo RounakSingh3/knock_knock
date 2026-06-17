@@ -1318,13 +1318,13 @@ export async function updateProfile(
 // 🚀 Boost Feature
 // -------------------------------------------------------------------------
 
-export async function boostPost(postId: string, currentUserId: string, currentPoints: number): Promise<boolean> {
-    if (currentPoints < 100) return false;
+export async function boostPost(postId: string, currentUserId: string, currentPoints: number, amount: number = 100): Promise<boolean> {
+    if (currentPoints < amount) return false;
     
-    // Deduct 100 points
+    // Deduct points
     const { error: pointsError } = await supabase
         .from('profiles')
-        .update({ points: currentPoints - 100 })
+        .update({ points: currentPoints - amount })
         .eq('id', currentUserId);
         
     if (pointsError) {
@@ -1340,7 +1340,7 @@ export async function boostPost(postId: string, currentUserId: string, currentPo
         .from('posts')
         .update({ 
             boost_expires_at: expiresAt.toISOString(),
-            boost_impressions_remaining: 100
+            boost_impressions_remaining: amount
         })
         .eq('id', postId);
         
