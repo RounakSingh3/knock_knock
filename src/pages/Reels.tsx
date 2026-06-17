@@ -554,10 +554,10 @@ const Reels: React.FC = () => {
                     </div>
 
                     {/* Scrollable Player */}
-                    <div className="reels-page" ref={modalScrollRef} style={{ height: '100%', overflowY: 'scroll' }}>
+                    <div className="reels-page" ref={modalScrollRef}>
                         {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
-                            const isActiveReel = Math.abs(idx - activeIndex) <= 1; // Only render adjacent reels for performance
+                            const isNearby = Math.abs(idx - activeIndex) <= 2;
                             
                             return (
                                 <div 
@@ -566,24 +566,18 @@ const Reels: React.FC = () => {
                                     onTouchStart={handleTouchStart}
                                     onTouchEnd={(e) => handleTouchEnd(reel, e)}
                                 >
-                                    {isActiveReel ? (
-                                        <video
-                                            ref={(el) => (videoRefs.current[idx] = el)}
-                                            src={reel.videoUrl}
-                                            loop
-                                            playsInline
-                                            autoPlay={idx === selectedReelIndex}
-                                            muted={mutedAll}
-                                            className="reel-video"
-                                            style={{ filter: reel.css_filter || 'none' }}
-                                            onClick={(e) => handleDoubleTap(idx, e)}
-                                        />
-                                    ) : (
-                                        <div style={{ position: 'absolute', inset: 0, zIndex: 0, backgroundColor: '#000' }}>
-                                            <img src={reel.posterUrl} alt="Poster" className="reel-video" style={{ opacity: 0.3, filter: reel.css_filter || 'none' }} />
-                                            <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }} />
-                                        </div>
-                                    )}
+                                    <video
+                                        ref={(el) => (videoRefs.current[idx] = el)}
+                                        src={isNearby ? reel.videoUrl : undefined}
+                                        poster={reel.posterUrl}
+                                        loop
+                                        playsInline
+                                        autoPlay={idx === selectedReelIndex}
+                                        muted={mutedAll}
+                                        className="reel-video"
+                                        style={{ filter: reel.css_filter || 'none' }}
+                                        onClick={(e) => handleDoubleTap(idx, e)}
+                                    />
 
                                     {/* Link Indicator */}
                                     {reel.attachedLink && (
