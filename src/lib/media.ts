@@ -1,9 +1,11 @@
 export type MediaType = 'image' | 'video';
 
-const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|ogv)(\?|$)/i;
+const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(\?|$)/i;
 
 export function isVideoFile(file: File): boolean {
-    return file.type.startsWith('video/');
+    if (file.type.startsWith('video/')) return true;
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    return ['mp4', 'mov', 'webm', 'm4v', 'ogv', 'avi', 'mkv'].includes(ext || '');
 }
 
 export function isVideoUrl(url: string | null | undefined): boolean {
@@ -17,9 +19,9 @@ export function getMediaTypeFromFile(file: File): MediaType {
 }
 
 export function getMediaTypeFromPost(post: { media_type?: string | null; image_url?: string | null }): MediaType {
+    if (isVideoUrl(post.image_url)) return 'video';
     if (post.media_type === 'video') return 'video';
-    if (post.media_type === 'image') return 'image';
-    return isVideoUrl(post.image_url) ? 'video' : 'image';
+    return 'image';
 }
 
 export function isVideoPost(post: { media_type?: string | null; image_url?: string | null }): boolean {

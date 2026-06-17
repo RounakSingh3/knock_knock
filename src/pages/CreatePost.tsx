@@ -136,7 +136,7 @@ const CreatePost = () => {
 
             const redirect = queryParams.get('redirect');
             if (redirect === 'boost') {
-                navigate('/boost?mode=select');
+                navigate(boostToSpotlight ? '/boost?mode=feed' : '/boost?mode=select');
             } else if (redirect) {
                 navigate(`/${redirect}`);
             } else {

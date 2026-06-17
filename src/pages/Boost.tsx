@@ -4,6 +4,7 @@ import { Loader2, Rocket, PlusCircle } from 'lucide-react';
 import { AppContext } from '../App';
 import { fetchActiveBoostedPosts, fetchUserEngagements, boostPost, type PostData, fetchUserPosts, trackEngagement, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed } from '../lib/algorithm';
+import { isVideoPost } from '../lib/media';
 import { PostModalContent } from '../components/PostModal';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
@@ -47,7 +48,7 @@ const Boost: React.FC = () => {
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
     useEffect(() => {
-        if (!user) return;
+        if (!user || mode !== 'feed') return;
         
         const loadFeed = async () => {
             setIsLoadingFeed(true);
@@ -62,7 +63,7 @@ const Boost: React.FC = () => {
         };
         
         loadFeed();
-    }, [user]);
+    }, [user, mode]);
 
     // Tracking observer for the feed
     useEffect(() => {
@@ -267,8 +268,8 @@ const Boost: React.FC = () => {
                                     onClick={() => handleBoostPost(post)}
                                     style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', background: 'var(--border-color)' }}
                                 >
-                                    {post.image_url.endsWith('.mp4') ? (
-                                        <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} muted playsInline />
+                                    {isVideoPost(post) ? (
+                                        <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} muted playsInline preload="metadata" />
                                     ) : (
                                         <img src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} alt="" />
                                     )}
