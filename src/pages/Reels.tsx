@@ -253,7 +253,7 @@ const Reels: React.FC = () => {
     const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
     const lastTapRef = useRef<number>(0);
     const navigate = useNavigate();
-    const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
 
     // Auto-scroll to selected reel index when modal opens
     useEffect(() => {
@@ -418,27 +418,34 @@ const Reels: React.FC = () => {
         });
     }, []);
 
+    const [touchStartPos, setTouchStartPos] = useState<{x: number, y: number} | null>(null);
+
     const handleTouchStart = (e: React.TouchEvent) => {
-        setTouchStartX(e.changedTouches[0].screenX);
+        setTouchStartPos({
+            x: e.changedTouches[0].screenX,
+            y: e.changedTouches[0].screenY
+        });
     };
 
     const handleTouchEnd = (reel: ReelData, e: React.TouchEvent) => {
-        if (touchStartX === null) return;
+        if (!touchStartPos) return;
         const touchEndX = e.changedTouches[0].screenX;
-        const diffX = touchEndX - touchStartX;
+        const touchEndY = e.changedTouches[0].screenY;
+        
+        const diffX = touchEndX - touchStartPos.x;
+        const diffY = touchEndY - touchStartPos.y;
 
-        if (Math.abs(diffX) > 60) {
-            if (diffX > 0) {
-                // Swipe Right -> Profile
+        // Only trigger horizontal swipe if X movement is greater than Y movement (to avoid triggering on scroll)
+        if (Math.abs(diffX) > 60 && Math.abs(diffX) > Math.abs(diffY)) {
+            if (diffX < 0) {
+                // Swipe Left -> Profile (match Instagram/TikTok behavior)
                 navigate(`/profile/${reel.creator}`);
             } else {
-                // Swipe Left -> Link
-                if (reel.attachedLink) {
-                    window.open(reel.attachedLink, '_blank', 'noopener,noreferrer');
-                }
+                // Swipe Right -> Close Player
+                closePlayer();
             }
         }
-        setTouchStartX(null);
+        setTouchStartPos(null);
     };
 
     const closePlayer = () => {
