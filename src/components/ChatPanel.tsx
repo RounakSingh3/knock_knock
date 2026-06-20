@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2 } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchChatThreads, fetchFollowing, fetchFollowers, type ProfileData, type MessageData } from '../lib/database';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchChatThreads, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
 
@@ -58,6 +58,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [messages, setMessages] = useState<MessageData[]>([]);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [messageInput, setMessageInput] = useState('');
+    const [viewingSnap, setViewingSnap] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Hide bottom navigation when ChatPanel is open
@@ -277,17 +278,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         setIsUploadingImage(true);
         try {
             let fileToUpload = file;
-            try {
-                fileToUpload = await compressImage(file, 1000, 1000, 0.75);
-            } catch (compErr) {
-                console.error('Chat image compression failed, using original file:', compErr);
+            if (file.type.startsWith('image/')) {
+                try {
+                    fileToUpload = await compressImage(file, 1000, 1000, 0.75);
+                } catch (compErr) {
+                    console.error('Chat image compression failed, using original file:', compErr);
+                }
             }
             const fileExt = fileToUpload.name.split('.').pop();
             const fileName = `${currentUser.id}-${Date.now()}.${fileExt}`;
-            const path = `chat_images/${fileName}`;
+            const path = `chat_snaps/${fileName}`; // Keep them separate
 
             const publicUrl = await uploadMedia(fileToUpload, path);
-            const text = `[IMAGE] ${publicUrl}`;
+            const text = `[SNAP] ${publicUrl}`;
 
             const optimisticMsg: MessageData = {
                 id: `temp-${Date.now()}`,
@@ -300,16 +303,20 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             setMessages(prev => [...prev, optimisticMsg]);
             scrollToBottom();
 
+            // Reward points for sending a snap
+            const newPoints = (currentUser.points || 0) + 10;
+            await updatePoints(currentUser.id, newPoints);
+
             const { data, error } = await sendMessage(currentUser.id, selectedContact.id, text);
             if (error) {
-                console.error('Failed to send image:', error);
+                console.error('Failed to send snap:', error);
                 setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
             } else if (data) {
                 setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? data : m));
             }
         } catch (err) {
-            console.error('Error uploading image:', err);
-            alert('Failed to upload image. Please try again.');
+            console.error('Error uploading snap:', err);
+            alert('Failed to upload snap. Please try again.');
         } finally {
             setIsUploadingImage(false);
         }
@@ -635,7 +642,33 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                             }}
                                                         />
                                                     </div>
-                                                ) : msg.content.startsWith('[IMAGE]') ? (
+                                                ) : msg.content.startsWith('[SNAP]') ? (() => {
+                                                    const url = msg.content.replace('[SNAP] ', '');
+                                                    const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
+                                                    const isExpired = Date.now() - new Date(msg.created_at).getTime() > 24 * 60 * 60 * 1000;
+                                                    
+                                                    if (isExpired) {
+                                                        return (
+                                                            <div style={{ padding: '8px', fontStyle: 'italic', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                <ImageIcon size={16} /> Expired Snap
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <button 
+                                                            onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
+                                                            style={{ 
+                                                                background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--primary-color)',
+                                                                border: 'none', borderRadius: '12px', padding: '12px 20px',
+                                                                color: '#fff', fontWeight: 'bold', cursor: 'pointer',
+                                                                display: 'flex', alignItems: 'center', gap: '8px'
+                                                            }}
+                                                        >
+                                                            <ImageIcon size={18} /> Tap to View Snap
+                                                        </button>
+                                                    );
+                                                })() : msg.content.startsWith('[IMAGE]') ? (
                                                     <img 
                                                         src={msg.content.replace('[IMAGE] ', '')} 
                                                         alt="Sent image" 
@@ -671,7 +704,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid #2c2c2e' }}>
                         <input 
                             type="file" 
-                            accept="image/*" 
+                            accept="image/*,video/*" 
                             style={{ display: 'none' }} 
                             ref={fileInputRef} 
                             onChange={handleImageUpload} 
@@ -727,6 +760,28 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     </form>
                 </>
             )}
+
+            {/* Full-screen Snap Viewer */}
+            {viewingSnap && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                    backgroundColor: '#000', zIndex: 100000, display: 'flex',
+                    flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+                }}>
+                    <button 
+                        onClick={() => setViewingSnap(null)}
+                        style={{ position: 'absolute', top: '40px', right: '20px', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', padding: '8px', color: '#fff', cursor: 'pointer', zIndex: 2 }}
+                    >
+                        <X size={24} />
+                    </button>
+                    {viewingSnap.type === 'video' ? (
+                        <video src={viewingSnap.url} autoPlay controls style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                    ) : (
+                        <img src={viewingSnap.url} alt="Snap" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                    )}
+                </div>
+            )}
+
             <style>{`
                 @keyframes slideInRight {
                     from { transform: translateX(100%); }
