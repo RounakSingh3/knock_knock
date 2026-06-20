@@ -16,11 +16,13 @@ const GlobalCallListener: React.FC = () => {
     const { user } = useContext(AppContext);
     const navigate = useNavigate();
     const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
+    const channelRef = React.useRef<any>(null);
 
     useEffect(() => {
         if (!user) return;
 
         const channel = supabase.channel('direct-calls');
+        channelRef.current = channel;
 
         channel.on('broadcast', { event: 'call-invite' }, async (payload) => {
             const { callerId, receiverId, type, room } = payload.payload;
@@ -87,10 +89,10 @@ const GlobalCallListener: React.FC = () => {
     }, [user]);
 
     const handleAccept = () => {
-        if (!incomingCall) return;
+        if (!incomingCall || !channelRef.current) return;
         
         // Notify caller we accepted
-        supabase.channel('direct-calls').send({
+        channelRef.current.send({
             type: 'broadcast',
             event: 'call-accept',
             payload: {
@@ -106,9 +108,9 @@ const GlobalCallListener: React.FC = () => {
     };
 
     const handleDecline = () => {
-        if (!incomingCall) return;
+        if (!incomingCall || !channelRef.current) return;
 
-        supabase.channel('direct-calls').send({
+        channelRef.current.send({
             type: 'broadcast',
             event: 'call-decline',
             payload: {
