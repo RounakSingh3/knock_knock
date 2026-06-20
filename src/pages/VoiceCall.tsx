@@ -783,17 +783,18 @@ const VoiceCall = () => {
                             <span className="match-compat-dot">ÔÇó</span>
                             <span>{currentMatch.sharedLikes} shared likes</span>
                         </div>
+                        <div className="mt-8">
+                            <div className="text-5xl font-mono text-white tracking-wider" style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+                                {formatTime(callDuration)}
+                            </div>
+                            {requestStatus !== 'accepted' && (
+                                <span style={{ display: 'block', fontSize: '0.9rem', color: '#8e8e93', marginTop: '8px', fontWeight: 500 }}>
+                                    Voice Limit: 3:00
+                                </span>
+                            )}
+                        </div>
                     </div>
                 )}
-
-                <div className="text-center" style={{ position: 'absolute', top: '240px', left: 0, right: 0, zIndex: 10 }}>
-                    <div className="text-4xl font-mono" style={{ display: videoRequestStatus === 'accepted' ? 'none' : 'block' }}>
-                        {formatTime(callDuration)}
-                        {requestStatus !== 'accepted' && (
-                            <span style={{ display: 'block', fontSize: '0.8rem', color: '#8e8e93', marginTop: '4px' }}>Voice Limit: 3:00</span>
-                        )}
-                    </div>
-                </div>
 
                 {/* Status and Action Buttons */}
                 <div style={{ position: 'absolute', bottom: '100px', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', zIndex: 10 }}>
