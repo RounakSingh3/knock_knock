@@ -717,6 +717,11 @@ const VoiceCall = () => {
         }
     };
 
+    const isRevealed = isDirectCall || requestStatus === 'accepted';
+    const displayName = currentMatch ? (isRevealed ? currentMatch.profile.name : "Mystery Match") : "";
+    const displayUsername = currentMatch ? (isRevealed ? currentMatch.profile.username : "anonymous") : "";
+    const displayAvatar = currentMatch ? (isRevealed ? (currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`) : "https://api.dicebear.com/7.x/avataaars/svg?seed=mystery&backgroundColor=ff3366") : "";
+
     // ÔöÇÔöÇ Active Call Screen ÔöÇÔöÇ
     if (inCall && currentMatch) {
         return (
@@ -736,17 +741,17 @@ const VoiceCall = () => {
                             ) : (
                                 <>
                                     <img
-                                        src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
-                                        alt={currentMatch.profile.username}
+                                        src={displayAvatar}
+                                        alt={displayUsername}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5, filter: 'blur(20px)' }}
                                     />
                                     <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                                         <img
-                                            src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
+                                            src={displayAvatar}
                                             alt=""
                                             style={{ width: '80px', height: '80px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)' }}
                                         />
-                                        <span style={{ marginTop: '8px', fontWeight: 'bold' }}>{currentMatch.profile.name} (Camera Off)</span>
+                                        <span style={{ marginTop: '8px', fontWeight: 'bold' }}>{displayName} (Camera Off)</span>
                                     </div>
                                 </>
                             )}
@@ -767,16 +772,16 @@ const VoiceCall = () => {
                     // Voice Call Layout
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', flex: 1, width: '100%', paddingTop: '12vh' }}>
                         <img
-                            src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
-                            alt={currentMatch.profile.username}
+                            src={displayAvatar}
+                            alt={displayUsername}
                             className="call-avatar"
                             style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.3)' }}
                         />
                         <h2 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '4px', marginTop: '16px' }}>
-                            {currentMatch.profile.name}
+                            {displayName}
                         </h2>
                         <p className="text-gray-400" style={{ fontSize: '1rem', marginBottom: '12px' }}>
-                            @{currentMatch.profile.username}
+                            @{displayUsername}
                         </p>
                         <div className="match-compat-inline" style={{ background: 'rgba(255, 51, 102, 0.1)', padding: '6px 16px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <Heart size={14} fill="#ff3366" color="#ff3366" />
@@ -863,7 +868,7 @@ const VoiceCall = () => {
                         <div className="connection-toast-inner">
                             <Flame size={20} className="streak-icon-active" />
                             <div>
-                                <strong>Connected with {currentMatch.profile.name}!</strong>
+                                <strong>Connected with {displayName}!</strong>
                                 <span>­ƒöÑ Streak started ÔÇö Day 1!</span>
                             </div>
                         </div>
@@ -876,7 +881,7 @@ const VoiceCall = () => {
                         <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Clock size={20} color="#facc15" />
-                                <span><strong>{currentMatch.profile.name} wants more time!</strong></span>
+                                <span><strong>{displayName} wants more time!</strong></span>
                             </div>
                             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                                 <button
@@ -923,7 +928,7 @@ const VoiceCall = () => {
                         <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Video size={20} color="#60a5fa" />
-                                <span><strong>{currentMatch.profile.name} wants to switch to Video!</strong></span>
+                                <span><strong>{displayName} wants to switch to Video!</strong></span>
                             </div>
                             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                                 <button
@@ -991,7 +996,7 @@ const VoiceCall = () => {
                 {showChat && (
                     <div style={{ position: 'absolute', bottom: '90px', left: '16px', right: '16px', height: '300px', backgroundColor: 'rgba(25, 25, 25, 0.95)', backdropFilter: 'blur(10px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', zIndex: 20 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                            <span style={{ fontWeight: 'bold' }}>Chat with {currentMatch.profile.name}</span>
+                            <span style={{ fontWeight: 'bold' }}>Chat with {displayName}</span>
                             <button onClick={() => setShowChat(false)}><X size={18} /></button>
                         </div>
                         <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1029,8 +1034,8 @@ const VoiceCall = () => {
                         {/* Avatar */}
                         <div className="match-card-avatar-ring">
                             <img
-                                src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
-                                alt={currentMatch.profile.username}
+                                src={displayAvatar}
+                                alt={displayUsername}
                                 className="match-card-avatar"
                             />
                         </div>
@@ -1059,8 +1064,8 @@ const VoiceCall = () => {
                         </div>
 
                         {/* User Info */}
-                        <h2 className="match-card-name">{currentMatch.profile.name}</h2>
-                        <p className="match-card-username">@{currentMatch.profile.username}</p>
+                        <h2 className="match-card-name">{displayName}</h2>
+                        <p className="match-card-username">@{displayUsername}</p>
 
                         {/* Stats */}
                         <div className="match-card-stats">
