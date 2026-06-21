@@ -77,6 +77,30 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         };
     }, [isOpen]);
 
+    // Handle Hardware Back Button
+    useEffect(() => {
+        if (!isOpen) return;
+
+        // Push a state when opened to trap the back button
+        window.history.pushState({ chatPanel: true }, '');
+
+        const handlePopState = () => {
+            if (viewingSnap) {
+                setViewingSnap(null);
+                // Push state again so the next back button press doesn't exit the page
+                window.history.pushState({ chatPanel: true }, '');
+            } else if (view === 'chat') {
+                setView('list');
+                window.history.pushState({ chatPanel: true }, '');
+            } else {
+                onClose();
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [isOpen, viewingSnap, view, onClose]);
+
     const fetchChatThreads = async (myId: string) => {
         const { data: msgs, error } = await supabase
             .from('messages')

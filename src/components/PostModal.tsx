@@ -135,6 +135,13 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
 };
 
 const PostModal: React.FC<PostModalContentProps> = (props) => {
+    useEffect(() => {
+        window.history.pushState({ modal: 'post' }, '');
+        const handlePopState = () => props.onClose();
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [props.onClose]);
+
     return (
         <div className="post-modal-backdrop post-modal-backdrop--fullscreen" onClick={props.onClose} style={{ zIndex: 9999 }}>
             <PostModalContent {...props} />

@@ -24,6 +24,14 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const [isPaused, setIsPaused] = useState(false);
     const navigate = useNavigate();
 
+    // Trap hardware back button
+    useEffect(() => {
+        window.history.pushState({ modal: 'story' }, '');
+        const handlePopState = () => onClose();
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, [onClose]);
+
     const currentGroup = storyGroups[groupIndex];
     const currentStory = currentGroup?.stories[storyIndex];
 
