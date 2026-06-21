@@ -765,30 +765,31 @@ const VoiceCall = () => {
                     </div>
                 ) : (
                     // Voice Call Layout
-                    <div className="text-center mt-8">
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', flex: 1, width: '100%', paddingTop: '12vh' }}>
                         <img
                             src={currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`}
                             alt={currentMatch.profile.username}
                             className="call-avatar"
+                            style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.3)' }}
                         />
-                        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '4px' }}>
+                        <h2 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '4px', marginTop: '16px' }}>
                             {currentMatch.profile.name}
                         </h2>
-                        <p className="text-gray-400" style={{ fontSize: '0.9rem' }}>
+                        <p className="text-gray-400" style={{ fontSize: '1rem', marginBottom: '12px' }}>
                             @{currentMatch.profile.username}
                         </p>
-                        <div className="match-compat-inline">
+                        <div className="match-compat-inline" style={{ background: 'rgba(255, 51, 102, 0.1)', padding: '6px 16px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <Heart size={14} fill="#ff3366" color="#ff3366" />
-                            <span>{currentMatch.compatibilityPercent}% Compatible</span>
-                            <span className="match-compat-dot">ÔÇó</span>
-                            <span>{currentMatch.sharedLikes} shared likes</span>
+                            <span style={{ fontWeight: 600, color: '#ff3366' }}>{currentMatch.compatibilityPercent}% Compatible</span>
+                            <span className="match-compat-dot" style={{ color: '#ff3366' }}>•</span>
+                            <span style={{ color: '#ff3366' }}>{currentMatch.sharedLikes} shared likes</span>
                         </div>
-                        <div className="mt-8">
-                            <div className="text-5xl font-mono text-white tracking-wider" style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+                        <div className="mt-8" style={{ textAlign: 'center' }}>
+                            <div className="text-6xl font-mono text-white tracking-wider" style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
                                 {formatTime(callDuration)}
                             </div>
                             {requestStatus !== 'accepted' && (
-                                <span style={{ display: 'block', fontSize: '0.9rem', color: '#8e8e93', marginTop: '8px', fontWeight: 500 }}>
+                                <span style={{ display: 'block', fontSize: '1rem', color: '#8e8e93', marginTop: '12px', fontWeight: 500 }}>
                                     Voice Limit: 3:00
                                 </span>
                             )}
