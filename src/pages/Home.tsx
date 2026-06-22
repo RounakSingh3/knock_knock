@@ -447,7 +447,7 @@ const Home = () => {
                         {unreadCount > 0 && (
                             <span style={{
                                 position: 'absolute', top: '2px', right: '2px',
-                                background: '#ff3366', color: 'var(--text-active)', fontSize: '9px',
+                                background: '#f5a524', color: 'var(--text-active)', fontSize: '9px',
                                 fontWeight: 'bold', borderRadius: '50%', minWidth: '15px',
                                 height: '15px', display: 'flex', alignItems: 'center',
                                 justifyContent: 'center', padding: '0 3px',
@@ -540,7 +540,7 @@ const Home = () => {
                             <div className="connections-horizontal-list" style={{ display: 'flex', overflowX: 'auto', gap: '16px', padding: '0 16px 16px', borderBottom: '1px solid #2c2c2e', marginBottom: '16px' }}>
                                 {unifiedConnectionItems.map(item => (
                                     <div key={'av-'+item.userId} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }}>
-                                        <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'linear-gradient(45deg, #ff3366, #ff9933)', padding: 2 }}>
+                                        <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', padding: 2 }}>
                                             <img src={item.avatarUrl || 'https://i.pravatar.cc/150'} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '2px solid #000' }} />
                                         </div>
                                         <span style={{ fontSize: '11px', marginTop: 4, color: 'var(--text-active)' }}>{item.username.substring(0, 8)}</span>
@@ -605,7 +605,7 @@ const Home = () => {
                                         className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
                                         onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
                                     >
-                                        <Heart size={16} fill={likedPosts[post.id] ? '#ff3366' : 'none'} color={likedPosts[post.id] ? '#ff3366' : 'var(--text-active)'} />
+                                        <Heart size={16} fill={likedPosts[post.id] ? '#f5a524' : 'none'} color={likedPosts[post.id] ? '#f5a524' : 'var(--text-active)'} />
                                     </button>
                                     <button
                                         className="masonry-like-btn"
@@ -665,7 +665,7 @@ const Home = () => {
                                 <button
                                     onClick={loadMorePosts}
                                     style={{
-                                        background: 'linear-gradient(45deg, #ff3366, #ff9933)',
+                                        background: 'linear-gradient(45deg, #f5a524, #ff6b35)',
                                         border: 'none', borderRadius: '24px',
                                         padding: '12px 32px', color: 'var(--text-active)', fontWeight: 'bold',
                                         fontSize: '14px', cursor: 'pointer'
@@ -770,7 +770,7 @@ const Home = () => {
                                     className={`modal-action-btn ${likedPosts[selectedPost.id] ? 'liked' : ''}`}
                                     onClick={() => handleLikeToggle(selectedPost.id)}
                                 >
-                                    <Heart size={22} fill={likedPosts[selectedPost.id] ? '#ff3366' : 'none'} color={likedPosts[selectedPost.id] ? '#ff3366' : 'var(--text-active)'} />
+                                    <Heart size={22} fill={likedPosts[selectedPost.id] ? '#f5a524' : 'none'} color={likedPosts[selectedPost.id] ? '#f5a524' : 'var(--text-active)'} />
                                     <span>{likeCounts[selectedPost.id] || 0}</span>
                                 </button>
                                 <button className="modal-action-btn" onClick={() => { setCommentsPostId(selectedPost.id); setIsCommentsOpen(true); }}>

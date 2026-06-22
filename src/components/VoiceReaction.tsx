@@ -92,7 +92,7 @@ const VoiceReaction: React.FC<VoiceReactionProps> = ({ postId, postCategory, cur
                 else startRecording();
             }}
             style={{
-                background: isRecording ? 'rgba(255,51,102,0.95)' : undefined,
+                background: isRecording ? 'rgba(245, 165, 36,0.95)' : undefined,
                 animation: isRecording ? 'pulse 1s ease-in-out infinite' : undefined,
             }}
         >

@@ -60,7 +60,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
             <p style={{ color: 'var(--text-inactive)', marginBottom: '24px' }}>The app encountered an error. This usually happens after an update.</p>
             <button 
                 onClick={() => { sessionStorage.removeItem('chunk_reloaded'); window.location.reload(); }} 
-                style={{ padding: '12px 24px', background: 'linear-gradient(45deg, #ff3366, #ff9933)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
+                style={{ padding: '12px 24px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
             >
                 Reload App
             </button>

@@ -294,9 +294,9 @@ const Login = () => {
                         }}
                     >
                         {isSignUp ? (
-                            <>Already have an account? <span style={{ color: '#ff3366', fontWeight: 'bold' }}>Sign In</span></>
+                            <>Already have an account? <span style={{ color: '#f5a524', fontWeight: 'bold' }}>Sign In</span></>
                         ) : (
-                            <>Don't have an account? <span style={{ color: '#ff3366', fontWeight: 'bold' }}>Sign Up</span></>
+                            <>Don't have an account? <span style={{ color: '#f5a524', fontWeight: 'bold' }}>Sign Up</span></>
                         )}
                     </button>
                 </div>

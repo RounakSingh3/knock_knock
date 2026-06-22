@@ -50,7 +50,7 @@ class ErrorBoundary extends Component<Props, State> {
                             display: 'flex',
                             alignItems: 'center',
                             gap: '8px',
-                            background: '#ff3366',
+                            background: '#f5a524',
                             color: 'var(--text-active)',
                             border: 'none',
                             padding: '12px 24px',

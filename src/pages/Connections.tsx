@@ -102,7 +102,7 @@ const Connections = () => {
                         <span>{totalStreakDays} streak days</span>
                     </div>
                     <div className="conn-stat-chip">
-                        <Heart size={14} style={{ color: '#ff3366' }} />
+                        <Heart size={14} style={{ color: '#f5a524' }} />
                         <span>{connections.length} total</span>
                     </div>
                 </div>
@@ -182,7 +182,7 @@ const Connections = () => {
 
                                     <div className="connection-meta-row">
                                         <span className="connection-compat">
-                                            <Heart size={11} fill="#ff3366" color="#ff3366" />
+                                            <Heart size={11} fill="#f5a524" color="#f5a524" />
                                             {conn.compatibility_percent}%
                                         </span>
                                         <span className="connection-meta-dot">·</span>

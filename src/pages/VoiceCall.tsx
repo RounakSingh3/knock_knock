@@ -775,7 +775,7 @@ const VoiceCall = () => {
                             src={displayAvatar}
                             alt={displayUsername}
                             className="call-avatar"
-                            style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.3)' }}
+                            style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(245, 165, 36,0.3)' }}
                         />
                         <h2 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '4px', marginTop: '16px' }}>
                             {displayName}
@@ -783,11 +783,11 @@ const VoiceCall = () => {
                         <p className="text-gray-400" style={{ fontSize: '1rem', marginBottom: '12px' }}>
                             @{displayUsername}
                         </p>
-                        <div className="match-compat-inline" style={{ background: 'rgba(255, 51, 102, 0.1)', padding: '6px 16px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Heart size={14} fill="#ff3366" color="#ff3366" />
-                            <span style={{ fontWeight: 600, color: '#ff3366' }}>{currentMatch.compatibilityPercent}% Compatible</span>
-                            <span className="match-compat-dot" style={{ color: '#ff3366' }}>•</span>
-                            <span style={{ color: '#ff3366' }}>{currentMatch.sharedLikes} shared likes</span>
+                        <div className="match-compat-inline" style={{ background: 'rgba(245, 165, 36, 0.1)', padding: '6px 16px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Heart size={14} fill="#f5a524" color="#f5a524" />
+                            <span style={{ fontWeight: 600, color: '#f5a524' }}>{currentMatch.compatibilityPercent}% Compatible</span>
+                            <span className="match-compat-dot" style={{ color: '#f5a524' }}>•</span>
+                            <span style={{ color: '#f5a524' }}>{currentMatch.sharedLikes} shared likes</span>
                         </div>
                         <div className="mt-8" style={{ textAlign: 'center' }}>
                             <div className="text-6xl font-mono text-white tracking-wider" style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
@@ -1055,8 +1055,8 @@ const VoiceCall = () => {
                                 />
                                 <defs>
                                     <linearGradient id="compat-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                                        <stop offset="0%" stopColor="#ff3366" />
-                                        <stop offset="100%" stopColor="#ff9933" />
+                                        <stop offset="0%" stopColor="#f5a524" />
+                                        <stop offset="100%" stopColor="#ff6b35" />
                                     </linearGradient>
                                 </defs>
                             </svg>
@@ -1070,7 +1070,7 @@ const VoiceCall = () => {
                         {/* Stats */}
                         <div className="match-card-stats">
                             <div className="match-stat">
-                                <Heart size={16} color="#ff3366" />
+                                <Heart size={16} color="#f5a524" />
                                 <span className="match-stat-value">{currentMatch.sharedLikes}</span>
                                 <span className="match-stat-label">Shared Likes</span>
                             </div>
@@ -1144,10 +1144,10 @@ const VoiceCall = () => {
                 {searchingUserCount > 0 && (
                     <div style={{
                         display: 'flex', alignItems: 'center', gap: '6px',
-                        background: 'rgba(255,51,102,0.15)', padding: '6px 14px', borderRadius: '20px',
+                        background: 'rgba(245, 165, 36,0.15)', padding: '6px 14px', borderRadius: '20px',
                     }}>
-                        <Phone size={12} color="#ff3366" />
-                        <span style={{ color: '#ff3366', fontSize: '13px', fontWeight: 'bold' }}>
+                        <Phone size={12} color="#f5a524" />
+                        <span style={{ color: '#f5a524', fontSize: '13px', fontWeight: 'bold' }}>
                             {searchingUserCount} searching now
                         </span>
                     </div>
@@ -1173,7 +1173,7 @@ const VoiceCall = () => {
 
             {noMatchFound && (
                 <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                    <p style={{ color: '#ff9933', fontSize: '0.9rem', marginBottom: '8px' }}>
+                    <p style={{ color: '#ff6b35', fontSize: '0.9rem', marginBottom: '8px' }}>
                         No matches found with this preference 😖
                     </p>
                     <p style={{ color: '#6e6e73', fontSize: '0.8rem' }}>
@@ -1242,8 +1242,8 @@ const VoiceCall = () => {
             {/* Pulsing button animation */}
             <style>{`
                 @keyframes btnPulse {
-                    0%, 100% { box-shadow: 0 0 0 0 rgba(255,51,102,0.4); }
-                    50% { box-shadow: 0 0 0 12px rgba(255,51,102,0); }
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 165, 36,0.4); }
+                    50% { box-shadow: 0 0 0 12px rgba(245, 165, 36,0); }
                 }
             `}</style>
 

@@ -207,8 +207,8 @@ const Profile = () => {
             <header className="home-header" style={{ justifyContent: 'space-between' }}>
                 <h1 className="font-bold text-xl">{displayUsername}</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ background: 'rgba(255, 51, 102, 0.15)', color: '#ff3366', padding: '4px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Star size={16} fill="#ff3366" /> {isOwnProfile ? points : profile.points} Pts
+                    <div style={{ background: 'rgba(245, 165, 36, 0.15)', color: '#f5a524', padding: '4px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Star size={16} fill="#f5a524" /> {isOwnProfile ? points : profile.points} Pts
                     </div>
                     {isOwnProfile && (
                         <button
@@ -232,14 +232,14 @@ const Profile = () => {
                                 <img
                                     src={profile.avatar_url || `https://i.pravatar.cc/150?u=${displayUsername}`}
                                     alt={profile.name}
-                                    style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #ff3366', transition: 'opacity 0.2s' }}
+                                    style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #f5a524', transition: 'opacity 0.2s' }}
                                 />
                                 {updatingAvatar ? (
                                     <div style={{
                                         position: 'absolute', inset: 0,
                                         background: 'rgba(0,0,0,0.6)', borderRadius: '50%',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        border: '3px solid #ff3366',
+                                        border: '3px solid #f5a524',
                                     }}>
                                         <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-active)' }} />
                                     </div>
@@ -249,7 +249,7 @@ const Profile = () => {
                                         background: 'rgba(0,0,0,0.4)', borderRadius: '50%',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         opacity: 0, transition: 'opacity 0.2s',
-                                        border: '3px solid #ff3366',
+                                        border: '3px solid #f5a524',
                                     }}
                                     className="avatar-hover-overlay"
                                     >
@@ -268,7 +268,7 @@ const Profile = () => {
                             <img
                                 src={profile.avatar_url || `https://i.pravatar.cc/150?u=${displayUsername}`}
                                 alt={profile.name}
-                                style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #ff3366' }}
+                                style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #f5a524' }}
                             />
                         )}
                         <style>{`
@@ -281,15 +281,15 @@ const Profile = () => {
                     <div style={{ display: 'flex', gap: '8px', textAlign: 'center', flex: 1, justifyContent: 'center' }}>
                         <button className="stat-btn" onClick={() => setActiveTab('posts')}>
                             <div className="font-bold text-lg">{posts.length}</div>
-                            <div style={{ fontSize: '13px', color: activeTab === 'posts' ? '#ff3366' : 'var(--text-inactive)' }}>Posts</div>
+                            <div style={{ fontSize: '13px', color: activeTab === 'posts' ? '#f5a524' : 'var(--text-inactive)' }}>Posts</div>
                         </button>
                         <button className="stat-btn" onClick={() => setActiveTab('followers')}>
                             <div className="font-bold text-lg">{followStats.followers}</div>
-                            <div style={{ fontSize: '13px', color: activeTab === 'followers' ? '#ff3366' : 'var(--text-inactive)' }}>Followers</div>
+                            <div style={{ fontSize: '13px', color: activeTab === 'followers' ? '#f5a524' : 'var(--text-inactive)' }}>Followers</div>
                         </button>
                         <button className="stat-btn" onClick={() => setActiveTab('following')}>
                             <div className="font-bold text-lg">{followStats.following}</div>
-                            <div style={{ fontSize: '13px', color: activeTab === 'following' ? '#ff3366' : 'var(--text-inactive)' }}>Following</div>
+                            <div style={{ fontSize: '13px', color: activeTab === 'following' ? '#f5a524' : 'var(--text-inactive)' }}>Following</div>
                         </button>
                     </div>
                 </div>
@@ -310,7 +310,7 @@ const Profile = () => {
                             <button className="profile-action-btn" onClick={() => setIsEditOpen(true)}>Edit Profile</button>
                             <button 
                                 className="profile-action-btn" 
-                                style={{ background: '#ff3366', color: 'var(--text-active)', border: 'none' }}
+                                style={{ background: '#f5a524', color: 'var(--text-active)', border: 'none' }}
                                 onClick={() => navigate('/create')}
                             >
                                 + Create Post
@@ -320,7 +320,7 @@ const Profile = () => {
                         <>
                             <button 
                                 className="profile-action-btn" 
-                                style={{ background: isFollowing ? 'var(--border-color)' : '#ff3366', color: 'var(--text-active)' }}
+                                style={{ background: isFollowing ? 'var(--border-color)' : '#f5a524', color: 'var(--text-active)' }}
                                 onClick={handleFollowToggle}
                             >
                                 {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
@@ -345,7 +345,7 @@ const Profile = () => {
             <div style={{ padding: '0 1rem 0.5rem' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <div className="upload-summary-card">
-                        <Grid size={20} color="#ff3366" />
+                        <Grid size={20} color="#f5a524" />
                         <span className="font-bold">{photoPosts.length}</span>
                         <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Photos</span>
                     </div>

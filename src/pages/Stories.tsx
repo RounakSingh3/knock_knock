@@ -370,9 +370,9 @@ const Stories = () => {
                 <h1 className="font-bold text-2xl">Boost & Stories</h1>
                 {/* 😰 FOMO — Recent stories counter */}
                 {recentStoriesCount > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255,51,102,0.15)', padding: '4px 10px', borderRadius: '12px' }}>
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ff3366', animation: 'pulse 2s ease-in-out infinite' }} />
-                        <span style={{ fontSize: '12px', color: '#ff3366', fontWeight: 'bold' }}>{recentStoriesCount} in last hour</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(245, 165, 36,0.15)', padding: '4px 10px', borderRadius: '12px' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#f5a524', animation: 'pulse 2s ease-in-out infinite' }} />
+                        <span style={{ fontSize: '12px', color: '#f5a524', fontWeight: 'bold' }}>{recentStoriesCount} in last hour</span>
                     </div>
                 )}
             </header>
@@ -503,7 +503,7 @@ const Stories = () => {
                     <div
                         style={{
                             position: 'relative', height: '200px', borderRadius: '16px', overflow: 'hidden',
-                            cursor: 'pointer', border: '2px solid rgba(255,153,51,0.4)',
+                            cursor: 'pointer', border: '2px solid rgba(255, 107, 53,0.4)',
                         }}
                         onClick={() => {
                             if (!isMysteryRevealed) {
@@ -526,7 +526,7 @@ const Stories = () => {
                                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
                                 alignItems: 'center', justifyContent: 'center', gap: '8px',
                             }}>
-                                <HelpCircle size={48} color="#ff9933" style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+                                <HelpCircle size={48} color="#ff6b35" style={{ animation: 'pulse 2s ease-in-out infinite' }} />
                                 <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '16px' }}>Tap to Reveal</span>
                                 <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>A surprise story picked for you</span>
                             </div>

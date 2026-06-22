@@ -259,8 +259,8 @@ const Explore = () => {
 
     const tabStyle = (tab: string) => ({
         flex: 1, padding: '10px', background: 'none', border: 'none',
-        color: activeTab === tab ? '#ff3366' : 'var(--text-inactive)',
-        borderBottom: activeTab === tab ? '2px solid #ff3366' : '2px solid transparent',
+        color: activeTab === tab ? '#f5a524' : 'var(--text-inactive)',
+        borderBottom: activeTab === tab ? '2px solid #f5a524' : '2px solid transparent',
         fontWeight: activeTab === tab ? 'bold' as const : 'normal' as const,
         fontSize: '14px', cursor: 'pointer' as const,
         display: 'flex' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: '6px',
@@ -317,7 +317,7 @@ const Explore = () => {
                             {!isTrendingLoading && trendingPosts.length > 0 && (
                                 <div style={{ marginBottom: '16px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                                        <Flame size={18} color="#ff3366" />
+                                        <Flame size={18} color="#f5a524" />
                                         <span style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-active)' }}>Trending Now</span>
                                         <span style={{ fontSize: '12px', color: 'var(--text-inactive)', marginLeft: 'auto' }}>Last 24h</span>
                                     </div>
@@ -328,7 +328,7 @@ const Explore = () => {
                                                 style={{
                                                     flexShrink: 0, width: '140px', height: '180px', borderRadius: '16px',
                                                     overflow: 'hidden', position: 'relative', cursor: 'pointer',
-                                                    border: '2px solid rgba(255,51,102,0.3)',
+                                                    border: '2px solid rgba(245, 165, 36,0.3)',
                                                 }}
                                                 onClick={() => setActiveFeedState({ posts: trendingPosts, index: idx })}
                                             >
@@ -340,8 +340,8 @@ const Explore = () => {
                                                     padding: '24px 8px 8px', display: 'flex', flexDirection: 'column', gap: '2px',
                                                 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <TrendingUp size={12} color="#ff3366" />
-                                                        <span style={{ fontSize: '11px', color: '#ff3366', fontWeight: 'bold' }}>
+                                                        <TrendingUp size={12} color="#f5a524" />
+                                                        <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: 'bold' }}>
                                                             {post.likes_count} likes
                                                         </span>
                                                     </div>
@@ -388,7 +388,7 @@ const Explore = () => {
                                             {isSurprisePost(post.id) && (
                                                 <div style={{
                                                     position: 'absolute', bottom: '6px', left: '6px',
-                                                    background: 'linear-gradient(135deg, rgba(255,51,102,0.9), rgba(255,153,51,0.9))',
+                                                    background: 'linear-gradient(135deg, rgba(245, 165, 36,0.9), rgba(255, 107, 53,0.9))',
                                                     padding: '2px 6px', borderRadius: '6px',
                                                     fontSize: '9px', fontWeight: 'bold', color: '#fff',
                                                     display: 'flex', alignItems: 'center', gap: '2px',
@@ -405,7 +405,7 @@ const Explore = () => {
                                                     fontSize: '9px', color: 'rgba(255,255,255,0.8)',
                                                     display: 'flex', alignItems: 'center', gap: '3px',
                                                 }}>
-                                                    <Flame size={9} color="#ff3366" /> {post.likes_count}
+                                                    <Flame size={9} color="#f5a524" /> {post.likes_count}
                                                 </div>
                                             )}
                                         </div>
@@ -455,7 +455,7 @@ const Explore = () => {
                                                 <button
                                                     onClick={() => handleToggleFollow(person.id)}
                                                     style={{
-                                                        background: followingMap[person.id] ? 'transparent' : '#ff3366',
+                                                        background: followingMap[person.id] ? 'transparent' : '#f5a524',
                                                         border: followingMap[person.id] ? '1px solid #3a3a3c' : 'none',
                                                         color: 'var(--text-active)', borderRadius: '20px',
                                                         padding: '8px 18px', fontSize: '13px', fontWeight: 'bold',
