@@ -63,6 +63,13 @@ const VoiceCall = () => {
     const pendingInviteRef = useRef<string | null>(null);
     const searchTimeoutRef = useRef<number | null>(null);
 
+    // Buffers for WebRTC signaling that arrives before the peer connection exists.
+    // Without these, the offer/ICE candidates get silently dropped if the
+    // "webrtc-offer" or "webrtc-ice" event fires before startWebRTC() has created
+    // the RTCPeerConnection (a common race that results in NO AUDIO).
+    const pendingOfferRef = useRef<any>(null);
+    const pendingCandidatesRef = useRef<any[]>([]);
+
     // State refs to give signaling callbacks the latest values
     const isSearchingRef = useRef(isSearching);
     const activePrefRef = useRef(activePref);
@@ -157,6 +164,9 @@ const VoiceCall = () => {
         if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = null;
         }
+        // Clear buffered signaling so a new call starts clean.
+        pendingOfferRef.current = null;
+        pendingCandidatesRef.current = [];
     };
 
     const updatePresence = async (status: 'idle' | 'searching' | 'in-call') => {
@@ -320,6 +330,9 @@ const VoiceCall = () => {
                     } catch (e) {
                         console.error('Error handling WebRTC offer:', e);
                     }
+                } else {
+                    // PC not ready yet — buffer and flush when startWebRTC() runs.
+                    pendingOfferRef.current = payload;
                 }
             })
             .on('broadcast', { event: 'webrtc-answer' }, async ({ payload }) => {
@@ -334,12 +347,15 @@ const VoiceCall = () => {
             })
             .on('broadcast', { event: 'webrtc-ice' }, async ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
-                if (peerConnectionRef.current) {
+                if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
                     try {
                         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
                     } catch (e) {
                         console.error('Error handling ICE candidate:', e);
                     }
+                } else {
+                    // Buffer until remote description is set; otherwise candidates are dropped.
+                    pendingCandidatesRef.current.push(payload.candidate);
                 }
             });
 
@@ -362,7 +378,7 @@ const VoiceCall = () => {
         };
     }, [user?.id]);
 
-    // ÔöÇÔöÇ WebRTC Connection Management ÔöÇÔöÇ
+    // ── WebRTC Connection Management ──
     useEffect(() => {
         const startWebRTC = async () => {
             if (!inCall || isMockMode || !currentMatch) return;
@@ -380,8 +396,29 @@ const VoiceCall = () => {
                     localVideoRef.current.srcObject = stream;
                 }
 
+                // ICE servers: STUN for direct connections + public TURN relay
+                // so audio still works across strict NATs / different networks.
+                // (STUN alone fails on symmetric NAT — the main cause of "no voice".)
                 const pc = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        {
+                            urls: 'turn:openrelay.metered.ca:80',
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject',
+                        },
+                        {
+                            urls: 'turn:openrelay.metered.ca:443',
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject',
+                        },
+                        {
+                            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                            username: 'openrelayproject',
+                            credential: 'openrelayproject',
+                        },
+                    ],
                 });
                 peerConnectionRef.current = pc;
 
@@ -403,15 +440,30 @@ const VoiceCall = () => {
                     }
                 };
 
+                // Log ICE/connection state so "no voice" is diagnosable.
+                pc.oniceconnectionstatechange = () => {
+                    console.log('[WebRTC] ICE state:', pc.iceConnectionState);
+                };
+                pc.onconnectionstatechange = () => {
+                    console.log('[WebRTC] conn state:', pc.connectionState);
+                };
+
                 pc.ontrack = (event) => {
                     const remoteStream = event.streams[0];
                     if (isVideo) {
                         if (remoteVideoRef.current) {
                             remoteVideoRef.current.srcObject = remoteStream;
+                            remoteVideoRef.current.play().catch(() => {});
                         }
                     } else {
                         if (remoteAudioRef.current) {
                             remoteAudioRef.current.srcObject = remoteStream;
+                            // Explicitly request playback — some browsers block
+                            // autoplay until this is called from a user gesture
+                            // chain, and a hidden audio element won't auto-play.
+                            remoteAudioRef.current.play().catch((err) => {
+                                console.warn('[WebRTC] remote audio play() blocked:', err);
+                            });
                         }
                     }
                 };
@@ -428,6 +480,36 @@ const VoiceCall = () => {
                             sdp: offer,
                         }
                     });
+                }
+
+                // Flush any buffered signaling that arrived before the PC existed.
+                if (pendingOfferRef.current) {
+                    try {
+                        await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current.sdp));
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        if (channelRef.current) {
+                            channelRef.current.send({
+                                type: 'broadcast',
+                                event: 'webrtc-answer',
+                                payload: {
+                                    senderId: user!.id,
+                                    receiverId: pendingOfferRef.current.senderId,
+                                    sdp: answer,
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Error flushing buffered offer:', e);
+                    }
+                    pendingOfferRef.current = null;
+                }
+                const bufferedCandidates = pendingCandidatesRef.current;
+                pendingCandidatesRef.current = [];
+                for (const c of bufferedCandidates) {
+                    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {
+                        console.error('Error flushing buffered ICE candidate:', e);
+                    }
                 }
             } catch (e) {
                 console.error('Failed to capture stream or create RTCPeerConnection:', e);
@@ -722,15 +804,15 @@ const VoiceCall = () => {
     const displayUsername = currentMatch ? (isRevealed ? currentMatch.profile.username : "anonymous") : "";
     const displayAvatar = currentMatch ? (isRevealed ? (currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`) : "https://api.dicebear.com/7.x/avataaars/svg?seed=mystery&backgroundColor=ff3366") : "";
 
-    // ÔöÇÔöÇ Active Call Screen ÔöÇÔöÇ
+    // ── Active Call Screen ──
     if (inCall && currentMatch) {
         return (
-            <div className="call-active-screen" style={{ position: 'relative', overflow: 'hidden' }}>
+            <div className="call-active-screen" style={{ position: 'relative', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {videoRequestStatus === 'accepted' ? (
-                    // Video Call Layout
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+                    // Video Call Layout — remote video fills, local video is PiP
+                    <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                         {/* Remote Video */}
-                        <div style={{ flex: 1, backgroundColor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                        <div style={{ flex: 1, backgroundColor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 0 }}>
                             {!isMockMode ? (
                                 <video
                                     ref={remoteVideoRef}
@@ -757,8 +839,8 @@ const VoiceCall = () => {
                             )}
                         </div>
 
-                        {/* Local Video */}
-                        <div style={{ position: 'absolute', top: '16px', right: '16px', width: '100px', height: '140px', backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)' }}>
+                        {/* Local Video — picture-in-picture, anchored top-right */}
+                        <div style={{ position: 'absolute', top: '16px', right: '16px', width: '100px', height: '140px', backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)', zIndex: 5 }}>
                             <video
                                 ref={localVideoRef}
                                 autoPlay
@@ -769,8 +851,8 @@ const VoiceCall = () => {
                         </div>
                     </div>
                 ) : (
-                    // Voice Call Layout
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', flex: 1, width: '100%', paddingTop: '12vh' }}>
+                    // Voice Call Layout — top hero zone (avatar/name/timer), grows to fill
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%', minHeight: 0, padding: '24px 16px', textAlign: 'center' }}>
                         <img
                             src={displayAvatar}
                             alt={displayUsername}
@@ -802,8 +884,8 @@ const VoiceCall = () => {
                     </div>
                 )}
 
-                {/* Status and Action Buttons */}
-                <div style={{ position: 'absolute', bottom: '100px', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', zIndex: 10 }}>
+                {/* Middle zone — status & secondary actions (flex item, not absolute) */}
+                <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '8px 16px 4px' }}>
                     {requestStatus === 'none' && (
                         <button className="premium-btn" style={{ fontSize: '0.9rem', padding: '10px 20px' }} onClick={handleTalkMore}>
                             <Clock size={16} style={{ marginRight: '8px' }} /> Request More Time
@@ -816,8 +898,8 @@ const VoiceCall = () => {
                     )}
                     {requestStatus === 'accepted' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: videoRequestStatus === 'accepted' ? 'transparent' : 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
-                            {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>Ô£à Voice Call Extended (No Time Limit!)</span>}
-                            
+                            {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✅ Voice Call Extended (No Time Limit!)</span>}
+
                             {videoRequestStatus === 'none' && (
                                 <button
                                     className="pill"
@@ -850,11 +932,11 @@ const VoiceCall = () => {
                                     {connectionState === 'connecting' ? (
                                         <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Connecting...</>
                                     ) : connectionState === 'connected' ? (
-                                        <><Link2 size={16} /> Connected ­ƒñØ</>
+                                        <><Link2 size={16} /> Connected 🤝</>
                                     ) : connectionState === 'already' ? (
                                         <><Link2 size={16} /> Already Connected</>
                                     ) : (
-                                        <><Link2 size={16} /> Connect ­ƒñØ</>
+                                        <><Link2 size={16} /> Connect 🤝</>
                                     )}
                                 </button>
                             </div>
@@ -869,7 +951,7 @@ const VoiceCall = () => {
                             <Flame size={20} className="streak-icon-active" />
                             <div>
                                 <strong>Connected with {displayName}!</strong>
-                                <span>­ƒöÑ Streak started ÔÇö Day 1!</span>
+                                <span>🔥 Streak started — Day 1!</span>
                             </div>
                         </div>
                     </div>
@@ -970,9 +1052,11 @@ const VoiceCall = () => {
                 )}
 
                 {/* Audio elements */}
-                <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />
+                {/* Remote audio. Keep it in the layout (not display:none) — some
+                    browsers refuse to autoplay a display:none audio element. */}
+                <audio ref={remoteAudioRef} autoPlay playsInline style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
 
-                <div className="call-controls" style={{ position: 'absolute', bottom: '20px', left: 0, right: 0, zIndex: 10 }}>
+                <div className="call-controls" style={{ flexShrink: 0, display: 'flex', justifyContent: 'center', gap: '24px', padding: '16px 16px calc(20px + env(safe-area-inset-bottom))', zIndex: 10 }}>
                     <button className="call-btn btn-mute" onClick={() => {
                         const newMuted = !isMuted;
                         setIsMuted(newMuted);
@@ -992,15 +1076,15 @@ const VoiceCall = () => {
                     </button>
                 </div>
 
-                {/* Chat Drawer */}
+                {/* Chat Drawer — overlay anchored just above the controls */}
                 {showChat && (
-                    <div style={{ position: 'absolute', bottom: '90px', left: '16px', right: '16px', height: '300px', backgroundColor: 'rgba(25, 25, 25, 0.95)', backdropFilter: 'blur(10px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', zIndex: 20 }}>
+                    <div style={{ position: 'absolute', left: '16px', right: '16px', bottom: '104px', maxHeight: '46vh', backgroundColor: 'rgba(15, 13, 26, 0.96)', backdropFilter: 'blur(10px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', zIndex: 20, boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
                             <span style={{ fontWeight: 'bold' }}>Chat with {displayName}</span>
                             <button onClick={() => setShowChat(false)}><X size={18} /></button>
                         </div>
-                        <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! ­ƒæï</p>}
+                        <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '120px' }}>
+                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! 👋</p>}
                             {chatMessages.map(msg => (
                                 <div key={msg.id} style={{ alignSelf: msg.isMine ? 'flex-end' : 'flex-start', background: msg.isMine ? 'var(--primary-color)' : '#333', padding: '8px 12px', borderRadius: '12px', maxWidth: '80%', fontSize: '0.9rem' }}>
                                     {msg.text}
