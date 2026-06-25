@@ -224,7 +224,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                         onClick={isRecording ? stopVoiceComment : startVoiceComment}
                         disabled={sending}
                         style={{
-                            background: isRecording ? '#ff3366' : 'var(--border-color)',
+                            background: isRecording ? '#f5a524' : 'var(--border-color)',
                             border: 'none', borderRadius: '50%', width: '38px', height: '38px',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             cursor: 'pointer', transition: 'all 0.2s',
@@ -234,7 +234,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                         {isRecording ? <Square size={16} color="var(--text-active)" /> : <Mic size={18} color="var(--text-active)" />}
                     </button>
                     {isRecording && (
-                        <span style={{ color: '#ff3366', fontSize: '13px', fontWeight: 'bold', minWidth: '24px' }}>
+                        <span style={{ color: '#f5a524', fontSize: '13px', fontWeight: 'bold', minWidth: '24px' }}>
                             {recordingTime}s
                         </span>
                     )}
@@ -244,7 +244,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                             onClick={handleSendText}
                             disabled={sending}
                             style={{
-                                background: '#ff3366', border: 'none', borderRadius: '50%',
+                                background: '#f5a524', border: 'none', borderRadius: '50%',
                                 width: '38px', height: '38px', display: 'flex',
                                 alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
                             }}

@@ -103,7 +103,7 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
                 </div>
 
                 {error && (
-                    <div style={{ color: '#ff3366', fontSize: '13px', marginBottom: '16px', padding: '8px 12px', background: 'rgba(255,51,102,0.1)', borderRadius: '8px' }}>
+                    <div style={{ color: '#f5a524', fontSize: '13px', marginBottom: '16px', padding: '8px 12px', background: 'rgba(245, 165, 36,0.1)', borderRadius: '8px' }}>
                         {error}
                     </div>
                 )}
@@ -114,11 +114,11 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
                         <img
                             src={avatarPreview || 'https://i.pravatar.cc/150'}
                             alt="Avatar"
-                            style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #ff3366' }}
+                            style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #f5a524' }}
                         />
                         <div style={{
                             position: 'absolute', bottom: 0, right: 0,
-                            background: '#ff3366', borderRadius: '50%',
+                            background: '#f5a524', borderRadius: '50%',
                             width: '28px', height: '28px', display: 'flex',
                             alignItems: 'center', justifyContent: 'center',
                         }}>
@@ -164,7 +164,7 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
                     onClick={handleSave}
                     disabled={saving}
                     style={{
-                        width: '100%', background: saving ? 'var(--border-color)' : 'linear-gradient(45deg, #ff3366, #ff9933)',
+                        width: '100%', background: saving ? 'var(--border-color)' : 'linear-gradient(45deg, #f5a524, #ff6b35)',
                         border: 'none', borderRadius: '24px', padding: '14px',
                         color: 'var(--text-active)', fontWeight: 'bold', fontSize: '16px',
                         cursor: saving ? 'not-allowed' : 'pointer',

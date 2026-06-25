@@ -144,7 +144,7 @@ const GlobalCallListener: React.FC = () => {
                     style={{
                         width: '100px', height: '100px', borderRadius: '50%',
                         objectFit: 'cover', marginBottom: '20px',
-                        border: '3px solid #ff3366', padding: '3px',
+                        border: '3px solid #f5a524', padding: '3px',
                         animation: 'pulseRing 2s infinite'
                     }}
                 />
@@ -186,9 +186,9 @@ const GlobalCallListener: React.FC = () => {
 
             <style>{`
                 @keyframes pulseRing {
-                    0% { box-shadow: 0 0 0 0 rgba(255, 51, 102, 0.4); }
-                    70% { box-shadow: 0 0 0 20px rgba(255, 51, 102, 0); }
-                    100% { box-shadow: 0 0 0 0 rgba(255, 51, 102, 0); }
+                    0% { box-shadow: 0 0 0 0 rgba(245, 165, 36, 0.4); }
+                    70% { box-shadow: 0 0 0 20px rgba(245, 165, 36, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(245, 165, 36, 0); }
                 }
                 @keyframes bounce {
                     0%, 20%, 50%, 80%, 100% { transform: translateY(0); }

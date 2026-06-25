@@ -62,7 +62,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                         className={`masonry-like-btn ${isLiked ? 'liked' : ''}`}
                         onClick={(e) => { e.stopPropagation(); onLikeToggle(item.post!.id); }}
                     >
-                        <Heart size={16} fill={isLiked ? '#ff3366' : 'none'} color={isLiked ? '#ff3366' : 'var(--text-active)'} />
+                        <Heart size={16} fill={isLiked ? '#f5a524' : 'none'} color={isLiked ? '#f5a524' : 'var(--text-active)'} />
                     </button>
                     {onShare && (
                         <button

@@ -29,7 +29,8 @@ export async function fetchPosts(): Promise<PostData[]> {
     const { data, error } = await supabase
         .from('posts')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100);
 
     if (error) {
         console.error('Error fetching posts:', error);
@@ -40,16 +41,17 @@ export async function fetchPosts(): Promise<PostData[]> {
 
 export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
     const connectionIds = await fetchConnectionUserIds(userId);
-    
+
     let query = supabase
         .from('posts')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100);
 
     // Exclude posts from connected users, and also exclude own posts
     const excludeIds = [...connectionIds, userId];
-    
-    // Supabase JS doesn't have a simple 'not in' array method directly easily without string joining if array is empty, 
+
+    // Supabase JS doesn't have a simple 'not in' array method directly easily without string joining if array is empty,
     // but .not('user_id', 'in', `(${excludeIds.join(',')})`) works.
     if (excludeIds.length > 0) {
         query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
@@ -105,7 +107,8 @@ export async function fetchVideoPosts(): Promise<PostData[]> {
     const { data, error } = await supabase
         .from('posts')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100);
 
     if (error) {
         console.error('Error fetching video posts:', error);
@@ -307,7 +310,8 @@ export async function fetchRecentStories(): Promise<StoryData[]> {
         .from('stories')
         .select('*')
         .gte('created_at', twentyFourHoursAgo)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100);
 
     if (error) {
         console.error('Error fetching recent stories:', error);
@@ -1100,7 +1104,7 @@ export async function fetchAllPostsForScoring(excludeUserId: string): Promise<Po
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(80);
 
     if (excludeIds.length > 0) {
         query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);

@@ -148,7 +148,7 @@ const Boost: React.FC = () => {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--surface-color)', zIndex: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-active)' }}>
-                    <Rocket size={24} color="#ff3366" />
+                    <Rocket size={24} color="#f5a524" />
                     <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>Spotlight</h1>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -156,7 +156,7 @@ const Boost: React.FC = () => {
                     {mode === 'feed' ? (
                         <button 
                             onClick={handleSwitchToSelect}
-                            style={{ background: 'linear-gradient(45deg, #ff3366, #ff9933)', border: 'none', borderRadius: '20px', padding: '6px 12px', color: 'var(--text-active)', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            style={{ background: 'linear-gradient(45deg, #f5a524, #ff6b35)', border: 'none', borderRadius: '20px', padding: '6px 12px', color: 'var(--text-active)', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}
                         >
                             <PlusCircle size={14} /> Boost
                         </button>
@@ -218,11 +218,11 @@ const Boost: React.FC = () => {
                         onClick={() => navigate('/create?redirect=boost')}
                         style={{ 
                             width: '100%', 
-                            background: 'rgba(255, 51, 102, 0.1)', 
-                            border: '1.5px dashed #ff3366', 
+                            background: 'rgba(245, 165, 36, 0.1)', 
+                            border: '1.5px dashed #f5a524', 
                             borderRadius: '12px', 
                             padding: '14px', 
-                            color: '#ff3366', 
+                            color: '#f5a524', 
                             fontSize: '14px', 
                             fontWeight: 'bold', 
                             display: 'flex', 
@@ -247,7 +247,7 @@ const Boost: React.FC = () => {
                             <button 
                                 onClick={() => navigate('/create?redirect=boost')}
                                 style={{ 
-                                    background: 'linear-gradient(45deg, #ff3366, #ff9933)', 
+                                    background: 'linear-gradient(45deg, #f5a524, #ff6b35)', 
                                     border: 'none', 
                                     borderRadius: '24px', 
                                     padding: '10px 24px', 

@@ -505,7 +505,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             style={{
                                                 display: 'flex', alignItems: 'center', padding: '16px',
                                                 borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
-                                                backgroundColor: unread > 0 ? 'rgba(255, 51, 102, 0.05)' : 'transparent',
+                                                backgroundColor: unread > 0 ? 'rgba(245, 165, 36, 0.05)' : 'transparent',
                                             }}
                                         >
                                             <img
@@ -522,7 +522,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     }}>
                                                         {contact.username}
                                                     </h3>
-                                                    <span style={{ fontSize: '11px', color: unread > 0 ? '#ff3366' : 'var(--text-inactive)' }}>
+                                                    <span style={{ fontSize: '11px', color: unread > 0 ? '#f5a524' : 'var(--text-inactive)' }}>
                                                         {new Date(lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                     </span>
                                                 </div>
@@ -538,7 +538,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     </p>
                                                     {unread > 0 && (
                                                         <span style={{
-                                                            background: '#ff3366', color: 'var(--text-active)', fontSize: '11px',
+                                                            background: '#f5a524', color: 'var(--text-active)', fontSize: '11px',
                                                             fontWeight: 'bold', borderRadius: '50%', minWidth: '18px',
                                                             height: '18px', display: 'flex', alignItems: 'center',
                                                             justifyContent: 'center', padding: '0 4px',
@@ -594,7 +594,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 setView('list');
                                 if (initialOpenUserId) onClose();
                             }}
-                            style={{ background: 'none', border: 'none', color: '#ff3366', marginRight: '12px', display: 'flex', alignItems: 'center' }}
+                            style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '12px', display: 'flex', alignItems: 'center' }}
                         >
                             <ChevronLeft size={24} />
                         </button>
@@ -641,7 +641,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         }}
                                     >
                                         <div style={{
-                                            background: isMe ? '#ff3366' : 'var(--border-color)',
+                                            background: isMe ? '#f5a524' : 'var(--border-color)',
                                             color: 'var(--text-active)',
                                             padding: isShare ? '8px' : '12px 16px',
                                             borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
@@ -766,7 +766,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             type="submit"
                             disabled={!messageInput.trim()}
                             style={{
-                                background: messageInput.trim() ? '#ff3366' : 'var(--border-color)',
+                                background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
                                 color: 'var(--text-active)',
                                 border: 'none',
                                 borderRadius: '50%',

@@ -5,7 +5,7 @@ const ONBOARDING_KEY = 'kk_onboarding_done';
 
 const steps = [
     {
-        icon: <Sparkles size={48} color="#ff9933" />,
+        icon: <Sparkles size={48} color="#ff6b35" />,
         title: 'Welcome to Knock Knock 👋',
         desc: 'A social app where real connections start with your voice, not your looks.',
         gradient: 'linear-gradient(135deg, #1a1a2e, #16213e)',
@@ -17,10 +17,10 @@ const steps = [
         gradient: 'linear-gradient(135deg, #0f3443, #34e89e20)',
     },
     {
-        icon: <Users size={48} color="#ff3366" />,
+        icon: <Users size={48} color="#f5a524" />,
         title: 'Your Feed, Your Way 🎯',
         desc: '"For You" shows content from everyone. "Connections" shows only your friends. The algorithm learns what you love!',
-        gradient: 'linear-gradient(135deg, #2d1b4e, #ff336620)',
+        gradient: 'linear-gradient(135deg, #2d1b4e, #f5a52420)',
     },
     {
         icon: <Mic size={48} color="#af52de" />,
@@ -121,7 +121,7 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onComplete }) => 
                     <div key={i} style={{
                         width: i === step ? '24px' : '8px', height: '8px',
                         borderRadius: '4px', transition: 'all 0.3s',
-                        background: i === step ? '#ff3366' : '#3a3a3c',
+                        background: i === step ? '#f5a524' : '#3a3a3c',
                     }} />
                 ))}
             </div>
@@ -130,11 +130,11 @@ const OnboardingOverlay: React.FC<OnboardingOverlayProps> = ({ onComplete }) => 
             <button
                 onClick={handleNext}
                 style={{
-                    background: 'linear-gradient(45deg, #ff3366, #ff9933)',
+                    background: 'linear-gradient(45deg, #f5a524, #ff6b35)',
                     border: 'none', borderRadius: '30px',
                     padding: '16px 48px', color: 'var(--text-active)',
                     fontWeight: 'bold', fontSize: '17px', cursor: 'pointer',
-                    boxShadow: '0 4px 20px rgba(255,51,102,0.4)',
+                    boxShadow: '0 4px 20px rgba(245, 165, 36,0.4)',
                 }}
             >
                 {step === steps.length - 1 ? "Let's Go! 🚀" : 'Next'}

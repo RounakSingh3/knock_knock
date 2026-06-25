@@ -463,7 +463,7 @@ const Reels: React.FC = () => {
                 <button 
                     onClick={() => navigate('/create')}
                     style={{
-                        background: 'linear-gradient(45deg, #ff3366, #ff9933)',
+                        background: 'linear-gradient(45deg, #f5a524, #ff6b35)',
                         border: 'none',
                         borderRadius: '20px',
                         padding: '8px 16px',
@@ -471,7 +471,7 @@ const Reels: React.FC = () => {
                         fontWeight: 'bold',
                         fontSize: '0.9rem',
                         cursor: 'pointer',
-                        boxShadow: '0 4px 12px rgba(255, 51, 102, 0.3)'
+                        boxShadow: '0 4px 12px rgba(245, 165, 36, 0.3)'
                     }}
                 >
                     + Create Post
@@ -601,7 +601,7 @@ const Reels: React.FC = () => {
                                             className="heart-burst"
                                             style={{ left: h.x, top: h.y }}
                                         >
-                                            <Heart size={80} fill="#ff3366" stroke="none" />
+                                            <Heart size={80} fill="#f5a524" stroke="none" />
                                         </div>
                                     ))}
 
@@ -641,8 +641,8 @@ const Reels: React.FC = () => {
                                         >
                                             <Heart
                                                 size={28}
-                                                fill={isLiked ? '#ff3366' : 'none'}
-                                                stroke={isLiked ? '#ff3366' : 'var(--text-active)'}
+                                                fill={isLiked ? '#f5a524' : 'none'}
+                                                stroke={isLiked ? '#f5a524' : 'var(--text-active)'}
                                             />
                                             <span>{formatCount(reel.likes + (isLiked ? 1 : 0))}</span>
                                         </button>

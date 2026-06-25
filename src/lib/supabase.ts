@@ -9,4 +9,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
     );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+        // Persist session in localStorage so users stay logged in across reloads
+        persistSession: true,
+        // Auto-refresh the token when needed
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+    },
+    realtime: {
+        // Throttle realtime events to avoid hammering the server
+        params: { eventsPerSecond: 5 },
+    },
+});

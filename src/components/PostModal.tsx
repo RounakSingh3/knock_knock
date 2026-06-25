@@ -104,7 +104,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                         className={`modal-action-btn ${isLiked ? 'liked' : ''}`}
                         onClick={handleLikeToggle}
                     >
-                        <Heart size={22} fill={isLiked ? '#ff3366' : 'none'} color={isLiked ? '#ff3366' : 'var(--text-active)'} />
+                        <Heart size={22} fill={isLiked ? '#f5a524' : 'none'} color={isLiked ? '#f5a524' : 'var(--text-active)'} />
                         <span>{likeCount}</span>
                     </button>
                     <button className="modal-action-btn" onClick={() => onCommentClick && onCommentClick(post.id)}>

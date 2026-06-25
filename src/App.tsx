@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, Suspense } from 'react';
+import React, { createContext, useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { fetchProfile, updatePoints, setUserOnlineStatus, fetchBlockedIds, type ProfileData } from './lib/database';
 import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSession } from './lib/auth';
@@ -6,17 +6,31 @@ import BottomNav from './components/BottomNav';
 import OnboardingOverlay from './components/OnboardingOverlay';
 import GlobalCallListener from './components/GlobalCallListener';
 
-import Home from './pages/Home';
-import Stories from './pages/Stories';
-import Explore from './pages/Explore';
-import Connections from './pages/Connections';
-import Boost from './pages/Boost';
-import Reels from './pages/Reels';
-import VoiceCall from './pages/VoiceCall';
+// ⚡ Lazy-load pages so only the page you visit is downloaded (huge speed boost).
+// Login is loaded eagerly because it's the first thing unauthenticated users see.
 import Login from './pages/Login';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
-import CreatePost from './pages/CreatePost';
+const Home = lazy(() => import('./pages/Home'));
+const Stories = lazy(() => import('./pages/Stories'));
+const Explore = lazy(() => import('./pages/Explore'));
+const Connections = lazy(() => import('./pages/Connections'));
+const Boost = lazy(() => import('./pages/Boost'));
+const Reels = lazy(() => import('./pages/Reels'));
+const VoiceCall = lazy(() => import('./pages/VoiceCall'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Settings = lazy(() => import('./pages/Settings'));
+const CreatePost = lazy(() => import('./pages/CreatePost'));
+
+// Compact loading spinner shown while a lazy page chunk downloads
+const PageLoader: React.FC<{ message?: string }> = ({ message = 'Loading...' }) => (
+    <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <div className="text-center">
+            <h1 className="app-title text-4xl mb-2" style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, letterSpacing: '-1.5px', background: 'var(--primary-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                Knock Knock
+            </h1>
+            <p style={{ color: 'var(--text-inactive)', marginTop: '1rem' }}>{message}</p>
+        </div>
+    </div>
+);
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: React.ReactNode}) {
@@ -46,7 +60,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
             <p style={{ color: 'var(--text-inactive)', marginBottom: '24px' }}>The app encountered an error. This usually happens after an update.</p>
             <button 
                 onClick={() => { sessionStorage.removeItem('chunk_reloaded'); window.location.reload(); }} 
-                style={{ padding: '12px 24px', background: 'linear-gradient(45deg, #ff3366, #ff9933)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
+                style={{ padding: '12px 24px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
             >
                 Reload App
             </button>
@@ -272,17 +286,17 @@ function App() {
                         ) : (
                             <>
                                 <Route path="/" element={<Navigate to="/home" />} />
-                                <Route path="/home" element={<Home />} />
-                                <Route path="/stories" element={<Stories />} />
-                                <Route path="/explore" element={<Explore />} />
-                                <Route path="/connections" element={<Connections />} />
-                                <Route path="/create" element={<CreatePost />} />
-                                <Route path="/boost" element={<Boost />} />
-                                <Route path="/reels" element={<Reels />} />
-                                <Route path="/call" element={<VoiceCall />} />
-                                <Route path="/settings" element={<Settings />} />
-                                <Route path="/profile" element={<Profile />} />
-                                <Route path="/profile/:username" element={<Profile />} />
+                                <Route path="/home" element={<Suspense fallback={<PageLoader message="Loading home..." />}><Home /></Suspense>} />
+                                <Route path="/stories" element={<Suspense fallback={<PageLoader />}><Stories /></Suspense>} />
+                                <Route path="/explore" element={<Suspense fallback={<PageLoader />}><Explore /></Suspense>} />
+                                <Route path="/connections" element={<Suspense fallback={<PageLoader />}><Connections /></Suspense>} />
+                                <Route path="/create" element={<Suspense fallback={<PageLoader />}><CreatePost /></Suspense>} />
+                                <Route path="/boost" element={<Suspense fallback={<PageLoader />}><Boost /></Suspense>} />
+                                <Route path="/reels" element={<Suspense fallback={<PageLoader />}><Reels /></Suspense>} />
+                                <Route path="/call" element={<Suspense fallback={<PageLoader />}><VoiceCall /></Suspense>} />
+                                <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
+                                <Route path="/profile" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
+                                <Route path="/profile/:username" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/login" element={<Navigate to="/home" />} />
                             </>
                         )}

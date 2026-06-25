@@ -79,8 +79,8 @@ const Settings = () => {
             icon: <User size={20} />,
             label: 'My Profile',
             sub: `@${username}`,
-            iconColor: '#06b6d4',
-            bgLight: 'rgba(6, 182, 212, 0.1)',
+            iconColor: '#ff6b35',
+            bgLight: 'rgba(255, 107, 53, 0.1)',
             onClick: () => navigate(`/profile/${username}`),
         },
         {
@@ -168,8 +168,8 @@ const Settings = () => {
                         </div>
 
                         <div className="stat-box-premium">
-                            <div className="stat-value-premium" style={{ color: '#06b6d4' }}>
-                                <Image size={16} style={{ filter: 'drop-shadow(0 0 4px rgba(6,182,212,0.5))' }} />
+                            <div className="stat-value-premium" style={{ color: '#ff6b35' }}>
+                                <Image size={16} style={{ filter: 'drop-shadow(0 0 4px rgba(255, 107, 53,0.5))' }} />
                                 <span>{photosCount}</span>
                             </div>
                             <div className="stat-label-premium">Photos</div>

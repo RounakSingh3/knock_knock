@@ -165,7 +165,7 @@ const CreatePost = () => {
                 </button>
             </div>
 
-            {error && <div style={{ color: '#ff3366', marginBottom: '16px', padding: '12px', background: 'rgba(255,51,102,0.1)', borderRadius: '8px' }}>{error}</div>}
+            {error && <div style={{ color: '#f5a524', marginBottom: '16px', padding: '12px', background: 'rgba(245, 165, 36,0.1)', borderRadius: '8px' }}>{error}</div>}
 
             {!previewUrl ? (
                 <label style={{
@@ -217,7 +217,7 @@ const CreatePost = () => {
                                 <div style={{ 
                                     width: '60px', height: '60px', borderRadius: '12px', 
                                     background: 'var(--border-color)', marginBottom: '8px', overflow: 'hidden',
-                                    border: selectedFilter === f.filter ? '2px solid #ff3366' : '2px solid transparent'
+                                    border: selectedFilter === f.filter ? '2px solid #f5a524' : '2px solid transparent'
                                 }}>
                                     {file?.type.startsWith('video/') ? (
                                         <video src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: f.filter }} muted />
@@ -306,8 +306,8 @@ const CreatePost = () => {
             <div style={{ 
                 marginBottom: '24px', 
                 padding: '16px', 
-                background: 'rgba(255, 51, 102, 0.05)', 
-                border: '1px solid rgba(255, 51, 102, 0.2)', 
+                background: 'rgba(245, 165, 36, 0.05)', 
+                border: '1px solid rgba(245, 165, 36, 0.2)', 
                 borderRadius: '16px' 
             }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -328,7 +328,7 @@ const CreatePost = () => {
                             />
                             <span style={{ 
                                 position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, 
-                                backgroundColor: boostToSpotlight ? '#ff3366' : '#555', 
+                                backgroundColor: boostToSpotlight ? '#f5a524' : '#555', 
                                 transition: '.4s', borderRadius: '24px' 
                             }}>
                                 <span style={{ 
@@ -339,7 +339,7 @@ const CreatePost = () => {
                             </span>
                         </label>
                     ) : (
-                        <span style={{ color: '#ff3366', fontSize: '12px', fontWeight: 'bold' }}>Need points</span>
+                        <span style={{ color: '#f5a524', fontSize: '12px', fontWeight: 'bold' }}>Need points</span>
                     )}
                 </div>
                 {boostToSpotlight && points > 0 && (
@@ -354,7 +354,7 @@ const CreatePost = () => {
                             max={Math.max(1, points)} 
                             value={boostAmount} 
                             onChange={(e) => setBoostAmount(parseInt(e.target.value))}
-                            style={{ width: '100%', accentColor: '#ff3366' }}
+                            style={{ width: '100%', accentColor: '#f5a524' }}
                         />
                     </div>
                 )}
@@ -382,7 +382,7 @@ const CreatePost = () => {
                                 <span>{uploadProgress}%</span>
                             </div>
                             <div style={{ width: '100%', height: '8px', background: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div style={{ width: `${uploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #ff3366, #ff9933)', transition: 'width 0.1s ease-out' }} />
+                                <div style={{ width: `${uploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #f5a524, #ff6b35)', transition: 'width 0.1s ease-out' }} />
                             </div>
                         </div>
                     ) : (
@@ -398,7 +398,7 @@ const CreatePost = () => {
                     disabled={!file}
                     style={{
                         width: '100%',
-                        background: !file ? 'var(--border-color)' : 'linear-gradient(45deg, #ff3366, #ff9933)',
+                        background: !file ? 'var(--border-color)' : 'linear-gradient(45deg, #f5a524, #ff6b35)',
                         color: !file ? 'var(--text-inactive)' : 'var(--text-active)',
                         border: 'none',
                         borderRadius: '30px',

@@ -200,7 +200,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                                         <button 
                                             onClick={() => handleSend(contact.id)}
                                             disabled={sendingTo[contact.id]}
-                                            style={{ marginTop: '8px', background: sendingTo[contact.id] ? 'var(--border-color)' : '#ff3366', color: 'var(--text-active)', border: 'none', padding: '4px 12px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                                            style={{ marginTop: '8px', background: sendingTo[contact.id] ? 'var(--border-color)' : '#f5a524', color: 'var(--text-active)', border: 'none', padding: '4px 12px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
                                         >
                                             {sendingTo[contact.id] ? <Loader2 size={12} className="animate-spin" /> : 'Send'}
                                         </button>
