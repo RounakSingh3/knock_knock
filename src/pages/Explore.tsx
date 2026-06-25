@@ -27,7 +27,7 @@ function groupByUser(stories: StoryData[]): UserStoryGroup[] {
 }
 
 const Explore = () => {
-    const { user } = useContext(AppContext);
+    const { user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
     
     const [searchTerm, setSearchTerm] = useState('');
@@ -83,10 +83,10 @@ const Explore = () => {
     useEffect(() => {
         setIsTrendingLoading(true);
         fetchTrendingPosts(6).then(posts => {
-            setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0));
+            setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id))));
             setIsTrendingLoading(false);
         });
-    }, []);
+    }, [blockedIds]);
 
     // Load Discover Feed
     const loadDiscoverFeed = async () => {
@@ -95,7 +95,8 @@ const Explore = () => {
         setHasMore(true);
         observedPostsRef.current.clear();
         try {
-            const rawPosts = await fetchDiscoverPosts(selectedCategory, 200);
+            let rawPosts = await fetchDiscoverPosts(selectedCategory, 200);
+            rawPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
             rawPostsCacheRef.current = rawPosts;
             if (user) {
                 const engagements = await fetchUserEngagements(user.id);
@@ -199,7 +200,7 @@ const Explore = () => {
         setIsRefreshing(true);
         await loadDiscoverFeed();
         // Reload trending too
-        fetchTrendingPosts(6).then(posts => setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0)));
+        fetchTrendingPosts(6).then(posts => setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)))));
         setIsRefreshing(false);
     };
 
@@ -212,7 +213,7 @@ const Explore = () => {
                 if (activeTab === 'stories') {
                     setLoadingSearch(true);
                     fetchBoostedStories().then(data => {
-                        setStoryResults(groupByUser(data));
+                        setStoryResults(groupByUser(data.filter(s => !blockedIds.includes(s.user_id))));
                         setLoadingSearch(false);
                     });
                 }
@@ -221,7 +222,7 @@ const Explore = () => {
             performSearch();
         }, 400);
         return () => clearTimeout(timer);
-    }, [searchTerm, activeTab]);
+    }, [searchTerm, activeTab, blockedIds]);
 
     const performSearch = async () => {
         setLoadingSearch(true);
@@ -229,10 +230,11 @@ const Explore = () => {
 
         if (activeTab === 'people' && query.length >= 2) {
             const results = await searchUsers(query);
-            setPeopleResults(results);
+            const filteredResults = results.filter(p => !blockedIds.includes(p.id));
+            setPeopleResults(filteredResults);
             if (user) {
                 const map: Record<string, boolean> = {};
-                await Promise.all(results.map(async (p) => {
+                await Promise.all(filteredResults.map(async (p) => {
                     if (p.id !== user.id) {
                         map[p.id] = await checkIfFollowing(user.id, p.id);
                     }
@@ -241,11 +243,11 @@ const Explore = () => {
             }
         } else if (activeTab === 'posts') {
             const results = await searchPostsByCaption(query || '%');
-            setPostResults(results);
+            setPostResults(results.filter(p => !p.user_id || !blockedIds.includes(p.user_id)));
         } else if (activeTab === 'stories') {
             const term = query.startsWith('#') ? query.substring(1) : query;
             const data = await searchStoriesByHashtag(term);
-            setStoryResults(data);
+            setStoryResults(groupByUser(data.filter(s => !blockedIds.includes(s.user_id))));
         }
         setLoadingSearch(false);
     };

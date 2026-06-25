@@ -209,10 +209,7 @@ body {
     font-weight: 800;
     letter-spacing: -0.5px;
     margin: 0;
-    background: var(--primary-gradient);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: lightgreen;
 }
 
 .header-right-v2 {

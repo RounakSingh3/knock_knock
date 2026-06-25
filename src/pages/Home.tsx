@@ -33,7 +33,7 @@ interface StoryGroup {
 }
 
 const Home = () => {
-    const { signOut, user } = useContext(AppContext);
+    const { signOut, user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
     const [posts, setPosts] = useState<PostData[]>([]);
     const [loading, setLoading] = useState(true);
@@ -125,9 +125,11 @@ const Home = () => {
             fetchAllPostsForScoring(user.id),
             fetchUserEngagements(user.id)
         ]).then(([rawPosts, engagements]) => {
-            setAllRawPosts(rawPosts);
+            const validPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            setAllRawPosts(validPosts);
             const profile = buildInterestProfile(engagements);
-            const firstPage = assembleFeed(rawPosts, profile, 0, 10);
+            const firstPage = assembleFeed(validPosts, profile, 0, 10);
+            
             setScoredFeed(firstPage);
             setPosts(firstPage.map(s => s.post));
             setLoading(false);
@@ -160,8 +162,9 @@ const Home = () => {
 
         // Fetch recent stories for the rack
         fetchRecentStories().then(stories => {
+            const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
             const groups: Record<string, StoryGroup> = {};
-            stories.forEach(s => {
+            validStories.forEach(s => {
                 const uid = s.user_id || 'unknown';
                 if (!groups[uid]) {
                     groups[uid] = {
@@ -176,13 +179,12 @@ const Home = () => {
             setStoryGroups(Object.values(groups));
         });
 
-        // Fetch connection user IDs for ring highlights
         if (user) {
             fetchConnectionUserIds(user.id).then(ids => {
                 setConnectionUserIds(new Set(ids));
             });
         }
-    }, []);
+    }, [user?.id, blockedIds]);
 
     const handleLikeToggle = async (postId: string) => {
         if (!user) return;
@@ -255,9 +257,11 @@ const Home = () => {
                 fetchConnectionPosts(user.id),
                 fetchConnectionStories(user.id),
             ]).then(([posts, stories]) => {
+                const validPosts = posts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+                const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
                 const userMap = new Map<string, UnifiedItem>();
                 
-                posts.forEach(p => {
+                validPosts.forEach(p => {
                     const uid = p.user_id || 'unknown';
                     if (!userMap.has(uid)) {
                         userMap.set(uid, { userId: uid, username: p.username, avatarUrl: p.avatar_url, latestDate: new Date(p.created_at) });
@@ -269,7 +273,7 @@ const Home = () => {
                     }
                 });
 
-                stories.forEach(s => {
+                validStories.forEach(s => {
                     const uid = s.user_id || 'unknown';
                     if (!userMap.has(uid)) {
                         userMap.set(uid, { userId: uid, username: s.username || 'user', avatarUrl: s.image_url, latestDate: new Date(s.created_at) });

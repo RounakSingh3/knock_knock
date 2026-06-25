@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { fetchProfile, updatePoints, setUserOnlineStatus, type ProfileData } from './lib/database';
+import { fetchProfile, updatePoints, setUserOnlineStatus, fetchBlockedIds, type ProfileData } from './lib/database';
 import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSession } from './lib/auth';
 import BottomNav from './components/BottomNav';
 import OnboardingOverlay from './components/OnboardingOverlay';
@@ -63,6 +63,8 @@ interface AppContextType {
     setPoints: React.Dispatch<React.SetStateAction<number>>;
     user: ProfileData | null;
     setUser: React.Dispatch<React.SetStateAction<ProfileData | null>>;
+    blockedIds: string[];
+    setBlockedIds: React.Dispatch<React.SetStateAction<string[]>>;
     isAuthenticated: boolean;
     signOut: () => void;
 }
@@ -72,6 +74,8 @@ export const AppContext = createContext<AppContextType>({
     setPoints: () => { },
     user: null,
     setUser: () => { },
+    blockedIds: [],
+    setBlockedIds: () => { },
     isAuthenticated: false,
     signOut: () => { },
 });
@@ -82,6 +86,7 @@ const POINTS_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 function App() {
     const [points, setPoints] = useState(0);
     const [user, setUser] = useState<ProfileData | null>(null);
+    const [blockedIds, setBlockedIds] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [onboardingDone, setOnboardingDone] = useState(false);
 
@@ -114,6 +119,10 @@ function App() {
                         setUser(profile);
                         setPoints(profile.points || 0);
                         localStorage.setItem('knock_user_session', JSON.stringify(profile));
+                        
+                        const bIds = await fetchBlockedIds(profile.id);
+                        if (mounted) setBlockedIds(bIds);
+
                         setLoading(false);
                         return;
                     }
@@ -137,10 +146,13 @@ function App() {
                     setUser(profile);
                     setPoints(profile.points || 0);
                     localStorage.setItem('knock_user_session', JSON.stringify(profile));
+                    const bIds = await fetchBlockedIds(profile.id);
+                    if (mounted) setBlockedIds(bIds);
                 }
             } else {
                 setUser(null);
                 setPoints(0);
+                setBlockedIds([]);
                 localStorage.removeItem('knock_user_session');
             }
         });
@@ -247,7 +259,7 @@ function App() {
     }
 
     return (
-        <AppContext.Provider value={{ points, setPoints, user, setUser, isAuthenticated, signOut }}>
+        <AppContext.Provider value={{ points, setPoints, user, setUser, blockedIds, setBlockedIds, isAuthenticated, signOut }}>
             <Router>
                 <div className="app-container">
                     <ErrorBoundary>

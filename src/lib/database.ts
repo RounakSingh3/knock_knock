@@ -1429,3 +1429,50 @@ export async function fetchTopStreakUsers(limit: number = 3): Promise<ProfileDat
     return data || [];
 }
 
+// ── Blocking ──────────────────────────────────────────────
+
+export async function fetchBlockedIds(userId: string): Promise<string[]> {
+    const { data, error } = await supabase
+        .from('blocks')
+        .select('blocker_id, blocked_id')
+        .or(`blocker_id.eq.${userId},blocked_id.eq.${userId}`);
+
+    if (error) {
+        console.error('Error fetching blocked ids:', error);
+        return [];
+    }
+
+    const blockedSet = new Set<string>();
+    data.forEach(b => {
+        if (b.blocker_id !== userId) blockedSet.add(b.blocker_id);
+        if (b.blocked_id !== userId) blockedSet.add(b.blocked_id);
+    });
+
+    return Array.from(blockedSet);
+}
+
+export async function blockUser(blockerId: string, blockedId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('blocks')
+        .insert({ blocker_id: blockerId, blocked_id: blockedId });
+    
+    if (error) {
+        console.error('Error blocking user:', error);
+        return false;
+    }
+    return true;
+}
+
+export async function unblockUser(blockerId: string, blockedId: string): Promise<boolean> {
+    const { error } = await supabase
+        .from('blocks')
+        .delete()
+        .match({ blocker_id: blockerId, blocked_id: blockedId });
+    
+    if (error) {
+        console.error('Error unblocking user:', error);
+        return false;
+    }
+    return true;
+}
+

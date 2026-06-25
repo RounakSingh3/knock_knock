@@ -215,7 +215,7 @@ function postToReel(post: PostData): ReelData {
 }
 
 const Reels: React.FC = () => {
-    const { user } = useContext(AppContext);
+    const { user, blockedIds } = useContext(AppContext);
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [mutedAll, setMutedAll] = useState(false);
@@ -240,7 +240,8 @@ const Reels: React.FC = () => {
 
     useEffect(() => {
         fetchVideoPosts().then((videoPosts) => {
-            const userReels = videoPosts.map(postToReel);
+            const validPosts = videoPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            const userReels = validPosts.map(postToReel);
             const merged = [...userReels, ...REELS_DATA];
             setReelsList(merged);
             setPlayStates(merged.map(() => true));

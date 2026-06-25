@@ -4,9 +4,9 @@ import { AppContext } from '../App';
 import { 
     fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
-    uploadMedia, updateProfile
+    uploadMedia, updateProfile, blockUser, unblockUser
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert } from 'lucide-react';
 import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
@@ -15,7 +15,7 @@ import { supabase } from '../lib/supabase';
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
     const navigate = useNavigate();
-    const { user: currentUser, setUser, points } = useContext(AppContext);
+    const { user: currentUser, setUser, points, blockedIds, setBlockedIds } = useContext(AppContext);
 
     const [profile, setProfile] = useState<ProfileData | null>(null);
     const [posts, setPosts] = useState<PostData[]>([]);
@@ -30,6 +30,28 @@ const Profile = () => {
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
     const [updatingAvatar, setUpdatingAvatar] = useState(false);
+    const [isBlocking, setIsBlocking] = useState(false);
+
+    const isBlocked = profile ? blockedIds.includes(profile.id) : false;
+
+    const handleBlockToggle = async () => {
+        if (!currentUser || !profile) return;
+        setIsBlocking(true);
+        if (isBlocked) {
+            const ok = await unblockUser(currentUser.id, profile.id);
+            if (ok) {
+                setBlockedIds(prev => prev.filter(id => id !== profile.id));
+            }
+        } else {
+            if (window.confirm(`Are you sure you want to block ${profile.username}? You won't see their posts or connect with them.`)) {
+                const ok = await blockUser(currentUser.id, profile.id);
+                if (ok) {
+                    setBlockedIds(prev => [...prev, profile.id]);
+                }
+            }
+        }
+        setIsBlocking(false);
+    };
 
     const handleAvatarDirectChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!currentUser || !profile) return;
@@ -318,30 +340,62 @@ const Profile = () => {
                         </>
                     ) : (
                         <>
-                            <button 
-                                className="profile-action-btn" 
-                                style={{ background: isFollowing ? 'var(--border-color)' : '#ff3366', color: 'var(--text-active)' }}
-                                onClick={handleFollowToggle}
-                            >
-                                {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
-                                {isFollowing ? ' Unfriend' : ' Friend'}
-                            </button>
-                            <button 
-                                className="profile-action-btn" 
-                                style={{ background: '#34C759', color: 'var(--text-active)', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
-                                onClick={handleDirectCall}
-                                disabled={callingStatus === 'calling'}
-                            >
-                                {callingStatus === 'calling' ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />} 
-                                {callingStatus === 'calling' ? ' Calling...' : ' Call'}
-                            </button>
+                            {isBlocked ? (
+                                <button 
+                                    className="profile-action-btn" 
+                                    style={{ background: 'var(--border-color)', color: 'var(--text-active)', flex: 1 }}
+                                    onClick={handleBlockToggle}
+                                    disabled={isBlocking}
+                                >
+                                    {isBlocking ? <Loader2 size={16} className="animate-spin" /> : <ShieldAlert size={16} />}
+                                    Unblock
+                                </button>
+                            ) : (
+                                <>
+                                    <button 
+                                        className="profile-action-btn" 
+                                        style={{ background: isFollowing ? 'var(--border-color)' : '#ff3366', color: 'var(--text-active)' }}
+                                        onClick={handleFollowToggle}
+                                    >
+                                        {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
+                                        {isFollowing ? ' Unfriend' : ' Friend'}
+                                    </button>
+                                    <button 
+                                        className="profile-action-btn" 
+                                        style={{ background: '#34C759', color: 'var(--text-active)', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
+                                        onClick={handleDirectCall}
+                                        disabled={callingStatus === 'calling'}
+                                    >
+                                        {callingStatus === 'calling' ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />} 
+                                        {callingStatus === 'calling' ? ' Calling...' : ' Call'}
+                                    </button>
+                                    <button 
+                                        className="profile-action-btn" 
+                                        style={{ background: 'var(--border-color)', color: '#ff3b30', flex: '0 0 auto', padding: '0 12px' }}
+                                        onClick={handleBlockToggle}
+                                        disabled={isBlocking}
+                                        title="Block User"
+                                    >
+                                        {isBlocking ? <Loader2 size={16} className="animate-spin" /> : <ShieldAlert size={16} />}
+                                    </button>
+                                </>
+                            )}
                         </>
                     )}
-                    <button className="profile-action-btn">Share Profile</button>
+                    {!isBlocked && <button className="profile-action-btn" style={{ flex: isOwnProfile ? 1 : '0 0 auto', padding: isOwnProfile ? undefined : '0 12px' }}>Share</button>}
                 </div>
             </div>
 
-            {/* ── Content Upload Summary ── */}
+            {/* ── Blocked View ── */}
+            {isBlocked ? (
+                <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-inactive)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <ShieldAlert size={48} style={{ opacity: 0.5, marginBottom: '16px' }} />
+                    <h3 className="text-xl font-bold mb-2">User Blocked</h3>
+                    <p>You cannot see posts or content from blocked users.</p>
+                </div>
+            ) : (
+                <>
+                    {/* ── Content Upload Summary ── */}
             <div style={{ padding: '0 1rem 0.5rem' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <div className="upload-summary-card">
@@ -511,6 +565,8 @@ const Profile = () => {
                         )}
                     </div>
                 </div>
+            )}
+                </>
             )}
 
             {/* Edit Profile Sheet */}

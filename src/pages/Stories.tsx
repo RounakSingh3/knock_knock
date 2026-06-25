@@ -78,7 +78,7 @@ const Stories = () => {
     const [lastStoryAt, setLastStoryAt] = useState<string | null>(null);
     const [streakPointsEarned, setStreakPointsEarned] = useState<number | null>(null);
 
-    const { points, setPoints, user } = useContext(AppContext);
+    const { points, setPoints, user, blockedIds } = useContext(AppContext);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -86,11 +86,12 @@ const Stories = () => {
     // Fetch data on mount
     useEffect(() => {
         fetchBoostedStories().then((stories) => {
-            setBoostedStories(stories);
+            const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
+            setBoostedStories(validStories);
             // Pick a random mystery story
-            if (stories.length > 2) {
-                const randomIdx = Math.floor(Math.random() * stories.length);
-                setMysteryStory(stories[randomIdx]);
+            if (validStories.length > 2) {
+                const randomIdx = Math.floor(Math.random() * validStories.length);
+                setMysteryStory(validStories[randomIdx]);
             }
         });
         fetchVideoPosts().then((posts) => setVideoClips(posts));
@@ -105,7 +106,7 @@ const Stories = () => {
                 }
             });
         }
-    }, [user]);
+    }, [user, blockedIds]);
 
     // Infinite scroll observer for boosted stories
     useEffect(() => {

@@ -5,7 +5,7 @@ import { fetchConnections, removeConnection, updateConnectionStreak, type Connec
 import { Loader2, Phone, Flame, AlertTriangle, Skull, UserMinus, ChevronRight, Users, Zap, Heart, Sparkles } from 'lucide-react';
 
 const Connections = () => {
-    const { user } = useContext(AppContext);
+    const { user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
     const [connections, setConnections] = useState<ConnectionWithProfile[]>([]);
     const [loading, setLoading] = useState(true);
@@ -20,7 +20,8 @@ const Connections = () => {
         if (!user) return;
         setLoading(true);
         const data = await fetchConnections(user.id);
-        setConnections(data);
+        const validConnections = data.filter(c => !blockedIds.includes(c.partner.id));
+        setConnections(validConnections);
         setLoading(false);
     };
 
