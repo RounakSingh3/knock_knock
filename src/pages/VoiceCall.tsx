@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
 import { AppContext } from '../App';
 import { useSearchParams } from 'react-router-dom';
-import { computeMatches, createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData } from '../lib/database';
+import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 const MATCH_PREFERENCES = [
@@ -53,6 +53,9 @@ const VoiceCall = () => {
     const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
     const [incomingExtensionRequest, setIncomingExtensionRequest] = useState(false);
     const [incomingVideoRequest, setIncomingVideoRequest] = useState(false);
+    const [audioBlocked, setAudioBlocked] = useState(false);
+    const [peerConnected, setPeerConnected] = useState(false);
+    const onlineUsersRef = useRef<any[]>([]);
 
     const channelRef = useRef<any>(null);
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -64,6 +67,7 @@ const VoiceCall = () => {
     const searchTimeoutRef = useRef<number | null>(null);
     const pendingOfferRef = useRef<any>(null);
     const pendingIceCandidatesRef = useRef<any[]>([]);
+    const webrtcReadyRef = useRef(false);
 
     // State refs to give signaling callbacks the latest values
     const isSearchingRef = useRef(isSearching);
@@ -81,6 +85,7 @@ const VoiceCall = () => {
     useEffect(() => { inCallRef.current = inCall; }, [inCall]);
     useEffect(() => { isMockModeRef.current = isMockMode; }, [isMockMode]);
     useEffect(() => { isCallerRef.current = isCaller; }, [isCaller]);
+    useEffect(() => { onlineUsersRef.current = onlineUsers; }, [onlineUsers]);
 
     // Handle Direct Calls Initialization
     useEffect(() => {
@@ -137,10 +142,23 @@ const VoiceCall = () => {
     // Check call duration limit
     useEffect(() => {
         if (inCall && callDuration >= 180 && requestStatus !== 'accepted') {
+            // Time's up — end the call (endCall handles the call-end signal)
             endCall();
-            skipToNext();
         }
     }, [callDuration, inCall, requestStatus]);
+
+    // Auto-end call if WebRTC doesn't connect within 15 seconds
+    useEffect(() => {
+        if (!inCall || peerConnected) return;
+        const timeout = setTimeout(() => {
+            if (!peerConnected && inCallRef.current) {
+                console.log('[VoiceCall] No peer connection after 15s, ending call');
+                endCall();
+                setNoMatchFound(true);
+            }
+        }, 15000);
+        return () => clearTimeout(timeout);
+    }, [inCall, peerConnected]);
 
     // WebRTC connection and cleanup functions
     const closeWebRTC = () => {
@@ -216,6 +234,16 @@ const VoiceCall = () => {
                 };
 
                 if (isSearchingRef.current && genderMatch()) {
+                    // Verify the caller is still actually searching (check presence)
+                    const callerPresence = onlineUsersRef.current.find(
+                        (u: any) => u.user_id === payload.callerId
+                    );
+                    if (!callerPresence || callerPresence.status !== 'searching') {
+                        // Caller is no longer searching — ignore stale invite
+                        console.log('[VoiceCall] Ignoring stale call-invite, caller no longer searching');
+                        return;
+                    }
+
                     if (searchTimeoutRef.current) {
                         clearTimeout(searchTimeoutRef.current);
                         searchTimeoutRef.current = null;
@@ -232,7 +260,11 @@ const VoiceCall = () => {
                     }]);
                     setCurrentMatchIndex(0);
                     setIsSearching(false);
-                    setShowMatchCard(true);
+                    // Auto-connect: go straight into the call (no manual click needed)
+                    setShowMatchCard(false);
+                    setInCall(true);
+                    setPeerConnected(false);
+                    updatePresence('in-call');
 
                     channel.send({
                         type: 'broadcast',
@@ -254,7 +286,8 @@ const VoiceCall = () => {
             })
             .on('broadcast', { event: 'call-accept' }, ({ payload }) => {
                 if (payload.callerId !== user.id) return;
-                if (isSearchingRef.current && pendingInviteRef.current === payload.receiverId) {
+                // Accept from anyone we invited (not just the last one) — as long as we're still searching
+                if (isSearchingRef.current) {
                     if (searchTimeoutRef.current) {
                         clearTimeout(searchTimeoutRef.current);
                         searchTimeoutRef.current = null;
@@ -271,7 +304,11 @@ const VoiceCall = () => {
                     }]);
                     setCurrentMatchIndex(0);
                     setIsSearching(false);
-                    setShowMatchCard(true);
+                    // Auto-connect: go straight into the call
+                    setShowMatchCard(false);
+                    setInCall(true);
+                    setPeerConnected(false);
+                    updatePresence('in-call');
                     pendingInviteRef.current = null;
                 }
             })
@@ -356,11 +393,25 @@ const VoiceCall = () => {
             .on('broadcast', { event: 'webrtc-offer' }, async ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
                 
-                const processOffer = async (sdp: any) => {
+                const processOffer = async (pc: RTCPeerConnection, sdp: any) => {
                     try {
-                        await peerConnectionRef.current!.setRemoteDescription(new RTCSessionDescription(sdp));
-                        const answer = await peerConnectionRef.current!.createAnswer();
-                        await peerConnectionRef.current!.setLocalDescription(answer);
+                        // Handle offer collision: if we already have a local description,
+                        // we need to rollback first (polite peer pattern)
+                        if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') {
+                            console.warn('[WebRTC] Unexpected signaling state for offer:', pc.signalingState);
+                        }
+                        if (pc.signalingState === 'have-local-offer') {
+                            // We're the impolite peer if caller, polite if receiver
+                            if (!isCallerRef.current) {
+                                await pc.setLocalDescription({ type: 'rollback' });
+                            } else {
+                                // As caller, ignore incoming offer (we take priority)
+                                return;
+                            }
+                        }
+                        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
                         channel.send({
                             type: 'broadcast',
                             event: 'webrtc-answer',
@@ -370,14 +421,24 @@ const VoiceCall = () => {
                                 sdp: answer,
                             }
                         });
+                        // Drain any queued ICE candidates now that remote description is set
+                        for (const candidate of pendingIceCandidatesRef.current) {
+                            try {
+                                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                            } catch (e) {
+                                console.error('Error adding queued ICE candidate after offer:', e);
+                            }
+                        }
+                        pendingIceCandidatesRef.current = [];
                     } catch (e) {
                         console.error('Error handling WebRTC offer:', e);
                     }
                 };
 
-                if (peerConnectionRef.current) {
-                    await processOffer(payload.sdp);
+                if (peerConnectionRef.current && webrtcReadyRef.current) {
+                    await processOffer(peerConnectionRef.current, payload.sdp);
                 } else {
+                    // PC not ready yet — queue the offer for when startWebRTC runs
                     pendingOfferRef.current = payload.sdp;
                 }
             })
@@ -385,6 +446,10 @@ const VoiceCall = () => {
                 if (payload.receiverId !== user.id) return;
                 if (peerConnectionRef.current) {
                     try {
+                        if (peerConnectionRef.current.signalingState === 'stable') {
+                            console.warn('[WebRTC] Ignoring answer — already stable');
+                            return;
+                        }
                         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
                         // Drain any ICE candidates that arrived before remote description was set
                         for (const candidate of pendingIceCandidatesRef.current) {
@@ -409,6 +474,7 @@ const VoiceCall = () => {
                         console.error('Error handling ICE candidate:', e);
                     }
                 } else {
+                    // Queue candidate — will be drained when remote description is set
                     pendingIceCandidatesRef.current.push(payload.candidate);
                 }
             });
@@ -432,7 +498,7 @@ const VoiceCall = () => {
         };
     }, [user?.id]);
 
-    // ÔöÇÔöÇ WebRTC Connection Management ÔöÇÔöÇ
+    // ── WebRTC Connection Management ──
     useEffect(() => {
         const startWebRTC = async () => {
             if (!inCall || isMockMode || !currentMatch) return;
@@ -454,24 +520,38 @@ const VoiceCall = () => {
                     localVideoRef.current.srcObject = stream;
                 }
 
+                const iceServers: RTCIceServer[] = [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
+                    // Free TURN servers for NAT traversal
+                    {
+                        urls: 'turn:a.relay.metered.ca:80',
+                        username: 'e8dd65b92f6dfe65e3b3c6c4',
+                        credential: 'uWdWNmkhvyqTEswO',
+                    },
+                    {
+                        urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+                        username: 'e8dd65b92f6dfe65e3b3c6c4',
+                        credential: 'uWdWNmkhvyqTEswO',
+                    },
+                    {
+                        urls: 'turn:a.relay.metered.ca:443',
+                        username: 'e8dd65b92f6dfe65e3b3c6c4',
+                        credential: 'uWdWNmkhvyqTEswO',
+                    },
+                    {
+                        urls: 'turns:a.relay.metered.ca:443?transport=tcp',
+                        username: 'e8dd65b92f6dfe65e3b3c6c4',
+                        credential: 'uWdWNmkhvyqTEswO',
+                    },
+                ];
+
                 const pc = new RTCPeerConnection({
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:stun2.l.google.com:19302' },
-                        { urls: 'stun:stun3.l.google.com:19302' },
-                        { urls: 'stun:stun4.l.google.com:19302' },
-                        {
-                            urls: 'turn:openrelay.metered.ca:80',
-                            username: 'openrelayproject',
-                            credential: 'openrelayproject',
-                        },
-                        {
-                            urls: 'turn:openrelay.metered.ca:443',
-                            username: 'openrelayproject',
-                            credential: 'openrelayproject',
-                        },
-                    ]
+                    iceServers,
+                    iceCandidatePoolSize: 10,
                 });
                 peerConnectionRef.current = pc;
 
@@ -501,8 +581,11 @@ const VoiceCall = () => {
                     if (event.track.kind === 'audio' && remoteAudioRef.current) {
                         remoteAudioRef.current.srcObject = remoteStream;
                         // Explicitly play to work around browser autoplay policies
-                        remoteAudioRef.current.play().catch(err => {
-                            console.warn('Audio autoplay blocked, will retry on user interaction:', err);
+                        remoteAudioRef.current.play().then(() => {
+                            setAudioBlocked(false);
+                        }).catch(err => {
+                            console.warn('Audio autoplay blocked, showing tap-to-unmute:', err);
+                            setAudioBlocked(true);
                         });
                     }
 
@@ -512,16 +595,49 @@ const VoiceCall = () => {
                     }
                 };
 
-                // Log connection state changes for debugging
+                // Monitor connection state and attempt ICE restart on failure
                 pc.onconnectionstatechange = () => {
                     console.log('[WebRTC] Connection state:', pc.connectionState);
+                    if (pc.connectionState === 'connected') {
+                        setPeerConnected(true);
+                    } else if (pc.connectionState === 'failed') {
+                        console.log('[WebRTC] Connection failed, attempting ICE restart...');
+                        if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
+                            pc.restartIce();
+                            pc.createOffer({ iceRestart: true }).then(offer => {
+                                return pc.setLocalDescription(offer);
+                            }).then(() => {
+                                channelRef.current.send({
+                                    type: 'broadcast',
+                                    event: 'webrtc-offer',
+                                    payload: {
+                                        senderId: user!.id,
+                                        receiverId: currentMatchRef.current!.profile.id,
+                                        sdp: pc.localDescription,
+                                    }
+                                });
+                            }).catch(e => console.error('ICE restart failed:', e));
+                        }
+                    }
                 };
                 pc.oniceconnectionstatechange = () => {
                     console.log('[WebRTC] ICE state:', pc.iceConnectionState);
+                    if (pc.iceConnectionState === 'disconnected') {
+                        // Give it a few seconds to recover before declaring failure
+                        setTimeout(() => {
+                            if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                                console.log('[WebRTC] ICE still disconnected/failed after timeout');
+                            }
+                        }, 5000);
+                    }
                 };
 
-                if (!isCaller) {
-                    if (pendingOfferRef.current) {
+                // Mark WebRTC as ready so signaling callbacks know the PC exists
+                webrtcReadyRef.current = true;
+
+                // Process any pending offer that arrived before PC was created
+                if (!isCaller && pendingOfferRef.current) {
+                    try {
                         await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current));
                         const answer = await pc.createAnswer();
                         await pc.setLocalDescription(answer);
@@ -539,9 +655,13 @@ const VoiceCall = () => {
                         for (const candidate of pendingIceCandidatesRef.current) {
                             try {
                                 await pc.addIceCandidate(new RTCIceCandidate(candidate));
-                            } catch (e) {}
+                            } catch (e) {
+                                console.error('Error adding queued ICE candidate after pending offer:', e);
+                            }
                         }
                         pendingIceCandidatesRef.current = [];
+                    } catch (e) {
+                        console.error('Error processing pending offer:', e);
                     }
                 }
 
@@ -553,12 +673,14 @@ const VoiceCall = () => {
                 });
             } catch (e) {
                 console.error('Failed to capture stream or create RTCPeerConnection:', e);
+                alert('Could not access your microphone. Please allow microphone permission and try again.');
             }
         };
 
         startWebRTC();
 
         return () => {
+            webrtcReadyRef.current = false;
             closeWebRTC();
         };
     }, [inCall, isMockMode, videoRequestStatus, isCaller, currentMatch?.profile?.id]);
@@ -570,40 +692,30 @@ const VoiceCall = () => {
     };
 
     const handleTalkMore = () => {
-        if (isMockMode) {
-            setRequestStatus('sent');
-            setTimeout(() => setRequestStatus('accepted'), 2000);
-        } else {
-            setRequestStatus('sent');
-            if (channelRef.current && currentMatch) {
-                channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'extend-request',
-                    payload: {
-                        senderId: user!.id,
-                        receiverId: currentMatch.profile.id
-                    }
-                });
-            }
+        setRequestStatus('sent');
+        if (channelRef.current && currentMatch) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'extend-request',
+                payload: {
+                    senderId: user!.id,
+                    receiverId: currentMatch.profile.id
+                }
+            });
         }
     };
 
     const handleRequestVideo = () => {
-        if (isMockMode) {
-            setVideoRequestStatus('sent');
-            setTimeout(() => setVideoRequestStatus('accepted'), 2000);
-        } else {
-            setVideoRequestStatus('sent');
-            if (channelRef.current && currentMatch) {
-                channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'video-request',
-                    payload: {
-                        senderId: user!.id,
-                        receiverId: currentMatch.profile.id
-                    }
-                });
-            }
+        setVideoRequestStatus('sent');
+        if (channelRef.current && currentMatch) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'video-request',
+                payload: {
+                    senderId: user!.id,
+                    receiverId: currentMatch.profile.id
+                }
+            });
         }
     };
 
@@ -699,38 +811,92 @@ const VoiceCall = () => {
             });
 
             searchTimeoutRef.current = window.setTimeout(() => {
-                startMockMatching();
-            }, 3500);
+                // Keep retrying to find real online users
+                retrySearch();
+            }, 10000);
         } else {
-            searchTimeoutRef.current = window.setTimeout(() => {
-                startMockMatching();
-            }, 3500);
+            // No immediate match found, start periodic retry
+            retrySearch();
         }
     };
 
-    const startMockMatching = async () => {
-        setIsMockMode(true);
-        setIsSearching(true);
-        setNoMatchFound(false);
-        setShowMatchCard(false);
+    // Retry searching for real online users instead of falling back to mock
+    const retrySearchCountRef = useRef(0);
+    const maxRetries = 6; // Try for ~60 seconds total (6 x 10s)
 
-        try {
-            const results = await computeMatches(user!.id, user!.gender || '', activePref);
-            if (results.length === 0) {
-                setNoMatchFound(true);
-                setIsSearching(false);
-                return;
+    const retrySearch = () => {
+        if (!isSearchingRef.current) return;
+
+        retrySearchCountRef.current += 1;
+
+        // Re-check online users for a match (use ref to get latest list, not stale closure)
+        const match = onlineUsersRef.current.find(u => {
+            if (u.user_id === user!.id) return false;
+            if (blockedIds.includes(u.user_id)) return false;
+            if (u.status !== 'searching') return false;
+
+            if (activePrefRef.current === 'Boy to Girl 👦') {
+                if (u.gender !== 'female') return false;
+            } else if (activePrefRef.current === 'Girl to Boy 👧') {
+                if (u.gender !== 'male') return false;
             }
-            setMatches(results);
-            setCurrentMatchIndex(0);
-            setIsSearching(false);
-            setShowMatchCard(true);
-        } catch (err) {
-            console.error('Matching error:', err);
-            setIsSearching(false);
+            if (u.preference === 'Boy to Girl 👦') {
+                if (user!.gender !== 'female') return false;
+            } else if (u.preference === 'Girl to Boy 👧') {
+                if (user!.gender !== 'male') return false;
+            }
+            return true;
+        });
+
+        if (match) {
+            // Found a real user! Send invite
+            pendingInviteRef.current = match.user_id;
+            const compat = Math.floor(Math.random() * 20) + 80;
+            const shared = Math.floor(Math.random() * 4) + 1;
+
+            channelRef.current?.send({
+                type: 'broadcast',
+                event: 'call-invite',
+                payload: {
+                    callerId: user!.id,
+                    receiverId: match.user_id,
+                    callerProfile: {
+                        id: user!.id,
+                        username: user!.username,
+                        name: user!.name,
+                        avatar_url: user!.avatar_url,
+                        gender: user!.gender,
+                        points: user!.points,
+                    },
+                    compatibilityPercent: compat,
+                    sharedLikes: shared,
+                    totalLikes: 5
+                }
+            });
+
+            // Give them time to accept, then retry again
+            searchTimeoutRef.current = window.setTimeout(() => {
+                if (isSearchingRef.current) {
+                    retrySearch();
+                }
+            }, 10000);
+        } else if (retrySearchCountRef.current >= maxRetries) {
+            // Exhausted retries — show no match message
             setNoMatchFound(true);
+            setIsSearching(false);
+            retrySearchCountRef.current = 0;
+            updatePresence('idle');
+        } else {
+            // Keep waiting — retry after 10 seconds
+            searchTimeoutRef.current = window.setTimeout(() => {
+                if (isSearchingRef.current) {
+                    retrySearch();
+                }
+            }, 10000);
         }
     };
+
+    // startMockMatching removed — app no longer creates fake calls
 
     const connectToMatch = async () => {
         setShowMatchCard(false);
@@ -739,7 +905,8 @@ const VoiceCall = () => {
     };
 
     const skipToNext = () => {
-        if (!isMockModeRef.current && currentMatchRef.current && channelRef.current) {
+        // Send call-end to the current partner
+        if (currentMatchRef.current && channelRef.current) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -758,13 +925,19 @@ const VoiceCall = () => {
             resetCallStates();
             updatePresence('in-call');
         } else {
-            endCall();
+            // No more matches — end fully (don't call endCall to avoid double signal)
+            closeWebRTC();
+            setInCall(false);
+            setShowMatchCard(false);
+            setIsSearching(false);
+            resetCallStates();
+            updatePresence('idle');
             setNoMatchFound(true);
         }
     };
 
     const endCall = () => {
-        if (!isMockModeRef.current && currentMatchRef.current && channelRef.current) {
+        if (currentMatchRef.current && channelRef.current) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -794,7 +967,12 @@ const VoiceCall = () => {
         setIncomingVideoRequest(false);
         setIsMockMode(false);
         setIsCaller(false);
+        setAudioBlocked(false);
+        setPeerConnected(false);
         pendingInviteRef.current = null;
+        pendingOfferRef.current = null;
+        pendingIceCandidatesRef.current = [];
+        webrtcReadyRef.current = false;
         if (searchTimeoutRef.current) {
             clearTimeout(searchTimeoutRef.current);
             searchTimeoutRef.current = null;
@@ -812,31 +990,21 @@ const VoiceCall = () => {
         e.preventDefault();
         if (!chatInput.trim()) return;
 
-        if (isMockMode) {
-            const newMsg = { id: Date.now(), text: chatInput, isMine: true };
-            setChatMessages(prev => [...prev, newMsg]);
-            setChatInput('');
-            
-            setTimeout(() => {
-                setChatMessages(prev => [...prev, { id: Date.now(), text: 'Haha yeah! ­ƒÿä', isMine: false }]);
-            }, 1500);
-        } else {
-            const msgId = Date.now();
-            setChatMessages(prev => [...prev, { id: msgId, text: chatInput, isMine: true }]);
-            const messageText = chatInput;
-            setChatInput('');
-            if (channelRef.current && currentMatch) {
-                channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'chat-message',
-                    payload: {
-                        id: msgId,
-                        senderId: user!.id,
-                        receiverId: currentMatch.profile.id,
-                        text: messageText,
-                    }
-                });
-            }
+        const msgId = Date.now();
+        setChatMessages(prev => [...prev, { id: msgId, text: chatInput, isMine: true }]);
+        const messageText = chatInput;
+        setChatInput('');
+        if (channelRef.current && currentMatch) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'chat-message',
+                payload: {
+                    id: msgId,
+                    senderId: user!.id,
+                    receiverId: currentMatch.profile.id,
+                    text: messageText,
+                }
+            });
         }
     };
 
@@ -855,30 +1023,12 @@ const VoiceCall = () => {
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
                             {/* Remote Video */}
                             <div style={{ flex: 1, backgroundColor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                                {!isMockMode ? (
-                                    <video
-                                        ref={remoteVideoRef}
-                                        autoPlay
-                                        playsInline
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    />
-                                ) : (
-                                    <>
-                                        <img
-                                            src={displayAvatar}
-                                            alt={displayUsername}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5, filter: 'blur(20px)' }}
-                                        />
-                                        <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                            <img
-                                                src={displayAvatar}
-                                                alt=""
-                                                style={{ width: '80px', height: '80px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)' }}
-                                            />
-                                            <span style={{ marginTop: '8px', fontWeight: 'bold' }}>{displayName} (Camera Off)</span>
-                                        </div>
-                                    </>
-                                )}
+                                <video
+                                    ref={remoteVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
                             </div>
 
                             {/* Local Video */}
@@ -913,6 +1063,27 @@ const VoiceCall = () => {
                                 <span className="match-compat-dot" style={{ color: '#ff3366' }}>•</span>
                                 <span style={{ color: '#ff3366' }}>{currentMatch.sharedLikes} shared likes</span>
                             </div>
+
+                            {/* Connection Status Indicator */}
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                padding: '6px 14px', borderRadius: '20px', marginTop: '8px',
+                                background: peerConnected ? 'rgba(52,199,89,0.15)' : 'rgba(250,204,21,0.15)',
+                            }}>
+                                <span style={{
+                                    width: '8px', height: '8px', borderRadius: '50%',
+                                    background: peerConnected ? '#34C759' : '#facc15',
+                                    boxShadow: peerConnected ? '0 0 8px #34C759' : '0 0 8px #facc15',
+                                    animation: peerConnected ? 'none' : 'pulse 1.5s ease-in-out infinite',
+                                }} />
+                                <span style={{
+                                    fontSize: '0.8rem', fontWeight: 600,
+                                    color: peerConnected ? '#34C759' : '#facc15',
+                                }}>
+                                    {peerConnected ? '🎙️ Voice Connected' : '⏳ Connecting voice...'}
+                                </span>
+                            </div>
+
                             <div className="mt-8" style={{ textAlign: 'center' }}>
                                 <div className={`text-6xl font-mono tracking-wider ${requestStatus !== 'accepted' && callDuration >= 150 ? 'text-red-500 animate-pulse' : 'text-white'}`} style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
                                     {requestStatus === 'accepted' ? formatTime(callDuration) : formatTime(Math.max(0, 180 - callDuration))}
@@ -1100,7 +1271,28 @@ const VoiceCall = () => {
                 )}
 
                 {/* Audio elements */}
-                <audio ref={remoteAudioRef} autoPlay style={{ display: 'none' }} />
+                <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
+
+                {/* Tap-to-unmute banner when browser blocks autoplay */}
+                {audioBlocked && (
+                    <div
+                        onClick={() => {
+                            if (remoteAudioRef.current) {
+                                remoteAudioRef.current.play().then(() => setAudioBlocked(false)).catch(() => {});
+                            }
+                        }}
+                        style={{
+                            position: 'absolute', top: '16px', left: '50%', transform: 'translateX(-50%)',
+                            background: 'rgba(255,59,48,0.9)', color: '#fff', padding: '10px 20px',
+                            borderRadius: '12px', cursor: 'pointer', zIndex: 200,
+                            fontSize: '0.9rem', fontWeight: 600, textAlign: 'center',
+                            boxShadow: '0 4px 16px rgba(255,59,48,0.4)',
+                            animation: 'sparkle-pulse 1.5s ease-in-out infinite',
+                        }}
+                    >
+                        🔇 Tap here to unmute audio
+                    </div>
+                )}
 
                 {/* Call Controls Grouped into the bottom wrapper above */}
                 <div className="call-controls" style={{ display: 'flex', justifyContent: 'center', gap: '24px', zIndex: 10 }}>
@@ -1304,13 +1496,32 @@ const VoiceCall = () => {
             </div>
 
             {noMatchFound && (
-                <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                    <p style={{ color: '#ff9933', fontSize: '0.9rem', marginBottom: '8px' }}>
-                        No matches found with this preference 😖
-                    </p>
-                    <p style={{ color: '#6e6e73', fontSize: '0.8rem' }}>
-                        Try a different preference or check back later!
-                    </p>
+                <div style={{ textAlign: 'center', marginBottom: '1.5rem', padding: '0 24px' }}>
+                    <div style={{
+                        background: 'rgba(255,153,51,0.1)', borderRadius: '16px',
+                        padding: '20px', border: '1px solid rgba(255,153,51,0.2)',
+                    }}>
+                        <p style={{ color: '#ff9933', fontSize: '1rem', fontWeight: 600, marginBottom: '8px' }}>
+                            😔 No one is available right now
+                        </p>
+                        <p style={{ color: '#8e8e93', fontSize: '0.85rem', marginBottom: '16px', lineHeight: '1.4' }}>
+                            We only match you with real people who are online and searching. No fake calls!
+                        </p>
+                        <button
+                            className="premium-btn"
+                            onClick={() => {
+                                setNoMatchFound(false);
+                                retrySearchCountRef.current = 0;
+                                startSearch();
+                            }}
+                            style={{ fontSize: '0.9rem', padding: '10px 24px' }}
+                        >
+                            🔄 Try Again
+                        </button>
+                        <p style={{ color: '#6e6e73', fontSize: '0.75rem', marginTop: '12px' }}>
+                            💡 Peak hours: 8 PM - 10 PM • More users online then!
+                        </p>
+                    </div>
                 </div>
             )}
 
