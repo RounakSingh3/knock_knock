@@ -510,7 +510,9 @@ const VoiceCall = () => {
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
-                        autoGainControl: true,
+                        autoGainControl: false, // Disabled to prevent unexpected volume drops (ducking)
+                        sampleRate: 48000,      // Force high-quality sample rate
+                        channelCount: 2,        // Force stereo to hint for higher bitrate
                     },
                     video: isVideo
                 });
