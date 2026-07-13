@@ -13,6 +13,24 @@ const MATCH_PREFERENCES = [
     "Random 🎲"
 ];
 
+const enhanceAudioSDP = (sdp: string | undefined): string | undefined => {
+    if (!sdp) return sdp;
+    // Find Opus payload type
+    const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
+    if (!opusMatch) return sdp;
+    
+    const pt = opusMatch[1];
+    const regex = new RegExp(`a=fmtp:${pt} (.*)`);
+    
+    if (regex.test(sdp)) {
+        return sdp.replace(regex, (match, params) => {
+            if (params.includes('maxaveragebitrate')) return match;
+            return `a=fmtp:${pt} ${params};stereo=1;sprop-stereo=1;maxaveragebitrate=256000;cbr=1`;
+        });
+    }
+    return sdp;
+};
+
 const VoiceCall = () => {
     const { user, blockedIds } = useContext(AppContext);
     const [searchParams] = useSearchParams();
@@ -352,6 +370,7 @@ const VoiceCall = () => {
                     if (pc && pc.signalingState === 'stable') {
                         try {
                             const offer = await pc.createOffer();
+                            offer.sdp = enhanceAudioSDP(offer.sdp);
                             await pc.setLocalDescription(offer);
                             channel.send({
                                 type: 'broadcast',
@@ -378,6 +397,7 @@ const VoiceCall = () => {
                     if (pc && pc.signalingState === 'stable') {
                         try {
                             const offer = await pc.createOffer();
+                            offer.sdp = enhanceAudioSDP(offer.sdp);
                             await pc.setLocalDescription(offer);
                             channel.send({
                                 type: 'broadcast',
@@ -411,6 +431,7 @@ const VoiceCall = () => {
                         }
                         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
                         const answer = await pc.createAnswer();
+                        answer.sdp = enhanceAudioSDP(answer.sdp);
                         await pc.setLocalDescription(answer);
                         channel.send({
                             type: 'broadcast',
@@ -509,7 +530,7 @@ const VoiceCall = () => {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
-                        noiseSuppression: true,
+                        noiseSuppression: false, // Turned OFF to prevent robotic/garbled voice (critical for clarity)
                         autoGainControl: false, // Disabled to prevent unexpected volume drops (ducking)
                         sampleRate: 48000,      // Force high-quality sample rate
                         channelCount: 2,        // Force stereo to hint for higher bitrate
@@ -607,6 +628,7 @@ const VoiceCall = () => {
                         if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
                             pc.restartIce();
                             pc.createOffer({ iceRestart: true }).then(offer => {
+                                offer.sdp = enhanceAudioSDP(offer.sdp);
                                 return pc.setLocalDescription(offer);
                             }).then(() => {
                                 channelRef.current.send({
@@ -642,6 +664,7 @@ const VoiceCall = () => {
                     try {
                         await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current));
                         const answer = await pc.createAnswer();
+                        answer.sdp = enhanceAudioSDP(answer.sdp);
                         await pc.setLocalDescription(answer);
                         channelRef.current.send({
                             type: 'broadcast',
