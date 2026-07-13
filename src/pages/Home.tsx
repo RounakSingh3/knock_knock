@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, type PostData, type StoryData, type MessageData } from '../lib/database';
-import { checkIfLiked, checkIfLikedBatch, toggleLike } from '../lib/database';
+import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2 } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
@@ -41,6 +41,8 @@ const Home = () => {
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
     const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+    const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
+    const [impCounts, setImpCounts] = useState<Record<string, number>>({});
 
     // Story rack state
     const [storyGroups, setStoryGroups] = useState<StoryGroup[]>([]);
@@ -135,13 +137,23 @@ const Home = () => {
             setLoading(false);
             
             const counts: Record<string, number> = {};
-            firstPage.forEach(s => { counts[s.post.id] = s.post.likes_count; });
+            const iCounts: Record<string, number> = {};
+            firstPage.forEach(s => { 
+                counts[s.post.id] = s.post.likes_count; 
+                iCounts[s.post.id] = s.post.imps_count || 0;
+            });
             setLikeCounts(counts);
+            setImpCounts(iCounts);
             
             // Batch check all likes in one query instead of N individual queries
             const postIds = firstPage.map(s => s.post.id);
             checkIfLikedBatch(user.id, postIds).then(likedMap => {
                 setLikedPosts(prev => ({ ...prev, ...likedMap }));
+            });
+            fetchUserImps(user.id).then(imps => {
+                const impMap: Record<string, boolean> = {};
+                imps.forEach(id => { impMap[id] = true; });
+                setImpedPosts(prev => ({ ...prev, ...impMap }));
             });
             
             // Track view engagements
@@ -198,6 +210,15 @@ const Home = () => {
             const post = posts.find(p => p.id === postId);
             trackEngagement(user.id, postId, 'like', 1, post?.category || 'General');
         }
+    };
+
+    const handleImpToggle = async (postId: string) => {
+        if (!user) return;
+        const currentlyImped = impedPosts[postId] || false;
+        const newImped = !currentlyImped;
+        setImpedPosts(prev => ({ ...prev, [postId]: newImped }));
+        setImpCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newImped ? 1 : -1) }));
+        await toggleImp(user.id, postId, currentlyImped);
     };
 
     // Pull-to-refresh handler
@@ -612,21 +633,28 @@ const Home = () => {
                                         <Heart size={16} fill={likedPosts[post.id] ? '#f5a524' : 'none'} color={likedPosts[post.id] ? '#f5a524' : 'var(--text-active)'} />
                                     </button>
                                     <button
-                                        className="masonry-like-btn"
+                                        className={`masonry-like-btn ${impedPosts[post.id] ? 'imped' : ''}`}
                                         style={{ bottom: '48px' }}
+                                        onClick={(e) => { e.stopPropagation(); handleImpToggle(post.id); }}
+                                    >
+                                        <Flame size={16} fill={impedPosts[post.id] ? '#ff4500' : 'none'} color={impedPosts[post.id] ? '#ff4500' : 'var(--text-active)'} />
+                                    </button>
+                                    <button
+                                        className="masonry-like-btn"
+                                        style={{ bottom: '80px' }}
                                         onClick={(e) => { e.stopPropagation(); setChatUserId(post.user_id); setIsChatOpen(true); }}
                                     >
                                         <MessageCircle size={16} color="var(--text-active)" />
                                     </button>
                                     <button
                                         className="masonry-like-btn"
-                                        style={{ bottom: '80px' }}
+                                        style={{ bottom: '112px' }}
                                         onClick={(e) => { e.stopPropagation(); setPostToShare(post); setIsShareOpen(true); }}
                                     >
                                         <Send size={16} color="var(--text-active)" />
                                     </button>
                                     {user && post.user_id && post.user_id !== user.id && (
-                                        <div style={{ position: 'absolute', bottom: '112px', right: '8px', zIndex: 5 }}>
+                                        <div style={{ position: 'absolute', bottom: '144px', right: '8px', zIndex: 5 }}>
                                             <VoiceReaction
                                                 postId={post.id}
                                                 postCategory={post.category}
@@ -776,6 +804,13 @@ const Home = () => {
                                 >
                                     <Heart size={22} fill={likedPosts[selectedPost.id] ? '#f5a524' : 'none'} color={likedPosts[selectedPost.id] ? '#f5a524' : 'var(--text-active)'} />
                                     <span>{likeCounts[selectedPost.id] || 0}</span>
+                                </button>
+                                <button
+                                    className={`modal-action-btn ${impedPosts[selectedPost.id] ? 'imped' : ''}`}
+                                    onClick={() => handleImpToggle(selectedPost.id)}
+                                >
+                                    <Flame size={22} fill={impedPosts[selectedPost.id] ? '#ff4500' : 'none'} color={impedPosts[selectedPost.id] ? '#ff4500' : 'var(--text-active)'} />
+                                    <span>{impCounts[selectedPost.id] || 0}</span>
                                 </button>
                                 <button className="modal-action-btn" onClick={() => { setCommentsPostId(selectedPost.id); setIsCommentsOpen(true); }}>
                                     <MessageCircle size={22} />

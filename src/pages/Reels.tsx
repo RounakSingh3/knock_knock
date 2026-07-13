@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon } from 'lucide-react';
-import { fetchVideoPosts, trackEngagement, type PostData, type MessageData } from '../lib/database';
+import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
+import { fetchVideoPosts, trackEngagement, toggleImp, type PostData, type MessageData } from '../lib/database';
 import { AppContext } from '../App';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
@@ -15,6 +15,7 @@ export interface ReelData {
     caption: string;
     song: string;
     likes: number;
+    imps?: number;
     comments: number;
     shares: number;
     category: string;
@@ -206,6 +207,7 @@ function postToReel(post: PostData): ReelData {
         caption: post.caption || '',
         song: 'Original — Upload',
         likes: post.likes_count || 0,
+        imps: post.imps_count || 0,
         comments: 0,
         shares: 0,
         category: 'Uploads',
@@ -218,6 +220,7 @@ const Reels: React.FC = () => {
     const { user, blockedIds } = useContext(AppContext);
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
+    const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
     const [mutedAll, setMutedAll] = useState(false);
     const [activeIndex, setActiveIndex] = useState(0);
     const [selectedReelIndex, setSelectedReelIndex] = useState<number | null>(null);
@@ -418,6 +421,19 @@ const Reels: React.FC = () => {
             return next;
         });
     }, []);
+
+    const toggleImpReel = useCallback(async (reelId: string | number) => {
+        setImpedReels((prev) => {
+            const next = new Set(prev);
+            if (next.has(reelId)) next.delete(reelId);
+            else next.add(reelId);
+            return next;
+        });
+        if (user && typeof reelId === 'string') {
+            const currentlyImped = impedReels.has(reelId);
+            await toggleImp(user.id, reelId, currentlyImped);
+        }
+    }, [user, impedReels]);
 
     const [touchStartPos, setTouchStartPos] = useState<{x: number, y: number} | null>(null);
 
@@ -645,6 +661,17 @@ const Reels: React.FC = () => {
                                                 stroke={isLiked ? '#f5a524' : 'var(--text-active)'}
                                             />
                                             <span>{formatCount(reel.likes + (isLiked ? 1 : 0))}</span>
+                                        </button>
+                                        <button
+                                            className={`reel-action-btn ${impedReels.has(reel.id) ? 'imped' : ''}`}
+                                            onClick={() => toggleImpReel(reel.id)}
+                                        >
+                                            <Flame
+                                                size={28}
+                                                fill={impedReels.has(reel.id) ? '#ff4500' : 'none'}
+                                                stroke={impedReels.has(reel.id) ? '#ff4500' : 'var(--text-active)'}
+                                            />
+                                            <span>{formatCount((reel.imps || 0) + (impedReels.has(reel.id) ? 1 : 0))}</span>
                                         </button>
                                         <button className="reel-action-btn">
                                             <MessageCircle size={28} />

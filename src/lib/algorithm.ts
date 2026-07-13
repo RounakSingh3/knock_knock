@@ -82,7 +82,7 @@ export interface ScoredPost {
  * Calculate a relevance score for a single post relative to the user's interest profile.
  */
 export function calculatePostScore(
-    post: { category?: string; created_at: string; likes_count?: number; shares_count?: number },
+    post: { category?: string; created_at: string; likes_count?: number; shares_count?: number; imps_count?: number },
     userProfile: UserInterestProfile
 ): number {
     let score = 0;
@@ -96,7 +96,12 @@ export function calculatePostScore(
     score += (post.likes_count || 0) * 0.01;
     score += (post.shares_count || 0) * 0.05;
 
-    // 3. Time decay: newer content gets a significant boost
+    // 3. Imp Boost: Massive visibility multiplier if users have imped the content
+    if (post.imps_count && post.imps_count > 0) {
+        score += (post.imps_count * 100);
+    }
+
+    // 4. Time decay: newer content gets a significant boost
     const hoursOld = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60);
     const decay = decayFactor(hoursOld);
     score *= decay;

@@ -12,8 +12,8 @@ export interface PostData {
     username: string;
     avatar_url: string;
     image_url: string;
-    caption: string;
     likes_count: number;
+    imps_count?: number;
     comments_count?: number;
     shares_count?: number;
     created_at: string;
@@ -205,6 +205,37 @@ export async function toggleLike(userId: string, postId: string, currentlyLiked:
             .from('likes')
             .insert({ user_id: userId, post_id: postId });
         if (error) console.error('Error adding like:', error);
+    }
+}
+
+// ── Imps ──────────────────────────────────────────────
+
+export async function fetchUserImps(userId: string): Promise<string[]> {
+    const { data, error } = await supabase
+        .from('post_imps')
+        .select('post_id')
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error fetching user imps:', error);
+        return [];
+    }
+    return (data || []).map(row => row.post_id);
+}
+
+export async function toggleImp(userId: string, postId: string, currentlyImped: boolean) {
+    if (currentlyImped) {
+        const { error } = await supabase
+            .from('post_imps')
+            .delete()
+            .eq('user_id', userId)
+            .eq('post_id', postId);
+        if (error) console.error('Error removing imp:', error);
+    } else {
+        const { error } = await supabase
+            .from('post_imps')
+            .insert({ user_id: userId, post_id: postId });
+        if (error) console.error('Error adding imp:', error);
     }
 }
 
