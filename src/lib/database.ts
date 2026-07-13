@@ -12,6 +12,7 @@ export interface PostData {
     username: string;
     avatar_url: string;
     image_url: string;
+    caption: string;
     likes_count: number;
     imps_count?: number;
     comments_count?: number;
