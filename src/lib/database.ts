@@ -1346,6 +1346,10 @@ export async function updateProfile(
         .update(updates)
         .eq('id', userId);
 
+    if (error) {
+        console.error('Error updating profile:', error);
+        return false;
+    }
     return true;
 }
 

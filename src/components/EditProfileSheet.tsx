@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { X, Loader2, Camera } from 'lucide-react';
 import { updateProfile, uploadMedia } from '../lib/database';
 import { AppContext } from '../App';
@@ -19,6 +19,17 @@ const EditProfileSheet: React.FC<EditProfileSheetProps> = ({ isOpen, onClose, cu
     const [avatarFile, setAvatarFile] = useState<File | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+
+    // Re-sync state from props every time the sheet opens
+    useEffect(() => {
+        if (isOpen) {
+            setUsername(currentUser.username || '');
+            setBio(currentUser.bio || '');
+            setAvatarPreview(currentUser.avatar_url || '');
+            setAvatarFile(null);
+            setError('');
+        }
+    }, [isOpen, currentUser]);
 
     if (!isOpen) return null;
 

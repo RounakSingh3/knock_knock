@@ -574,7 +574,7 @@ const Profile = () => {
                 <EditProfileSheet
                     isOpen={isEditOpen}
                     onClose={() => setIsEditOpen(false)}
-                    currentUser={{ id: currentUser.id, username: currentUser.username || '', avatar_url: currentUser.avatar_url, bio: (profile as any).bio }}
+                    currentUser={{ id: currentUser.id, username: currentUser.username || '', avatar_url: currentUser.avatar_url, bio: profile.bio }}
                     onUpdated={() => {
                         // Reload profile
                         if (username) {
