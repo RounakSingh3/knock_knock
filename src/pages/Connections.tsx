@@ -20,7 +20,7 @@ const Connections = () => {
         if (!user) return;
         setLoading(true);
         const data = await fetchConnections(user.id);
-        const validConnections = data.filter(c => !blockedIds.includes(c.partner.id));
+        const validConnections = data.filter(c => !blockedIds.includes(c.profile.id));
         setConnections(validConnections);
         setLoading(false);
     };

@@ -92,7 +92,6 @@ export async function uploadMedia(
             cacheControl: '3600',
             upsert: false,
             contentType: file.type || undefined,
-            onUploadProgress: onProgress,
         });
 
     if (error) {

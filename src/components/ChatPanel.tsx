@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2 } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchChatThreads, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
 
@@ -616,7 +616,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             />
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-active)', margin: 0 }}>
-                                    {selectedContact?.username || selectedContact?.first_name || 'User'}
+                                    {selectedContact?.username || 'User'}
                                 </h2>
                                 <span style={{ fontSize: '12px', color: 'var(--text-inactive)' }}>View Profile</span>
                             </div>

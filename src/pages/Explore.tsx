@@ -247,7 +247,7 @@ const Explore = () => {
         } else if (activeTab === 'stories') {
             const term = query.startsWith('#') ? query.substring(1) : query;
             const data = await searchStoriesByHashtag(term);
-            setStoryResults(groupByUser(data.filter(s => !blockedIds.includes(s.user_id))));
+            setStoryResults(data.filter(g => !blockedIds.includes(g.userId)));
         }
         setLoadingSearch(false);
     };
