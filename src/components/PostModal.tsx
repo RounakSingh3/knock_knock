@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import PostMedia from './PostMedia';
-import { AppContext } from '../App';
-import { deletePost, checkIfLiked, toggleLike, type PostData } from '../lib/database';
+import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, type PostData } from '../lib/database';
+import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame } from 'lucide-react';
 
 // Helper to format time
 function getTimeAgo(dateStr: string) {
@@ -37,12 +34,23 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
     const navigate = useNavigate();
     const [isLiked, setIsLiked] = useState(false);
     const [likeCount, setLikeCount] = useState(post.likes_count || 0);
+    const [isImped, setIsImped] = useState(false);
+    const [impCount, setImpCount] = useState(post.imps_count || 0);
 
     useEffect(() => {
         if (user) {
             checkIfLiked(user.id, post.id).then(setIsLiked);
+            fetchUserImps(user.id).then(imps => setIsImped(imps.includes(post.id)));
         }
     }, [user, post.id]);
+
+    const handleImpToggle = async () => {
+        if (!user) return;
+        const newImped = !isImped;
+        setIsImped(newImped);
+        setImpCount(prev => prev + (newImped ? 1 : -1));
+        await toggleImp(user.id, post.id, isImped);
+    };
 
     const handleLikeToggle = async () => {
         if (!user) return;
@@ -113,6 +121,14 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     </button>
                     <button className="modal-action-btn" onClick={() => onShareClick && onShareClick(post)}>
                         <Send size={22} />
+                    </button>
+                    <button
+                        className={`modal-action-btn ${isImped ? 'imped' : ''}`}
+                        onClick={handleImpToggle}
+                        title="Imp / Boost post"
+                    >
+                        <Flame size={22} fill={isImped ? '#ff4500' : 'none'} color={isImped ? '#ff4500' : 'var(--text-active)'} />
+                        <span>{impCount}</span>
                     </button>
                     {user && post.user_id === user.id && onDelete && (
                         <button

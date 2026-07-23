@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { PostData, StoryData } from '../lib/database';
 import PostMedia from './PostMedia';
-import { Heart, Users, ChevronRight, ChevronLeft, Send } from 'lucide-react';
+import { Heart, Users, ChevronRight, ChevronLeft, Send, Flame } from 'lucide-react';
 
 interface UnifiedItem {
     userId: string;
@@ -20,6 +20,8 @@ interface ConnectionFeedItemProps {
     onDoubleTap: (postId: string) => void;
     onClickPost: (post: PostData) => void;
     onShare?: (post: PostData) => void;
+    isImped?: boolean;
+    onImpToggle?: (postId: string) => void;
 }
 
 const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
@@ -30,6 +32,8 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
     onDoubleTap,
     onClickPost,
     onShare,
+    isImped,
+    onImpToggle,
 }) => {
     // 0 = post, 1 = story
     const [viewIndex, setViewIndex] = useState(0);
@@ -60,6 +64,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                     </div>
                     <button
                         className={`masonry-like-btn ${isLiked ? 'liked' : ''}`}
+                        style={{ top: '12px', right: '12px' }}
                         onClick={(e) => { e.stopPropagation(); onLikeToggle(item.post!.id); }}
                     >
                         <Heart size={16} fill={isLiked ? '#f5a524' : 'none'} color={isLiked ? '#f5a524' : 'var(--text-active)'} />
@@ -67,10 +72,20 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                     {onShare && (
                         <button
                             className="masonry-like-btn"
-                            style={{ bottom: '48px' }}
+                            style={{ top: '52px', right: '12px' }}
                             onClick={(e) => { e.stopPropagation(); onShare(item.post!); }}
                         >
                             <Send size={16} color="var(--text-active)" />
+                        </button>
+                    )}
+                    {onImpToggle && (
+                        <button
+                            className={`masonry-like-btn ${isImped ? 'imped' : ''}`}
+                            style={{ top: onShare ? '92px' : '52px', right: '12px' }}
+                            onClick={(e) => { e.stopPropagation(); onImpToggle(item.post!.id); }}
+                            title="Imp / Boost post"
+                        >
+                            <Flame size={16} fill={isImped ? '#ff4500' : 'none'} color={isImped ? '#ff4500' : 'var(--text-active)'} />
                         </button>
                     )}
                     <div className="masonry-card-info">
