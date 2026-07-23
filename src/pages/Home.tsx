@@ -628,30 +628,32 @@ const Home = () => {
                                     <div className="masonry-card-overlay" />
                                     <button
                                         className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
+                                        style={{ top: '12px', right: '12px' }}
                                         onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
                                     >
                                         <Heart size={16} fill={likedPosts[post.id] ? '#f5a524' : 'none'} color={likedPosts[post.id] ? '#f5a524' : 'var(--text-active)'} />
                                     </button>
                                     <button
-                                        className={`masonry-like-btn ${impedPosts[post.id] ? 'imped' : ''}`}
-                                        style={{ bottom: '48px' }}
-                                        onClick={(e) => { e.stopPropagation(); handleImpToggle(post.id); }}
-                                    >
-                                        <Flame size={16} fill={impedPosts[post.id] ? '#ff4500' : 'none'} color={impedPosts[post.id] ? '#ff4500' : 'var(--text-active)'} />
-                                    </button>
-                                    <button
                                         className="masonry-like-btn"
-                                        style={{ bottom: '80px' }}
+                                        style={{ top: '52px', right: '12px' }}
                                         onClick={(e) => { e.stopPropagation(); setChatUserId(post.user_id); setIsChatOpen(true); }}
                                     >
                                         <MessageCircle size={16} color="var(--text-active)" />
                                     </button>
                                     <button
                                         className="masonry-like-btn"
-                                        style={{ bottom: '112px' }}
+                                        style={{ top: '92px', right: '12px' }}
                                         onClick={(e) => { e.stopPropagation(); setPostToShare(post); setIsShareOpen(true); }}
                                     >
                                         <Send size={16} color="var(--text-active)" />
+                                    </button>
+                                    <button
+                                        className={`masonry-like-btn ${impedPosts[post.id] ? 'imped' : ''}`}
+                                        style={{ top: '132px', right: '12px' }}
+                                        onClick={(e) => { e.stopPropagation(); handleImpToggle(post.id); }}
+                                        title="Imp / Boost post"
+                                    >
+                                        <Flame size={16} fill={impedPosts[post.id] ? '#ff4500' : 'none'} color={impedPosts[post.id] ? '#ff4500' : 'var(--text-active)'} />
                                     </button>
                                     {user && post.user_id && post.user_id !== user.id && (
                                         <div style={{ position: 'absolute', bottom: '144px', right: '8px', zIndex: 5 }}>
@@ -805,19 +807,20 @@ const Home = () => {
                                     <Heart size={22} fill={likedPosts[selectedPost.id] ? '#f5a524' : 'none'} color={likedPosts[selectedPost.id] ? '#f5a524' : 'var(--text-active)'} />
                                     <span>{likeCounts[selectedPost.id] || 0}</span>
                                 </button>
-                                <button
-                                    className={`modal-action-btn ${impedPosts[selectedPost.id] ? 'imped' : ''}`}
-                                    onClick={() => handleImpToggle(selectedPost.id)}
-                                >
-                                    <Flame size={22} fill={impedPosts[selectedPost.id] ? '#ff4500' : 'none'} color={impedPosts[selectedPost.id] ? '#ff4500' : 'var(--text-active)'} />
-                                    <span>{impCounts[selectedPost.id] || 0}</span>
-                                </button>
                                 <button className="modal-action-btn" onClick={() => { setCommentsPostId(selectedPost.id); setIsCommentsOpen(true); }}>
                                     <MessageCircle size={22} />
                                     <span>{selectedPost.comments_count || 0}</span>
                                 </button>
                                 <button className="modal-action-btn" onClick={() => { setPostToShare(selectedPost); setIsShareOpen(true); }}>
                                     <Send size={22} />
+                                </button>
+                                <button
+                                    className={`modal-action-btn ${impedPosts[selectedPost.id] ? 'imped' : ''}`}
+                                    onClick={() => handleImpToggle(selectedPost.id)}
+                                    title="Imp / Boost post"
+                                >
+                                    <Flame size={22} fill={impedPosts[selectedPost.id] ? '#ff4500' : 'none'} color={impedPosts[selectedPost.id] ? '#ff4500' : 'var(--text-active)'} />
+                                    <span>{impCounts[selectedPost.id] || 0}</span>
                                 </button>
                                 {user && selectedPost.user_id === user.id && (
                                     <button

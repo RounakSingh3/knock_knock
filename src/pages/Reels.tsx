@@ -662,17 +662,6 @@ const Reels: React.FC = () => {
                                             />
                                             <span>{formatCount(reel.likes + (isLiked ? 1 : 0))}</span>
                                         </button>
-                                        <button
-                                            className={`reel-action-btn ${impedReels.has(reel.id) ? 'imped' : ''}`}
-                                            onClick={() => toggleImpReel(reel.id)}
-                                        >
-                                            <Flame
-                                                size={28}
-                                                fill={impedReels.has(reel.id) ? '#ff4500' : 'none'}
-                                                stroke={impedReels.has(reel.id) ? '#ff4500' : 'var(--text-active)'}
-                                            />
-                                            <span>{formatCount((reel.imps || 0) + (impedReels.has(reel.id) ? 1 : 0))}</span>
-                                        </button>
                                         <button className="reel-action-btn">
                                             <MessageCircle size={28} />
                                             <span>{formatCount(reel.comments)}</span>
@@ -700,6 +689,17 @@ const Reels: React.FC = () => {
                                         >
                                             <Share2 size={28} />
                                             <span>{formatCount(reel.shares)}</span>
+                                        </button>
+                                        <button
+                                            className={`reel-action-btn ${impedReels.has(reel.id) ? 'imped' : ''}`}
+                                            onClick={() => toggleImpReel(reel.id)}
+                                        >
+                                            <Flame
+                                                size={28}
+                                                fill={impedReels.has(reel.id) ? '#ff4500' : 'none'}
+                                                stroke={impedReels.has(reel.id) ? '#ff4500' : 'var(--text-active)'}
+                                            />
+                                            <span>{formatCount((reel.imps || 0) + (impedReels.has(reel.id) ? 1 : 0))}</span>
                                         </button>
                                         <div className="reel-disc">
                                             <img src={reel.creatorAvatar} alt="" />
