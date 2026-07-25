@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Square } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
@@ -35,6 +35,9 @@ function isShareReel(content: string) {
 }
 
 function getSharePreview(content: string, isMe: boolean, contactName: string) {
+    if (content.startsWith('[VOICE_REACTION]') || content.startsWith('[VOICE]')) {
+        return isMe ? 'You sent a voice mail 🎙️' : `🎙️ ${contactName} sent a voice mail`;
+    }
     const reel = isShareReel(content);
     const label = reel ? 'reel' : 'post';
     return isMe ? `You shared a ${label}` : `📷 ${contactName} shared a ${label}`;
@@ -58,6 +61,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [messages, setMessages] = useState<MessageData[]>([]);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [messageInput, setMessageInput] = useState('');
+
+    // Voice recording states
+    const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+    const [recordingTime, setRecordingTime] = useState(0);
+    const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const voiceTimerRef = useRef<any>(null);
     const [viewingSnap, setViewingSnap] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -344,6 +355,101 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         } finally {
             setIsUploadingImage(false);
         }
+    };
+
+    const startVoiceRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = recorder;
+            audioChunksRef.current = [];
+            setRecordingTime(0);
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+
+            recorder.start();
+            setIsRecordingVoice(true);
+            voiceTimerRef.current = setInterval(() => {
+                setRecordingTime(prev => prev + 1);
+            }, 1000);
+        } catch (err) {
+            console.error('Error starting voice recording:', err);
+            alert('Microphone access denied or unavailable.');
+        }
+    };
+
+    const stopAndSendVoiceRecording = async () => {
+        if (!mediaRecorderRef.current || !selectedContact) return;
+        const recorder = mediaRecorderRef.current;
+        
+        if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+        setIsRecordingVoice(false);
+        setIsUploadingVoice(true);
+
+        recorder.onstop = async () => {
+            if (recorder.stream) {
+                recorder.stream.getTracks().forEach(t => t.stop());
+            }
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            audioChunksRef.current = [];
+
+            if (audioBlob.size === 0) {
+                setIsUploadingVoice(false);
+                return;
+            }
+
+            try {
+                const ext = 'webm';
+                const path = `chat_voice/${currentUser.id}-${Date.now()}.${ext}`;
+                const file = new File([audioBlob], `voice-${Date.now()}.${ext}`, { type: 'audio/webm' });
+                const voiceUrl = await uploadMedia(file, path);
+
+                const text = `[VOICE_REACTION] ${voiceUrl}`;
+                const optimisticMsg: MessageData = {
+                    id: `temp-${Date.now()}`,
+                    sender_id: currentUser.id,
+                    receiver_id: selectedContact.id,
+                    content: text,
+                    created_at: new Date().toISOString(),
+                    is_read: false,
+                };
+                setMessages(prev => [...prev, optimisticMsg]);
+                scrollToBottom();
+
+                const { data, error } = await sendMessage(currentUser.id, selectedContact.id, text);
+                if (error) {
+                    console.error('Failed to send voice message:', error);
+                    setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+                } else if (data) {
+                    setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? data : m));
+                }
+            } catch (err) {
+                console.error('Voice upload failed:', err);
+                alert('Failed to send voice message.');
+            } finally {
+                setIsUploadingVoice(false);
+            }
+        };
+
+        recorder.stop();
+    };
+
+    const cancelVoiceRecording = () => {
+        if (mediaRecorderRef.current) {
+            const recorder = mediaRecorderRef.current;
+            recorder.onstop = () => {
+                if (recorder.stream) {
+                    recorder.stream.getTracks().forEach(t => t.stop());
+                }
+            };
+            recorder.stop();
+        }
+        if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+        setIsRecordingVoice(false);
+        setRecordingTime(0);
+        audioChunksRef.current = [];
     };
 
     const handleSend = async (e: React.FormEvent) => {
@@ -651,18 +757,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             wordBreak: 'break-word',
                                         }}>
                                             {isShare ? renderSharedContent(msg, isMe) : (
-                                                msg.content.startsWith('[VOICE_REACTION]') ? (
+                                                (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                         <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
-                                                            🎙️ Voice Reaction
+                                                            🎙️ Voice Mail
                                                         </div>
                                                         <audio
                                                             controls
-                                                            src={msg.content.replace('[VOICE_REACTION] ', '')}
+                                                            src={msg.content.replace('[VOICE_REACTION] ', '').replace('[VOICE] ', '')}
                                                             style={{
                                                                 width: '200px', height: '36px',
                                                                 borderRadius: '18px',
-                                                                filter: 'invert(1) hue-rotate(180deg)',
+                                                                filter: isMe ? 'none' : 'invert(1) hue-rotate(180deg)',
                                                             }}
                                                         />
                                                     </div>
@@ -733,54 +839,100 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             ref={fileInputRef} 
                             onChange={handleImageUpload} 
                         />
-                        <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            style={{
-                                background: 'none', border: 'none', color: 'var(--text-inactive)',
-                                padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                                marginRight: '8px', opacity: isUploadingImage ? 0.5 : 1
-                            }}
-                            disabled={isUploadingImage}
-                        >
-                            <ImageIcon size={24} />
-                        </button>
-                        <input
-                            type="text"
-                            value={messageInput}
-                            onChange={(e) => setMessageInput(e.target.value)}
-                            placeholder={isUploadingImage ? "Uploading..." : "Message..."}
-                            disabled={isUploadingImage}
-                            style={{
-                                flex: 1,
-                                background: 'var(--border-color)',
-                                border: 'none',
-                                borderRadius: '24px',
-                                padding: '12px 16px',
-                                color: 'var(--text-active)',
-                                outline: 'none',
-                                fontSize: '15px',
-                            }}
-                        />
-                        <button
-                            type="submit"
-                            disabled={!messageInput.trim()}
-                            style={{
-                                background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
-                                color: 'var(--text-active)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: '44px',
-                                height: '44px',
-                                marginLeft: '12px',
-                                display: 'flex',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                cursor: messageInput.trim() ? 'pointer' : 'default',
-                            }}
-                        >
-                            <Send size={20} style={{ marginLeft: '4px' }} />
-                        </button>
+                        {isRecordingVoice ? (
+                            <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '12px', padding: '0 8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3b30', fontWeight: 'bold', fontSize: '14px', flex: 1 }}>
+                                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff3b30', animation: 'pulse 1s infinite' }} />
+                                    <span>Recording... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={cancelVoiceRecording}
+                                    style={{ background: 'none', border: 'none', color: '#ff3b30', padding: '8px', cursor: 'pointer' }}
+                                    title="Cancel recording"
+                                >
+                                    <Trash2 size={22} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={stopAndSendVoiceRecording}
+                                    style={{
+                                        background: '#ff3366', color: '#fff', border: 'none',
+                                        borderRadius: '50%', width: '44px', height: '44px',
+                                        display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        cursor: 'pointer', boxShadow: '0 2px 10px rgba(255,51,102,0.4)',
+                                    }}
+                                    title="Send Voice Mail"
+                                >
+                                    <Send size={20} style={{ marginLeft: '2px' }} />
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    style={{
+                                        background: 'none', border: 'none', color: 'var(--text-inactive)',
+                                        padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                        marginRight: '4px', opacity: isUploadingImage || isUploadingVoice ? 0.5 : 1
+                                    }}
+                                    disabled={isUploadingImage || isUploadingVoice}
+                                    title="Send Image / Video"
+                                >
+                                    <ImageIcon size={24} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={startVoiceRecording}
+                                    style={{
+                                        background: 'none', border: 'none', color: '#f5a524',
+                                        padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                        marginRight: '8px', opacity: isUploadingImage || isUploadingVoice ? 0.5 : 1
+                                    }}
+                                    disabled={isUploadingImage || isUploadingVoice}
+                                    title="Record Voice Mail"
+                                >
+                                    <Mic size={24} />
+                                </button>
+                                <input
+                                    type="text"
+                                    value={messageInput}
+                                    onChange={(e) => setMessageInput(e.target.value)}
+                                    placeholder={isUploadingVoice ? "Sending voice mail..." : isUploadingImage ? "Uploading..." : "Message..."}
+                                    disabled={isUploadingImage || isUploadingVoice}
+                                    style={{
+                                        flex: 1,
+                                        background: 'var(--border-color)',
+                                        border: 'none',
+                                        borderRadius: '24px',
+                                        padding: '12px 16px',
+                                        color: 'var(--text-active)',
+                                        outline: 'none',
+                                        fontSize: '15px',
+                                    }}
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={!messageInput.trim()}
+                                    style={{
+                                        background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
+                                        color: 'var(--text-active)',
+                                        border: 'none',
+                                        borderRadius: '50%',
+                                        width: '44px',
+                                        height: '44px',
+                                        marginLeft: '12px',
+                                        display: 'flex',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        cursor: messageInput.trim() ? 'pointer' : 'default',
+                                    }}
+                                >
+                                    <Send size={20} style={{ marginLeft: '4px' }} />
+                                </button>
+                            </>
+                        )}
                     </form>
                 </>
             )}
