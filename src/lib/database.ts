@@ -377,14 +377,29 @@ export async function createStory(
     username?: string,
     caption?: string
 ): Promise<{ error: Error | null }> {
-    const { error } = await supabase.from('stories').insert({
+    const payload: any = {
         user_id: userId,
         image_url: imageUrl,
         filter_name: filterName,
         is_boosted: isBoosted,
-        username: username || null,
-        caption: caption || null,
-    });
+    };
+    if (username) payload.username = username;
+    if (caption) payload.caption = caption;
+
+    let { error } = await supabase.from('stories').insert(payload);
+
+    // Fallback: If DB table doesn't have username/caption columns yet, retry with base payload
+    if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
+        console.warn('Retrying story insert with base fields due to missing columns in Supabase:', error.message);
+        const basePayload = {
+            user_id: userId,
+            image_url: imageUrl,
+            filter_name: filterName,
+            is_boosted: isBoosted,
+        };
+        const retryResult = await supabase.from('stories').insert(basePayload);
+        error = retryResult.error;
+    }
 
     if (error) {
         console.error('Error creating story:', error);
