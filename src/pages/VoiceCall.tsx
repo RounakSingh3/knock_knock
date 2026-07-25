@@ -530,10 +530,10 @@ const VoiceCall = () => {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
-                        noiseSuppression: false, // Turned OFF to prevent robotic/garbled voice (critical for clarity)
-                        autoGainControl: false, // Disabled to prevent unexpected volume drops (ducking)
-                        sampleRate: 48000,      // Force high-quality sample rate
-                        channelCount: 2,        // Force stereo to hint for higher bitrate
+                        noiseSuppression: true,   // Keep ON for clear audio (filters background noise)
+                        autoGainControl: true,     // Keep ON to normalize volume levels
+                        sampleRate: 48000,
+                        channelCount: 1,           // Mono is better for voice calls (less bandwidth, clearer)
                     },
                     video: isVideo
                 });
@@ -600,10 +600,11 @@ const VoiceCall = () => {
                     const remoteStream = event.streams[0];
                     if (!remoteStream) return;
 
-                    // Always attach audio to the audio element for playback
+                    // Attach audio to a dedicated audio-only stream for reliable playback
                     if (event.track.kind === 'audio' && remoteAudioRef.current) {
-                        remoteAudioRef.current.srcObject = remoteStream;
-                        // Explicitly play to work around browser autoplay policies
+                        const audioStream = new MediaStream([event.track]);
+                        remoteAudioRef.current.srcObject = audioStream;
+                        remoteAudioRef.current.volume = 1.0;
                         remoteAudioRef.current.play().then(() => {
                             setAudioBlocked(false);
                         }).catch(err => {
@@ -614,7 +615,10 @@ const VoiceCall = () => {
 
                     // Attach video track when in video mode
                     if (event.track.kind === 'video' && remoteVideoRef.current) {
-                        remoteVideoRef.current.srcObject = remoteStream;
+                        const videoStream = new MediaStream();
+                        // Add all tracks from the remote stream to keep audio+video in sync
+                        remoteStream.getTracks().forEach(t => videoStream.addTrack(t));
+                        remoteVideoRef.current.srcObject = videoStream;
                     }
                 };
 
@@ -708,7 +712,52 @@ const VoiceCall = () => {
             webrtcReadyRef.current = false;
             closeWebRTC();
         };
-    }, [inCall, isMockMode, videoRequestStatus, isCaller, currentMatch?.profile?.id]);
+    }, [inCall, isMockMode, isCaller, currentMatch?.profile?.id]);
+
+    // Handle video upgrade separately — add video track to existing connection
+    useEffect(() => {
+        if (videoRequestStatus !== 'accepted' || !peerConnectionRef.current || !localStreamRef.current || !user) return;
+        const pc = peerConnectionRef.current;
+
+        // Check if we already have a video track
+        const senders = pc.getSenders();
+        const hasVideoSender = senders.some(s => s.track?.kind === 'video');
+        if (hasVideoSender) return;
+
+        (async () => {
+            try {
+                const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const videoTrack = videoStream.getVideoTracks()[0];
+                if (videoTrack) {
+                    // Add video track to existing peer connection
+                    pc.addTrack(videoTrack, localStreamRef.current!);
+                    localStreamRef.current!.addTrack(videoTrack);
+
+                    if (localVideoRef.current) {
+                        localVideoRef.current.srcObject = localStreamRef.current;
+                    }
+
+                    // Renegotiate with the peer
+                    if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
+                        const offer = await pc.createOffer();
+                        offer.sdp = enhanceAudioSDP(offer.sdp);
+                        await pc.setLocalDescription(offer);
+                        channelRef.current.send({
+                            type: 'broadcast',
+                            event: 'webrtc-offer',
+                            payload: {
+                                senderId: user.id,
+                                receiverId: currentMatchRef.current.profile.id,
+                                sdp: offer,
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to add video track:', e);
+            }
+        })();
+    }, [videoRequestStatus]);
 
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
