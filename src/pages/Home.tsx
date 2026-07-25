@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import ChatPanel from '../components/ChatPanel';
@@ -49,6 +49,7 @@ const Home = () => {
     const [viewingGroup, setViewingGroup] = useState<StoryGroup | null>(null);
     const [viewingIndex, setViewingIndex] = useState(0);
     const [storyProgress, setStoryProgress] = useState(0);
+    const homeStoryAudioRef = useRef<HTMLAudioElement | null>(null);
 
     // Feed mode toggle
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
@@ -394,6 +395,27 @@ const Home = () => {
         return () => clearInterval(timer);
     }, [viewingGroup, viewingIndex]);
 
+    // Handle background music playback for Home story viewer
+    useEffect(() => {
+        if (homeStoryAudioRef.current) {
+            homeStoryAudioRef.current.pause();
+            homeStoryAudioRef.current = null;
+        }
+        const currentStory = viewingGroup?.stories[viewingIndex];
+        if (currentStory?.music_url) {
+            const audio = new Audio(currentStory.music_url);
+            audio.loop = true;
+            audio.play().catch(e => console.warn('Audio play blocked:', e));
+            homeStoryAudioRef.current = audio;
+        }
+        return () => {
+            if (homeStoryAudioRef.current) {
+                homeStoryAudioRef.current.pause();
+                homeStoryAudioRef.current = null;
+            }
+        };
+    }, [viewingGroup, viewingIndex]);
+
     // ── Story Viewer Overlay ──
     if (viewingGroup) {
         const currentStory = viewingGroup.stories[viewingIndex];
@@ -498,6 +520,21 @@ const Home = () => {
                 {currentStory && currentStory.is_boosted && (
                     <div className="story-boosted-badge">
                         <Flame size={12} /> Boosted
+                    </div>
+                )}
+
+                {/* Music Badge */}
+                {currentStory && (currentStory.music_title || currentStory.music_artist) && (
+                    <div style={{
+                        position: 'absolute', bottom: '130px', left: '16px', right: '16px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                        background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
+                        border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px',
+                        padding: '6px 14px', color: '#fff', fontSize: '13px', fontWeight: 'bold',
+                        width: 'fit-content', margin: '0 auto', zIndex: 10
+                    }}>
+                        <Music size={14} color="#f5a524" />
+                        <span>{currentStory.music_title} {currentStory.music_artist ? `• ${currentStory.music_artist}` : ''}</span>
                     </div>
                 )}
             </div>

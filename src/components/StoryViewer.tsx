@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash2, Music } from 'lucide-react';
 import { type UserStoryGroup, deleteStory } from '../lib/database';
 
 // Map filter names stored in DB to actual CSS filter values
@@ -34,6 +34,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const [storyIndex, setStoryIndex] = useState(0);
     const [progress, setProgress] = useState(0);
     const [isPaused, setIsPaused] = useState(false);
+    const bgAudioRef = useRef<HTMLAudioElement | null>(null);
     const navigate = useNavigate();
 
     // Trap hardware back button
@@ -91,6 +92,26 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
         return () => clearInterval(interval);
     }, [currentStory, isPaused, handleNextStory]);
+
+    // Handle background music playback
+    useEffect(() => {
+        if (bgAudioRef.current) {
+            bgAudioRef.current.pause();
+            bgAudioRef.current = null;
+        }
+        if (currentStory?.music_url) {
+            const audio = new Audio(currentStory.music_url);
+            audio.loop = true;
+            audio.play().catch(e => console.warn('Background music autoplay blocked:', e));
+            bgAudioRef.current = audio;
+        }
+        return () => {
+            if (bgAudioRef.current) {
+                bgAudioRef.current.pause();
+                bgAudioRef.current = null;
+            }
+        };
+    }, [currentStory?.id, currentStory?.music_url]);
 
     const handleDelete = async () => {
         if (!currentStory || !window.confirm('Are you sure you want to delete this story?')) return;
@@ -218,6 +239,21 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             {currentStory.caption && (
                 <div className="story-caption-overlay">
                     {currentStory.caption}
+                </div>
+            )}
+
+            {/* Music Badge Overlay */}
+            {(currentStory.music_title || currentStory.music_artist) && (
+                <div style={{
+                    position: 'absolute', bottom: '130px', left: '16px', right: '16px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                    background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px',
+                    padding: '6px 14px', color: '#fff', fontSize: '13px', fontWeight: 'bold',
+                    width: 'fit-content', margin: '0 auto', zIndex: 10
+                }}>
+                    <Music size={14} color="#f5a524" />
+                    <span>{currentStory.music_title} {currentStory.music_artist ? `• ${currentStory.music_artist}` : ''}</span>
                 </div>
             )}
             

@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock, Eye, HelpCircle, Users } from 'lucide-react';
+import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock, Eye, HelpCircle, Users, Music } from 'lucide-react';
+import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 import { AppContext } from '../App';
 import {
     fetchBoostedStories,
@@ -58,6 +59,8 @@ const Stories = () => {
     const [myStories, setMyStories] = useState<StoryData[]>([]);
     const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
     const [isGalleryVideo, setIsGalleryVideo] = useState(false);
+    const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+    const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [storyCaption, setStoryCaption] = useState('');
     const [videoClips, setVideoClips] = useState<PostData[]>([]);
@@ -171,6 +174,7 @@ const Stories = () => {
         setHasCaptured(false);
         setCapturedImageUrl(null);
         setIsGalleryVideo(false);
+        setSelectedTrack(null);
         setStoryCaption('');
     };
 
@@ -252,7 +256,10 @@ const Stories = () => {
                 FILTERS[activeFilterIndex].name,
                 boost,
                 user.username || user.name,
-                storyCaption.trim() || undefined
+                storyCaption.trim() || undefined,
+                selectedTrack?.title,
+                selectedTrack?.artist,
+                selectedTrack?.url
             );
 
             if (error) {
@@ -325,6 +332,9 @@ const Stories = () => {
             <div className="camera-view">
                 <div className="camera-header">
                     <button onClick={stopCamera} className="icon-btn"><X size={28} /></button>
+                    <button onClick={() => setIsMusicModalOpen(true)} className={`icon-btn ${selectedTrack ? 'text-yellow-400' : 'text-white'}`} title="Add background music">
+                        <Music size={24} />
+                    </button>
                     {!hasCaptured && (
                         <button className="icon-btn text-yellow-400"><Sparkles size={24} /></button>
                     )}
@@ -360,6 +370,27 @@ const Stories = () => {
                             className="camera-video"
                             style={{ display: hasCaptured ? 'block' : 'none' }}
                         />
+                    )}
+
+                    {/* Selected Music Sticker Badge */}
+                    {selectedTrack && (
+                        <div style={{
+                            position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)',
+                            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(245,165,36,0.6)', borderRadius: '20px',
+                            padding: '6px 14px', color: '#fff', fontSize: '13px', fontWeight: 'bold',
+                            display: 'flex', alignItems: 'center', gap: '8px', zIndex: 10,
+                            boxShadow: '0 4px 15px rgba(0,0,0,0.4)'
+                        }}>
+                            <Music size={14} color="#f5a524" />
+                            <span>{selectedTrack.title} • {selectedTrack.artist}</span>
+                            <button
+                                onClick={() => setSelectedTrack(null)}
+                                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', marginLeft: '4px', display: 'flex' }}
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
                     )}
                 </div>
 
@@ -707,6 +738,13 @@ const Stories = () => {
                     }}
                 />
             )}
+            {/* Music Picker Modal */}
+            <MusicPickerModal
+                isOpen={isMusicModalOpen}
+                onClose={() => setIsMusicModalOpen(false)}
+                onSelectTrack={(track) => setSelectedTrack(track)}
+                selectedTrackId={selectedTrack?.id}
+            />
         </div>
     );
 };

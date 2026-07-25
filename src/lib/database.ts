@@ -314,6 +314,9 @@ export interface StoryData {
     is_boosted: boolean;
     created_at: string;
     caption?: string;
+    music_title?: string;
+    music_artist?: string;
+    music_url?: string;
 }
 
 export interface UserStoryGroup {
@@ -375,7 +378,10 @@ export async function createStory(
     filterName: string,
     isBoosted: boolean,
     username?: string,
-    caption?: string
+    caption?: string,
+    musicTitle?: string,
+    musicArtist?: string,
+    musicUrl?: string
 ): Promise<{ error: Error | null }> {
     const payload: any = {
         user_id: userId,
@@ -385,6 +391,9 @@ export async function createStory(
     };
     if (username) payload.username = username;
     if (caption) payload.caption = caption;
+    if (musicTitle) payload.music_title = musicTitle;
+    if (musicArtist) payload.music_artist = musicArtist;
+    if (musicUrl) payload.music_url = musicUrl;
 
     let { error } = await supabase.from('stories').insert(payload);
 
