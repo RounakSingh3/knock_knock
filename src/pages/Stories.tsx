@@ -534,8 +534,13 @@ const Stories = () => {
                 <div className="section-block">
                     <h3 className="section-title">My Stories</h3>
                     <div className="my-stories-row">
-                        {myStories.slice(0, 10).map(story => (
-                            <div key={story.id} className="my-story-card">
+                        {myStories.slice(0, 10).map((story, idx) => (
+                            <div 
+                                key={story.id} 
+                                className="my-story-card"
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => openStoryViewer(story)}
+                            >
                                 <img src={story.image_url} alt="" />
                                 <div className="my-story-overlay">
                                     {story.is_boosted && (

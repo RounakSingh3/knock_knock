@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../App';
-import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, type PostData, type StoryData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2 } from 'lucide-react';
@@ -173,16 +173,24 @@ const Home = () => {
         loadForYouFeed();
 
         // Fetch recent stories for the rack
-        fetchRecentStories().then(stories => {
+        fetchRecentStories().then(async stories => {
             const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
+            const userIds = Array.from(new Set(validStories.map(s => s.user_id).filter(Boolean))) as string[];
+            const profilesMap = new Map<string, any>();
+            if (userIds.length > 0) {
+                const profiles = await fetchProfilesByIds(userIds);
+                profiles.forEach(p => profilesMap.set(p.id, p));
+            }
+
             const groups: Record<string, StoryGroup> = {};
             validStories.forEach(s => {
                 const uid = s.user_id || 'unknown';
+                const prof = profilesMap.get(uid);
                 if (!groups[uid]) {
                     groups[uid] = {
                         userId: uid,
-                        username: s.username || 'user',
-                        avatarUrl: `https://i.pravatar.cc/150?u=${s.username || uid}`,
+                        username: prof?.username || s.username || 'user',
+                        avatarUrl: prof?.avatar_url || (user && uid === user.id ? user.avatar_url : '') || `https://i.pravatar.cc/150?u=${s.username || uid}`,
                         stories: [],
                     };
                 }
@@ -546,24 +554,44 @@ const Home = () => {
                 </button>
             </div>
 
-            {(storyGroups.length > 0 || user) && (
-                <div className="story-rack-v2 story-rack-top">
-                    <div className="story-rack-item" onClick={() => navigate('/stories')}>
-                        <div className="story-tile-rect story-tile-add">
-                            <img
-                                src={user?.avatar_url || 'https://i.pravatar.cc/150'}
-                                alt=""
-                            />
-                            <div className="story-add-icon-rect">
-                                <Plus size={14} />
-                            </div>
-                        </div>
-                        <span className="story-rack-name">Your Story</span>
-                    </div>
+            {(storyGroups.length > 0 || user) && (() => {
+                const myGroup = user ? storyGroups.find(g => g.userId === user.id) : null;
+                const otherGroups = storyGroups.filter(g => g.userId !== user?.id);
 
-                    {storyGroups
-                        .filter(g => g.userId !== user?.id)
-                        .map(group => {
+                return (
+                    <div className="story-rack-v2 story-rack-top">
+                        {/* Your Story tile */}
+                        <div
+                            className="story-rack-item"
+                            onClick={() => {
+                                if (myGroup && myGroup.stories.length > 0) {
+                                    openStoryViewer(myGroup);
+                                } else {
+                                    navigate('/stories');
+                                }
+                            }}
+                        >
+                            <div className={`story-tile-rect ${myGroup && myGroup.stories.length > 0 ? 'story-tile-connection' : 'story-tile-add'}`}>
+                                <img
+                                    src={(myGroup && myGroup.stories[0]?.image_url) || user?.avatar_url || 'https://i.pravatar.cc/150'}
+                                    alt="Your Story"
+                                />
+                                <div
+                                    className="story-add-icon-rect"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate('/stories');
+                                    }}
+                                    title="Create new story"
+                                >
+                                    <Plus size={14} />
+                                </div>
+                            </div>
+                            <span className="story-rack-name">Your Story</span>
+                        </div>
+
+                        {/* Other Users' Stories */}
+                        {otherGroups.map(group => {
                             const isConnection = connectionUserIds.has(group.userId);
                             return (
                                 <div
@@ -583,8 +611,9 @@ const Home = () => {
                                 </div>
                             );
                         })}
-                </div>
-            )}
+                    </div>
+                );
+            })()}
 
             {/* Content */}
             <div className="masonry-feed-wrapper">
