@@ -371,7 +371,8 @@ export async function createStory(
     imageUrl: string,
     filterName: string,
     isBoosted: boolean,
-    username?: string
+    username?: string,
+    caption?: string
 ): Promise<{ error: Error | null }> {
     const { error } = await supabase.from('stories').insert({
         user_id: userId,
@@ -379,6 +380,7 @@ export async function createStory(
         filter_name: filterName,
         is_boosted: isBoosted,
         username: username || null,
+        caption: caption || null,
     });
 
     if (error) {

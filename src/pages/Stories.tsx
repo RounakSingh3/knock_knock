@@ -57,6 +57,7 @@ const Stories = () => {
     const [boostedStories, setBoostedStories] = useState<StoryData[]>([]);
     const [myStories, setMyStories] = useState<StoryData[]>([]);
     const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
+    const [storyCaption, setStoryCaption] = useState('');
     const [videoClips, setVideoClips] = useState<PostData[]>([]);
     const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
     const [viewerStoryGroups, setViewerStoryGroups] = useState<UserStoryGroup[]>([]);
@@ -214,7 +215,8 @@ const Stories = () => {
                 imageUrl,
                 FILTERS[activeFilterIndex].name,
                 boost,
-                user.username || user.name
+                user.username || user.name,
+                storyCaption.trim() || undefined
             );
 
             if (error) {
@@ -352,6 +354,25 @@ const Stories = () => {
                         </div>
                     )}
                 </div>
+
+                {/* Caption Input (after capture) */}
+                {hasCaptured && (
+                    <div style={{ padding: '0 20px', marginBottom: '8px' }}>
+                        <input
+                            type="text"
+                            value={storyCaption}
+                            onChange={e => setStoryCaption(e.target.value)}
+                            placeholder="Add a caption... #hashtag"
+                            maxLength={100}
+                            style={{
+                                width: '100%', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: '24px', padding: '10px 16px', color: '#fff',
+                                fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                backdropFilter: 'blur(8px)',
+                            }}
+                        />
+                    </div>
+                )}
 
                 {/* Streak reward preview in camera */}
                 {hasCaptured && (

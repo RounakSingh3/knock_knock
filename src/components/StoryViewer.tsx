@@ -3,6 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { X, Trash2 } from 'lucide-react';
 import { type UserStoryGroup, deleteStory } from '../lib/database';
 
+// Map filter names stored in DB to actual CSS filter values
+const FILTER_MAP: Record<string, string> = {
+    'Normal': '',
+    'Vintage': 'sepia(0.5) contrast(1.2)',
+    'B&W': 'grayscale(1) contrast(1.1)',
+    'Neon': 'hue-rotate(90deg) saturate(2)',
+    'Cinematic': 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)',
+    'Cool': 'hue-rotate(-30deg) saturate(1.2)',
+    'Warm': 'sepia(0.3) saturate(1.4)',
+    'Alien': 'invert(0.8) hue-rotate(180deg)',
+};
+
 interface StoryViewerProps {
     storyGroups: UserStoryGroup[];
     initialGroupIndex: number;
@@ -87,9 +99,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         setIsPaused(true);
         await deleteStory(currentStory.id);
         
-        // Update local state
-        const newGroups = [...storyGroups];
-        newGroups[groupIndex].stories.splice(storyIndex, 1);
+        // Update local state — deep copy to avoid mutating props
+        const newGroups = storyGroups.map((g, i) => 
+            i === groupIndex 
+                ? { ...g, stories: g.stories.filter((_, si) => si !== storyIndex) }
+                : g
+        );
         
         if (newGroups[groupIndex].stories.length === 0) {
             newGroups.splice(groupIndex, 1);
@@ -185,7 +200,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 src={currentStory.image_url} 
                 alt="Story" 
                 className="story-image"
-                style={{ filter: currentStory.filter_name ? currentStory.filter_name : 'none' }}
+                style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
             />
 
             {/* Caption */}

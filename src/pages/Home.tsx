@@ -428,11 +428,32 @@ const Home = () => {
 
                 {/* Story Image */}
                 {currentStory && (
-                    <img
-                        src={currentStory.image_url}
-                        alt=""
-                        className="story-viewer-image"
-                    />
+                    <>
+                        <img
+                            src={currentStory.image_url}
+                            alt=""
+                            className="story-viewer-image"
+                            style={{ filter: currentStory.filter_name && currentStory.filter_name !== 'Normal' ? ({
+                                'Vintage': 'sepia(0.5) contrast(1.2)',
+                                'B&W': 'grayscale(1) contrast(1.1)',
+                                'Neon': 'hue-rotate(90deg) saturate(2)',
+                                'Cinematic': 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)',
+                                'Cool': 'hue-rotate(-30deg) saturate(1.2)',
+                                'Warm': 'sepia(0.3) saturate(1.4)',
+                                'Alien': 'invert(0.8) hue-rotate(180deg)',
+                            } as Record<string, string>)[currentStory.filter_name] || 'none' : 'none' }}
+                        />
+                        {currentStory.caption && (
+                            <div style={{
+                                position: 'absolute', bottom: '80px', left: '16px', right: '16px',
+                                color: '#fff', fontSize: '15px', textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+                                textAlign: 'center', padding: '8px 16px',
+                                background: 'rgba(0,0,0,0.3)', borderRadius: '12px', backdropFilter: 'blur(4px)',
+                            }}>
+                                {currentStory.caption}
+                            </div>
+                        )}
+                    </>
                 )}
 
                 {/* Tap Zones */}
