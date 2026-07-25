@@ -426,23 +426,42 @@ const Home = () => {
                     </button>
                 </div>
 
-                {/* Story Image */}
+                {/* Story Image / Video */}
                 {currentStory && (
                     <>
-                        <img
-                            src={currentStory.image_url}
-                            alt=""
-                            className="story-viewer-image"
-                            style={{ filter: currentStory.filter_name && currentStory.filter_name !== 'Normal' ? ({
-                                'Vintage': 'sepia(0.5) contrast(1.2)',
-                                'B&W': 'grayscale(1) contrast(1.1)',
-                                'Neon': 'hue-rotate(90deg) saturate(2)',
-                                'Cinematic': 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)',
-                                'Cool': 'hue-rotate(-30deg) saturate(1.2)',
-                                'Warm': 'sepia(0.3) saturate(1.4)',
-                                'Alien': 'invert(0.8) hue-rotate(180deg)',
-                            } as Record<string, string>)[currentStory.filter_name] || 'none' : 'none' }}
-                        />
+                        {/\.(mp4|webm|mov)(\?.*)?$/i.test(currentStory.image_url) || currentStory.image_url.startsWith('data:video') ? (
+                            <video
+                                src={currentStory.image_url}
+                                autoPlay
+                                loop
+                                playsInline
+                                className="story-viewer-image"
+                                style={{ filter: currentStory.filter_name && currentStory.filter_name !== 'Normal' ? ({
+                                    'Vintage': 'sepia(0.5) contrast(1.2)',
+                                    'B&W': 'grayscale(1) contrast(1.1)',
+                                    'Neon': 'hue-rotate(90deg) saturate(2)',
+                                    'Cinematic': 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)',
+                                    'Cool': 'hue-rotate(-30deg) saturate(1.2)',
+                                    'Warm': 'sepia(0.3) saturate(1.4)',
+                                    'Alien': 'invert(0.8) hue-rotate(180deg)',
+                                } as Record<string, string>)[currentStory.filter_name] || 'none' : 'none', objectFit: 'contain' }}
+                            />
+                        ) : (
+                            <img
+                                src={currentStory.image_url}
+                                alt=""
+                                className="story-viewer-image"
+                                style={{ filter: currentStory.filter_name && currentStory.filter_name !== 'Normal' ? ({
+                                    'Vintage': 'sepia(0.5) contrast(1.2)',
+                                    'B&W': 'grayscale(1) contrast(1.1)',
+                                    'Neon': 'hue-rotate(90deg) saturate(2)',
+                                    'Cinematic': 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)',
+                                    'Cool': 'hue-rotate(-30deg) saturate(1.2)',
+                                    'Warm': 'sepia(0.3) saturate(1.4)',
+                                    'Alien': 'invert(0.8) hue-rotate(180deg)',
+                                } as Record<string, string>)[currentStory.filter_name] || 'none' : 'none' }}
+                            />
+                        )}
                         {currentStory.caption && (
                             <div style={{
                                 position: 'absolute', bottom: '80px', left: '16px', right: '16px',

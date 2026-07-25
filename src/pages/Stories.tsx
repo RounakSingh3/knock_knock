@@ -57,6 +57,8 @@ const Stories = () => {
     const [boostedStories, setBoostedStories] = useState<StoryData[]>([]);
     const [myStories, setMyStories] = useState<StoryData[]>([]);
     const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
+    const [isGalleryVideo, setIsGalleryVideo] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [storyCaption, setStoryCaption] = useState('');
     const [videoClips, setVideoClips] = useState<PostData[]>([]);
     const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
@@ -163,10 +165,44 @@ const Stories = () => {
         if (videoRef.current && videoRef.current.srcObject) {
             const stream = videoRef.current.srcObject as MediaStream;
             stream.getTracks().forEach(track => track.stop());
+            videoRef.current.srcObject = null;
         }
         setIsCameraActive(false);
         setHasCaptured(false);
         setCapturedImageUrl(null);
+        setIsGalleryVideo(false);
+        setStoryCaption('');
+    };
+
+    const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            const isVideo = file.type.startsWith('video/');
+            setIsGalleryVideo(isVideo);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const result = event.target?.result as string;
+                setCapturedImageUrl(result);
+                setHasCaptured(true);
+                if (!isVideo && canvasRef.current) {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = canvasRef.current;
+                        if (canvas) {
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            const ctx = canvas.getContext('2d');
+                            if (ctx) {
+                                ctx.filter = FILTERS[activeFilterIndex].style || 'none';
+                                ctx.drawImage(img, 0, 0);
+                            }
+                        }
+                    };
+                    img.src = result;
+                }
+            };
+            reader.readAsDataURL(file);
+        }
     };
 
     const captureImage = () => {
@@ -305,11 +341,26 @@ const Stories = () => {
                             filter: FILTERS[activeFilterIndex].style
                         }}
                     />
-                    <canvas
-                        ref={canvasRef}
-                        className="camera-video"
-                        style={{ display: hasCaptured ? 'block' : 'none' }}
-                    />
+                    {hasCaptured && isGalleryVideo ? (
+                        <video
+                            src={capturedImageUrl || ''}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            className="camera-video"
+                            style={{
+                                display: 'block',
+                                filter: FILTERS[activeFilterIndex].style
+                            }}
+                        />
+                    ) : (
+                        <canvas
+                            ref={canvasRef}
+                            className="camera-video"
+                            style={{ display: hasCaptured ? 'block' : 'none' }}
+                        />
+                    )}
                 </div>
 
                 {!hasCaptured && (
@@ -330,7 +381,16 @@ const Stories = () => {
                 <div className="camera-footer">
                     {!hasCaptured ? (
                         <>
-                            <button className="icon-btn"><ImageIcon size={32} /></button>
+                            <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Upload photos/videos from gallery">
+                                <ImageIcon size={32} />
+                            </button>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*,video/*"
+                                onChange={handleGallerySelect}
+                                style={{ display: 'none' }}
+                            />
                             <button className="shutter-btn" onClick={captureImage}></button>
                             <button className="icon-btn opacity-0"><ImageIcon size={32} /></button>
                         </>

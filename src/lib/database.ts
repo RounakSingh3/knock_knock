@@ -155,12 +155,15 @@ export async function createNewPost(post: {
     return data;
 }
 
-/** Upload a canvas/data-URL story image to storage */
+/** Upload a canvas/data-URL story image or video to storage */
 export async function uploadStoryImage(dataUrl: string, userId: string): Promise<string> {
     const res = await fetch(dataUrl);
     const blob = await res.blob();
-    const file = new File([blob], `story-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    const path = `stories/${userId}-${Date.now()}.jpg`;
+    const isVideo = blob.type.startsWith('video/') || dataUrl.startsWith('data:video/');
+    const ext = isVideo ? 'mp4' : 'jpg';
+    const mime = isVideo ? (blob.type || 'video/mp4') : 'image/jpeg';
+    const file = new File([blob], `story-${Date.now()}.${ext}`, { type: mime });
+    const path = `stories/${userId}-${Date.now()}.${ext}`;
     return uploadMedia(file, path);
 }
 

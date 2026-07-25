@@ -195,13 +195,24 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 onTouchEnd={() => setIsPaused(false)}
             />
 
-            {/* Story Image */}
-            <img 
-                src={currentStory.image_url} 
-                alt="Story" 
-                className="story-image"
-                style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
-            />
+            {/* Story Image / Video */}
+            {/\.(mp4|webm|mov)(\?.*)?$/i.test(currentStory.image_url) || currentStory.image_url.startsWith('data:video') ? (
+                <video
+                    src={currentStory.image_url}
+                    autoPlay
+                    loop
+                    playsInline
+                    className="story-image"
+                    style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', objectFit: 'contain' }}
+                />
+            ) : (
+                <img 
+                    src={currentStory.image_url} 
+                    alt="Story" 
+                    className="story-image"
+                    style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
+                />
+            )}
 
             {/* Caption */}
             {currentStory.caption && (
