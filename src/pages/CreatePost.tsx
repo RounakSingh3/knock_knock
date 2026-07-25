@@ -4,7 +4,8 @@ import { AppContext } from '../App';
 import { uploadMedia, createNewPost, updatePoints } from '../lib/database';
 import { getMediaTypeFromFile, compressImage } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
-import { ImagePlus, Loader2, Link as LinkIcon, Trash2 } from 'lucide-react';
+import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X } from 'lucide-react';
+import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 
 const CSS_FILTERS = [
     { name: 'Normal', filter: 'none' },
@@ -39,6 +40,9 @@ const CreatePost = () => {
     const [uploadProgress, setUploadProgress] = useState<number | null>(null);
     const [boostToSpotlight, setBoostToSpotlight] = useState(isFromSpotlight && points >= 10);
     const [boostAmount, setBoostAmount] = useState(points >= 100 ? 100 : Math.max(10, points));
+
+    const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+    const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -126,7 +130,10 @@ const CreatePost = () => {
                 category,
                 css_filter: selectedFilter,
                 boost_expires_at: boostExpiresAt,
-                boost_impressions_remaining: boostToSpotlight ? boostAmount : 0
+                boost_impressions_remaining: boostToSpotlight ? boostAmount : 0,
+                music_title: selectedTrack?.title,
+                music_artist: selectedTrack?.artist,
+                music_url: selectedTrack?.url
             });
 
             if (boostToSpotlight) {
@@ -393,29 +400,78 @@ const CreatePost = () => {
                     )}
                 </div>
             ) : (
-                <button 
-                    onClick={handleUpload}
-                    disabled={!file}
-                    style={{
-                        width: '100%',
-                        background: !file ? 'var(--border-color)' : 'linear-gradient(45deg, #f5a524, #ff6b35)',
-                        color: !file ? 'var(--text-inactive)' : 'var(--text-active)',
-                        border: 'none',
-                        borderRadius: '30px',
-                        padding: '16px',
-                        fontSize: '16px',
-                        fontWeight: 'bold',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        cursor: !file ? 'not-allowed' : 'pointer',
-                        transition: 'background 0.2s',
-                        marginBottom: '16px'
-                    }}
-                >
-                    Share Post
-                </button>
+                <>
+                    {/* Add Background Music Option */}
+                    <div style={{ marginBottom: '16px' }}>
+                        {selectedTrack ? (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                background: 'rgba(245, 165, 36, 0.15)', border: '1px solid #f5a524',
+                                borderRadius: '16px', padding: '12px 16px', color: '#fff'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <Music size={20} color="#f5a524" />
+                                    <div>
+                                        <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{selectedTrack.title}</div>
+                                        <div style={{ fontSize: '12px', color: '#aaa' }}>{selectedTrack.artist} • {selectedTrack.category}</div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setSelectedTrack(null)}
+                                    style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }}
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => setIsMusicModalOpen(true)}
+                                style={{
+                                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    gap: '8px', background: 'rgba(255,255,255,0.06)', border: '1px dashed rgba(255,255,255,0.2)',
+                                    borderRadius: '16px', padding: '12px', color: '#fff', fontSize: '14px',
+                                    fontWeight: 'bold', cursor: 'pointer'
+                                }}
+                            >
+                                <Music size={18} color="#f5a524" />
+                                <span>Add Background Music / Track</span>
+                            </button>
+                        )}
+                    </div>
+
+                    <button 
+                        onClick={handleUpload}
+                        disabled={!file}
+                        style={{
+                            width: '100%',
+                            background: !file ? 'var(--border-color)' : 'linear-gradient(45deg, #f5a524, #ff6b35)',
+                            color: !file ? 'var(--text-inactive)' : 'var(--text-active)',
+                            border: 'none',
+                            borderRadius: '30px',
+                            padding: '16px',
+                            fontSize: '16px',
+                            fontWeight: 'bold',
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            cursor: !file ? 'not-allowed' : 'pointer',
+                            transition: 'background 0.2s',
+                            marginBottom: '16px'
+                        }}
+                    >
+                        Share Post / Reel
+                    </button>
+                </>
             )}
+
+            {/* Music Picker Modal */}
+            <MusicPickerModal
+                isOpen={isMusicModalOpen}
+                onClose={() => setIsMusicModalOpen(false)}
+                onSelectTrack={(track) => setSelectedTrack(track)}
+                selectedTrackId={selectedTrack?.id}
+            />
         </div>
     );
 };

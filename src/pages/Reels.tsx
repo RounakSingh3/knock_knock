@@ -21,6 +21,7 @@ export interface ReelData {
     category: string;
     css_filter?: string;
     attachedLink?: string;
+    musicUrl?: string;
 }
 
 export const REELS_DATA: ReelData[] = [
@@ -205,7 +206,7 @@ function postToReel(post: PostData): ReelData {
         creator: post.username,
         creatorAvatar: post.avatar_url || `https://i.pravatar.cc/150?u=${post.username}`,
         caption: post.caption || '',
-        song: 'Original — Upload',
+        song: post.music_title ? `${post.music_title} — ${post.music_artist || post.username}` : 'Original Sound',
         likes: post.likes_count || 0,
         imps: post.imps_count || 0,
         comments: 0,
@@ -213,6 +214,7 @@ function postToReel(post: PostData): ReelData {
         category: 'Uploads',
         css_filter: filter,
         attachedLink: post.attached_link,
+        musicUrl: post.music_url,
     };
 }
 

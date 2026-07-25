@@ -24,6 +24,9 @@ export interface PostData {
     css_filter?: string;
     boost_expires_at?: string | null;
     boost_impressions_remaining?: number;
+    music_title?: string;
+    music_artist?: string;
+    music_url?: string;
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
@@ -129,6 +132,9 @@ export async function createNewPost(post: {
     css_filter?: string;
     boost_expires_at?: string | null;
     boost_impressions_remaining?: number;
+    music_title?: string;
+    music_artist?: string;
+    music_url?: string;
 }) {
     const row: Record<string, unknown> = {
         username: post.username,
@@ -145,6 +151,9 @@ export async function createNewPost(post: {
     if (post.boost_impressions_remaining !== undefined) {
         row.boost_impressions_remaining = post.boost_impressions_remaining;
     }
+    if (post.music_title) row.music_title = post.music_title;
+    if (post.music_artist) row.music_artist = post.music_artist;
+    if (post.music_url) row.music_url = post.music_url;
 
     const { data, error } = await supabase.from('posts').insert(row).select();
 
