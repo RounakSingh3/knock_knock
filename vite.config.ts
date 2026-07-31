@@ -22,5 +22,11 @@ export default defineConfig({
     target: 'es2020',
     // Enable CSS code splitting
     cssCodeSplit: true,
+    // Minify with esbuild for speed
+    minify: 'esbuild',
+  },
+  // Strip console.log and debugger in production builds for cleaner, faster output
+  esbuild: {
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
   },
 });

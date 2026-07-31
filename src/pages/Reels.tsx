@@ -283,36 +283,36 @@ const Reels: React.FC = () => {
     // IntersectionObserver to auto-play visible video in modal
     useEffect(() => {
         if (selectedReelIndex === null) return;
-        const observers: IntersectionObserver[] = [];
-        videoRefs.current.forEach((video, idx) => {
-            if (!video) return;
-            const obs = new IntersectionObserver(
-                (entries) => {
-                    entries.forEach((entry) => {
-                        if (entry.isIntersecting) {
-                            setActiveIndex(idx);
-                            video.play().catch(() => { });
-                            setPlayStates((prev) => {
-                                const next = [...prev];
-                                next[idx] = true;
-                                return next;
-                            });
-                        } else {
-                            video.pause();
-                            setPlayStates((prev) => {
-                                const next = [...prev];
-                                next[idx] = false;
-                                return next;
-                            });
-                        }
-                    });
-                },
-                { threshold: 0.6 }
-            );
-            obs.observe(video);
-            observers.push(obs);
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    const idx = videoRefs.current.findIndex((v) => v === entry.target);
+                    if (idx === -1) return;
+                    const video = entry.target as HTMLVideoElement;
+                    if (entry.isIntersecting) {
+                        setActiveIndex(idx);
+                        video.play().catch(() => { });
+                        setPlayStates((prev) => {
+                            const next = [...prev];
+                            next[idx] = true;
+                            return next;
+                        });
+                    } else {
+                        video.pause();
+                        setPlayStates((prev) => {
+                            const next = [...prev];
+                            next[idx] = false;
+                            return next;
+                        });
+                    }
+                });
+            },
+            { threshold: 0.6 }
+        );
+        videoRefs.current.forEach((video) => {
+            if (video) observer.observe(video);
         });
-        return () => observers.forEach((o) => o.disconnect());
+        return () => observer.disconnect();
     }, [selectedReelIndex]);
 
     // Watch time tracking: when active reel changes, log watch time for the previous one
@@ -363,7 +363,7 @@ const Reels: React.FC = () => {
                     });
                 }
             });
-        }, 200);
+        }, 500);
         return () => clearInterval(interval);
     }, [selectedReelIndex]);
 
@@ -593,7 +593,13 @@ const Reels: React.FC = () => {
                                     onTouchEnd={(e) => handleTouchEnd(reel, e)}
                                 >
                                     <video
-                                        ref={(el) => (videoRefs.current[idx] = el)}
+                                        ref={(el) => {
+                                            videoRefs.current[idx] = el;
+                                            if (el && !isNearby) {
+                                                el.removeAttribute('src');
+                                                el.load();
+                                            }
+                                        }}
                                         src={isNearby ? reel.videoUrl : undefined}
                                         poster={reel.posterUrl}
                                         loop

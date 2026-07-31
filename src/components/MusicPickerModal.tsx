@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, Play, Pause, Music, Search, Check, Sparkles, Upload, Flame } from 'lucide-react';
 
 export interface Track {
@@ -222,6 +222,22 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
     const [customTracks, setCustomTracks] = useState<Track[]>([]);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const blobUrlsRef = useRef<string[]>([]);
+
+    // Cleanup audio and blob URLs on unmount
+    useEffect(() => {
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = '';
+                audioRef.current.load();
+                audioRef.current = null;
+            }
+            // Revoke all blob URLs to prevent memory leaks
+            blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+            blobUrlsRef.current = [];
+        };
+    }, []);
 
     if (!isOpen) return null;
 
@@ -239,11 +255,15 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
         if (playingTrackId === track.id) {
             if (audioRef.current) {
                 audioRef.current.pause();
+                audioRef.current.src = '';
+                audioRef.current.load();
             }
             setPlayingTrackId(null);
         } else {
             if (audioRef.current) {
                 audioRef.current.pause();
+                audioRef.current.src = '';
+                audioRef.current.load();
             }
             const newAudio = new Audio(track.url);
             audioRef.current = newAudio;
@@ -256,6 +276,8 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
     const handleSelect = (track: Track) => {
         if (audioRef.current) {
             audioRef.current.pause();
+            audioRef.current.src = '';
+            audioRef.current.load();
         }
         setPlayingTrackId(null);
         onSelectTrack(track);
@@ -266,6 +288,7 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const fileUrl = URL.createObjectURL(file);
+            blobUrlsRef.current.push(fileUrl); // Track for cleanup
             const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
             
             const newTrack: Track = {
@@ -398,7 +421,7 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
                             >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     <div style={{ position: 'relative', width: '48px', height: '48px', borderRadius: '12px', overflow: 'hidden' }}>
-                                        <img src={track.cover} alt={track.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        <img src={track.cover} alt={track.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                         <button
                                             onClick={(e) => togglePlay(track, e)}
                                             style={{

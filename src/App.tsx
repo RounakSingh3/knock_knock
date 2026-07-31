@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, Suspense, lazy } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { fetchProfile, updatePoints, setUserOnlineStatus, fetchBlockedIds, type ProfileData } from './lib/database';
 import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSession } from './lib/auth';
@@ -208,17 +208,6 @@ function App() {
         return () => clearInterval(interval);
     }, [user]);
 
-    // Sync points to database whenever they change (debounced)
-    useEffect(() => {
-        if (!user || points === 0) return;
-
-        const timeout = setTimeout(() => {
-            updatePoints(user.id, points);
-        }, 1000);
-
-        return () => clearTimeout(timeout);
-    }, [points, user]);
-
     // Track Online Status
     useEffect(() => {
         if (!user || !user.id) return;
@@ -248,7 +237,7 @@ function App() {
         };
     }, [user?.id]);
 
-    const signOut = async () => {
+    const signOut = useCallback(async () => {
         try {
             await authSignOut();
         } catch (e) {
@@ -257,7 +246,18 @@ function App() {
         localStorage.removeItem('knock_user_session');
         setUser(null);
         setPoints(0);
-    };
+    }, [user]);
+
+    const contextValue = useMemo(() => ({
+        points,
+        setPoints,
+        user,
+        setUser,
+        blockedIds,
+        setBlockedIds,
+        isAuthenticated,
+        signOut,
+    }), [points, user, blockedIds, isAuthenticated, signOut]);
 
     if (loading) {
         return (
@@ -273,7 +273,7 @@ function App() {
     }
 
     return (
-        <AppContext.Provider value={{ points, setPoints, user, setUser, blockedIds, setBlockedIds, isAuthenticated, signOut }}>
+        <AppContext.Provider value={contextValue}>
             <Router>
                 <div className="app-container">
                     <ErrorBoundary>

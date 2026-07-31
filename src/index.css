@@ -4151,4 +4151,43 @@ select option {
 ::selection {
     background: rgba(245, 165, 36, 0.3);
     color: #fff;
-}
+}
+
+/* ───────────────────────────────────────────────────────────
+   Performance Optimizations
+   ─────────────────────────────────────────────────────────── */
+
+/* GPU layer promotion for scrollable feeds — prevents jank during scroll */
+.explore-page,
+.masonry-grid,
+.connections-page,
+.chat-messages {
+    will-change: scroll-position;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Contain layout for feed cards to limit repaint scope */
+.masonry-card,
+.connection-card {
+    contain: layout style paint;
+}
+
+/* Reduce backdrop-filter for scrollable card elements on mobile */
+@media (max-width: 768px) {
+    .masonry-like-btn {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+}
+
+/* Respect user preference to reduce motion — disables all infinite animations */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+

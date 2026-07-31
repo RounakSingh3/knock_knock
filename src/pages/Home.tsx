@@ -320,10 +320,9 @@ const Home = () => {
                 setLoadingConnPosts(false);
 
                 // Check likes for connection posts
-                posts.forEach(p => {
-                    checkIfLiked(user.id, p.id).then(liked => {
-                        setLikedPosts(prev => ({ ...prev, [p.id]: liked }));
-                    });
+                const connPostIds = posts.map(p => p.id);
+                checkIfLikedBatch(user.id, connPostIds).then(likedMap => {
+                    setLikedPosts(prev => ({ ...prev, ...likedMap }));
                 });
                 const counts: Record<string, number> = {};
                 posts.forEach(p => { counts[p.id] = p.likes_count; });
@@ -379,7 +378,7 @@ const Home = () => {
     useEffect(() => {
         if (!viewingGroup) return;
         const duration = 5000; // 5 seconds per story
-        const interval = 50;
+        const interval = 100;
         const step = (interval / duration) * 100;
 
         const timer = setInterval(() => {
@@ -399,6 +398,7 @@ const Home = () => {
     useEffect(() => {
         if (homeStoryAudioRef.current) {
             homeStoryAudioRef.current.pause();
+            homeStoryAudioRef.current.src = '';
             homeStoryAudioRef.current = null;
         }
         const currentStory = viewingGroup?.stories[viewingIndex];
@@ -411,6 +411,7 @@ const Home = () => {
         return () => {
             if (homeStoryAudioRef.current) {
                 homeStoryAudioRef.current.pause();
+                homeStoryAudioRef.current.src = '';
                 homeStoryAudioRef.current = null;
             }
         };
@@ -612,6 +613,7 @@ const Home = () => {
                                 <img
                                     src={(myGroup && myGroup.stories[0]?.image_url) || user?.avatar_url || 'https://i.pravatar.cc/150'}
                                     alt="Your Story"
+                                    loading="lazy"
                                 />
                                 <div
                                     className="story-add-icon-rect"
@@ -640,6 +642,7 @@ const Home = () => {
                                         <img
                                             src={group.stories[0]?.image_url || group.avatarUrl}
                                             alt={group.username}
+                                            loading="lazy"
                                         />
                                     </div>
                                     <span className="story-rack-name">
