@@ -386,18 +386,7 @@ const Explore = () => {
                                                     <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
                                                 </div>
                                             )}
-                                            {/* 🎰 Variable Reward — "Picked for you" badge */}
-                                            {isSurprisePost(post.id) && (
-                                                <div style={{
-                                                    position: 'absolute', bottom: '6px', left: '6px',
-                                                    background: 'linear-gradient(135deg, rgba(245, 165, 36,0.9), rgba(255, 107, 53,0.9))',
-                                                    padding: '2px 6px', borderRadius: '6px',
-                                                    fontSize: '9px', fontWeight: 'bold', color: '#fff',
-                                                    display: 'flex', alignItems: 'center', gap: '2px',
-                                                }}>
-                                                    ✨ For you
-                                                </div>
-                                            )}
+
                                             {/* 😰 FOMO — Engagement badge */}
                                             {(post.likes_count || 0) >= 5 && !isSurprisePost(post.id) && (
                                                 <div style={{
