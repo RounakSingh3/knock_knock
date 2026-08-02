@@ -32,27 +32,37 @@ const PageLoader: React.FC<{ message?: string }> = ({ message = 'Loading...' }) 
     </div>
 );
 
-class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
-  constructor(props: {children: React.ReactNode}) {
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null; isChunkError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, isChunkError: false };
   }
 
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
+    const msg = (error?.message || '') + (error?.name || '');
+    const isChunkError =
+      msg.includes('ChunkLoadError') ||
+      msg.includes('Loading chunk') ||
+      msg.includes('fetch dynamically imported module') ||
+      msg.includes('Importing a module script failed') ||
+      msg.includes('error loading dynamically imported module') ||
+      msg.includes('Failed to fetch');
+    return { hasError: true, error, isChunkError };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
-    // Detect chunk/module loading errors (stale cache after deploy)
-    const msg = (error.message || '') + (error.name || '');
+    const msg = (error?.message || '') + (error?.name || '');
     const isChunkError =
-        msg.includes('ChunkLoadError') ||
-        msg.includes('Loading chunk') ||
-        msg.includes('fetch dynamically imported module') ||
-        msg.includes('Importing a module script failed') ||
-        msg.includes('error loading dynamically imported module') ||
-        msg.includes('Failed to fetch');
+      msg.includes('ChunkLoadError') ||
+      msg.includes('Loading chunk') ||
+      msg.includes('fetch dynamically imported module') ||
+      msg.includes('Importing a module script failed') ||
+      msg.includes('error loading dynamically imported module') ||
+      msg.includes('Failed to fetch');
 
     if (isChunkError && !sessionStorage.getItem('chunk_reloaded')) {
       sessionStorage.setItem('chunk_reloaded', 'true');
@@ -60,21 +70,65 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
     }
   }
 
+  handleReset = () => {
+    sessionStorage.clear();
+    localStorage.removeItem('knock_user_session');
+    window.location.href = '/login';
+  };
+
+  handleReload = () => {
+    sessionStorage.removeItem('chunk_reloaded');
+    window.location.reload();
+  };
+
   render() {
     if (this.state.hasError) {
-      sessionStorage.removeItem('chunk_reloaded');
       return (
         <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-active)', background: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <h1 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: '2rem', letterSpacing: '-1.5px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '12px' }}>
-                Knock Knock
-            </h1>
-            <p style={{ color: 'var(--text-inactive)', marginBottom: '24px', fontSize: '15px' }}>A new update is available! Tap below to refresh.</p>
-            <button 
-                onClick={() => { sessionStorage.removeItem('chunk_reloaded'); window.location.reload(); }} 
+          <h1 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: '2rem', letterSpacing: '-1.5px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '12px' }}>
+            Knock Knock
+          </h1>
+          
+          {this.state.isChunkError ? (
+            <>
+              <p style={{ color: 'var(--text-inactive)', marginBottom: '24px', fontSize: '15px' }}>
+                A new update is available! Tap below to refresh.
+              </p>
+              <button 
+                onClick={this.handleReload} 
                 style={{ padding: '12px 32px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
-            >
+              >
                 Refresh App
-            </button>
+              </button>
+            </>
+          ) : (
+            <>
+              <p style={{ color: 'var(--text-inactive)', marginBottom: '16px', fontSize: '15px' }}>
+                Something went wrong loading this screen.
+              </p>
+              
+              {this.state.error?.message && (
+                <div style={{ background: 'rgba(255,59,48,0.1)', color: '#ff3b30', border: '1px solid rgba(255,59,48,0.2)', padding: '12px 16px', borderRadius: '12px', marginBottom: '24px', fontSize: '13px', maxWidth: '360px', overflowX: 'auto', textAlign: 'left' }}>
+                  <strong>Error details:</strong> {this.state.error.message}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', flexDirection: 'column', width: '100%', maxWidth: '280px' }}>
+                <button 
+                  onClick={this.handleReload} 
+                  style={{ padding: '12px 24px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '15px' }}
+                >
+                  Try Again
+                </button>
+                <button 
+                  onClick={this.handleReset} 
+                  style={{ padding: '12px 24px', background: 'rgba(255,255,255,0.1)', color: 'var(--text-active)', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
+                >
+                  Reset Session & Log In Again
+                </button>
+              </div>
+            </>
+          )}
         </div>
       );
     }
