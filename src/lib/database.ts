@@ -1570,17 +1570,13 @@ export async function getCallRequestStatus(userA: string, userB: string): Promis
             .or(`sender_id.eq.${userA},sender_id.eq.${userB}`);
 
         if (error) {
-            // Safe fallback if table doesn't exist yet
-            if (error.code === 'P0001' || error.message.includes('relation "call_requests" does not exist') || error.message.includes('does not exist')) {
-                const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
-                const found = fallbackRequests.find((r: any) => 
-                    (r.sender_id === userA && r.receiver_id === userB) || 
-                    (r.sender_id === userB && r.receiver_id === userA)
-                );
-                return found || null;
-            }
-            console.error('Error fetching call request status:', error);
-            return null;
+            // Table likely doesn't exist yet — use localStorage fallback
+            const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
+            const found = fallbackRequests.find((r: any) => 
+                (r.sender_id === userA && r.receiver_id === userB) || 
+                (r.sender_id === userB && r.receiver_id === userA)
+            );
+            return found || null;
         }
 
         const found = (data || []).find((r: any) => 
@@ -1589,7 +1585,6 @@ export async function getCallRequestStatus(userA: string, userB: string): Promis
         );
         return found || null;
     } catch (e) {
-        console.error('Exception fetching call request status:', e);
         return null;
     }
 }
@@ -1609,29 +1604,24 @@ export async function sendCallRequest(senderId: string, receiverId: string): Pro
             .single();
 
         if (error) {
-            // Safe fallback if table doesn't exist yet
-            if (error.code === 'P0001' || error.message.includes('relation "call_requests" does not exist')) {
-                const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
-                const updated = fallbackRequests.filter((r: any) => 
-                    !(r.sender_id === senderId && r.receiver_id === receiverId)
-                );
-                const newReq: CallRequestData = {
-                    id: `fallback-${Date.now()}`,
-                    sender_id: senderId,
-                    receiver_id: receiverId,
-                    status: 'pending',
-                    created_at: new Date().toISOString()
-                };
-                updated.push(newReq);
-                localStorage.setItem('knock_fallback_call_requests', JSON.stringify(updated));
-                return newReq;
-            }
-            console.error('Error sending call request:', error);
-            return null;
+            // Fallback to localStorage if table doesn't exist
+            const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
+            const updated = fallbackRequests.filter((r: any) => 
+                !(r.sender_id === senderId && r.receiver_id === receiverId)
+            );
+            const newReq: CallRequestData = {
+                id: `fallback-${Date.now()}`,
+                sender_id: senderId,
+                receiver_id: receiverId,
+                status: 'pending',
+                created_at: new Date().toISOString()
+            };
+            updated.push(newReq);
+            localStorage.setItem('knock_fallback_call_requests', JSON.stringify(updated));
+            return newReq;
         }
         return data;
     } catch (e) {
-        console.error('Exception sending call request:', e);
         return null;
     }
 }

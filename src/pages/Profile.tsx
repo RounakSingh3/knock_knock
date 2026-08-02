@@ -136,15 +136,22 @@ const Profile = () => {
                     const following = await checkIfFollowing(currentUser.id, profileData.id);
                     setIsFollowing(following);
 
-                    // Fetch call request & connection status
-                    const [req, conn, online] = await Promise.all([
-                        getCallRequestStatus(currentUser.id, profileData.id),
-                        checkConnection(currentUser.id, profileData.id),
-                        fetchUserOnlineStatus(profileData.id)
-                    ]);
-                    setCallRequest(req);
-                    setIsConnected(!!conn);
-                    setIsOnline(online);
+                    // Fetch call request & connection status — wrapped in its own try/catch
+                    // so if call_requests table or is_online column don't exist yet,
+                    // the profile still loads fine
+                    try {
+                        const [req, conn, online] = await Promise.all([
+                            getCallRequestStatus(currentUser.id, profileData.id).catch(() => null),
+                            checkConnection(currentUser.id, profileData.id).catch(() => null),
+                            fetchUserOnlineStatus(profileData.id).catch(() => false)
+                        ]);
+                        setCallRequest(req);
+                        setIsConnected(!!conn);
+                        setIsOnline(online);
+                    } catch (callErr) {
+                        // Silently ignore — call features just won't show
+                        console.warn('Call request features unavailable:', callErr);
+                    }
                 }
             } catch (err) {
                 console.error('Error loading profile:', err);
