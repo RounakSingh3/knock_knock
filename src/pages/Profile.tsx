@@ -106,6 +106,12 @@ const Profile = () => {
             }
         }
 
+        // Reset call status states when switching profiles to prevent state leaking
+        setCallRequest(null);
+        setIsConnected(false);
+        setIsOnline(false);
+        setLoadingCallAction(false);
+
         const loadProfile = async () => {
             if (!username) return;
             setLoading(true);
@@ -148,7 +154,7 @@ const Profile = () => {
             }
         };
         loadProfile();
-    }, [username, currentUser, navigate]);
+    }, [username, currentUser?.id, navigate]);
 
     // Real-time updates subscription for online status and call requests
     useEffect(() => {
