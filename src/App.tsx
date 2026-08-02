@@ -44,25 +44,36 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
-    if (error.name === 'ChunkLoadError' || (error.message && error.message.includes('fetch dynamically imported module'))) {
-      if (!sessionStorage.getItem('chunk_reloaded')) {
-        sessionStorage.setItem('chunk_reloaded', 'true');
-        window.location.reload();
-      }
+    // Detect chunk/module loading errors (stale cache after deploy)
+    const msg = (error.message || '') + (error.name || '');
+    const isChunkError =
+        msg.includes('ChunkLoadError') ||
+        msg.includes('Loading chunk') ||
+        msg.includes('fetch dynamically imported module') ||
+        msg.includes('Importing a module script failed') ||
+        msg.includes('error loading dynamically imported module') ||
+        msg.includes('Failed to fetch');
+
+    if (isChunkError && !sessionStorage.getItem('chunk_reloaded')) {
+      sessionStorage.setItem('chunk_reloaded', 'true');
+      window.location.reload();
     }
   }
 
   render() {
     if (this.state.hasError) {
+      sessionStorage.removeItem('chunk_reloaded');
       return (
         <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-active)', background: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <h2 style={{ marginBottom: '16px' }}>Oops, something went wrong.</h2>
-            <p style={{ color: 'var(--text-inactive)', marginBottom: '24px' }}>The app encountered an error. This usually happens after an update.</p>
+            <h1 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: '2rem', letterSpacing: '-1.5px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '12px' }}>
+                Knock Knock
+            </h1>
+            <p style={{ color: 'var(--text-inactive)', marginBottom: '24px', fontSize: '15px' }}>A new update is available! Tap below to refresh.</p>
             <button 
                 onClick={() => { sessionStorage.removeItem('chunk_reloaded'); window.location.reload(); }} 
-                style={{ padding: '12px 24px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
+                style={{ padding: '12px 32px', background: 'linear-gradient(45deg, #f5a524, #ff6b35)', color: '#fff', borderRadius: '24px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
             >
-                Reload App
+                Refresh App
             </button>
         </div>
       );
@@ -70,6 +81,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
     return this.props.children;
   }
 }
+
 
 // Global Context for Points & Auth
 interface AppContextType {
