@@ -4,9 +4,10 @@ import { AppContext } from '../App';
 import { 
     fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
-    uploadMedia, updateProfile, blockUser, unblockUser
+    uploadMedia, updateProfile, blockUser, unblockUser,
+    getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw } from 'lucide-react';
 import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
@@ -31,6 +32,12 @@ const Profile = () => {
     const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
     const [updatingAvatar, setUpdatingAvatar] = useState(false);
     const [isBlocking, setIsBlocking] = useState(false);
+    
+    // Call Requests & Online Status States
+    const [callRequest, setCallRequest] = useState<CallRequestData | null>(null);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isOnline, setIsOnline] = useState(false);
+    const [loadingCallAction, setLoadingCallAction] = useState(false);
 
     const isBlocked = profile ? blockedIds.includes(profile.id) : false;
 
@@ -122,6 +129,16 @@ const Profile = () => {
                 if (currentUser && currentUser.id !== profileData.id) {
                     const following = await checkIfFollowing(currentUser.id, profileData.id);
                     setIsFollowing(following);
+
+                    // Fetch call request & connection status
+                    const [req, conn, online] = await Promise.all([
+                        getCallRequestStatus(currentUser.id, profileData.id),
+                        checkConnection(currentUser.id, profileData.id),
+                        fetchUserOnlineStatus(profileData.id)
+                    ]);
+                    setCallRequest(req);
+                    setIsConnected(!!conn);
+                    setIsOnline(online);
                 }
             } catch (err) {
                 console.error('Error loading profile:', err);
@@ -132,6 +149,73 @@ const Profile = () => {
         };
         loadProfile();
     }, [username, currentUser, navigate]);
+
+    // Real-time updates subscription for online status and call requests
+    useEffect(() => {
+        if (!profile || !currentUser || isOwnProfile) return;
+
+        // 1. Subscribe to online status updates of the target user
+        const onlineChannel = supabase
+            .channel(`profile-online-${profile.id}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'profiles',
+                filter: `id=eq.${profile.id}`
+            }, (payload) => {
+                if (payload.new && 'is_online' in payload.new) {
+                    setIsOnline(!!payload.new.is_online);
+                }
+            })
+            .subscribe();
+
+        // 2. Listen to realtime call request broadcast events (accepted/declined/requested)
+        const broadcastChannel = supabase.channel('direct-calls');
+        
+        broadcastChannel.on('broadcast', { event: 'call-request-accepted' }, (payload) => {
+            const { senderId, receiverId } = payload.payload;
+            if ((senderId === currentUser.id && receiverId === profile.id) || 
+                (senderId === profile.id && receiverId === currentUser.id)) {
+                getCallRequestStatus(currentUser.id, profile.id).then(setCallRequest);
+            }
+        });
+
+        broadcastChannel.on('broadcast', { event: 'call-request-declined' }, (payload) => {
+            const { senderId, receiverId } = payload.payload;
+            if ((senderId === currentUser.id && receiverId === profile.id) || 
+                (senderId === profile.id && receiverId === currentUser.id)) {
+                getCallRequestStatus(currentUser.id, profile.id).then(setCallRequest);
+            }
+        });
+
+        broadcastChannel.on('broadcast', { event: 'call-request' }, (payload) => {
+            const { senderId, receiverId } = payload.payload;
+            if ((senderId === currentUser.id && receiverId === profile.id) || 
+                (senderId === profile.id && receiverId === currentUser.id)) {
+                getCallRequestStatus(currentUser.id, profile.id).then(setCallRequest);
+            }
+        });
+
+        broadcastChannel.subscribe();
+
+        // 3. Listen to local custom events from GlobalCallListener
+        const handleLocalUpdate = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (callRequest && detail.requestId === callRequest.id) {
+                setCallRequest(prev => prev ? { ...prev, status: detail.status } : null);
+            } else {
+                getCallRequestStatus(currentUser.id, profile.id).then(setCallRequest);
+            }
+        };
+
+        window.addEventListener('call-request-updated', handleLocalUpdate);
+
+        return () => {
+            supabase.removeChannel(onlineChannel);
+            supabase.removeChannel(broadcastChannel);
+            window.removeEventListener('call-request-updated', handleLocalUpdate);
+        };
+    }, [profile?.id, currentUser?.id, callRequest?.id]);
 
     useEffect(() => {
         if (!profile) return;
@@ -171,6 +255,81 @@ const Profile = () => {
 
     const displayUsername = username;
     const isOwnProfile = currentUser && currentUser.username === username;
+
+    const handleSendRequest = async () => {
+        if (!currentUser || !profile) return;
+        setLoadingCallAction(true);
+        const req = await sendCallRequest(currentUser.id, profile.id);
+        if (req) {
+            setCallRequest(req);
+            // Send broadcast to notify target in real-time
+            const channel = supabase.channel('direct-calls');
+            channel.subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    channel.send({
+                        type: 'broadcast',
+                        event: 'call-request',
+                        payload: {
+                            requestId: req.id,
+                            senderId: currentUser.id,
+                            receiverId: profile.id
+                        }
+                    });
+                }
+            });
+        }
+        setLoadingCallAction(false);
+    };
+
+    const handleAcceptCallRequest = async () => {
+        if (!callRequest || !currentUser || !profile) return;
+        setLoadingCallAction(true);
+        const ok = await updateCallRequestStatus(callRequest.id, 'accepted');
+        if (ok) {
+            setCallRequest({ ...callRequest, status: 'accepted' });
+            // Broadcast accept status
+            const channel = supabase.channel('direct-calls');
+            channel.subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    channel.send({
+                        type: 'broadcast',
+                        event: 'call-request-accepted',
+                        payload: {
+                            requestId: callRequest.id,
+                            senderId: callRequest.sender_id,
+                            receiverId: currentUser.id
+                        }
+                    });
+                }
+            });
+        }
+        setLoadingCallAction(false);
+    };
+
+    const handleDeclineCallRequest = async () => {
+        if (!callRequest || !currentUser || !profile) return;
+        setLoadingCallAction(true);
+        const ok = await updateCallRequestStatus(callRequest.id, 'declined');
+        if (ok) {
+            setCallRequest({ ...callRequest, status: 'declined' });
+            // Broadcast decline status
+            const channel = supabase.channel('direct-calls');
+            channel.subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    channel.send({
+                        type: 'broadcast',
+                        event: 'call-request-declined',
+                        payload: {
+                            requestId: callRequest.id,
+                            senderId: callRequest.sender_id,
+                            receiverId: currentUser.id
+                        }
+                    });
+                }
+            });
+        }
+        setLoadingCallAction(false);
+    };
 
     const handleDirectCall = () => {
         if (!currentUser || !profile) return;
@@ -227,7 +386,23 @@ const Profile = () => {
         <div className="profile-page pb-20">
             {/* Header */}
             <header className="home-header" style={{ justifyContent: 'space-between' }}>
-                <h1 className="font-bold text-xl">{displayUsername}</h1>
+                <h1 className="font-bold text-xl" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {displayUsername}
+                    {!isOwnProfile && (isConnected || (callRequest && callRequest.status === 'accepted')) && (
+                        <span 
+                            style={{
+                                display: 'inline-block',
+                                width: '10px',
+                                height: '10px',
+                                borderRadius: '50%',
+                                backgroundColor: isOnline ? '#34C759' : '#8e8e93',
+                                boxShadow: isOnline ? '0 0 10px #34C759' : 'none',
+                                transition: 'all 0.3s ease'
+                            }} 
+                            title={isOnline ? 'Online' : 'Offline'} 
+                        />
+                    )}
+                </h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ background: 'rgba(255, 51, 102, 0.15)', color: '#ff3366', padding: '4px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <Star size={16} fill="#ff3366" /> {isOwnProfile ? points : profile.points} Pts
@@ -360,15 +535,58 @@ const Profile = () => {
                                         {isFollowing ? <UserCheck size={16} /> : <UserPlus size={16} />} 
                                         {isFollowing ? ' Unfriend' : ' Friend'}
                                     </button>
-                                    <button 
-                                        className="profile-action-btn" 
-                                        style={{ background: '#34C759', color: 'var(--text-active)', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
-                                        onClick={handleDirectCall}
-                                        disabled={callingStatus === 'calling'}
-                                    >
-                                        {callingStatus === 'calling' ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />} 
-                                        {callingStatus === 'calling' ? ' Calling...' : ' Call'}
-                                    </button>
+                                    {/* Call / Request Call Permission Buttons */}
+                                    {isConnected || (callRequest && callRequest.status === 'accepted') ? (
+                                        <button 
+                                            className="profile-action-btn" 
+                                            style={{ background: '#34C759', color: 'var(--text-active)', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
+                                            onClick={handleDirectCall}
+                                            disabled={callingStatus === 'calling'}
+                                        >
+                                            {callingStatus === 'calling' ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />} 
+                                            {callingStatus === 'calling' ? ' Calling...' : ' Call'}
+                                        </button>
+                                    ) : callRequest && callRequest.status === 'pending' ? (
+                                        callRequest.sender_id === currentUser.id ? (
+                                            <button 
+                                                className="profile-action-btn" 
+                                                style={{ background: 'var(--border-color)', color: 'var(--text-inactive)', cursor: 'not-allowed' }}
+                                                disabled
+                                            >
+                                                <Clock size={16} /> Pending...
+                                            </button>
+                                        ) : (
+                                            <div style={{ display: 'flex', gap: '4px', flex: 1 }}>
+                                                <button 
+                                                    className="profile-action-btn" 
+                                                    style={{ background: '#34C759', color: '#fff', padding: '0 8px', fontSize: '12px' }}
+                                                    onClick={handleAcceptCallRequest}
+                                                    disabled={loadingCallAction}
+                                                >
+                                                    {loadingCallAction ? <Loader2 size={12} className="animate-spin" /> : 'Accept'}
+                                                </button>
+                                                <button 
+                                                    className="profile-action-btn" 
+                                                    style={{ background: 'rgba(255,59,48,0.15)', color: '#FF3B30', padding: '0 8px', fontSize: '12px' }}
+                                                    onClick={handleDeclineCallRequest}
+                                                    disabled={loadingCallAction}
+                                                >
+                                                    Decline
+                                                </button>
+                                            </div>
+                                        )
+                                    ) : (
+                                        <button 
+                                            className="profile-action-btn" 
+                                            style={{ background: 'var(--border-color)', color: 'var(--text-active)' }}
+                                            onClick={handleSendRequest}
+                                            disabled={loadingCallAction}
+                                        >
+                                            {loadingCallAction ? <Loader2 size={16} className="animate-spin" /> : <Lock size={16} />} 
+                                            {' Request Call'}
+                                        </button>
+                                    )}
+
                                     <button 
                                         className="profile-action-btn" 
                                         style={{ background: 'var(--border-color)', color: '#ff3b30', flex: '0 0 auto', padding: '0 12px' }}

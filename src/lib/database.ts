@@ -1553,3 +1553,132 @@ export async function unblockUser(blockerId: string, blockedId: string): Promise
     return true;
 }
 
+export interface CallRequestData {
+    id: string;
+    sender_id: string;
+    receiver_id: string;
+    status: 'pending' | 'accepted' | 'declined';
+    created_at: string;
+}
+
+/** Check the call request status between userA and userB */
+export async function getCallRequestStatus(userA: string, userB: string): Promise<CallRequestData | null> {
+    try {
+        const { data, error } = await supabase
+            .from('call_requests')
+            .select('*')
+            .or(`and(sender_id.eq.${userA},receiver_id.eq.${userB}),and(sender_id.eq.${userB},receiver_id.eq.${userA})`)
+            .maybeSingle();
+
+        if (error) {
+            // Safe fallback if table doesn't exist yet
+            if (error.code === 'P0001' || error.message.includes('relation "call_requests" does not exist')) {
+                const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
+                const found = fallbackRequests.find((r: any) => 
+                    (r.sender_id === userA && r.receiver_id === userB) || 
+                    (r.sender_id === userB && r.receiver_id === userA)
+                );
+                return found || null;
+            }
+            console.error('Error fetching call request status:', error);
+            return null;
+        }
+        return data;
+    } catch (e) {
+        console.error('Exception fetching call request status:', e);
+        return null;
+    }
+}
+
+/** Send a call request from senderId to receiverId */
+export async function sendCallRequest(senderId: string, receiverId: string): Promise<CallRequestData | null> {
+    try {
+        const { data, error } = await supabase
+            .from('call_requests')
+            .upsert({
+                sender_id: senderId,
+                receiver_id: receiverId,
+                status: 'pending',
+                created_at: new Date().toISOString()
+            }, { onConflict: 'sender_id,receiver_id' })
+            .select()
+            .single();
+
+        if (error) {
+            // Safe fallback if table doesn't exist yet
+            if (error.code === 'P0001' || error.message.includes('relation "call_requests" does not exist')) {
+                const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
+                const updated = fallbackRequests.filter((r: any) => 
+                    !(r.sender_id === senderId && r.receiver_id === receiverId)
+                );
+                const newReq: CallRequestData = {
+                    id: `fallback-${Date.now()}`,
+                    sender_id: senderId,
+                    receiver_id: receiverId,
+                    status: 'pending',
+                    created_at: new Date().toISOString()
+                };
+                updated.push(newReq);
+                localStorage.setItem('knock_fallback_call_requests', JSON.stringify(updated));
+                return newReq;
+            }
+            console.error('Error sending call request:', error);
+            return null;
+        }
+        return data;
+    } catch (e) {
+        console.error('Exception sending call request:', e);
+        return null;
+    }
+}
+
+/** Update status of call request */
+export async function updateCallRequestStatus(requestId: string, status: 'accepted' | 'declined'): Promise<boolean> {
+    try {
+        if (requestId.startsWith('fallback-')) {
+            const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
+            const updated = fallbackRequests.map((r: any) => {
+                if (r.id === requestId) {
+                    return { ...r, status };
+                }
+                return r;
+            });
+            localStorage.setItem('knock_fallback_call_requests', JSON.stringify(updated));
+            return true;
+        }
+
+        const { error } = await supabase
+            .from('call_requests')
+            .update({ status })
+            .eq('id', requestId);
+
+        if (error) {
+            console.error('Error updating call request:', error);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.error('Exception updating call request:', e);
+        return false;
+    }
+}
+
+/** Fetch online status of a specific user */
+export async function fetchUserOnlineStatus(userId: string): Promise<boolean> {
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('is_online')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (error || !data) {
+            return false;
+        }
+        return !!data.is_online;
+    } catch (e) {
+        return false;
+    }
+}
+
+
