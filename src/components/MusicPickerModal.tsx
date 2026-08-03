@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Play, Pause, Music, Search, Check, Sparkles, Upload, Flame } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { X, Play, Pause, Music, Search, Check, Sparkles, Upload, Flame, Loader2 } from 'lucide-react';
 
 export interface Track {
     id: string;
@@ -10,6 +10,7 @@ export interface Track {
     cover: string;
     duration: string;
     isCustom?: boolean;
+    isITunes?: boolean;
 }
 
 export const FREE_MUSIC_TRACKS: Track[] = [
@@ -101,15 +102,6 @@ export const FREE_MUSIC_TRACKS: Track[] = [
         cover: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=150',
         duration: '2:35',
     },
-    {
-        id: 'romantic-2',
-        title: 'Until I Found You Piano',
-        artist: 'Soft Piano Keys',
-        category: 'Romantic',
-        url: 'https://cdn.pixabay.com/download/audio/2022/10/14/audio_9939b46617.mp3?filename=acoustic-guitar-loop-124976.mp3',
-        cover: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=150',
-        duration: '2:15',
-    },
 
     // 💃 Pop Hits & Dance
     {
@@ -120,15 +112,6 @@ export const FREE_MUSIC_TRACKS: Track[] = [
         url: 'https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a815a3.mp3?filename=summer-walk-15363.mp3',
         cover: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=150',
         duration: '2:30',
-    },
-    {
-        id: 'pop-2',
-        title: 'Levitating Party Groove',
-        artist: 'Club Anthems',
-        category: 'Pop',
-        url: 'https://cdn.pixabay.com/download/audio/2022/11/06/audio_c89b706c9a.mp3?filename=synthwave-80s-127027.mp3',
-        cover: 'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=150',
-        duration: '2:45',
     },
 
     // 🌌 Lofi & Midnight
@@ -141,67 +124,58 @@ export const FREE_MUSIC_TRACKS: Track[] = [
         cover: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=150',
         duration: '2:15',
     },
-    {
-        id: 'lofi-2',
-        title: 'Midnight Coffee Lofi',
-        artist: 'Aesthetic Melodies',
-        category: 'Lofi',
-        url: 'https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=lofi-chill-medium-version-109038.mp3',
-        cover: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=150',
-        duration: '1:45',
-    },
-    {
-        id: 'lofi-3',
-        title: 'Rainy Window Beats',
-        artist: 'Sleepy Head',
-        category: 'Lofi',
-        url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3',
-        cover: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=150',
-        duration: '2:10',
-    },
-
-    // ⚡ Hip Hop & Trap
-    {
-        id: 'hiphop-1',
-        title: 'Urban Street Beat',
-        artist: 'BeatMaker Pro',
-        category: 'Hip Hop',
-        url: 'https://cdn.pixabay.com/download/audio/2022/03/10/audio_c8c8a815a4.mp3?filename=hip-hop-rock-beats-118000.mp3',
-        cover: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=150',
-        duration: '1:50',
-    },
-    {
-        id: 'hiphop-2',
-        title: 'Trap Lord Heavy Bass',
-        artist: '808 Mafia Sound',
-        category: 'Hip Hop',
-        url: 'https://cdn.pixabay.com/download/audio/2022/11/06/audio_c89b706c9a.mp3?filename=synthwave-80s-127027.mp3',
-        cover: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=150',
-        duration: '2:05',
-    },
-
-    // 🚀 EDM & Cyberpunk
-    {
-        id: 'edm-1',
-        title: 'Neon Cyber Drive',
-        artist: 'Synthwave 80s',
-        category: 'EDM',
-        url: 'https://cdn.pixabay.com/download/audio/2022/11/06/audio_c89b706c9a.mp3?filename=synthwave-80s-127027.mp3',
-        cover: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=150',
-        duration: '2:40',
-    },
-    {
-        id: 'edm-2',
-        title: 'Festival Mainstage Drop',
-        artist: 'Electro Shock',
-        category: 'EDM',
-        url: 'https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a815a3.mp3?filename=summer-walk-15363.mp3',
-        cover: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=150',
-        duration: '2:50',
-    },
 ];
 
-const CATEGORIES = ['All', 'Trending', 'Bollywood', 'Punjabi', 'Romantic', 'Pop', 'Lofi', 'Hip Hop', 'EDM'];
+const CATEGORIES = ['All', 'Bollywood', 'Hollywood', 'Punjabi', 'Romantic', 'Pop', 'Lofi', 'Hip Hop', 'EDM'];
+
+/** Search real iTunes music database (100% Free - Bollywood, Hollywood, Global) */
+async function fetchITunesTracks(searchTerm: string, category: string): Promise<Track[]> {
+    try {
+        let query = searchTerm.trim();
+        if (!query) {
+            if (category === 'Bollywood') query = 'bollywood hits Arijit Pritam Badshah';
+            else if (category === 'Hollywood') query = 'hollywood pop hits Taylor Swift Drake';
+            else if (category === 'Punjabi') query = 'punjabi hits Karan Aujla Diljit Moosewala';
+            else if (category === 'Romantic') query = 'romantic songs Arijit Singh Shreya Ghoshal';
+            else if (category === 'Pop') query = 'top pop hits 2026';
+            else if (category === 'Lofi') query = 'lofi chill beats hindi english';
+            else if (category === 'Hip Hop') query = 'hip hop rap hits';
+            else if (category === 'EDM') query = 'edm dance party hits';
+            else query = 'bollywood hollywood top hits 2026';
+        }
+
+        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=30`);
+        if (!res.ok) return [];
+
+        const data = await res.json();
+        if (!data.results) return [];
+
+        return data.results
+            .filter((item: any) => item.previewUrl && item.trackName)
+            .map((item: any) => {
+                const durationSec = Math.round((item.trackTimeMillis || 30000) / 1000);
+                const mins = Math.floor(durationSec / 60);
+                const secs = (durationSec % 60).toString().padStart(2, '0');
+                const cover = item.artworkUrl100
+                    ? item.artworkUrl100.replace('100x100bb', '300x300bb')
+                    : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150';
+
+                return {
+                    id: `itunes-${item.trackId}`,
+                    title: item.trackName,
+                    artist: item.artistName || 'Unknown Artist',
+                    category: item.primaryGenreName || category || 'Music',
+                    url: item.previewUrl,
+                    cover,
+                    duration: `${mins}:${secs}`,
+                    isITunes: true,
+                };
+            });
+    } catch (e) {
+        console.warn('iTunes music fetch error:', e);
+        return [];
+    }
+}
 
 interface MusicPickerModalProps {
     isOpen: boolean;
@@ -220,9 +194,34 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
     const [activeCategory, setActiveCategory] = useState('All');
     const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
     const [customTracks, setCustomTracks] = useState<Track[]>([]);
+    const [iTunesTracks, setITunesTracks] = useState<Track[]>([]);
+    const [isSearchingMusic, setIsSearchingMusic] = useState(false);
+    
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const blobUrlsRef = useRef<string[]>([]);
+    const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Fetch iTunes tracks on search / category change with debounce
+    useEffect(() => {
+        if (!isOpen) return;
+
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        setIsSearchingMusic(true);
+
+        debounceTimerRef.current = setTimeout(async () => {
+            const tracks = await fetchITunesTracks(search, activeCategory);
+            setITunesTracks(tracks);
+            setIsSearchingMusic(false);
+        }, 300);
+
+        return () => {
+            if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        };
+    }, [search, activeCategory, isOpen]);
 
     // Cleanup audio and blob URLs on unmount
     useEffect(() => {
@@ -233,7 +232,6 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
                 audioRef.current.load();
                 audioRef.current = null;
             }
-            // Revoke all blob URLs to prevent memory leaks
             blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
             blobUrlsRef.current = [];
         };
@@ -241,14 +239,12 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
 
     if (!isOpen) return null;
 
-    const allTracks = [...customTracks, ...FREE_MUSIC_TRACKS];
-
-    const filteredTracks = allTracks.filter(t => {
-        const matchesCategory = activeCategory === 'All' || t.category === activeCategory;
-        const matchesSearch = t.title.toLowerCase().includes(search.toLowerCase()) ||
-                              t.artist.toLowerCase().includes(search.toLowerCase());
-        return matchesCategory && matchesSearch;
-    });
+    // Combine custom uploads + iTunes search results + fallback dummy tracks if empty
+    const displayTracks = [
+        ...customTracks,
+        ...iTunesTracks,
+        ...(iTunesTracks.length === 0 && !isSearchingMusic ? FREE_MUSIC_TRACKS : [])
+    ];
 
     const togglePlay = (track: Track, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -288,7 +284,7 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const fileUrl = URL.createObjectURL(file);
-            blobUrlsRef.current.push(fileUrl); // Track for cleanup
+            blobUrlsRef.current.push(fileUrl);
             const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
             
             const newTrack: Track = {
@@ -331,7 +327,14 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
                 <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <Music size={22} color="#f5a524" />
-                        <h2 style={{ color: '#fff', fontSize: '18px', fontWeight: 'bold', margin: 0 }}>Music Library 🎵</h2>
+                        <div>
+                            <h2 style={{ color: '#fff', fontSize: '17px', fontWeight: 'bold', margin: 0, lineHeight: 1.2 }}>
+                                Bollywood & Global Music 🎵
+                            </h2>
+                            <p style={{ color: '#aaa', fontSize: '11px', margin: 0, marginTop: '2px' }}>
+                                Millions of Real Songs • Free 30s Audio Previews
+                            </p>
+                        </div>
                     </div>
                     <button onClick={handleClose} style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '4px' }}>
                         <X size={24} />
@@ -358,7 +361,7 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
                         }}
                     >
                         <Upload size={18} />
-                        <span>Upload Any Song From Your Device 📁</span>
+                        <span>Upload Any Custom Audio File 📁</span>
                     </button>
                 </div>
 
@@ -374,12 +377,15 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
                             type="text"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            placeholder="Search Bollywood, Punjabi, Pop, Lofi..."
+                            placeholder="Search Arijit Singh, Kesariya, Drake, Punjabi..."
                             style={{
                                 width: '100%', background: 'none', border: 'none',
                                 color: '#fff', outline: 'none', fontSize: '14px'
                             }}
                         />
+                        {isSearchingMusic && (
+                            <Loader2 size={16} color="#f5a524" style={{ animation: 'spin 1s linear infinite' }} />
+                        )}
                     </div>
                 </div>
 
@@ -404,60 +410,73 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
 
                 {/* Music Tracks List */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '10px 20px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {filteredTracks.map(track => {
-                        const isSelected = selectedTrackId === track.id;
-                        const isPlaying = playingTrackId === track.id;
-                        return (
-                            <div
-                                key={track.id}
-                                onClick={() => handleSelect(track)}
-                                style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                    padding: '10px 14px', borderRadius: '16px',
-                                    background: isSelected ? 'rgba(245, 165, 36, 0.15)' : 'rgba(255,255,255,0.04)',
-                                    border: isSelected ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.06)',
-                                    cursor: 'pointer', transition: 'all 0.2s'
-                                }}
-                            >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ position: 'relative', width: '48px', height: '48px', borderRadius: '12px', overflow: 'hidden' }}>
-                                        <img src={track.cover} alt={track.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        <button
-                                            onClick={(e) => togglePlay(track, e)}
-                                            style={{
-                                                position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)',
-                                                border: 'none', color: '#fff', display: 'flex', alignItems: 'center',
-                                                justifyContent: 'center', cursor: 'pointer'
-                                            }}
-                                        >
-                                            {isPlaying ? <Pause size={18} fill="#fff" /> : <Play size={18} fill="#fff" style={{ marginLeft: '2px' }} />}
-                                        </button>
-                                    </div>
-                                    <div>
-                                        <div style={{ color: '#fff', fontSize: '15px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            {track.title}
-                                            {track.isCustom && <span style={{ fontSize: '10px', background: '#f5a524', color: '#000', padding: '1px 6px', borderRadius: '8px' }}>Custom</span>}
-                                            {isSelected && <Check size={16} color="#f5a524" />}
-                                        </div>
-                                        <div style={{ color: '#aaa', fontSize: '12px', marginTop: '2px' }}>
-                                            {track.artist} • {track.category} ({track.duration})
-                                        </div>
-                                    </div>
-                                </div>
-                                <button
+                    {isSearchingMusic && displayTracks.length === 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '200px', color: '#aaa', gap: '12px' }}>
+                            <Loader2 size={32} color="#f5a524" style={{ animation: 'spin 1s linear infinite' }} />
+                            <span style={{ fontSize: '14px' }}>Searching Bollywood & Global Tracks...</span>
+                        </div>
+                    ) : displayTracks.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#aaa', fontSize: '14px' }}>
+                            No tracks found. Try searching another song or artist!
+                        </div>
+                    ) : (
+                        displayTracks.map(track => {
+                            const isSelected = selectedTrackId === track.id;
+                            const isPlaying = playingTrackId === track.id;
+                            return (
+                                <div
+                                    key={track.id}
                                     onClick={() => handleSelect(track)}
                                     style={{
-                                        background: isSelected ? '#f5a524' : 'rgba(255,255,255,0.1)',
-                                        color: isSelected ? '#000' : '#fff',
-                                        border: 'none', borderRadius: '12px', padding: '6px 14px',
-                                        fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '10px 14px', borderRadius: '16px',
+                                        background: isSelected ? 'rgba(245, 165, 36, 0.15)' : 'rgba(255,255,255,0.04)',
+                                        border: isSelected ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.06)',
+                                        cursor: 'pointer', transition: 'all 0.2s'
                                     }}
                                 >
-                                    {isSelected ? 'Selected' : 'Use Track'}
-                                </button>
-                            </div>
-                        );
-                    })}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, overflow: 'hidden' }}>
+                                        <div style={{ position: 'relative', width: '48px', height: '48px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 }}>
+                                            <img src={track.cover} alt={track.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            <button
+                                                onClick={(e) => togglePlay(track, e)}
+                                                style={{
+                                                    position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)',
+                                                    border: 'none', color: '#fff', display: 'flex', alignItems: 'center',
+                                                    justifyContent: 'center', cursor: 'pointer'
+                                                }}
+                                            >
+                                                {isPlaying ? <Pause size={18} fill="#fff" /> : <Play size={18} fill="#fff" style={{ marginLeft: '2px' }} />}
+                                            </button>
+                                        </div>
+                                        <div style={{ overflow: 'hidden', flex: 1, paddingRight: '8px' }}>
+                                            <div style={{ color: '#fff', fontSize: '14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title}</span>
+                                                {track.isCustom && <span style={{ fontSize: '9px', background: '#f5a524', color: '#000', padding: '1px 5px', borderRadius: '6px', flexShrink: 0 }}>Custom</span>}
+                                                {track.isITunes && <span style={{ fontSize: '9px', background: 'rgba(255,255,255,0.15)', color: '#fff', padding: '1px 5px', borderRadius: '6px', flexShrink: 0 }}>Official</span>}
+                                                {isSelected && <Check size={16} color="#f5a524" style={{ flexShrink: 0 }} />}
+                                            </div>
+                                            <div style={{ color: '#aaa', fontSize: '12px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {track.artist} • {track.category} ({track.duration})
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => handleSelect(track)}
+                                        style={{
+                                            background: isSelected ? '#f5a524' : 'rgba(255,255,255,0.1)',
+                                            color: isSelected ? '#000' : '#fff',
+                                            border: 'none', borderRadius: '12px', padding: '6px 14px',
+                                            fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                                            flexShrink: 0
+                                        }}
+                                    >
+                                        {isSelected ? 'Selected' : 'Use Track'}
+                                    </button>
+                                </div>
+                            );
+                        })
+                    )}
                 </div>
             </div>
         </div>
