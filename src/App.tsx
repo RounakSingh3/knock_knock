@@ -138,7 +138,6 @@ class ErrorBoundary extends React.Component<
 
 
 import { AppContext } from './context/AppContext';
-export { AppContext };
 
 
 // We need to track total app time in milliseconds

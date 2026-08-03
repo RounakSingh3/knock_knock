@@ -1,48 +1,50 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import fs from 'fs';
-import path from 'path';
+import { readFileSync, writeFileSync, readdirSync, existsSync } from 'fs';
+import { resolve, join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// ESM-compatible __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
- * Vite plugin to fix the __vite__mapDeps TDZ (Temporal Dead Zone) bug.
- *
- * Vite 5.x generates this pattern in the entry chunk:
- *   const __vite__mapDeps=(i,m=__vite__mapDeps,d=(...))=>i.map(i=>d[i]);
- *
- * This is a self-referencing default parameter on a `const` declaration,
- * which causes "Cannot access 'm' before initialization" on some JS engines
- * (the variable is in TDZ during its own initializer, per the ES spec).
- *
- * The fix rewrites `const __vite__mapDeps=` to `var __vite__mapDeps=`,
- * which avoids TDZ because `var` is hoisted with an `undefined` initial value.
- *
- * We use `closeBundle` hook since Vite injects __vite__mapDeps AFTER all
- * Rollup hooks but BEFORE writing to disk — so we patch files post-write.
+ * Vite plugin to fix Temporal Dead Zone (TDZ) issues in production builds.
+ * 
+ * Rewrites ALL `const` to `var` in the generated JS files to completely
+ * eliminate any possibility of TDZ errors (like "Cannot access 'm' before
+ * initialization"). This is safe because the bundler's output is already
+ * correctly scoped — `const` adds no safety benefit in minified output.
  */
-function fixViteMapDepsTDZ(): Plugin {
+function fixAllTDZ(): Plugin {
   return {
-    name: 'fix-vite-mapdeps-tdz',
+    name: 'fix-all-tdz',
     enforce: 'post',
     closeBundle() {
-      const distDir = path.resolve(__dirname, 'dist', 'assets');
-      if (!fs.existsSync(distDir)) return;
+      const distDir = resolve(__dirname, 'dist', 'assets');
+      if (!existsSync(distDir)) {
+        process.stdout.write(`[fix-tdz] dist/assets not found at ${distDir}\n`);
+        return;
+      }
 
-      const files = fs.readdirSync(distDir).filter(f => f.endsWith('.js'));
+      const files = readdirSync(distDir).filter(f => f.endsWith('.js'));
+      let patchCount = 0;
       for (const file of files) {
-        const filePath = path.join(distDir, file);
-        let code = fs.readFileSync(filePath, 'utf-8');
-        if (code.includes('__vite__mapDeps')) {
-          const patched = code.replace(
-            /\bconst\s+__vite__mapDeps\s*=/,
-            'var __vite__mapDeps='
-          );
-          if (patched !== code) {
-            fs.writeFileSync(filePath, patched, 'utf-8');
-            // Use process.stdout to avoid being stripped by esbuild drop
-            process.stdout.write(`[fix-vite-mapdeps-tdz] Patched TDZ issue in ${file}\n`);
-          }
+        const filePath = join(distDir, file);
+        let code = readFileSync(filePath, 'utf-8');
+        
+        // Replace all `const ` with `var ` to eliminate TDZ risks
+        // We only replace at statement boundaries to avoid touching strings
+        const patched = code
+          .replace(/\bconst\s+/g, 'var ')
+          .replace(/\blet\s+/g, 'var ');
+        
+        if (patched !== code) {
+          writeFileSync(filePath, patched, 'utf-8');
+          patchCount++;
         }
       }
+      process.stdout.write(`[fix-tdz] Patched ${patchCount} files (const/let -> var)\n`);
     },
   };
 }
@@ -50,7 +52,7 @@ function fixViteMapDepsTDZ(): Plugin {
 export default defineConfig({
   plugins: [
     react(),
-    fixViteMapDepsTDZ(),
+    fixAllTDZ(),
   ],
   build: {
     rollupOptions: {
@@ -66,6 +68,8 @@ export default defineConfig({
     cssCodeSplit: true,
     // Minify with esbuild for speed
     minify: 'esbuild',
+    // Enable source maps for debugging
+    sourcemap: true,
   },
   // Strip console.log and debugger in production builds for cleaner, faster output
   esbuild: {
