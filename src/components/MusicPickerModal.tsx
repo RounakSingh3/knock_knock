@@ -133,44 +133,54 @@ async function fetchITunesTracks(searchTerm: string, category: string): Promise<
     try {
         let query = searchTerm.trim();
         if (!query) {
-            if (category === 'Bollywood') query = 'bollywood hits Arijit Pritam Badshah';
-            else if (category === 'Hollywood') query = 'hollywood pop hits Taylor Swift Drake';
-            else if (category === 'Punjabi') query = 'punjabi hits Karan Aujla Diljit Moosewala';
-            else if (category === 'Romantic') query = 'romantic songs Arijit Singh Shreya Ghoshal';
+            if (category === 'Bollywood') query = 'bollywood hindi top hits';
+            else if (category === 'Hollywood') query = 'hollywood billboard top pop hits';
+            else if (category === 'Punjabi') query = 'punjabi top hits Diljit Karan Aujla';
+            else if (category === 'Romantic') query = 'romantic hindi songs Arijit Singh';
             else if (category === 'Pop') query = 'top pop hits 2026';
-            else if (category === 'Lofi') query = 'lofi chill beats hindi english';
-            else if (category === 'Hip Hop') query = 'hip hop rap hits';
-            else if (category === 'EDM') query = 'edm dance party hits';
-            else query = 'bollywood hollywood top hits 2026';
+            else if (category === 'Lofi') query = 'lofi chill hindi songs';
+            else if (category === 'Hip Hop') query = 'hip hop rap desi hits';
+            else if (category === 'EDM') query = 'edm dance hits';
+            else query = 'bollywood hindi top songs 2026';
         }
 
-        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=30`);
+        // Search Indian iTunes Store (country=IN) for full Bollywood & Global catalogue
+        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&country=IN&media=music&entity=song&limit=60`);
         if (!res.ok) return [];
 
         const data = await res.json();
         if (!data.results) return [];
 
-        return data.results
-            .filter((item: any) => item.previewUrl && item.trackName)
-            .map((item: any) => {
-                const durationSec = Math.round((item.trackTimeMillis || 30000) / 1000);
-                const mins = Math.floor(durationSec / 60);
-                const secs = (durationSec % 60).toString().padStart(2, '0');
-                const cover = item.artworkUrl100
-                    ? item.artworkUrl100.replace('100x100bb', '300x300bb')
-                    : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150';
+        const seenKeys = new Set<string>();
+        const tracks: Track[] = [];
 
-                return {
-                    id: `itunes-${item.trackId}`,
-                    title: item.trackName,
-                    artist: item.artistName || 'Unknown Artist',
-                    category: item.primaryGenreName || category || 'Music',
-                    url: item.previewUrl,
-                    cover,
-                    duration: `${mins}:${secs}`,
-                    isITunes: true,
-                };
+        for (const item of data.results) {
+            if (!item.previewUrl || !item.trackName) continue;
+
+            const dedupeKey = `${item.trackName.toLowerCase()}-${(item.artistName || '').toLowerCase()}`;
+            if (seenKeys.has(dedupeKey)) continue;
+            seenKeys.add(dedupeKey);
+
+            const durationSec = Math.round((item.trackTimeMillis || 30000) / 1000);
+            const mins = Math.floor(durationSec / 60);
+            const secs = (durationSec % 60).toString().padStart(2, '0');
+            const cover = item.artworkUrl100
+                ? item.artworkUrl100.replace('100x100bb', '300x300bb')
+                : 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150';
+
+            tracks.push({
+                id: `itunes-${item.trackId}`,
+                title: item.trackName,
+                artist: item.artistName || 'Unknown Artist',
+                category: item.primaryGenreName || category || 'Music',
+                url: item.previewUrl,
+                cover,
+                duration: `${mins}:${secs}`,
+                isITunes: true,
             });
+        }
+
+        return tracks;
     } catch (e) {
         console.warn('iTunes music fetch error:', e);
         return [];
