@@ -6,17 +6,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Vendor chunk: React + Router
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          // Supabase in its own chunk
-          'vendor-supabase': ['@supabase/supabase-js'],
-          // Lucide icons
-          'vendor-icons': ['lucide-react'],
-        },
+        // Removed custom manualChunks as they can cause chunk loading initialization issues
+        // (Temporal Dead Zone errors like "Cannot access 'm' before initialization")
       },
     },
-    // Increase chunk size limit since we are now splitting
+    // Increase chunk size limit since we are no longer splitting strictly
     chunkSizeWarningLimit: 300,
     // Target modern browsers for smaller output
     target: 'es2020',
