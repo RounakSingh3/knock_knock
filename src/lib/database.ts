@@ -1589,6 +1589,29 @@ export async function getCallRequestStatus(userA: string, userB: string): Promis
     }
 }
 
+/** Get any active pending call request where receiverId is the current user */
+export async function getPendingCallRequestForUser(userId: string): Promise<CallRequestData | null> {
+    try {
+        const { data, error } = await supabase
+            .from('call_requests')
+            .select('*')
+            .eq('receiver_id', userId)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (error || !data || data.length === 0) {
+            // Check fallback
+            const fallbackRequests = JSON.parse(localStorage.getItem('knock_fallback_call_requests') || '[]');
+            const found = fallbackRequests.find((r: any) => r.receiver_id === userId && r.status === 'pending');
+            return found || null;
+        }
+        return data[0];
+    } catch (e) {
+        return null;
+    }
+}
+
 /** Send a call request from senderId to receiverId */
 export async function sendCallRequest(senderId: string, receiverId: string): Promise<CallRequestData | null> {
     try {

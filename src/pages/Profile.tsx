@@ -269,6 +269,26 @@ const Profile = () => {
     const displayUsername = username;
     const isOwnProfile = currentUser && currentUser.username === username;
 
+    const sendDirectCallsBroadcast = (event: string, payload: any) => {
+        const channel = supabase.channel('direct-calls');
+        const sendMsg = () => {
+            channel.send({
+                type: 'broadcast',
+                event,
+                payload
+            });
+        };
+        if (channel.state === 'joined' || (channel as any).subState === 'joined') {
+            sendMsg();
+        } else {
+            channel.subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    sendMsg();
+                }
+            });
+        }
+    };
+
     const handleSendRequest = async () => {
         if (!currentUser || !profile) return;
         setLoadingCallAction(true);
@@ -276,19 +296,10 @@ const Profile = () => {
         if (req) {
             setCallRequest(req);
             // Send broadcast to notify target in real-time
-            const channel = supabase.channel('direct-calls');
-            channel.subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    channel.send({
-                        type: 'broadcast',
-                        event: 'call-request',
-                        payload: {
-                            requestId: req.id,
-                            senderId: currentUser.id,
-                            receiverId: profile.id
-                        }
-                    });
-                }
+            sendDirectCallsBroadcast('call-request', {
+                requestId: req.id,
+                senderId: currentUser.id,
+                receiverId: profile.id
             });
         }
         setLoadingCallAction(false);
@@ -301,19 +312,10 @@ const Profile = () => {
         if (ok) {
             setCallRequest({ ...callRequest, status: 'accepted' });
             // Broadcast accept status
-            const channel = supabase.channel('direct-calls');
-            channel.subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    channel.send({
-                        type: 'broadcast',
-                        event: 'call-request-accepted',
-                        payload: {
-                            requestId: callRequest.id,
-                            senderId: callRequest.sender_id,
-                            receiverId: currentUser.id
-                        }
-                    });
-                }
+            sendDirectCallsBroadcast('call-request-accepted', {
+                requestId: callRequest.id,
+                senderId: callRequest.sender_id,
+                receiverId: currentUser.id
             });
         }
         setLoadingCallAction(false);
@@ -326,19 +328,10 @@ const Profile = () => {
         if (ok) {
             setCallRequest({ ...callRequest, status: 'declined' });
             // Broadcast decline status
-            const channel = supabase.channel('direct-calls');
-            channel.subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    channel.send({
-                        type: 'broadcast',
-                        event: 'call-request-declined',
-                        payload: {
-                            requestId: callRequest.id,
-                            senderId: callRequest.sender_id,
-                            receiverId: currentUser.id
-                        }
-                    });
-                }
+            sendDirectCallsBroadcast('call-request-declined', {
+                requestId: callRequest.id,
+                senderId: callRequest.sender_id,
+                receiverId: currentUser.id
             });
         }
         setLoadingCallAction(false);
@@ -351,6 +344,19 @@ const Profile = () => {
         setCallingStatus('calling');
 
         const channel = supabase.channel('direct-calls');
+
+        const sendInvite = () => {
+            channel.send({
+                type: 'broadcast',
+                event: 'call-invite',
+                payload: {
+                    callerId: currentUser.id,
+                    receiverId: profile.id,
+                    type: 'audio',
+                    room
+                }
+            });
+        };
 
         // Wait for accept
         channel.on('broadcast', { event: 'call-accept' }, (payload) => {
@@ -367,27 +373,19 @@ const Profile = () => {
             }
         });
 
-        // Must subscribe BEFORE sending broadcast messages in Supabase Realtime
-        channel.subscribe((status) => {
-            if (status === 'SUBSCRIBED') {
-                // Send invite
-                channel.send({
-                    type: 'broadcast',
-                    event: 'call-invite',
-                    payload: {
-                        callerId: currentUser.id,
-                        receiverId: profile.id,
-                        type: 'audio',
-                        room
-                    }
-                });
-            }
-        });
+        if (channel.state === 'joined' || (channel as any).subState === 'joined') {
+            sendInvite();
+        } else {
+            channel.subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    sendInvite();
+                }
+            });
+        }
 
         // Timeout after 30s
         setTimeout(() => {
             setCallingStatus('none');
-            supabase.removeChannel(channel);
         }, 30000);
     };
 

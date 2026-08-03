@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Phone, X, Video, BellRing, Check } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { supabase } from '../lib/supabase';
-import { fetchProfilesByIds, updateCallRequestStatus, type ProfileData } from '../lib/database';
+import { fetchProfilesByIds, updateCallRequestStatus, getPendingCallRequestForUser, type ProfileData } from '../lib/database';
 
 interface IncomingCall {
     callerId: string;
@@ -28,13 +28,25 @@ const GlobalCallListener: React.FC = () => {
     useEffect(() => {
         if (!user) return;
 
+        // 1. Initial check for existing pending call request on load
+        getPendingCallRequestForUser(user.id).then(async (pendingReq) => {
+            if (pendingReq && pendingReq.status === 'pending') {
+                const profiles = await fetchProfilesByIds([pendingReq.sender_id]);
+                setIncomingCallRequest({
+                    requestId: pendingReq.id,
+                    senderId: pendingReq.sender_id,
+                    senderProfile: profiles[0] || null,
+                });
+            }
+        });
+
+        // 2. Realtime WebSocket Broadcast Channel
         const channel = supabase.channel('direct-calls');
         channelRef.current = channel;
 
         channel.on('broadcast', { event: 'call-invite' }, async (payload) => {
             const { callerId, receiverId, type, room } = payload.payload;
             if (receiverId === user.id) {
-                // Fetch caller profile
                 const profiles = await fetchProfilesByIds([callerId]);
                 const callerProfile = profiles.length > 0 ? profiles[0] : null;
                 
@@ -73,9 +85,58 @@ const GlobalCallListener: React.FC = () => {
             }
         });
 
+        channel.on('broadcast', { event: 'call-request-accepted' }, (payload) => {
+            const { receiverId } = payload.payload;
+            if (receiverId === user.id) {
+                setIncomingCallRequest(null);
+            }
+        });
+
+        channel.on('broadcast', { event: 'call-request-declined' }, (payload) => {
+            const { receiverId } = payload.payload;
+            if (receiverId === user.id) {
+                setIncomingCallRequest(null);
+            }
+        });
+
         channel.subscribe();
 
-        // Listen for new messages globally for native notifications
+        // 3. Database Postgres Changes listener for call_requests table
+        const callReqChannel = supabase.channel(`global-call-requests-${user.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'call_requests',
+                    filter: `receiver_id=eq.${user.id}`
+                },
+                async (payload) => {
+                    const newReq = payload.new as any;
+                    if (newReq && newReq.status === 'pending') {
+                        const profiles = await fetchProfilesByIds([newReq.sender_id]);
+                        const senderProfile = profiles.length > 0 ? profiles[0] : null;
+
+                        setIncomingCallRequest({
+                            requestId: newReq.id,
+                            senderId: newReq.sender_id,
+                            senderProfile,
+                        });
+
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                            new Notification(`Call request from ${senderProfile?.username || 'Someone'}`, {
+                                body: 'Would like permission to call you. Tap to accept.',
+                                icon: senderProfile?.avatar_url || '/logo192.png',
+                            });
+                        }
+                    } else if (newReq && (newReq.status === 'accepted' || newReq.status === 'declined')) {
+                        setIncomingCallRequest(null);
+                    }
+                }
+            )
+            .subscribe();
+
+        // 4. Listen for new messages globally for native notifications
         const messageChannel = supabase.channel(`global-messages-${user.id}`)
             .on(
                 'postgres_changes',
@@ -89,7 +150,6 @@ const GlobalCallListener: React.FC = () => {
                     const newMsg = payload.new as any;
                     
                     if ('Notification' in window && Notification.permission === 'granted') {
-                        // Optionally fetch sender profile for the icon
                         const senderProfiles = await fetchProfilesByIds([newMsg.sender_id]);
                         const sender = senderProfiles[0];
                         
@@ -108,6 +168,7 @@ const GlobalCallListener: React.FC = () => {
 
         return () => {
             supabase.removeChannel(channel);
+            supabase.removeChannel(callReqChannel);
             supabase.removeChannel(messageChannel);
         };
     }, [user]);
