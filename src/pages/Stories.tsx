@@ -20,6 +20,7 @@ import {
     type ProfileData,
 } from '../lib/database';
 import StoryViewer from '../components/StoryViewer';
+import { isVideoUrl } from '../lib/media';
 
 function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -572,7 +573,11 @@ const Stories = () => {
                                 style={{ cursor: 'pointer' }}
                                 onClick={() => openStoryViewer(story)}
                             >
-                                <img src={story.image_url} alt="" />
+                                {isVideoUrl(story.image_url) ? (
+                                    <video src={`${story.image_url}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                    <img src={story.image_url} alt="" />
+                                )}
                                 <div className="my-story-overlay">
                                     {story.is_boosted && (
                                         <span className="my-story-boost-badge">
@@ -631,14 +636,26 @@ const Stories = () => {
                             }
                         }}
                     >
-                        <img
-                            src={mysteryStory.image_url} alt="Mystery"
-                            style={{
-                                width: '100%', height: '100%', objectFit: 'cover',
-                                filter: isMysteryRevealed ? 'none' : 'blur(20px) brightness(0.5)',
-                                transition: 'filter 0.6s ease-out',
-                            }}
-                        />
+                        {isVideoUrl(mysteryStory.image_url) ? (
+                            <video
+                                src={`${mysteryStory.image_url}#t=0.001`}
+                                preload="metadata" muted playsInline
+                                style={{
+                                    width: '100%', height: '100%', objectFit: 'cover',
+                                    filter: isMysteryRevealed ? 'none' : 'blur(20px) brightness(0.5)',
+                                    transition: 'filter 0.6s ease-out',
+                                }}
+                            />
+                        ) : (
+                            <img
+                                src={mysteryStory.image_url} alt="Mystery"
+                                style={{
+                                    width: '100%', height: '100%', objectFit: 'cover',
+                                    filter: isMysteryRevealed ? 'none' : 'blur(20px) brightness(0.5)',
+                                    transition: 'filter 0.6s ease-out',
+                                }}
+                            />
+                        )}
                         {!isMysteryRevealed && (
                             <div style={{
                                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
@@ -674,7 +691,11 @@ const Stories = () => {
                                 style={{ cursor: 'pointer' }}
                                 onClick={() => openStoryViewer(story)}
                             >
-                                <img src={story.image_url} alt="Story" loading="lazy" />
+                                {isVideoUrl(story.image_url) ? (
+                                    <video src={`${story.image_url}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                    <img src={story.image_url} alt="Story" loading="lazy" />
+                                )}
                                 {story.username && (
                                     <div className="boosted-story-user">@{story.username}</div>
                                 )}

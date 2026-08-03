@@ -12,7 +12,7 @@ import ShareModal from '../components/ShareModal';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
 import CommentsSheet from '../components/CommentsSheet';
-import { isVideoPost } from '../lib/media';
+import { isVideoPost, isVideoUrl } from '../lib/media';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 
 export interface UnifiedItem {
@@ -610,11 +610,20 @@ const Home = () => {
                             }}
                         >
                             <div className={`story-tile-rect ${myGroup && myGroup.stories.length > 0 ? 'story-tile-connection' : 'story-tile-add'}`}>
-                                <img
-                                    src={(myGroup && myGroup.stories[0]?.image_url) || user?.avatar_url || 'https://i.pravatar.cc/150'}
-                                    alt="Your Story"
-                                    loading="lazy"
-                                />
+                                {(() => {
+                                    const myStoryUrl = myGroup?.stories[0]?.image_url || '';
+                                    const isVideo = isVideoUrl(myStoryUrl);
+                                    if (myStoryUrl && isVideo) {
+                                        return <video src={`${myStoryUrl}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
+                                    }
+                                    return (
+                                        <img
+                                            src={myStoryUrl || user?.avatar_url || 'https://i.pravatar.cc/150'}
+                                            alt="Your Story"
+                                            loading="lazy"
+                                        />
+                                    );
+                                })()}
                                 <div
                                     className="story-add-icon-rect"
                                     onClick={(e) => {
@@ -632,6 +641,8 @@ const Home = () => {
                         {/* Other Users' Stories */}
                         {otherGroups.map(group => {
                             const isConnection = connectionUserIds.has(group.userId);
+                            const storyUrl = group.stories[0]?.image_url || '';
+                            const isVideo = isVideoUrl(storyUrl);
                             return (
                                 <div
                                     key={group.userId}
@@ -639,11 +650,15 @@ const Home = () => {
                                     onClick={() => openStoryViewer(group)}
                                 >
                                     <div className={`story-tile-rect ${isConnection ? 'story-tile-connection' : ''}`}>
-                                        <img
-                                            src={group.stories[0]?.image_url || group.avatarUrl}
-                                            alt={group.username}
-                                            loading="lazy"
-                                        />
+                                        {isVideo ? (
+                                            <video src={`${storyUrl}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <img
+                                                src={storyUrl || group.avatarUrl}
+                                                alt={group.username}
+                                                loading="lazy"
+                                            />
+                                        )}
                                     </div>
                                     <span className="story-rack-name">
                                         {isConnection && '🔥 '}{group.username}

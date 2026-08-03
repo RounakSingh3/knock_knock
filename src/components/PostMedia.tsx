@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { isVideoPost } from '../lib/media';
+import React, { useRef, useEffect, useState } from 'react';
+import { isVideoPost, isVideoUrl } from '../lib/media';
 import type { PostData } from '../lib/database';
 
 interface PostMediaProps {
@@ -30,10 +30,15 @@ const PostMedia: React.FC<PostMediaProps> = ({
     soundOn = false,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
-    const isVideo = isVideoPost(post);
+    const [hasError, setHasError] = useState(false);
+    const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
     const effectiveMuted =
         muted !== undefined ? muted : soundOn || controls ? false : true;
+
+    useEffect(() => {
+        setHasError(false);
+    }, [post.image_url]);
 
     useEffect(() => {
         if (!isVideo) return;
@@ -67,17 +72,41 @@ const PostMedia: React.FC<PostMediaProps> = ({
     let extractedFilter = post.css_filter || 'none';
     try {
         if (!post.css_filter || post.css_filter === 'none') {
-            const url = new URL(post.image_url);
-            const f = url.searchParams.get('filter');
-            if (f) extractedFilter = decodeURIComponent(f);
+            if (post.image_url) {
+                const url = new URL(post.image_url);
+                const f = url.searchParams.get('filter');
+                if (f) extractedFilter = decodeURIComponent(f);
+            }
         }
     } catch(e) {}
 
+    if (hasError || !post.image_url) {
+        return (
+            <div 
+                className={className}
+                style={{
+                    width: '100%',
+                    height: '100%',
+                    background: 'linear-gradient(135deg, #1c1c1e, #2c2c2e)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-inactive)',
+                    fontSize: '14px',
+                    ...style
+                }}
+            >
+                📷
+            </div>
+        );
+    }
+
     if (isVideo) {
+        const videoSrc = post.image_url.includes('#t=') ? post.image_url : `${post.image_url}#t=0.001`;
         return (
             <video
                 ref={videoRef}
-                src={post.image_url}
+                src={videoSrc}
                 className={className}
                 style={{ ...style, filter: extractedFilter }}
                 muted={effectiveMuted}
@@ -85,7 +114,8 @@ const PostMedia: React.FC<PostMediaProps> = ({
                 autoPlay={autoPlay || soundOn}
                 loop={loop}
                 playsInline={playsInline}
-                preload={autoPlay || soundOn ? "metadata" : "none"}
+                preload="metadata"
+                onError={() => setHasError(true)}
             />
         );
     }
@@ -97,6 +127,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
             style={{ ...style, filter: extractedFilter }}
             loading="lazy"
             decoding="async"
+            onError={() => setHasError(true)}
         />
     );
 };

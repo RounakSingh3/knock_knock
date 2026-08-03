@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { PostData, StoryData } from '../lib/database';
+import { isVideoUrl } from '../lib/media';
 import PostMedia from './PostMedia';
 import { Heart, Users, ChevronRight, ChevronLeft, Send, Flame } from 'lucide-react';
 
@@ -102,7 +103,11 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
 
             {showStory && item.story && (
                 <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, background: 'var(--bg-color)' }}>
-                    <img src={item.story.image_url} className="masonry-card-img" style={{ objectFit: 'contain' }} alt="Story" />
+                    {isVideoUrl(item.story.image_url) ? (
+                        <video src={`${item.story.image_url}#t=0.001`} className="masonry-card-img" style={{ objectFit: 'contain' }} preload="metadata" muted playsInline />
+                    ) : (
+                        <img src={item.story.image_url} className="masonry-card-img" style={{ objectFit: 'contain' }} alt="Story" />
+                    )}
                     <div className="masonry-connection-badge" style={{ background: '#af52de' }}>
                         Story Time
                     </div>

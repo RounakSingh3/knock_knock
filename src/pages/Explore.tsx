@@ -11,7 +11,7 @@ import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
 import ChatPanel from '../components/ChatPanel';
 import PullToRefresh from '../components/PullToRefresh';
-import { isVideoPost } from '../lib/media';
+import { isVideoPost, isVideoUrl } from '../lib/media';
 import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
@@ -486,15 +486,23 @@ const Explore = () => {
                             {activeTab === 'stories' && (
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                                     {storyResults.length > 0 ? (
-                                        storyResults.map((group, idx) => (
-                                            <div key={group.userId} style={{ position: 'relative', aspectRatio: '9/16', cursor: 'pointer' }} onClick={() => setActiveStoryGroupIndex(idx)}>
-                                                <img src={group.stories[0].image_url} alt="" loading="lazy" style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
-                                                <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.5)', padding: '3px 8px', borderRadius: '10px' }}>
-                                                    <img src={group.avatarUrl} alt="" style={{ width: '16px', height: '16px', borderRadius: '50%' }} />
-                                                    <span style={{ color: 'var(--text-active)', fontSize: '10px', fontWeight: 'bold' }}>{group.username}</span>
+                                        storyResults.map((group, idx) => {
+                                            const storyUrl = group.stories[0]?.image_url || '';
+                                            const isVideo = isVideoUrl(storyUrl);
+                                            return (
+                                                <div key={group.userId} style={{ position: 'relative', aspectRatio: '9/16', cursor: 'pointer' }} onClick={() => setActiveStoryGroupIndex(idx)}>
+                                                    {isVideo ? (
+                                                        <video src={`${storyUrl}#t=0.001`} preload="metadata" muted playsInline style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
+                                                    ) : (
+                                                        <img src={storyUrl} alt="" loading="lazy" style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
+                                                    )}
+                                                    <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.5)', padding: '3px 8px', borderRadius: '10px' }}>
+                                                        <img src={group.avatarUrl} alt="" style={{ width: '16px', height: '16px', borderRadius: '50%' }} />
+                                                        <span style={{ color: 'var(--text-active)', fontSize: '10px', fontWeight: 'bold' }}>{group.username}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     ) : (
                                         <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
                                             No stories found
