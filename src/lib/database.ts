@@ -155,7 +155,21 @@ export async function createNewPost(post: {
     if (post.music_artist) row.music_artist = post.music_artist;
     if (post.music_url) row.music_url = post.music_url;
 
-    const { data, error } = await supabase.from('posts').insert(row).select();
+    let { data, error } = await supabase.from('posts').insert(row).select();
+
+    // Fallback: If DB table doesn't have music_title/music_artist/music_url or other optional columns yet
+    if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
+        console.warn('Retrying post insert without optional columns due to missing columns in Supabase:', error.message);
+        delete row.music_title;
+        delete row.music_artist;
+        delete row.music_url;
+        delete row.attached_link;
+        delete row.boost_expires_at;
+        delete row.boost_impressions_remaining;
+        const retryResult = await supabase.from('posts').insert(row).select();
+        data = retryResult.data;
+        error = retryResult.error;
+    }
 
     if (error) {
         console.error('Error creating post:', error);
