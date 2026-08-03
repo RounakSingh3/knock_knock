@@ -1,6 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { signUp, signIn, checkUsernameAvailable, fetchCurrentProfile } from '../lib/auth';
 import { Sparkles, ArrowRight, Loader2, Check, X } from 'lucide-react';
 

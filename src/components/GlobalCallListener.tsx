@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Phone, X, Video, BellRing, Check } from 'lucide-react';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { supabase } from '../lib/supabase';
 import { fetchProfilesByIds, updateCallRequestStatus, type ProfileData } from '../lib/database';
 

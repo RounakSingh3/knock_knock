@@ -1,6 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { uploadMedia, createNewPost, updatePoints } from '../lib/database';
 import { getMediaTypeFromFile, compressImage } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';

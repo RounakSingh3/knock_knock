@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, useContext, useCallback } from 'rea
 import { useNavigate } from 'react-router-dom';
 import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock, Eye, HelpCircle, Users, Music } from 'lucide-react';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import {
     fetchBoostedStories,
     fetchUserStories,

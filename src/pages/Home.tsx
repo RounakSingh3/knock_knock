@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';

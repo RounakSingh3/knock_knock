@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useContext } from 'rea
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
 import { fetchVideoPosts, trackEngagement, toggleImp, type PostData, type MessageData } from '../lib/database';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
 

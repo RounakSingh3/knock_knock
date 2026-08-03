@@ -4,7 +4,7 @@ import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoosted
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import CommentsSheet from '../components/CommentsSheet';

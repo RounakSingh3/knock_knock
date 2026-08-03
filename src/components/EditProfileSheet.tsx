@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { X, Loader2, Camera } from 'lucide-react';
 import { updateProfile, uploadMedia } from '../lib/database';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { compressImage } from '../lib/media';
 
 interface EditProfileSheetProps {

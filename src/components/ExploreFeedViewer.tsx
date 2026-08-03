@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useContext, useState } from 'react';
 import { type PostData, trackEngagement } from '../lib/database';
 import { PostModalContent } from './PostModal';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 
 interface ExploreFeedViewerProps {
     posts: PostData[];

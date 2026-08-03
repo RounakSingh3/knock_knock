@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2, Rocket, PlusCircle } from 'lucide-react';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { fetchActiveBoostedPosts, fetchUserEngagements, boostPost, type PostData, fetchUserPosts, trackEngagement, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed } from '../lib/algorithm';
 import { isVideoPost } from '../lib/media';

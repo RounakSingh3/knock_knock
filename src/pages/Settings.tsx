@@ -1,6 +1,6 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { fetchConnections, fetchFollowCounts, fetchUserPosts, deletePost, type PostData } from '../lib/database';
 import { isVideoPost } from '../lib/media';
 import PostMedia from '../components/PostMedia';

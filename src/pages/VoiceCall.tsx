@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { useSearchParams } from 'react-router-dom';
 import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData } from '../lib/database';
 import { supabase } from '../lib/supabase';

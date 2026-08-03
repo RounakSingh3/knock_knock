@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { 
     fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame } from 'lucide-react';
 import PostMedia from './PostMedia';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, type PostData } from '../lib/database';
 
 // Helper to format time

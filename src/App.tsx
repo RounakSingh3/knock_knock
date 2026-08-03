@@ -137,28 +137,9 @@ class ErrorBoundary extends React.Component<
 }
 
 
-// Global Context for Points & Auth
-interface AppContextType {
-    points: number;
-    setPoints: React.Dispatch<React.SetStateAction<number>>;
-    user: ProfileData | null;
-    setUser: React.Dispatch<React.SetStateAction<ProfileData | null>>;
-    blockedIds: string[];
-    setBlockedIds: React.Dispatch<React.SetStateAction<string[]>>;
-    isAuthenticated: boolean;
-    signOut: () => void;
-}
+import { AppContext } from './context/AppContext';
+export { AppContext };
 
-export const AppContext = createContext<AppContextType>({
-    points: 0,
-    setPoints: () => { },
-    user: null,
-    setUser: () => { },
-    blockedIds: [],
-    setBlockedIds: () => { },
-    isAuthenticated: false,
-    signOut: () => { },
-});
 
 // We need to track total app time in milliseconds
 const POINTS_INTERVAL_MS = 60 * 60 * 1000; // 1 hour

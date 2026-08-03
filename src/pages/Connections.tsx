@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AppContext } from '../App';
+import { AppContext } from '../context/AppContext';
 import { fetchConnections, removeConnection, updateConnectionStreak, type ConnectionWithProfile } from '../lib/database';
 import { Loader2, Phone, Flame, AlertTriangle, Skull, UserMinus, ChevronRight, Users, Zap, Heart, Sparkles } from 'lucide-react';
 
