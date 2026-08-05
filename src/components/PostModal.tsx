@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame } from 'lucide-react';
+import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, Volume2, VolumeX } from 'lucide-react';
 import PostMedia from './PostMedia';
 import { AppContext } from '../context/AppContext';
 import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, type PostData } from '../lib/database';
@@ -39,6 +39,8 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
     const [likeCount, setLikeCount] = useState(post.likes_count || 0);
     const [isImped, setIsImped] = useState(false);
     const [impCount, setImpCount] = useState(post.imps_count || 0);
+    const [isMuted, setIsMuted] = useState(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
         if (user) {
@@ -46,6 +48,39 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
             fetchUserImps(user.id).then(imps => setIsImped(imps.includes(post.id)));
         }
     }, [user, post.id]);
+
+    useEffect(() => {
+        if (!isActive || !post.music_url) {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+            return;
+        }
+
+        const audio = new Audio(post.music_url);
+        audio.loop = true;
+        audio.muted = isMuted;
+        audio.play().catch(e => console.warn('Post audio autoplay prevented:', e));
+        audioRef.current = audio;
+
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = '';
+                audioRef.current = null;
+            }
+        };
+    }, [isActive, post.music_url]);
+
+    const toggleAudioMute = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const newMuted = !isMuted;
+        setIsMuted(newMuted);
+        if (audioRef.current) {
+            audioRef.current.muted = newMuted;
+        }
+    };
 
     const handleImpToggle = async () => {
         if (!user) return;
@@ -87,7 +122,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     <X size={22} />
                 </button>
             </div>
-            <div className="modal-media-stage">
+            <div className="modal-media-stage" style={{ position: 'relative' }}>
                 <PostMedia
                     post={post}
                     className="modal-image"
@@ -95,6 +130,35 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     playsInline
                     autoPlay={isActive}
                 />
+                {post.music_url && (
+                    <>
+                        <div style={{
+                            position: 'absolute', bottom: '16px', left: '16px', zIndex: 10,
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(10px)',
+                            padding: '6px 14px', borderRadius: '20px',
+                            border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
+                            fontSize: '13px', fontWeight: 'bold'
+                        }}>
+                            <Music size={14} color="#f5a524" style={{ animation: 'spin 4s linear infinite' }} />
+                            <span>{post.music_title || 'Background Music'} {post.music_artist ? `• ${post.music_artist}` : ''}</span>
+                        </div>
+                        <button
+                            onClick={toggleAudioMute}
+                            style={{
+                                position: 'absolute', bottom: '16px', right: '16px', zIndex: 10,
+                                width: '36px', height: '36px', borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(10px)',
+                                border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer'
+                            }}
+                            title={isMuted ? 'Unmute music' : 'Mute music'}
+                        >
+                            {isMuted ? <VolumeX size={18} color="#ff3b30" /> : <Volume2 size={18} color="#34d399" />}
+                        </button>
+                    </>
+                )}
             </div>
             <div className="modal-details modal-details--sheet">
                 {post.caption && (

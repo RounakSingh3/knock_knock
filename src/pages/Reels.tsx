@@ -230,6 +230,32 @@ const Reels: React.FC = () => {
     const [playStates, setPlayStates] = useState<boolean[]>(REELS_DATA.map(() => true));
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
     const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
+    const reelAudioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Audio playback for reels with musicUrl
+    useEffect(() => {
+        const activeReel = reelsList[activeIndex];
+        if (!activeReel || !activeReel.musicUrl || mutedAll) {
+            if (reelAudioRef.current) {
+                reelAudioRef.current.pause();
+                reelAudioRef.current = null;
+            }
+            return;
+        }
+
+        const audio = new Audio(activeReel.musicUrl);
+        audio.loop = true;
+        audio.play().catch(e => console.warn('Reel music autoplay blocked:', e));
+        reelAudioRef.current = audio;
+
+        return () => {
+            if (reelAudioRef.current) {
+                reelAudioRef.current.pause();
+                reelAudioRef.current.src = '';
+                reelAudioRef.current = null;
+            }
+        };
+    }, [activeIndex, reelsList, mutedAll]);
 
     // Chat and share states
     const [isShareOpen, setIsShareOpen] = useState(false);

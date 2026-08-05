@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { PostData, StoryData } from '../lib/database';
 import { isVideoUrl } from '../lib/media';
 import PostMedia from './PostMedia';
-import { Heart, Users, ChevronRight, ChevronLeft, Send, Flame } from 'lucide-react';
+import { Heart, Users, ChevronRight, ChevronLeft, Send, Flame, Music } from 'lucide-react';
 
 interface UnifiedItem {
     userId: string;
@@ -63,6 +63,19 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                     <div className="masonry-connection-badge">
                         <Users size={10} /> Connected
                     </div>
+                    {item.post.music_url && (
+                        <div style={{
+                            position: 'absolute', top: '12px', left: '12px', zIndex: 5,
+                            display: 'flex', alignItems: 'center', gap: '5px',
+                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                            padding: '3px 8px', borderRadius: '12px', color: '#fff',
+                            fontSize: '11px', fontWeight: '600', maxWidth: '140px',
+                            overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
+                        }}>
+                            <Music size={11} color="#f5a524" />
+                            <span>{item.post.music_title || 'Music'}</span>
+                        </div>
+                    )}
                     <button
                         className={`masonry-like-btn ${isLiked ? 'liked' : ''}`}
                         style={{ top: '12px', right: '12px' }}
