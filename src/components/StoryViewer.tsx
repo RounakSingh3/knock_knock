@@ -86,9 +86,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     handleNextStory();
                     return 0;
                 }
-                return prev + 1; // 100 steps -> 5 seconds (50ms per step)
+                return prev + 2; // 50 steps * 2 = 100% -> 5 seconds (100ms per step)
             });
-        }, 50); // 50ms * 100 = 5000ms = 5 seconds
+        }, 100); // 50ms * 100 = 5000ms = 5 seconds
 
         return () => clearInterval(interval);
     }, [currentStory, isPaused, handleNextStory]);

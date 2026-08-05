@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
@@ -207,7 +207,7 @@ const Home = () => {
         }
     }, [user?.id, blockedIds]);
 
-    const handleLikeToggle = async (postId: string) => {
+    const handleLikeToggle = useCallback(async (postId: string) => {
         if (!user) return;
         const currentlyLiked = likedPosts[postId] || false;
         const newLiked = !currentlyLiked;
@@ -219,19 +219,19 @@ const Home = () => {
             const post = posts.find(p => p.id === postId);
             trackEngagement(user.id, postId, 'like', 1, post?.category || 'General');
         }
-    };
+    }, [user, likedPosts, posts]);
 
-    const handleImpToggle = async (postId: string) => {
+    const handleImpToggle = useCallback(async (postId: string) => {
         if (!user) return;
         const currentlyImped = impedPosts[postId] || false;
         const newImped = !currentlyImped;
         setImpedPosts(prev => ({ ...prev, [postId]: newImped }));
         setImpCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newImped ? 1 : -1) }));
         await toggleImp(user.id, postId, currentlyImped);
-    };
+    }, [user, impedPosts]);
 
     // Pull-to-refresh handler
-    const handleRefresh = async () => {
+    const handleRefresh = useCallback(async () => {
         if (!user || isRefreshing) return;
         setIsRefreshing(true);
         try {
@@ -247,7 +247,7 @@ const Home = () => {
             console.error('Refresh failed:', err);
         }
         setIsRefreshing(false);
-    };
+    }, [user, isRefreshing, allRawPosts]);
 
     // Infinite scroll — load more posts
     const loadMorePosts = async () => {
