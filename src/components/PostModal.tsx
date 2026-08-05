@@ -22,6 +22,8 @@ function getTimeAgo(dateStr: string) {
     return 'Just now';
 }
 
+import { audioPlayer } from '../lib/audioPlayer';
+
 export interface PostModalContentProps {
     post: PostData;
     onClose: () => void;
@@ -40,7 +42,6 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
     const [isImped, setIsImped] = useState(false);
     const [impCount, setImpCount] = useState(post.imps_count || 0);
     const [isMuted, setIsMuted] = useState(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
         if (user) {
@@ -51,35 +52,22 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
 
     useEffect(() => {
         if (!isActive || !post.music_url) {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
-            }
+            audioPlayer.stop();
             return;
         }
 
-        const audio = new Audio(post.music_url);
-        audio.loop = true;
-        audio.muted = isMuted;
-        audio.play().catch(e => console.warn('Post audio autoplay prevented:', e));
-        audioRef.current = audio;
+        audioPlayer.play(post.music_url, true, isMuted);
 
         return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.src = '';
-                audioRef.current = null;
-            }
+            audioPlayer.stop();
         };
-    }, [isActive, post.music_url]);
+    }, [isActive, post.music_url, isMuted]);
 
     const toggleAudioMute = (e: React.MouseEvent) => {
         e.stopPropagation();
         const newMuted = !isMuted;
         setIsMuted(newMuted);
-        if (audioRef.current) {
-            audioRef.current.muted = newMuted;
-        }
+        audioPlayer.setMuted(newMuted);
     };
 
     const handleImpToggle = async () => {

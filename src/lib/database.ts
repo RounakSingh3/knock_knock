@@ -40,7 +40,7 @@ export async function fetchPosts(): Promise<PostData[]> {
         console.error('Error fetching posts:', error);
         return [];
     }
-    return data || [];
+    return (data || []).map(normalizePost);
 }
 
 export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
@@ -67,7 +67,7 @@ export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
         console.error('Error fetching For You posts:', error);
         return [];
     }
-    return data || [];
+    return (data || []).map(normalizePost);
 }
 
 export async function fetchUserPosts(username: string): Promise<PostData[]> {
@@ -81,7 +81,7 @@ export async function fetchUserPosts(username: string): Promise<PostData[]> {
         console.error('Error fetching user posts:', error);
         return [];
     }
-    return data || [];
+    return (data || []).map(normalizePost);
 }
 
 export async function uploadMedia(
@@ -120,6 +120,32 @@ export async function fetchVideoPosts(): Promise<PostData[]> {
     return (data || []).filter((p) => isVideoPost(p));
 }
 
+export function normalizePost(post: PostData): PostData {
+    if (!post) return post;
+    let caption = post.caption || '';
+    let music_url = post.music_url;
+    let music_title = post.music_title;
+    let music_artist = post.music_artist;
+
+    if (!music_url && caption.includes('[MUSIC:')) {
+        const match = caption.match(/\[MUSIC:([^|]+)\|([^|]*)\|([^\]]*)\]/);
+        if (match) {
+            music_url = match[1];
+            music_title = match[2] || 'Song';
+            music_artist = match[3] || '';
+            caption = caption.replace(/\[MUSIC:[^\]]+\]/, '').trim();
+        }
+    }
+
+    return {
+        ...post,
+        caption,
+        music_url,
+        music_title,
+        music_artist,
+    };
+}
+
 export async function createNewPost(post: {
     user_id?: string;
     username: string;
@@ -136,11 +162,16 @@ export async function createNewPost(post: {
     music_artist?: string;
     music_url?: string;
 }) {
+    let finalCaption = post.caption || '';
+    if (post.music_url && !finalCaption.includes('[MUSIC:')) {
+        finalCaption += `\n\n[MUSIC:${post.music_url}|${post.music_title || ''}|${post.music_artist || ''}]`;
+    }
+
     const row: Record<string, unknown> = {
         username: post.username,
         avatar_url: post.avatar_url,
         image_url: post.image_url,
-        caption: post.caption,
+        caption: finalCaption,
         likes_count: 0,
         media_type: post.media_type || 'image',
         category: post.category || 'General',
