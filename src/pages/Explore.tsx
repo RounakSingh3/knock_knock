@@ -13,6 +13,7 @@ import ChatPanel from '../components/ChatPanel';
 import PullToRefresh from '../components/PullToRefresh';
 import { isVideoPost, isVideoUrl } from '../lib/media';
 import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
+import { BollywoodSection } from '../components/BollywoodSection';
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -360,6 +361,9 @@ const Explore = () => {
                                 </div>
                             )}
                             {isTrendingLoading && <TrendingSkeleton />}
+
+                            {/* 🎬 Instant Bollywood Viral Entertainment Hub */}
+                            <BollywoodSection onSelectPost={(post) => setActiveFeedState({ posts: [post], index: 0 })} />
 
                             {/* Discover Grid */}
                             {isDiscoverLoading ? (
