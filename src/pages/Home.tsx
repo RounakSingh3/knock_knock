@@ -4,7 +4,7 @@ import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import ChatPanel from '../components/ChatPanel';
@@ -547,7 +547,19 @@ const Home = () => {
             {/* Header + Stories */}
             <header className="home-header-v2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 className="home-brand-title">Knock Knock</h1>
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <button
+                        onClick={() => navigate('/notifications')}
+                        title="Notifications"
+                        style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', padding: '8px', position: 'relative' }}
+                    >
+                        <Bell size={24} />
+                        <span style={{
+                            position: 'absolute', top: '4px', right: '4px',
+                            background: 'var(--primary-gradient)', width: '8px', height: '8px',
+                            borderRadius: '50%', boxShadow: '0 0 6px var(--primary-color)'
+                        }} />
+                    </button>
                     <button 
                         onClick={() => { setChatUserId(null); setIsChatOpen(true); }} 
                         className="signout-btn-v2" 

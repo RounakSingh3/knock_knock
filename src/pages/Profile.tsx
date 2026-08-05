@@ -7,7 +7,7 @@ import {
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell } from 'lucide-react';
 import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
@@ -419,14 +419,29 @@ const Profile = () => {
                         <Star size={16} fill="#ff3366" /> {isOwnProfile ? points : profile.points} Pts
                     </div>
                     {isOwnProfile && (
-                        <button
-                            type="button"
-                            style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer' }}
-                            onClick={() => navigate('/settings')}
-                            aria-label="Settings"
-                        >
-                            <Settings size={24} />
-                        </button>
+                        <>
+                            <button
+                                type="button"
+                                style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', position: 'relative' }}
+                                onClick={() => navigate('/notifications')}
+                                aria-label="Notifications"
+                            >
+                                <Bell size={24} />
+                                <span style={{
+                                    position: 'absolute', top: '0', right: '0',
+                                    background: 'var(--primary-gradient)', width: '8px', height: '8px',
+                                    borderRadius: '50%', boxShadow: '0 0 6px var(--primary-color)'
+                                }} />
+                            </button>
+                            <button
+                                type="button"
+                                style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer' }}
+                                onClick={() => navigate('/settings')}
+                                aria-label="Settings"
+                            >
+                                <Settings size={24} />
+                            </button>
+                        </>
                     )}
                 </div>
             </header>

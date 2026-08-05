@@ -19,6 +19,7 @@ const VoiceCall = lazy(() => import('./pages/VoiceCall'));
 const Profile = lazy(() => import('./pages/Profile'));
 const Settings = lazy(() => import('./pages/Settings'));
 const CreatePost = lazy(() => import('./pages/CreatePost'));
+const Notifications = lazy(() => import('./pages/Notifications'));
 
 // Compact loading spinner shown while a lazy page chunk downloads
 const PageLoader: React.FC<{ message?: string }> = ({ message = 'Loading...' }) => (
@@ -343,6 +344,7 @@ function App() {
                                 <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
                                 <Route path="/profile" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/profile/:username" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
+                                <Route path="/notifications" element={<Suspense fallback={<PageLoader />}><Notifications /></Suspense>} />
                                 <Route path="/login" element={<Navigate to="/home" />} />
                             </>
                         )}
