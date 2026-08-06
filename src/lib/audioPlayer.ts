@@ -70,16 +70,6 @@ class AudioPlayerService {
         const audio = this.getAudioElement();
         if (!audio) return null;
 
-        // If already playing the same track, don't restart
-        if (this.currentUrl === url && !audio.paused) {
-            return audio;
-        }
-
-        // Setup track
-        audio.src = url;
-        audio.loop = loop;
-        audio.volume = 1.0;
-
         // Use a user-interaction-safe play approach
         const tryPlay = () => {
             const promise = audio.play();
@@ -89,14 +79,28 @@ class AudioPlayerService {
                     console.warn('[AudioPlayer] Autoplay blocked, retrying on tap:', err.message);
                     const retryPlay = () => {
                         audio.play().catch(() => {});
-                        window.removeEventListener('click', retryPlay);
-                        window.removeEventListener('touchstart', retryPlay);
+                        window.removeEventListener('click', retryPlay, { capture: true });
+                        window.removeEventListener('touchstart', retryPlay, { capture: true });
                     };
-                    window.addEventListener('click', retryPlay, { once: true });
-                    window.addEventListener('touchstart', retryPlay, { once: true });
+                    window.addEventListener('click', retryPlay, { once: true, capture: true });
+                    window.addEventListener('touchstart', retryPlay, { once: true, capture: true });
                 });
             }
         };
+
+        // If already loaded/loading the same track, don't restart the src
+        if (this.currentUrl === url) {
+            audio.loop = loop;
+            if (audio.paused) {
+                tryPlay();
+            }
+            return audio;
+        }
+
+        // Setup new track
+        audio.src = url;
+        audio.loop = loop;
+        audio.volume = 1.0;
 
         // Try to play immediately, or when we have enough data
         if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {

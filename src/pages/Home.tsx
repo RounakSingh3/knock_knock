@@ -408,6 +408,20 @@ const Home = () => {
         };
     }, [viewingGroup, viewingIndex]);
 
+    // Handle audio for the selected post modal
+    useEffect(() => {
+        if (selectedPost?.music_url) {
+            audioPlayer.play(selectedPost.music_url, true);
+        } else if (!viewingGroup) {
+            audioPlayer.stop();
+        }
+        return () => {
+            if (selectedPost) {
+                audioPlayer.stop();
+            }
+        };
+    }, [selectedPost]);
+
     // ── Story Viewer Overlay ──
     if (viewingGroup) {
         const currentStory = viewingGroup.stories[viewingIndex];
