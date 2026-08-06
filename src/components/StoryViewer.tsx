@@ -94,17 +94,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         return () => clearInterval(interval);
     }, [currentStory, isPaused, handleNextStory]);
 
-    // Handle background music playback
-    useEffect(() => {
-        if (currentStory?.music_url) {
-            audioPlayer.play(currentStory.music_url, true);
-        } else {
-            audioPlayer.stop();
-        }
-        return () => {
-            audioPlayer.stop();
-        };
-    }, [currentStory?.id, currentStory?.music_url]);
+    // Removed audioPlayer.play() since we use a physical native <audio> tag now.
 
     const handleDelete = async () => {
         if (!currentStory || !window.confirm('Are you sure you want to delete this story?')) return;
@@ -235,18 +225,27 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 </div>
             )}
 
-            {/* Music Badge Overlay */}
-            {(currentStory.music_title || currentStory.music_artist) && (
+            {/* FOOLPROOF NATIVE AUDIO PLAYER */}
+            {currentStory.music_url && (
                 <div style={{
                     position: 'absolute', bottom: '130px', left: '16px', right: '16px',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                    background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)',
                     border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px',
-                    padding: '6px 14px', color: '#fff', fontSize: '13px', fontWeight: 'bold',
-                    width: 'fit-content', margin: '0 auto', zIndex: 10
+                    padding: '8px', color: '#fff', fontSize: '12px', fontWeight: 'bold',
+                    width: 'calc(100% - 32px)', maxWidth: '300px', margin: '0 auto', zIndex: 100
                 }}>
-                    <Music size={14} color="#f5a524" />
-                    <span>{currentStory.music_title} {currentStory.music_artist ? `• ${currentStory.music_artist}` : ''}</span>
+                    <span style={{ color: '#f5a524', marginBottom: '2px', textAlign: 'center' }}>
+                        {currentStory.music_title || 'Playing Music'} {currentStory.music_artist ? `• ${currentStory.music_artist}` : ''}
+                    </span>
+                    <audio
+                        src={currentStory.music_url}
+                        autoPlay
+                        loop
+                        controls
+                        style={{ width: '100%', height: '30px', outline: 'none' }}
+                        playsInline
+                    />
                 </div>
             )}
             

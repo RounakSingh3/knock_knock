@@ -233,20 +233,7 @@ const Reels: React.FC = () => {
     const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
 
 
-    // Audio playback for reels with musicUrl
-    useEffect(() => {
-        const activeReel = reelsList[activeIndex];
-        if (!activeReel || !activeReel.musicUrl || mutedAll) {
-            audioPlayer.stop();
-            return;
-        }
-
-        audioPlayer.play(activeReel.musicUrl, true);
-
-        return () => {
-            audioPlayer.stop();
-        };
-    }, [activeIndex, reelsList, mutedAll]);
+    // Audio playback logic moved to native <audio> controls.
 
     // Chat and share states
     const [isShareOpen, setIsShareOpen] = useState(false);
@@ -668,10 +655,27 @@ const Reels: React.FC = () => {
                                             <button className="reel-follow-btn">Friend</button>
                                         </div>
                                         <p className="reel-caption">{reel.caption}</p>
-                                        <div className="reel-song">
-                                            <Music size={12} />
-                                            <span className="reel-song-marquee">{reel.song}</span>
-                                        </div>
+                                        {reel.musicUrl ? (
+                                            <div style={{ marginTop: '10px', background: 'rgba(0,0,0,0.6)', padding: '6px', borderRadius: '12px', backdropFilter: 'blur(8px)', border: '1px solid rgba(245,165,36,0.3)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: '#f5a524', fontSize: '12px', fontWeight: 'bold' }}>
+                                                    <Music size={12} />
+                                                    <span className="reel-song-marquee">{reel.song}</span>
+                                                </div>
+                                                <audio
+                                                    src={reel.musicUrl}
+                                                    autoPlay={idx === selectedReelIndex}
+                                                    loop
+                                                    controls
+                                                    style={{ width: '100%', height: '24px', outline: 'none' }}
+                                                    playsInline
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div className="reel-song">
+                                                <Music size={12} />
+                                                <span className="reel-song-marquee">{reel.song}</span>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Side actions */}
