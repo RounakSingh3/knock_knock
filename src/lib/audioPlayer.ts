@@ -1,112 +1,143 @@
-// Universal Web Audio Player with browser autoplay unlock
+// Universal Web Audio Player with mobile-friendly DOM element unlock
 class AudioPlayerService {
-    private currentAudio: HTMLAudioElement | null = null;
+    private audioEl: HTMLAudioElement | null = null;
     private currentUrl: string | null = null;
 
     constructor() {
-        // Create a silent audio context unlock on first user interaction
         if (typeof window !== 'undefined') {
-            const unlockAudio = () => {
-                // Play a silent buffer to unlock audio on iOS/Safari
-                try {
-                    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                    const buffer = ctx.createBuffer(1, 1, 22050);
-                    const source = ctx.createBufferSource();
-                    source.buffer = buffer;
-                    source.connect(ctx.destination);
-                    source.start(0);
-                    ctx.resume().catch(() => {});
-                } catch (e) {}
-                window.removeEventListener('click', unlockAudio);
-                window.removeEventListener('touchstart', unlockAudio);
-                window.removeEventListener('touchend', unlockAudio);
+            // Wait for DOM to be ready before creating element
+            const initDOM = () => {
+                let el = document.getElementById('knock-global-audio') as HTMLAudioElement;
+                if (!el) {
+                    el = document.createElement('audio');
+                    el.id = 'knock-global-audio';
+                    el.style.display = 'none';
+                    // Important for mobile browsers
+                    el.setAttribute('playsinline', 'true');
+                    el.setAttribute('preload', 'auto');
+                    // DO NOT use crossOrigin='anonymous' as it breaks iTunes / Apple CDN URLs
+                    if (document.body) {
+                        document.body.appendChild(el);
+                    }
+                }
+                this.audioEl = el;
+
+                // Silent unlock on first interaction
+                const unlock = () => {
+                    if (this.audioEl) {
+                        const playPromise = this.audioEl.play();
+                        if (playPromise !== undefined) {
+                            playPromise.then(() => {
+                                this.audioEl?.pause();
+                            }).catch(() => {});
+                        }
+                    }
+                    window.removeEventListener('click', unlock);
+                    window.removeEventListener('touchstart', unlock);
+                };
+                window.addEventListener('click', unlock, { once: true, capture: true });
+                window.addEventListener('touchstart', unlock, { once: true, capture: true });
             };
-            window.addEventListener('click', unlockAudio, { capture: true });
-            window.addEventListener('touchstart', unlockAudio, { capture: true });
-            window.addEventListener('touchend', unlockAudio, { capture: true });
+
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                initDOM();
+            } else {
+                document.addEventListener('DOMContentLoaded', initDOM);
+            }
         }
+    }
+
+    private getAudioElement(): HTMLAudioElement | null {
+        if (!this.audioEl) {
+            let el = document.getElementById('knock-global-audio') as HTMLAudioElement;
+            if (!el) {
+                el = document.createElement('audio');
+                el.id = 'knock-global-audio';
+                el.style.display = 'none';
+                el.setAttribute('playsinline', 'true');
+                if (document.body) {
+                    document.body.appendChild(el);
+                }
+            }
+            this.audioEl = el;
+        }
+        return this.audioEl;
     }
 
     public play(url: string, loop: boolean = true): HTMLAudioElement | null {
         if (!url) return null;
 
+        const audio = this.getAudioElement();
+        if (!audio) return null;
+
         // If already playing the same track, don't restart
-        if (this.currentAudio && this.currentUrl === url && !this.currentAudio.paused) {
-            return this.currentAudio;
-        }
-
-        // Stop any existing track first
-        this.stop();
-
-        try {
-            const audio = new Audio();
-            // Do NOT set crossOrigin - iTunes/Apple CDN URLs don't support CORS headers
-            // and setting it causes the request to fail silently
-            audio.preload = 'auto';
-            audio.loop = loop;
-            audio.volume = 1.0;
-            audio.src = url;
-
-            // Use a user-interaction-safe play approach
-            const tryPlay = () => {
-                const promise = audio.play();
-                if (promise !== undefined) {
-                    promise.catch((err) => {
-                        // If autoplay is blocked, try again on next user tap
-                        console.warn('[AudioPlayer] Autoplay blocked, will retry on tap:', err.message);
-                        const retryPlay = () => {
-                            audio.play().catch(() => {});
-                            window.removeEventListener('click', retryPlay);
-                            window.removeEventListener('touchstart', retryPlay);
-                        };
-                        window.addEventListener('click', retryPlay, { once: true });
-                        window.addEventListener('touchstart', retryPlay, { once: true });
-                    });
-                }
-            };
-
-            // If audio is ready, play immediately; otherwise wait for it to load
-            if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
-                tryPlay();
-            } else {
-                audio.addEventListener('canplaythrough', tryPlay, { once: true });
-                // Also try playing on canplay as fallback
-                audio.addEventListener('canplay', tryPlay, { once: true });
-            }
-
-            // Debug: log errors
-            audio.addEventListener('error', (e) => {
-                const mediaError = audio.error;
-                console.error('[AudioPlayer] Audio error:', mediaError?.code, mediaError?.message, url);
-            });
-
-            this.currentAudio = audio;
-            this.currentUrl = url;
+        if (this.currentUrl === url && !audio.paused) {
             return audio;
-        } catch (e) {
-            console.error('[AudioPlayer] Fatal error:', e);
-            return null;
         }
+
+        // Setup track
+        audio.src = url;
+        audio.loop = loop;
+        audio.volume = 1.0;
+
+        // Use a user-interaction-safe play approach
+        const tryPlay = () => {
+            const promise = audio.play();
+            if (promise !== undefined) {
+                promise.catch((err) => {
+                    // If autoplay is blocked, try again on next user tap
+                    console.warn('[AudioPlayer] Autoplay blocked, retrying on tap:', err.message);
+                    const retryPlay = () => {
+                        audio.play().catch(() => {});
+                        window.removeEventListener('click', retryPlay);
+                        window.removeEventListener('touchstart', retryPlay);
+                    };
+                    window.addEventListener('click', retryPlay, { once: true });
+                    window.addEventListener('touchstart', retryPlay, { once: true });
+                });
+            }
+        };
+
+        // Try to play immediately, or when we have enough data
+        if (audio.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA) {
+            tryPlay();
+        } else {
+            // Using oncanplay to avoid stacking event listeners
+            audio.oncanplay = () => {
+                tryPlay();
+                audio.oncanplay = null; // remove after firing
+            };
+            tryPlay(); // Still try immediately as fallback
+        }
+
+        // Debug: log errors
+        audio.onerror = () => {
+            const mediaError = audio.error;
+            console.error('[AudioPlayer] Audio error:', mediaError?.code, mediaError?.message, url);
+        };
+
+        this.currentUrl = url;
+        return audio;
     }
 
     public setMuted(muted: boolean) {
-        if (this.currentAudio) {
-            this.currentAudio.muted = muted;
+        const audio = this.getAudioElement();
+        if (audio) {
+            audio.muted = muted;
         }
     }
 
     public isPlaying(): boolean {
-        return !!this.currentAudio && !this.currentAudio.paused;
+        return !!this.audioEl && !this.audioEl.paused;
     }
 
     public stop() {
-        if (this.currentAudio) {
+        if (this.audioEl) {
             try {
-                this.currentAudio.pause();
-                this.currentAudio.removeAttribute('src');
-                this.currentAudio.load(); // Release media resources
+                this.audioEl.pause();
+                this.audioEl.removeAttribute('src');
+                this.audioEl.load(); // Release media resources
             } catch (e) {}
-            this.currentAudio = null;
             this.currentUrl = null;
         }
     }

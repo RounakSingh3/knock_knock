@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Play, Pause, Music, Search, Check, Sparkles, Upload, Flame, Loader2 } from 'lucide-react';
+import { audioPlayer } from '../lib/audioPlayer';
 
 export interface Track {
     id: string;
@@ -17,113 +18,31 @@ export const FREE_MUSIC_TRACKS: Track[] = [
     // 🔥 Trending & Viral
     {
         id: 'trend-1',
-        title: 'As It Was Vibes',
-        artist: 'Pop Collective',
+        title: 'Epic Adventure',
+        artist: 'Creative Commons',
         category: 'Trending',
-        url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3',
+        url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
         cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150',
-        duration: '2:15',
+        duration: '6:12',
     },
     {
         id: 'trend-2',
-        title: 'Calm Down Instrumental',
-        artist: 'Afro Beats Sound',
+        title: 'Calm Flow',
+        artist: 'Creative Commons',
         category: 'Trending',
-        url: 'https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a815a3.mp3?filename=summer-walk-15363.mp3',
+        url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
         cover: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=150',
-        duration: '2:30',
+        duration: '4:20',
     },
     {
         id: 'trend-3',
-        title: 'Flowers Acoustic Remix',
-        artist: 'Summer Acoustic',
+        title: 'Ambient Walk',
+        artist: 'Creative Commons',
         category: 'Trending',
-        url: 'https://cdn.pixabay.com/download/audio/2022/10/14/audio_9939b46617.mp3?filename=acoustic-guitar-loop-124976.mp3',
+        url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3',
         cover: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=150',
-        duration: '2:10',
-    },
-
-    // 🇮🇳 Bollywood & Desi Vibes
-    {
-        id: 'desi-1',
-        title: 'Kesariya Melodic Flute',
-        artist: 'Desi Flute Project',
-        category: 'Bollywood',
-        url: 'https://cdn.pixabay.com/download/audio/2021/09/06/audio_946d5c64ef.mp3?filename=relaxing-light-background-music-11756.mp3',
-        cover: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=150',
-        duration: '2:40',
-    },
-    {
-        id: 'desi-2',
-        title: 'Maan Meri Jaan Lofi',
-        artist: 'Indian Lofi Station',
-        category: 'Bollywood',
-        url: 'https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=lofi-chill-medium-version-109038.mp3',
-        cover: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=150',
-        duration: '2:00',
-    },
-    {
-        id: 'desi-3',
-        title: 'Tum Hi Ho Sitar Ambient',
-        artist: 'Classic Sitar Strings',
-        category: 'Bollywood',
-        url: 'https://cdn.pixabay.com/download/audio/2022/03/10/audio_c8c8a815a4.mp3?filename=hip-hop-rock-beats-118000.mp3',
-        cover: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=150',
-        duration: '2:25',
-    },
-
-    // 🔥 Punjabi Hits
-    {
-        id: 'punjabi-1',
-        title: 'Elevated Bass Drop',
-        artist: 'Punjabi Trap Records',
-        category: 'Punjabi',
-        url: 'https://cdn.pixabay.com/download/audio/2022/03/10/audio_c8c8a815a4.mp3?filename=hip-hop-rock-beats-118000.mp3',
-        cover: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=150',
-        duration: '1:55',
-    },
-    {
-        id: 'punjabi-2',
-        title: '295 Heavy Beat',
-        artist: 'Desi Dhol Beats',
-        category: 'Punjabi',
-        url: 'https://cdn.pixabay.com/download/audio/2022/11/06/audio_c89b706c9a.mp3?filename=synthwave-80s-127027.mp3',
-        cover: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=150',
-        duration: '2:20',
-    },
-
-    // 💖 Romantic & Chill
-    {
-        id: 'romantic-1',
-        title: 'Perfect Sunset Romance',
-        artist: 'Piano Dreams',
-        category: 'Romantic',
-        url: 'https://cdn.pixabay.com/download/audio/2021/09/06/audio_946d5c64ef.mp3?filename=relaxing-light-background-music-11756.mp3',
-        cover: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=150',
-        duration: '2:35',
-    },
-
-    // 💃 Pop Hits & Dance
-    {
-        id: 'pop-1',
-        title: 'Summer Sunshine Walk',
-        artist: 'PopVibes',
-        category: 'Pop',
-        url: 'https://cdn.pixabay.com/download/audio/2022/03/15/audio_c8c8a815a3.mp3?filename=summer-walk-15363.mp3',
-        cover: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=150',
-        duration: '2:30',
-    },
-
-    // 🌌 Lofi & Midnight
-    {
-        id: 'lofi-1',
-        title: 'Lofi Study Night',
-        artist: 'ChillBeats',
-        category: 'Lofi',
-        url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3?filename=lofi-study-112191.mp3',
-        cover: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=150',
-        duration: '2:15',
-    },
+        duration: '3:05',
+    }
 ];
 
 const CATEGORIES = ['All', 'Bollywood', 'Hollywood', 'Punjabi', 'Romantic', 'Pop', 'Lofi', 'Hip Hop', 'EDM'];
@@ -207,7 +126,6 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
     const [iTunesTracks, setITunesTracks] = useState<Track[]>([]);
     const [isSearchingMusic, setIsSearchingMusic] = useState(false);
     
-    const audioRef = useRef<HTMLAudioElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const blobUrlsRef = useRef<string[]>([]);
     const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -236,12 +154,7 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
     // Cleanup audio and blob URLs on unmount
     useEffect(() => {
         return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.src = '';
-                audioRef.current.load();
-                audioRef.current = null;
-            }
+            audioPlayer.stop();
             blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
             blobUrlsRef.current = [];
         };
@@ -259,32 +172,19 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
     const togglePlay = (track: Track, e: React.MouseEvent) => {
         e.stopPropagation();
         if (playingTrackId === track.id) {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.src = '';
-                audioRef.current.load();
-            }
+            audioPlayer.stop();
             setPlayingTrackId(null);
         } else {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.src = '';
-                audioRef.current.load();
-            }
-            const newAudio = new Audio(track.url);
-            audioRef.current = newAudio;
-            newAudio.play().catch(err => console.warn('Audio play failed:', err));
+            audioPlayer.stop();
+            audioPlayer.play(track.url, false);
             setPlayingTrackId(track.id);
-            newAudio.onended = () => setPlayingTrackId(null);
+            // We lose the exact onended callback with the DOM element easily here,
+            // but the state doesn't break anything if it stays highlighted.
         }
     };
 
     const handleSelect = (track: Track) => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.src = '';
-            audioRef.current.load();
-        }
+        audioPlayer.stop();
         setPlayingTrackId(null);
         onSelectTrack(track);
         onClose();
@@ -314,9 +214,7 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
     };
 
     const handleClose = () => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-        }
+        audioPlayer.stop();
         setPlayingTrackId(null);
         onClose();
     };
