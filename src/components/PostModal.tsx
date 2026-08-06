@@ -50,26 +50,6 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
         }
     }, [user, post.id]);
 
-    useEffect(() => {
-        if (!isActive || !post.music_url) {
-            audioPlayer.stop();
-            return;
-        }
-
-        audioPlayer.play(post.music_url, true);
-
-        return () => {
-            audioPlayer.stop();
-        };
-    }, [isActive, post.music_url]);
-
-    const toggleAudioMute = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const newMuted = !isMuted;
-        setIsMuted(newMuted);
-        audioPlayer.setMuted(newMuted);
-    };
-
     const handleImpToggle = async () => {
         if (!user) return;
         const newImped = !isImped;
@@ -119,33 +99,17 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     autoPlay={isActive}
                 />
                 {post.music_url && (
-                    <>
-                        <div style={{
-                            position: 'absolute', bottom: '16px', left: '16px', zIndex: 10,
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(10px)',
-                            padding: '6px 14px', borderRadius: '20px',
-                            border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
-                            fontSize: '13px', fontWeight: 'bold'
-                        }}>
-                            <Music size={14} color="#f5a524" style={{ animation: 'spin 4s linear infinite' }} />
-                            <span>{post.music_title || 'Background Music'} {post.music_artist ? `• ${post.music_artist}` : ''}</span>
-                        </div>
-                        <button
-                            onClick={toggleAudioMute}
-                            style={{
-                                position: 'absolute', bottom: '16px', right: '16px', zIndex: 10,
-                                width: '36px', height: '36px', borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(10px)',
-                                border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                cursor: 'pointer'
-                            }}
-                            title={isMuted ? 'Unmute music' : 'Mute music'}
-                        >
-                            {isMuted ? <VolumeX size={18} color="#ff3b30" /> : <Volume2 size={18} color="#34d399" />}
-                        </button>
-                    </>
+                    <div style={{
+                        position: 'absolute', bottom: '16px', left: '16px', zIndex: 10,
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(10px)',
+                        padding: '6px 14px', borderRadius: '20px',
+                        border: '1px solid rgba(255,255,255,0.2)', color: '#fff',
+                        fontSize: '13px', fontWeight: 'bold'
+                    }}>
+                        <Music size={14} color="#f5a524" />
+                        <span>{post.music_title || 'Music'} {post.music_artist ? `• ${post.music_artist}` : ''}</span>
+                    </div>
                 )}
             </div>
             <div className="modal-details modal-details--sheet">

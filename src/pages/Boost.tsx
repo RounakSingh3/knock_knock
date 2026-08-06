@@ -107,21 +107,6 @@ const Boost: React.FC = () => {
         };
     }, [user, mode, boostedPosts]);
 
-    // Play music for the active boosted post
-    useEffect(() => {
-        if (!activeBoostPostId || mode !== 'feed') {
-            audioPlayer.stop();
-            return;
-        }
-        const activePost = boostedPosts.find(p => p.id === activeBoostPostId);
-        if (activePost?.music_url) {
-            audioPlayer.play(activePost.music_url, true);
-        } else {
-            audioPlayer.stop();
-        }
-        return () => { audioPlayer.stop(); };
-    }, [activeBoostPostId, boostedPosts, mode]);
-
     const handleSwitchToSelect = async () => {
         setMode('select');
         if (user && userPosts.length === 0) {

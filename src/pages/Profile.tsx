@@ -30,15 +30,6 @@ const Profile = () => {
     const [isFollowing, setIsFollowing] = useState(false);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
 
-    // Play music when viewing a post with music
-    useEffect(() => {
-        if (selectedPost?.music_url) {
-            audioPlayer.play(selectedPost.music_url, true);
-        } else {
-            audioPlayer.stop();
-        }
-        return () => { audioPlayer.stop(); };
-    }, [selectedPost]);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
     const [updatingAvatar, setUpdatingAvatar] = useState(false);
