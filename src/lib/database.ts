@@ -127,14 +127,16 @@ export function normalizePost(post: PostData): PostData {
     let music_title = post.music_title;
     let music_artist = post.music_artist;
 
-    if (!music_url && caption.includes('[MUSIC:')) {
+    if (caption.includes('[MUSIC:')) {
         const match = caption.match(/\[MUSIC:([^|]+)\|([^|]*)\|([^\]]*)\]/);
         if (match) {
-            music_url = match[1];
-            music_title = match[2] || 'Song';
-            music_artist = match[3] || '';
-            caption = caption.replace(/\[MUSIC:[^\]]+\]/, '').trim();
+            if (!music_url) {
+                music_url = match[1];
+                music_title = match[2] || 'Song';
+                music_artist = match[3] || '';
+            }
         }
+        caption = caption.replace(/\[MUSIC:[^\]]+\]/g, '').trim();
     }
 
     return {
