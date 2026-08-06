@@ -56,12 +56,12 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
             return;
         }
 
-        audioPlayer.play(post.music_url, true, isMuted);
+        audioPlayer.play(post.music_url, true);
 
         return () => {
             audioPlayer.stop();
         };
-    }, [isActive, post.music_url, isMuted]);
+    }, [isActive, post.music_url]);
 
     const toggleAudioMute = (e: React.MouseEvent) => {
         e.stopPropagation();

@@ -5,6 +5,7 @@ import { fetchVideoPosts, trackEngagement, toggleImp, type PostData, type Messag
 import { AppContext } from '../context/AppContext';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
+import { audioPlayer } from '../lib/audioPlayer';
 
 export interface ReelData {
     id: string | number;
@@ -230,30 +231,20 @@ const Reels: React.FC = () => {
     const [playStates, setPlayStates] = useState<boolean[]>(REELS_DATA.map(() => true));
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
     const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
-    const reelAudioRef = useRef<HTMLAudioElement | null>(null);
+
 
     // Audio playback for reels with musicUrl
     useEffect(() => {
         const activeReel = reelsList[activeIndex];
         if (!activeReel || !activeReel.musicUrl || mutedAll) {
-            if (reelAudioRef.current) {
-                reelAudioRef.current.pause();
-                reelAudioRef.current = null;
-            }
+            audioPlayer.stop();
             return;
         }
 
-        const audio = new Audio(activeReel.musicUrl);
-        audio.loop = true;
-        audio.play().catch(e => console.warn('Reel music autoplay blocked:', e));
-        reelAudioRef.current = audio;
+        audioPlayer.play(activeReel.musicUrl, true);
 
         return () => {
-            if (reelAudioRef.current) {
-                reelAudioRef.current.pause();
-                reelAudioRef.current.src = '';
-                reelAudioRef.current = null;
-            }
+            audioPlayer.stop();
         };
     }, [activeIndex, reelsList, mutedAll]);
 

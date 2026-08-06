@@ -13,6 +13,7 @@ import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
 import CommentsSheet from '../components/CommentsSheet';
 import { isVideoPost, isVideoUrl } from '../lib/media';
+import { audioPlayer } from '../lib/audioPlayer';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 
 export interface UnifiedItem {
@@ -396,24 +397,14 @@ const Home = () => {
 
     // Handle background music playback for Home story viewer
     useEffect(() => {
-        if (homeStoryAudioRef.current) {
-            homeStoryAudioRef.current.pause();
-            homeStoryAudioRef.current.src = '';
-            homeStoryAudioRef.current = null;
-        }
         const currentStory = viewingGroup?.stories[viewingIndex];
         if (currentStory?.music_url) {
-            const audio = new Audio(currentStory.music_url);
-            audio.loop = true;
-            audio.play().catch(e => console.warn('Audio play blocked:', e));
-            homeStoryAudioRef.current = audio;
+            audioPlayer.play(currentStory.music_url, true);
+        } else {
+            audioPlayer.stop();
         }
         return () => {
-            if (homeStoryAudioRef.current) {
-                homeStoryAudioRef.current.pause();
-                homeStoryAudioRef.current.src = '';
-                homeStoryAudioRef.current = null;
-            }
+            audioPlayer.stop();
         };
     }, [viewingGroup, viewingIndex]);
 

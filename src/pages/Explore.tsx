@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
-import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye } from 'lucide-react';
+import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
@@ -384,6 +384,19 @@ const Explore = () => {
                                             {isVideoPost(post) && (
                                                 <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
                                                     <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
+                                                </div>
+                                            )}
+
+                                            {post.music_url && (
+                                                <div style={{
+                                                    position: 'absolute', top: '6px', left: '6px', zIndex: 5,
+                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                                                    padding: '2px 6px', borderRadius: '10px', color: '#fff',
+                                                    fontSize: '9px', fontWeight: '600',
+                                                }}>
+                                                    <Music size={9} color="#f5a524" />
+                                                    <span>{post.music_title || '♪'}</span>
                                                 </div>
                                             )}
 

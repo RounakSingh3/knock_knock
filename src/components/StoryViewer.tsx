@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Trash2, Music } from 'lucide-react';
 import { type UserStoryGroup, deleteStory } from '../lib/database';
+import { audioPlayer } from '../lib/audioPlayer';
 
 // Map filter names stored in DB to actual CSS filter values
 const FILTER_MAP: Record<string, string> = {
@@ -95,21 +96,13 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
     // Handle background music playback
     useEffect(() => {
-        if (bgAudioRef.current) {
-            bgAudioRef.current.pause();
-            bgAudioRef.current = null;
-        }
         if (currentStory?.music_url) {
-            const audio = new Audio(currentStory.music_url);
-            audio.loop = true;
-            audio.play().catch(e => console.warn('Background music autoplay blocked:', e));
-            bgAudioRef.current = audio;
+            audioPlayer.play(currentStory.music_url, true);
+        } else {
+            audioPlayer.stop();
         }
         return () => {
-            if (bgAudioRef.current) {
-                bgAudioRef.current.pause();
-                bgAudioRef.current = null;
-            }
+            audioPlayer.stop();
         };
     }, [currentStory?.id, currentStory?.music_url]);
 

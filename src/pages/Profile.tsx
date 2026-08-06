@@ -7,11 +7,12 @@ import {
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music } from 'lucide-react';
 import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
 import { supabase } from '../lib/supabase';
+import { audioPlayer } from '../lib/audioPlayer';
 
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
@@ -28,6 +29,16 @@ const Profile = () => {
     const [followStats, setFollowStats] = useState({ followers: 0, following: 0 });
     const [isFollowing, setIsFollowing] = useState(false);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
+
+    // Play music when viewing a post with music
+    useEffect(() => {
+        if (selectedPost?.music_url) {
+            audioPlayer.play(selectedPost.music_url, true);
+        } else {
+            audioPlayer.stop();
+        }
+        return () => { audioPlayer.stop(); };
+    }, [selectedPost]);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
     const [updatingAvatar, setUpdatingAvatar] = useState(false);
@@ -726,6 +737,18 @@ const Profile = () => {
                                             ▶ Tap for sound
                                         </div>
                                     )}
+                                    {post.music_url && (
+                                        <div style={{
+                                            position: 'absolute', top: '6px', left: '6px', zIndex: 5,
+                                            display: 'flex', alignItems: 'center', gap: '4px',
+                                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                                            padding: '2px 6px', borderRadius: '10px', color: '#fff',
+                                            fontSize: '9px', fontWeight: '600',
+                                        }}>
+                                            <Music size={9} color="#f5a524" />
+                                            <span>{post.music_title || '♪'}</span>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -802,6 +825,21 @@ const Profile = () => {
                                 loop={false}
                             />
                         </div>
+                        {selectedPost.music_url && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                padding: '8px 16px',
+                                background: 'rgba(245,165,36,0.1)',
+                                borderBottom: '1px solid var(--border-color)',
+                            }}>
+                                <Music size={14} color="#f5a524" />
+                                <span style={{ color: 'var(--text-active)', fontSize: '13px', fontWeight: '600', flex: 1 }}>
+                                    {selectedPost.music_title || 'Music'}
+                                    {selectedPost.music_artist ? ` • ${selectedPost.music_artist}` : ''}
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#f5a524' }}>🔊 Playing</span>
+                            </div>
+                        )}
                         {selectedPost.caption && (
                             <div className="modal-details modal-details--sheet">
                                 <p className="modal-caption">{selectedPost.caption}</p>

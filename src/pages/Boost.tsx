@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Rocket, PlusCircle } from 'lucide-react';
+import { Loader2, Rocket, PlusCircle, Music } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { fetchActiveBoostedPosts, fetchUserEngagements, boostPost, type PostData, fetchUserPosts, trackEngagement, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed } from '../lib/algorithm';
@@ -9,6 +9,7 @@ import { PostModalContent } from '../components/PostModal';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
 import ChatPanel from '../components/ChatPanel';
+import { audioPlayer } from '../lib/audioPlayer';
 
 const Boost: React.FC = () => {
     const { user, points, setPoints } = useContext(AppContext);
@@ -44,6 +45,7 @@ const Boost: React.FC = () => {
     const [isLoadingPosts, setIsLoadingPosts] = useState(false);
     
     const scrollRef = useRef<HTMLDivElement>(null);
+    const [activeBoostPostId, setActiveBoostPostId] = useState<string | null>(boostedPosts[0]?.id || null);
     const watchTimers = useRef<Record<string, number>>({});
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -78,6 +80,7 @@ const Boost: React.FC = () => {
                 if (entry.isIntersecting) {
                     watchTimers.current[postId] = Date.now();
                     trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
+                    setActiveBoostPostId(postId);
                     // Note: Here we'd also decrement boost_impressions_remaining in a production setting
                 } else {
                     const startTime = watchTimers.current[postId];
@@ -103,6 +106,21 @@ const Boost: React.FC = () => {
             observer.disconnect();
         };
     }, [user, mode, boostedPosts]);
+
+    // Play music for the active boosted post
+    useEffect(() => {
+        if (!activeBoostPostId || mode !== 'feed') {
+            audioPlayer.stop();
+            return;
+        }
+        const activePost = boostedPosts.find(p => p.id === activeBoostPostId);
+        if (activePost?.music_url) {
+            audioPlayer.play(activePost.music_url, true);
+        } else {
+            audioPlayer.stop();
+        }
+        return () => { audioPlayer.stop(); };
+    }, [activeBoostPostId, boostedPosts, mode]);
 
     const handleSwitchToSelect = async () => {
         setMode('select');
@@ -202,6 +220,7 @@ const Boost: React.FC = () => {
                                     onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }} 
                                     onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }} 
                                     isEmbedded={true}
+                                    isActive={post.id === activeBoostPostId}
                                 />
                             </div>
                         ))
@@ -281,6 +300,18 @@ const Boost: React.FC = () => {
                                         <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} muted playsInline preload="metadata" />
                                     ) : (
                                         <img src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} alt="" />
+                                    )}
+                                    {post.music_url && (
+                                        <div style={{
+                                            position: 'absolute', top: '6px', left: '6px', zIndex: 5,
+                                            display: 'flex', alignItems: 'center', gap: '4px',
+                                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                                            padding: '2px 6px', borderRadius: '10px', color: '#fff',
+                                            fontSize: '9px', fontWeight: '600',
+                                        }}>
+                                            <Music size={9} color="#f5a524" />
+                                            <span>{post.music_title || '♪'}</span>
+                                        </div>
                                     )}
                                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }} onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0'}>
                                         <span style={{ color: 'var(--text-active)', fontWeight: 'bold', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Boost</span>
