@@ -138,21 +138,12 @@ const PostMedia: React.FC<PostMediaProps> = ({
                     bottom: '70px',
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    width: '80%',
-                    maxWidth: '300px',
+                    width: '260px',
                     zIndex: 1000,
                     display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    background: 'rgba(0,0,0,0.6)',
-                    padding: '8px',
-                    borderRadius: '12px',
-                    backdropFilter: 'blur(10px)',
-                    border: '1px solid rgba(245, 165, 36, 0.3)'
+                    justifyContent: 'center',
+                    opacity: 0.8
                 }}>
-                    <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: 'bold', marginBottom: '4px', textAlign: 'center' }}>
-                        {post.music_title || 'Playing Music'} {post.music_artist ? `• ${post.music_artist}` : ''}
-                    </span>
                     <audio
                         src={post.music_url}
                         autoPlay={autoPlay || soundOn}

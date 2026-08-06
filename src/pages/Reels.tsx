@@ -560,11 +560,12 @@ const Reels: React.FC = () => {
                             onClick={closePlayer}
                             style={{ 
                                 background: 'rgba(0,0,0,0.5)', border: 'none', color: 'var(--text-active)', 
-                                padding: '10px 16px', borderRadius: '20px', pointerEvents: 'auto',
-                                backdropFilter: 'blur(10px)', fontSize: '0.9rem', fontWeight: 600
+                                width: '40px', height: '40px', borderRadius: '50%', pointerEvents: 'auto',
+                                backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '1.2rem'
                             }}
                         >
-                            ← Back to grid
+                            ←
                         </button>
                         <button
                             onClick={() => {
@@ -656,17 +657,13 @@ const Reels: React.FC = () => {
                                         </div>
                                         <p className="reel-caption">{reel.caption}</p>
                                         {reel.musicUrl ? (
-                                            <div style={{ marginTop: '10px', background: 'rgba(0,0,0,0.6)', padding: '6px', borderRadius: '12px', backdropFilter: 'blur(8px)', border: '1px solid rgba(245,165,36,0.3)' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: '#f5a524', fontSize: '12px', fontWeight: 'bold' }}>
-                                                    <Music size={12} />
-                                                    <span className="reel-song-marquee">{reel.song}</span>
-                                                </div>
+                                            <div style={{ marginTop: '8px' }}>
                                                 <audio
                                                     src={reel.musicUrl}
                                                     autoPlay={idx === selectedReelIndex}
                                                     loop
                                                     controls
-                                                    style={{ width: '100%', height: '24px', outline: 'none' }}
+                                                    style={{ width: '100%', maxWidth: '240px', height: '30px', outline: 'none', opacity: 0.9 }}
                                                     playsInline
                                                 />
                                             </div>
