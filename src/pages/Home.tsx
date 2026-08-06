@@ -758,6 +758,19 @@ const Home = () => {
                                     onDoubleClick={() => handleDoubleTap(post)}
                                 >
                                     <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={isVideoPost(post)} />
+                                    {post.music_url && (
+                                        <div style={{
+                                            position: 'absolute', top: '12px', left: '12px', zIndex: 5,
+                                            display: 'flex', alignItems: 'center', gap: '5px',
+                                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                                            padding: '4px 10px', borderRadius: '14px', color: '#fff',
+                                            fontSize: '11px', fontWeight: 'bold', maxWidth: '140px',
+                                            overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
+                                        }}>
+                                            <Music size={12} color="#f5a524" />
+                                            <span>{post.music_title || 'Music'}</span>
+                                        </div>
+                                    )}
                                     {isVideoPost(post) && (
                                         <span className="masonry-video-sound-hint">🔊 Tap for sound</span>
                                     )}
