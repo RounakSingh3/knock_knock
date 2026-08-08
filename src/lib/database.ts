@@ -375,6 +375,38 @@ export interface StoryData {
     music_url?: string;
 }
 
+export function normalizeStory(story: StoryData): StoryData {
+    if (!story) return story;
+    let image_url = story.image_url || '';
+    let music_url = story.music_url;
+    let music_title = story.music_title;
+    let music_artist = story.music_artist;
+
+    if (image_url.includes('#MUSIC:')) {
+        const parts = image_url.split('#MUSIC:');
+        image_url = parts[0];
+        const musicData = parts[1];
+        if (musicData) {
+            const match = musicData.match(/([^|]+)\|([^|]*)\|([^|]*)/);
+            if (match) {
+                if (!music_url) {
+                    music_url = match[1];
+                    music_title = match[2] || 'Song';
+                    music_artist = match[3] || '';
+                }
+            }
+        }
+    }
+
+    return {
+        ...story,
+        image_url,
+        music_url,
+        music_title,
+        music_artist,
+    };
+}
+
 export interface UserStoryGroup {
     userId: string;
     username: string;
@@ -393,7 +425,7 @@ export async function fetchBoostedStories(): Promise<StoryData[]> {
         console.error('Error fetching stories:', error);
         return [];
     }
-    return data || [];
+    return (data || []).map(normalizeStory);
 }
 
 /** Fetch stories from the last 24 hours for the Home story rack */
@@ -410,7 +442,7 @@ export async function fetchRecentStories(): Promise<StoryData[]> {
         console.error('Error fetching recent stories:', error);
         return [];
     }
-    return data || [];
+    return (data || []).map(normalizeStory);
 }
 
 /** Fetch stories belonging to a specific user */
@@ -425,7 +457,7 @@ export async function fetchUserStories(userId: string): Promise<StoryData[]> {
         console.error('Error fetching user stories:', error);
         return [];
     }
-    return data || [];
+    return (data || []).map(normalizeStory);
 }
 
 export async function createStory(
@@ -439,6 +471,12 @@ export async function createStory(
     musicArtist?: string,
     musicUrl?: string
 ): Promise<{ error: Error | null }> {
+    // Fallback: If DB table doesn't have username/caption/music columns yet, retry with base payload
+    // We encode the music into the image_url to survive the fallback safely.
+    if (musicUrl) {
+        imageUrl = `${imageUrl}#MUSIC:${musicUrl}|${musicTitle || ''}|${musicArtist || ''}`;
+    }
+
     const payload: any = {
         user_id: userId,
         image_url: imageUrl,
@@ -453,12 +491,11 @@ export async function createStory(
 
     let { error } = await supabase.from('stories').insert(payload);
 
-    // Fallback: If DB table doesn't have username/caption columns yet, retry with base payload
     if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
         console.warn('Retrying story insert with base fields due to missing columns in Supabase:', error.message);
         const basePayload = {
             user_id: userId,
-            image_url: imageUrl,
+            image_url: imageUrl, // Contains #MUSIC: fragment
             filter_name: filterName,
             is_boosted: isBoosted,
         };
@@ -1018,7 +1055,7 @@ export async function fetchConnectionStories(userId: string): Promise<StoryData[
         console.error('Error fetching connection stories:', error);
         return [];
     }
-    return data || [];
+    return (data || []).map(normalizeStory);
 }
 
 // ── Chat / Messaging ───────────────────────────────────────
