@@ -331,8 +331,23 @@ const Stories = () => {
             <div className="camera-view">
                 <div className="camera-header">
                     <button onClick={stopCamera} className="icon-btn"><X size={28} /></button>
-                    <button onClick={() => setIsMusicModalOpen(true)} className={`icon-btn ${selectedTrack ? 'text-yellow-400' : 'text-white'}`} title="Add background music">
-                        <Music size={24} />
+                    <button
+                        type="button"
+                        onClick={() => setIsMusicModalOpen(true)}
+                        className={`icon-btn ${selectedTrack ? 'text-yellow-400' : 'text-white'}`}
+                        style={{
+                            minWidth: '44px',
+                            minHeight: '44px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            touchAction: 'manipulation',
+                            zIndex: 1000
+                        }}
+                        title="Add background music"
+                    >
+                        <Music size={26} />
                     </button>
                     {!hasCaptured && (
                         <button className="icon-btn text-yellow-400"><Sparkles size={24} /></button>
@@ -361,6 +376,17 @@ const Stories = () => {
                             style={{
                                 display: 'block',
                                 filter: FILTERS[activeFilterIndex].style
+                            }}
+                        />
+                    ) : galleryFile ? (
+                        <img
+                            src={capturedImageUrl || ''}
+                            alt="Preview"
+                            className="camera-video"
+                            style={{
+                                display: hasCaptured ? 'block' : 'none',
+                                filter: FILTERS[activeFilterIndex].style,
+                                objectFit: 'contain'
                             }}
                         />
                     ) : (
@@ -425,7 +451,28 @@ const Stories = () => {
                             <button className="icon-btn opacity-0"><ImageIcon size={32} /></button>
                         </>
                     ) : (
-                        <div className="capture-actions">
+                        <div className="capture-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <button
+                                type="button"
+                                onClick={() => setIsMusicModalOpen(true)}
+                                style={{
+                                    background: selectedTrack ? 'rgba(245, 165, 36, 0.25)' : 'rgba(255,255,255,0.15)',
+                                    border: selectedTrack ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.3)',
+                                    borderRadius: '30px',
+                                    padding: '10px 16px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    color: selectedTrack ? '#f5a524' : '#fff',
+                                    fontWeight: 'bold',
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                    touchAction: 'manipulation'
+                                }}
+                            >
+                                <Music size={18} color={selectedTrack ? "#f5a524" : "#fff"} />
+                                <span>{selectedTrack ? selectedTrack.title : 'Add Music'}</span>
+                            </button>
                             <button
                                 className="boost-btn"
                                 onClick={() => postStory(true)}
