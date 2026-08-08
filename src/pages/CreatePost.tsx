@@ -259,7 +259,8 @@ const CreatePost = () => {
                 }}
             />
             <button 
-                onClick={() => setIsMusicModalOpen(true)}
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsMusicModalOpen(true); }}
                 style={{ 
                     marginTop: '8px', 
                     display: 'inline-flex', 

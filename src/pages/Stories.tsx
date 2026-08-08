@@ -333,7 +333,7 @@ const Stories = () => {
                     <button onClick={stopCamera} className="icon-btn"><X size={28} /></button>
                     <button
                         type="button"
-                        onClick={() => setIsMusicModalOpen(true)}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsMusicModalOpen(true); }}
                         className={`icon-btn ${selectedTrack ? 'text-yellow-400' : 'text-white'}`}
                         style={{
                             minWidth: '44px',
@@ -454,7 +454,7 @@ const Stories = () => {
                         <div className="capture-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <button
                                 type="button"
-                                onClick={() => setIsMusicModalOpen(true)}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsMusicModalOpen(true); }}
                                 style={{
                                     background: selectedTrack ? 'rgba(245, 165, 36, 0.25)' : 'rgba(255,255,255,0.15)',
                                     border: selectedTrack ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.3)',
@@ -592,18 +592,41 @@ const Stories = () => {
                 </div>
             </div>
 
-            {/* ── Camera CTA ── */}
-            <div className="snap-cta-card" onClick={startCamera}>
-                <div className="snap-cta-icon">
-                    <Camera size={28} />
+            {/* ── Camera & Music CTAs ── */}
+            <div style={{ display: 'flex', gap: '12px', padding: '0 16px', marginBottom: '16px' }}>
+                <div className="snap-cta-card" style={{ flex: 1, margin: 0, padding: '14px' }} onClick={startCamera}>
+                    <div className="snap-cta-icon" style={{ width: '40px', height: '40px' }}>
+                        <Camera size={22} />
+                    </div>
+                    <div className="snap-cta-text">
+                        <h3 style={{ fontSize: '15px' }}>Camera</h3>
+                        <p style={{ fontSize: '11px' }}>Take a snap</p>
+                    </div>
                 </div>
-                <div className="snap-cta-text">
-                    <h3>Create a Snap</h3>
-                    <p>Apply filters & earn <strong>+{nextStreakReward()} pts</strong></p>
+
+                <div 
+                    className="snap-cta-card" 
+                    style={{ 
+                        flex: 1, 
+                        margin: 0, 
+                        padding: '14px',
+                        background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.25), rgba(255, 107, 53, 0.25))', 
+                        border: '1px solid rgba(245, 165, 36, 0.5)',
+                        cursor: 'pointer'
+                    }} 
+                    onClick={() => {
+                        startCamera();
+                        setIsMusicModalOpen(true);
+                    }}
+                >
+                    <div className="snap-cta-icon" style={{ width: '40px', height: '40px', background: '#f5a524', color: '#000' }}>
+                        <Music size={22} color="#000" />
+                    </div>
+                    <div className="snap-cta-text">
+                        <h3 style={{ fontSize: '15px', color: '#f5a524' }}>Add Music</h3>
+                        <p style={{ fontSize: '11px' }}>Pick a song 🎵</p>
+                    </div>
                 </div>
-                <button className="snap-cta-btn">
-                    <Sparkles size={16} /> Open
-                </button>
             </div>
 
             {/* ── My Stories ── */}
