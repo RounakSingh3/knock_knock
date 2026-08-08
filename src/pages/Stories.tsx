@@ -18,9 +18,10 @@ import {
     type UserStoryGroup,
     type PostData,
     type ProfileData,
+    uploadMedia
 } from '../lib/database';
 import StoryViewer from '../components/StoryViewer';
-import { isVideoUrl } from '../lib/media';
+import { isVideoUrl, compressImage } from '../lib/media';
 
 function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -59,6 +60,7 @@ const Stories = () => {
     const [boostedStories, setBoostedStories] = useState<StoryData[]>([]);
     const [myStories, setMyStories] = useState<StoryData[]>([]);
     const [capturedImageUrl, setCapturedImageUrl] = useState<string | null>(null);
+    const [galleryFile, setGalleryFile] = useState<File | null>(null);
     const [isGalleryVideo, setIsGalleryVideo] = useState(false);
     const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
     const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
@@ -174,6 +176,7 @@ const Stories = () => {
         setIsCameraActive(false);
         setHasCaptured(false);
         setCapturedImageUrl(null);
+        setGalleryFile(null);
         setIsGalleryVideo(false);
         setSelectedTrack(null);
         setStoryCaption('');
@@ -184,29 +187,9 @@ const Stories = () => {
             const file = e.target.files[0];
             const isVideo = file.type.startsWith('video/');
             setIsGalleryVideo(isVideo);
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const result = event.target?.result as string;
-                setCapturedImageUrl(result);
-                setHasCaptured(true);
-                if (!isVideo && canvasRef.current) {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = canvasRef.current;
-                        if (canvas) {
-                            canvas.width = img.width;
-                            canvas.height = img.height;
-                            const ctx = canvas.getContext('2d');
-                            if (ctx) {
-                                ctx.filter = FILTERS[activeFilterIndex].style || 'none';
-                                ctx.drawImage(img, 0, 0);
-                            }
-                        }
-                    };
-                    img.src = result;
-                }
-            };
-            reader.readAsDataURL(file);
+            setGalleryFile(file);
+            setCapturedImageUrl(URL.createObjectURL(file));
+            setHasCaptured(true);
         }
     };
 
@@ -218,7 +201,6 @@ const Stories = () => {
             canvas.height = video.videoHeight;
             const ctx = canvas.getContext('2d');
             if (ctx) {
-                ctx.filter = FILTERS[activeFilterIndex].style || 'none';
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
                 setCapturedImageUrl(dataUrl);
@@ -250,7 +232,23 @@ const Stories = () => {
         else setIsPosting(true);
 
         try {
-            const imageUrl = await uploadStoryImage(capturedImageUrl, user.id);
+            let imageUrl = '';
+            if (galleryFile) {
+                let fileToUpload = galleryFile;
+                if (galleryFile.type.startsWith('image/')) {
+                    try {
+                        fileToUpload = await compressImage(galleryFile, 1200, 1200, 0.8);
+                    } catch (e) {
+                        console.error('Compression failed', e);
+                    }
+                }
+                const fileExt = fileToUpload.name.split('.').pop() || 'jpg';
+                const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+                const path = `stories/${fileName}`;
+                imageUrl = await uploadMedia(fileToUpload, path);
+            } else {
+                imageUrl = await uploadStoryImage(capturedImageUrl, user.id);
+            }
             const { error } = await createStory(
                 user.id,
                 imageUrl,
