@@ -390,9 +390,15 @@ export function normalizeStory(story: StoryData): StoryData {
             const match = musicData.match(/([^|]+)\|([^|]*)\|([^|]*)/);
             if (match) {
                 if (!music_url) {
-                    music_url = match[1];
-                    music_title = match[2] || 'Song';
-                    music_artist = match[3] || '';
+                    try {
+                        music_url = decodeURIComponent(match[1]);
+                        music_title = decodeURIComponent(match[2]) || 'Song';
+                        music_artist = decodeURIComponent(match[3]) || '';
+                    } catch (e) {
+                        music_url = match[1];
+                        music_title = match[2] || 'Song';
+                        music_artist = match[3] || '';
+                    }
                 }
             }
         }
