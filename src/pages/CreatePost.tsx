@@ -4,7 +4,7 @@ import { AppContext } from '../context/AppContext';
 import { uploadMedia, createNewPost, updatePoints } from '../lib/database';
 import { getMediaTypeFromFile, compressImage } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
-import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X } from 'lucide-react';
+import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket } from 'lucide-react';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 
 const CSS_FILTERS = [
@@ -41,8 +41,8 @@ const CreatePost = () => {
     const [boostToSpotlight, setBoostToSpotlight] = useState(isFromSpotlight && points >= 10);
     const [boostAmount, setBoostAmount] = useState(points >= 100 ? 100 : Math.max(10, points));
 
-    const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
     const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
+    const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -254,11 +254,35 @@ const CreatePost = () => {
                         padding: '16px',
                         color: 'var(--text-active)',
                         minHeight: '100px',
-                        fontFamily: 'inherit',
-                        resize: 'vertical'
-                    }}
-                />
-            </div>
+                    fontFamily: 'inherit',
+                    resize: 'vertical'
+                }}
+            />
+            <button 
+                onClick={() => setIsMusicModalOpen(true)}
+                style={{ 
+                    marginTop: '8px', 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    background: selectedTrack ? 'rgba(245, 165, 36, 0.1)' : 'var(--surface-color)', 
+                    border: selectedTrack ? '1px solid rgba(245, 165, 36, 0.3)' : '1px solid #2c2c2e', 
+                    padding: '8px 12px', 
+                    borderRadius: '20px', 
+                    color: selectedTrack ? '#f5a524' : 'var(--text-active)',
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                }}
+            >
+                <Music size={16} color={selectedTrack ? "#f5a524" : "var(--text-active)"} />
+                {selectedTrack ? `${selectedTrack.title} • ${selectedTrack.artist}` : 'Add Music'}
+                {selectedTrack && (
+                    <div onClick={(e) => { e.stopPropagation(); setSelectedTrack(null); }} style={{ marginLeft: '4px', display: 'flex', alignItems: 'center' }}>
+                        <X size={14} />
+                    </div>
+                )}
+            </button>
+        </div>
 
             <div style={{ marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface-color)', border: '1px solid #2c2c2e', borderRadius: '12px', padding: '12px 16px' }}>

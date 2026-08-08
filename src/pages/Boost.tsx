@@ -9,7 +9,7 @@ import { PostModalContent } from '../components/PostModal';
 import CommentsSheet from '../components/CommentsSheet';
 import ShareModal from '../components/ShareModal';
 import ChatPanel from '../components/ChatPanel';
-import { audioPlayer } from '../lib/audioPlayer';
+
 
 const Boost: React.FC = () => {
     const { user, points, setPoints } = useContext(AppContext);
