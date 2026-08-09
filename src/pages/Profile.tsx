@@ -7,7 +7,7 @@ import {
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight } from 'lucide-react';
 import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
@@ -28,6 +28,10 @@ const Profile = () => {
     const [followingList, setFollowingList] = useState<ProfileData[]>([]);
     const [followStats, setFollowStats] = useState({ followers: 0, following: 0 });
     const [isFollowing, setIsFollowing] = useState(false);
+    
+    // Swipe states
+    const [touchStart, setTouchStart] = useState<number | null>(null);
+    const [touchEnd, setTouchEnd] = useState<number | null>(null);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
 
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -797,48 +801,95 @@ const Profile = () => {
                 )}
             </div>
 
-            {selectedPost && (
-                <div className="post-modal-backdrop post-modal-backdrop--fullscreen" onClick={() => setSelectedPost(null)}>
-                    <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-top-bar">
-                            <span className="modal-username">{displayUsername}</span>
-                            <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
-                                <X size={22} />
-                            </button>
-                        </div>
-                        <div className="modal-media-stage">
-                            <PostMedia
-                                post={selectedPost}
-                                className="modal-image"
-                                controls
-                                playsInline
-                                soundOn
-                                loop={false}
-                            />
-                        </div>
-                        {selectedPost.music_url && (
-                            <div style={{
-                                display: 'flex', alignItems: 'center', gap: '8px',
-                                padding: '8px 16px',
-                                background: 'rgba(245,165,36,0.1)',
-                                borderBottom: '1px solid var(--border-color)',
-                            }}>
-                                <Music size={14} color="#f5a524" />
-                                <span style={{ color: 'var(--text-active)', fontSize: '13px', fontWeight: '600', flex: 1 }}>
-                                    {selectedPost.music_title || 'Music'}
-                                    {selectedPost.music_artist ? ` • ${selectedPost.music_artist}` : ''}
-                                </span>
-                                <span style={{ fontSize: '11px', color: '#f5a524' }}>🔊 Playing</span>
+            {selectedPost && (() => {
+                const currentIndex = posts.findIndex(p => p.id === selectedPost.id);
+                const hasNext = currentIndex < posts.length - 1;
+                const hasPrev = currentIndex > 0;
+
+                const handleTouchStart = (e: React.TouchEvent) => {
+                    setTouchEnd(null);
+                    setTouchStart(e.targetTouches[0].clientX);
+                };
+
+                const handleTouchMove = (e: React.TouchEvent) => {
+                    setTouchEnd(e.targetTouches[0].clientX);
+                };
+
+                const handleTouchEnd = () => {
+                    if (!touchStart || !touchEnd) return;
+                    const distance = touchStart - touchEnd;
+                    if (distance > 50 && hasNext) setSelectedPost(posts[currentIndex + 1]);
+                    if (distance < -50 && hasPrev) setSelectedPost(posts[currentIndex - 1]);
+                };
+
+                return (
+                    <div className="post-modal-backdrop post-modal-backdrop--fullscreen" onClick={() => setSelectedPost(null)}>
+                        <div 
+                            className="post-modal post-modal--fullscreen" 
+                            onClick={(e) => e.stopPropagation()}
+                            onTouchStart={handleTouchStart}
+                            onTouchMove={handleTouchMove}
+                            onTouchEnd={handleTouchEnd}
+                        >
+                            <div className="modal-top-bar">
+                                <span className="modal-username">{displayUsername}</span>
+                                <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
+                                    <X size={22} />
+                                </button>
                             </div>
-                        )}
-                        {selectedPost.caption && (
-                            <div className="modal-details modal-details--sheet">
-                                <p className="modal-caption">{selectedPost.caption}</p>
+                            <div className="modal-media-stage" style={{ position: 'relative' }}>
+                                {hasPrev && (
+                                    <button 
+                                        className="nav-btn left"
+                                        onClick={(e) => { e.stopPropagation(); setSelectedPost(posts[currentIndex - 1]); }}
+                                        style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', zIndex: 10, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', padding: '8px', color: 'white', cursor: 'pointer' }}
+                                    >
+                                        <ChevronLeft size={28} />
+                                    </button>
+                                )}
+                                <PostMedia
+                                    key={selectedPost.id}
+                                    post={selectedPost}
+                                    className="modal-image"
+                                    controls
+                                    playsInline
+                                    soundOn
+                                    loop={false}
+                                />
+                                {hasNext && (
+                                    <button 
+                                        className="nav-btn right"
+                                        onClick={(e) => { e.stopPropagation(); setSelectedPost(posts[currentIndex + 1]); }}
+                                        style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', zIndex: 10, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', padding: '8px', color: 'white', cursor: 'pointer' }}
+                                    >
+                                        <ChevronRight size={28} />
+                                    </button>
+                                )}
                             </div>
-                        )}
+                            {selectedPost.music_url && (
+                                <div style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '8px 16px',
+                                    background: 'rgba(245,165,36,0.1)',
+                                    borderBottom: '1px solid var(--border-color)',
+                                }}>
+                                    <Music size={14} color="#f5a524" />
+                                    <span style={{ color: 'var(--text-active)', fontSize: '13px', fontWeight: '600', flex: 1 }}>
+                                        {selectedPost.music_title || 'Music'}
+                                        {selectedPost.music_artist ? ` • ${selectedPost.music_artist}` : ''}
+                                    </span>
+                                    <span style={{ fontSize: '11px', color: '#f5a524' }}>🔊 Playing</span>
+                                </div>
+                            )}
+                            {selectedPost.caption && (
+                                <div className="modal-details modal-details--sheet">
+                                    <p className="modal-caption">{selectedPost.caption}</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
                 </>
             )}
 
