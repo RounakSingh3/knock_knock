@@ -521,6 +521,14 @@ const Stories = () => {
                         <span>Post → earn <strong>+{nextStreakReward()} pts</strong> streak reward!</span>
                     </div>
                 )}
+
+                {/* Music Picker Modal — MUST be inside camera view to render */}
+                <MusicPickerModal
+                    isOpen={isMusicModalOpen}
+                    onClose={() => setIsMusicModalOpen(false)}
+                    onSelectTrack={(track) => setSelectedTrack(track)}
+                    selectedTrackId={selectedTrack?.id}
+                />
             </div>
         );
     }
