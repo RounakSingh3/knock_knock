@@ -211,15 +211,37 @@ export async function createNewPost(post: {
     return data;
 }
 
-/** Upload a canvas/data-URL story image or video to storage */
+/** Upload a canvas/data-URL story image or video to storage.
+ *  For images, compresses to max 1200x1200 JPEG at 0.75 quality for fast upload. */
 export async function uploadStoryImage(dataUrl: string, userId: string): Promise<string> {
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const isVideo = blob.type.startsWith('video/') || dataUrl.startsWith('data:video/');
-    const ext = isVideo ? 'mp4' : 'jpg';
-    const mime = isVideo ? (blob.type || 'video/mp4') : 'image/jpeg';
-    const file = new File([blob], `story-${Date.now()}.${ext}`, { type: mime });
-    const path = `stories/${userId}-${Date.now()}.${ext}`;
+    const isVideo = dataUrl.startsWith('data:video/');
+    if (isVideo) {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const file = new File([blob], `story-${Date.now()}.mp4`, { type: blob.type || 'video/mp4' });
+        const path = `stories/${userId}-${Date.now()}.mp4`;
+        return uploadMedia(file, path);
+    }
+    // For images: compress via canvas directly from the dataUrl
+    const compressedBlob = await new Promise<Blob>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            let w = img.width, h = img.height;
+            const MAX = 1200;
+            if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
+            else { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d');
+            if (!ctx) return reject(new Error('no canvas ctx'));
+            ctx.drawImage(img, 0, 0, w, h);
+            c.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', 0.75);
+        };
+        img.onerror = reject;
+        img.src = dataUrl;
+    });
+    const file = new File([compressedBlob], `story-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    const path = `stories/${userId}-${Date.now()}.jpg`;
     return uploadMedia(file, path);
 }
 
@@ -480,7 +502,7 @@ export async function createStory(
     // Fallback: If DB table doesn't have username/caption/music columns yet, retry with base payload
     // We encode the music into the image_url to survive the fallback safely.
     if (musicUrl) {
-        imageUrl = `${imageUrl}#MUSIC:${musicUrl}|${musicTitle || ''}|${musicArtist || ''}`;
+        imageUrl = `${imageUrl}#MUSIC:${encodeURIComponent(musicUrl)}|${encodeURIComponent(musicTitle || '')}|${encodeURIComponent(musicArtist || '')}`;
     }
 
     const payload: any = {

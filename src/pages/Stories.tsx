@@ -232,23 +232,25 @@ const Stories = () => {
         else setIsPosting(true);
 
         try {
+            // Step 1: Upload media (the slow part)
             let imageUrl = '';
             if (galleryFile) {
                 let fileToUpload = galleryFile;
                 if (galleryFile.type.startsWith('image/')) {
                     try {
-                        fileToUpload = await compressImage(galleryFile, 1200, 1200, 0.8);
+                        fileToUpload = await compressImage(galleryFile, 1200, 1200, 0.75);
                     } catch (e) {
-                        console.error('Compression failed', e);
+                        console.error('Compression failed, using original', e);
                     }
                 }
                 const fileExt = fileToUpload.name.split('.').pop() || 'jpg';
-                const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-                const path = `stories/${fileName}`;
+                const path = `stories/${user.id}-${Date.now()}.${fileExt}`;
                 imageUrl = await uploadMedia(fileToUpload, path);
             } else {
                 imageUrl = await uploadStoryImage(capturedImageUrl, user.id);
             }
+
+            // Step 2: Insert story record
             const { error } = await createStory(
                 user.id,
                 imageUrl,
@@ -266,36 +268,37 @@ const Stories = () => {
                 return;
             }
 
+            // Step 3: Close camera immediately — user sees success right away
+            stopCamera();
+
+            // Step 4: Handle points/streak in the background (non-blocking)
             let pointsForStreak = points;
             if (boost) {
                 const newPts = points - 10;
                 pointsForStreak = newPts;
                 setPoints(newPts);
-                await updatePoints(user.id, newPts);
+                updatePoints(user.id, newPts).catch(() => {});
             }
 
-            const streakResult = await updateStreak(
-                user.id,
-                streakCount,
-                lastStoryAt,
-                pointsForStreak
-            );
-            setStreakCount(streakResult.newStreak);
-            setLastStoryAt(new Date().toISOString());
-            setPoints((prev) => prev + streakResult.pointsAwarded);
-            setStreakPointsEarned(streakResult.pointsAwarded);
+            updateStreak(user.id, streakCount, lastStoryAt, pointsForStreak)
+                .then(streakResult => {
+                    setStreakCount(streakResult.newStreak);
+                    setLastStoryAt(new Date().toISOString());
+                    setPoints(prev => prev + streakResult.pointsAwarded);
+                    setStreakPointsEarned(streakResult.pointsAwarded);
+                    setTimeout(() => setStreakPointsEarned(null), 4000);
+                })
+                .catch(() => {});
 
-            const [updatedBoosted, updatedMy, updatedClips] = await Promise.all([
+            // Step 5: Refresh stories in background (only 2 fetches, not 3)
+            Promise.all([
                 fetchBoostedStories(),
                 fetchUserStories(user.id),
-                fetchVideoPosts(),
-            ]);
-            setBoostedStories(updatedBoosted);
-            setMyStories(updatedMy);
-            setVideoClips(updatedClips);
+            ]).then(([updatedBoosted, updatedMy]) => {
+                setBoostedStories(updatedBoosted);
+                setMyStories(updatedMy);
+            }).catch(() => {});
 
-            stopCamera();
-            setTimeout(() => setStreakPointsEarned(null), 4000);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to post story.';
             alert(message);
