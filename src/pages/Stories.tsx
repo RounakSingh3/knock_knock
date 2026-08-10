@@ -212,7 +212,16 @@ const Stories = () => {
     };
 
     const openStoryViewer = (story: StoryData) => {
-        const groups = groupStoriesByUser(boostedStories);
+        // Search in both boosted and user's own stories
+        const allStories = [...boostedStories, ...myStories];
+        // Deduplicate by id
+        const seen = new Set<string>();
+        const uniqueStories = allStories.filter(s => {
+            if (seen.has(s.id)) return false;
+            seen.add(s.id);
+            return true;
+        });
+        const groups = groupStoriesByUser(uniqueStories);
         const groupIdx = groups.findIndex((g) => g.stories.some((s) => s.id === story.id));
         if (groupIdx >= 0) {
             setViewerStoryGroups(groups);
@@ -653,9 +662,15 @@ const Stories = () => {
                                 onClick={() => openStoryViewer(story)}
                             >
                                 {isVideoUrl(story.image_url) ? (
-                                    <video src={`${story.image_url}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <video src={`${story.image_url.split('#')[0]}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 ) : (
-                                    <img src={story.image_url} alt="" />
+                                    <img 
+                                        src={story.image_url?.split('#')[0] || ''} 
+                                        alt="" 
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).src = 'https://placehold.co/200x355/1a1a2e/8e8e93?text=📸';
+                                        }}
+                                    />
                                 )}
                                 <div className="my-story-overlay">
                                     {story.is_boosted && (
@@ -717,7 +732,7 @@ const Stories = () => {
                     >
                         {isVideoUrl(mysteryStory.image_url) ? (
                             <video
-                                src={`${mysteryStory.image_url}#t=0.001`}
+                                src={`${mysteryStory.image_url.split('#')[0]}#t=0.001`}
                                 preload="metadata" muted playsInline
                                 style={{
                                     width: '100%', height: '100%', objectFit: 'cover',
@@ -727,7 +742,10 @@ const Stories = () => {
                             />
                         ) : (
                             <img
-                                src={mysteryStory.image_url} alt="Mystery"
+                                src={mysteryStory.image_url?.split('#')[0] || ''} alt="Mystery"
+                                onError={(e) => {
+                                    (e.target as HTMLImageElement).src = 'https://placehold.co/400x200/1a1a2e/8e8e93?text=Mystery';
+                                }}
                                 style={{
                                     width: '100%', height: '100%', objectFit: 'cover',
                                     filter: isMysteryRevealed ? 'none' : 'blur(20px) brightness(0.5)',
@@ -771,9 +789,16 @@ const Stories = () => {
                                 onClick={() => openStoryViewer(story)}
                             >
                                 {isVideoUrl(story.image_url) ? (
-                                    <video src={`${story.image_url}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <video src={`${story.image_url.split('#')[0]}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 ) : (
-                                    <img src={story.image_url} alt="Story" loading="lazy" />
+                                    <img 
+                                        src={story.image_url?.split('#')[0] || ''} 
+                                        alt="Story" 
+                                        loading="lazy" 
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).src = 'https://placehold.co/200x355/1a1a2e/8e8e93?text=📸';
+                                        }}
+                                    />
                                 )}
                                 {story.username && (
                                     <div className="boosted-story-user">@{story.username}</div>
