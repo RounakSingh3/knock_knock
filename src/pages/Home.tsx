@@ -642,9 +642,10 @@ const Home = () => {
                         </div>
 
                         {/* Other Users' Stories */}
-                        {otherGroups.map(group => {
+                        {otherGroups.filter(g => g.stories && g.stories.length > 0).map(group => {
                             const isConnection = connectionUserIds.has(group.userId);
-                            const storyUrl = group.stories[0]?.image_url || '';
+                            const storyUrl = group.stories[0]?.image_url?.split('#')[0] || '';
+                            if (!storyUrl) return null;
                             const isVideo = isVideoUrl(storyUrl);
                             return (
                                 <div
@@ -668,15 +669,13 @@ const Home = () => {
                                             />
                                         ) : (
                                             <img
-                                                src={storyUrl || group.avatarUrl}
+                                                src={storyUrl}
                                                 alt={group.username}
                                                 loading="lazy"
                                                 onError={(e) => {
-                                                    if (storyUrl) {
-                                                        const item = (e.target as HTMLElement).closest('.story-rack-item');
-                                                        if (item) (item as HTMLElement).style.display = 'none';
-                                                        if (group.stories[0]?.id) deleteStory(group.stories[0].id);
-                                                    }
+                                                    const item = (e.target as HTMLElement).closest('.story-rack-item');
+                                                    if (item) (item as HTMLElement).style.display = 'none';
+                                                    if (group.stories[0]?.id) deleteStory(group.stories[0].id);
                                                 }}
                                             />
                                         )}
