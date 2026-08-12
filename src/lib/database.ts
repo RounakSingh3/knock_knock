@@ -642,7 +642,7 @@ export async function fetchExplorePosts(): Promise<PostData[]> {
         console.error('Error fetching explore posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 // ── Matching Algorithm ─────────────────────────────────
@@ -1073,7 +1073,7 @@ export async function fetchConnectionPosts(userId: string): Promise<PostData[]> 
         console.error('Error fetching connection posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 /** Fetch stories only from connected users (last 24h) */
@@ -1307,7 +1307,7 @@ export async function fetchAllPostsForScoring(excludeUserId: string): Promise<Po
         console.error('Error fetching posts for scoring:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 // ── Voice Reactions ────────────────────────────────────────
@@ -1444,7 +1444,7 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
         console.error('Error searching posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 30): Promise<PostData[]> {
@@ -1475,7 +1475,7 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         }
     }
     
-    return uniquePosts.slice(0, limit).map(normalizePost);
+    return uniquePosts.slice(0, limit).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 // ── Delete Post ────────────────────────────────────────────
@@ -1575,7 +1575,7 @@ export async function fetchActiveBoostedPosts(): Promise<PostData[]> {
         return [];
     }
     
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 // ── Engagement Psychology Helpers ──────────────────────────
@@ -1594,7 +1594,7 @@ export async function fetchTrendingPosts(limit: number = 6): Promise<PostData[]>
         console.error('Error fetching trending posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 /** Count stories posted in the last hour (for FOMO indicator) */
