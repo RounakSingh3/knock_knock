@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Trash2, Music } from 'lucide-react';
+import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward } from 'lucide-react';
 import { type UserStoryGroup, deleteStory } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
 
@@ -37,6 +37,43 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const [isPaused, setIsPaused] = useState(false);
     const bgAudioRef = useRef<HTMLAudioElement | null>(null);
     const navigate = useNavigate();
+
+    const [audioPlaying, setAudioPlaying] = useState(true);
+    const [musicMuted, setMusicMuted] = useState(false);
+
+    // Sync audio element state with React state
+    useEffect(() => {
+        if (bgAudioRef.current) {
+            bgAudioRef.current.muted = musicMuted;
+            if (isPaused || !audioPlaying) {
+                bgAudioRef.current.pause();
+            } else {
+                bgAudioRef.current.play().catch(e => console.warn('Audio play blocked:', e));
+            }
+        }
+    }, [isPaused, audioPlaying, musicMuted, currentStory]);
+
+    // Reset audio state when story changes
+    useEffect(() => {
+        setAudioPlaying(true);
+        setIsPaused(false);
+    }, [currentStory]);
+
+    const toggleAudioPlay = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setAudioPlaying(prev => !prev);
+        setIsPaused(prev => !prev);
+    };
+
+    const toggleMute = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setMusicMuted(prev => !prev);
+    };
+
+    const handleForward = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        handleNextStory();
+    };
 
     // Trap hardware back button
     useEffect(() => {
@@ -233,22 +270,69 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 </div>
             )}
 
-            {/* FOOLPROOF NATIVE AUDIO PLAYER */}
+            {/* CUSTOM NATIVE AUDIO PLAYER WITH CONTROLS */}
             {currentStory.music_url && (
-                <div style={{
-                    position: 'absolute', bottom: '130px', left: '16px', right: '16px',
-                    display: 'flex', justifyContent: 'center', opacity: 0.8,
-                    zIndex: 100
-                }}>
+                <>
                     <audio
+                        ref={bgAudioRef}
                         src={currentStory.music_url}
                         autoPlay
                         loop
-                        controls
-                        style={{ width: '100%', maxWidth: '260px', height: '30px', outline: 'none' }}
                         playsInline
                     />
-                </div>
+                    <div style={{
+                        position: 'absolute', bottom: '130px', left: '0', right: '0',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+                        zIndex: 100
+                    }}>
+                        {/* Song Info Badge */}
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            background: 'rgba(0,0,0,0.75)', padding: '6px 14px', borderRadius: '20px',
+                            border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '11px',
+                            fontWeight: '600', letterSpacing: '0.2px', textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)'
+                        }}>
+                            <Music size={11} color="#f5a524" className="music-icon-spin" style={{ animation: audioPlaying && !isPaused ? 'spin 3s linear infinite' : 'none' }} />
+                            <span>{currentStory.music_title || 'Music'} - {currentStory.music_artist || 'Unknown'}</span>
+                        </div>
+
+                        {/* Custom Controls */}
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '20px',
+                            background: 'rgba(0,0,0,0.85)', padding: '10px 22px', borderRadius: '30px',
+                            boxShadow: '0 8px 30px rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.18)',
+                            backdropFilter: 'blur(10px)'
+                        }}>
+                            {/* Play/Pause Button */}
+                            <button 
+                                onClick={toggleAudioPlay}
+                                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', outline: 'none' }}
+                                title={audioPlaying ? "Pause Story & Music" : "Play Story & Music"}
+                            >
+                                {audioPlaying ? <Pause size={18} fill="#fff" /> : <Play size={18} fill="#fff" />}
+                            </button>
+
+                            {/* Mute/Unmute Button */}
+                            <button 
+                                onClick={toggleMute}
+                                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', outline: 'none' }}
+                                title={musicMuted ? "Unmute Music" : "Mute Music"}
+                            >
+                                {musicMuted ? <VolumeX size={18} color="#f5a524" /> : <Volume2 size={18} />}
+                            </button>
+
+                            {/* Next / Forward Button */}
+                            <button 
+                                onClick={handleForward}
+                                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', outline: 'none' }}
+                                title="Next Story"
+                            >
+                                <SkipForward size={18} fill="#fff" />
+                            </button>
+                        </div>
+                    </div>
+                </>
             )}
             
             <style>{`
