@@ -4,6 +4,18 @@ import { isVideoPost, type MediaType } from './media';
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
 
+const REMOVED_USERNAMES = ['amit_kumar_vlogs', 'cricket_fever_in', 'mit_kumar_vlogs'];
+const REMOVED_USER_IDS = ['11111111-1111-1111-1111-111111111105', '11111111-1111-1111-1111-111111111107'];
+
+export function isRemovedUser(userId?: string | null, username?: string | null): boolean {
+    if (userId && REMOVED_USER_IDS.includes(userId)) return true;
+    if (username) {
+        const u = username.toLowerCase();
+        if (REMOVED_USERNAMES.some(r => u.includes(r))) return true;
+    }
+    return false;
+}
+
 // ── Posts ──────────────────────────────────────────────
 
 export interface PostData {
@@ -40,7 +52,7 @@ export async function fetchPosts(): Promise<PostData[]> {
         console.error('Error fetching posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
@@ -67,7 +79,7 @@ export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
         console.error('Error fetching For You posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 export async function fetchUserPosts(username: string): Promise<PostData[]> {
@@ -81,7 +93,7 @@ export async function fetchUserPosts(username: string): Promise<PostData[]> {
         console.error('Error fetching user posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost);
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 export async function uploadMedia(
@@ -117,11 +129,12 @@ export async function fetchVideoPosts(): Promise<PostData[]> {
         console.error('Error fetching video posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost).filter((p) => isVideoPost(p));
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && isVideoPost(p));
 }
 
 export function normalizePost(post: PostData): PostData {
     if (!post) return post;
+    if (isRemovedUser(post.user_id, post.username)) return null as any;
     let caption = post.caption || '';
     let music_url = post.music_url;
     let music_title = post.music_title;
@@ -399,6 +412,7 @@ export interface StoryData {
 
 export function normalizeStory(story: StoryData): StoryData {
     if (!story) return story;
+    if (isRemovedUser(story.user_id, story.username)) return null as any;
     let image_url = story.image_url || '';
     let music_url = story.music_url;
     let music_title = story.music_title;
@@ -453,7 +467,7 @@ export async function fetchBoostedStories(): Promise<StoryData[]> {
         console.error('Error fetching stories:', error);
         return [];
     }
-    return (data || []).map(normalizeStory);
+    return (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
 }
 
 /** Fetch stories from the last 24 hours for the Home story rack */
@@ -470,7 +484,7 @@ export async function fetchRecentStories(): Promise<StoryData[]> {
         console.error('Error fetching recent stories:', error);
         return [];
     }
-    return (data || []).map(normalizeStory);
+    return (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
 }
 
 /** Fetch stories belonging to a specific user */
@@ -485,7 +499,7 @@ export async function fetchUserStories(userId: string): Promise<StoryData[]> {
         console.error('Error fetching user stories:', error);
         return [];
     }
-    return (data || []).map(normalizeStory);
+    return (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
 }
 
 export async function createStory(
@@ -1615,7 +1629,7 @@ export async function fetchTopStreakUsers(limit: number = 3): Promise<ProfileDat
         console.error('Error fetching top streak users:', error);
         return [];
     }
-    return data || [];
+    return (data || []).filter(u => !isRemovedUser(u.id, u.username));
 }
 
 // ── Blocking ──────────────────────────────────────────────
