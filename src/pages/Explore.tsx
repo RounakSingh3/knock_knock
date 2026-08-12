@@ -507,7 +507,16 @@ const Explore = () => {
                                                     {isVideo ? (
                                                         <video src={`${storyUrl}#t=0.001`} preload="metadata" muted playsInline style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
                                                     ) : (
-                                                        <img src={storyUrl} alt="" loading="lazy" style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
+                                                        <img 
+                                                            src={storyUrl} 
+                                                            alt="" 
+                                                            loading="lazy" 
+                                                            onError={(e) => {
+                                                                const container = (e.target as HTMLElement).parentElement;
+                                                                if (container) container.style.display = 'none';
+                                                            }}
+                                                            style={{ height: '100%', width: '100%', objectFit: 'cover' }} 
+                                                        />
                                                     )}
                                                     <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.5)', padding: '3px 8px', borderRadius: '10px' }}>
                                                         <img src={group.avatarUrl} alt="" style={{ width: '16px', height: '16px', borderRadius: '50%' }} />

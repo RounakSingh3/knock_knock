@@ -668,7 +668,8 @@ const Stories = () => {
                                         src={story.image_url?.split('#')[0] || ''} 
                                         alt="" 
                                         onError={(e) => {
-                                            (e.target as HTMLImageElement).src = 'https://placehold.co/200x355/1a1a2e/8e8e93?text=📸';
+                                            const card = (e.target as HTMLElement).closest('.my-story-card');
+                                            if (card) (card as HTMLElement).style.display = 'none';
                                         }}
                                     />
                                 )}
@@ -744,7 +745,8 @@ const Stories = () => {
                             <img
                                 src={mysteryStory.image_url?.split('#')[0] || ''} alt="Mystery"
                                 onError={(e) => {
-                                    (e.target as HTMLImageElement).src = 'https://placehold.co/400x200/1a1a2e/8e8e93?text=Mystery';
+                                    const container = (e.target as HTMLElement).parentElement;
+                                    if (container) container.style.display = 'none';
                                 }}
                                 style={{
                                     width: '100%', height: '100%', objectFit: 'cover',
@@ -796,7 +798,8 @@ const Stories = () => {
                                         alt="Story" 
                                         loading="lazy" 
                                         onError={(e) => {
-                                            (e.target as HTMLImageElement).src = 'https://placehold.co/200x355/1a1a2e/8e8e93?text=📸';
+                                            const card = (e.target as HTMLElement).closest('.boosted-story');
+                                            if (card) (card as HTMLElement).style.display = 'none';
                                         }}
                                     />
                                 )}
