@@ -207,6 +207,10 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     loop
                     playsInline
                     className="story-image"
+                    onError={() => {
+                        deleteStory(currentStory.id);
+                        handleNextStory();
+                    }}
                     style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', objectFit: 'contain' }}
                 />
             ) : (
@@ -214,6 +218,10 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     src={currentStory.image_url} 
                     alt="Story" 
                     className="story-image"
+                    onError={() => {
+                        deleteStory(currentStory.id);
+                        handleNextStory();
+                    }}
                     style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
                 />
             )}

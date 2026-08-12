@@ -14,6 +14,7 @@ import {
     fetchProfile,
     fetchRecentStoriesCount,
     fetchTopStreakUsers,
+    deleteStory,
     type StoryData,
     type UserStoryGroup,
     type PostData,
@@ -662,7 +663,18 @@ const Stories = () => {
                                 onClick={() => openStoryViewer(story)}
                             >
                                 {isVideoUrl(story.image_url) ? (
-                                    <video src={`${story.image_url.split('#')[0]}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <video 
+                                        src={`${story.image_url.split('#')[0]}#t=0.001`} 
+                                        preload="metadata" 
+                                        muted 
+                                        playsInline 
+                                        onError={(e) => {
+                                            const card = (e.target as HTMLElement).closest('.my-story-card');
+                                            if (card) (card as HTMLElement).style.display = 'none';
+                                            if (story.id) deleteStory(story.id);
+                                        }}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                    />
                                 ) : (
                                     <img 
                                         src={story.image_url?.split('#')[0] || ''} 
@@ -670,6 +682,7 @@ const Stories = () => {
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.my-story-card');
                                             if (card) (card as HTMLElement).style.display = 'none';
+                                            if (story.id) deleteStory(story.id);
                                         }}
                                     />
                                 )}
@@ -735,6 +748,11 @@ const Stories = () => {
                             <video
                                 src={`${mysteryStory.image_url.split('#')[0]}#t=0.001`}
                                 preload="metadata" muted playsInline
+                                onError={(e) => {
+                                    const container = (e.target as HTMLElement).closest('.section-block');
+                                    if (container) (container as HTMLElement).style.display = 'none';
+                                    if (mysteryStory.id) deleteStory(mysteryStory.id);
+                                }}
                                 style={{
                                     width: '100%', height: '100%', objectFit: 'cover',
                                     filter: isMysteryRevealed ? 'none' : 'blur(20px) brightness(0.5)',
@@ -745,8 +763,9 @@ const Stories = () => {
                             <img
                                 src={mysteryStory.image_url?.split('#')[0] || ''} alt="Mystery"
                                 onError={(e) => {
-                                    const container = (e.target as HTMLElement).parentElement;
-                                    if (container) container.style.display = 'none';
+                                    const container = (e.target as HTMLElement).closest('.section-block');
+                                    if (container) (container as HTMLElement).style.display = 'none';
+                                    if (mysteryStory.id) deleteStory(mysteryStory.id);
                                 }}
                                 style={{
                                     width: '100%', height: '100%', objectFit: 'cover',
@@ -791,7 +810,18 @@ const Stories = () => {
                                 onClick={() => openStoryViewer(story)}
                             >
                                 {isVideoUrl(story.image_url) ? (
-                                    <video src={`${story.image_url.split('#')[0]}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <video 
+                                        src={`${story.image_url.split('#')[0]}#t=0.001`} 
+                                        preload="metadata" 
+                                        muted 
+                                        playsInline 
+                                        onError={(e) => {
+                                            const card = (e.target as HTMLElement).closest('.boosted-story');
+                                            if (card) (card as HTMLElement).style.display = 'none';
+                                            if (story.id) deleteStory(story.id);
+                                        }}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                    />
                                 ) : (
                                     <img 
                                         src={story.image_url?.split('#')[0] || ''} 
@@ -800,6 +830,7 @@ const Stories = () => {
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.boosted-story');
                                             if (card) (card as HTMLElement).style.display = 'none';
+                                            if (story.id) deleteStory(story.id);
                                         }}
                                     />
                                 )}
@@ -837,6 +868,10 @@ const Stories = () => {
                                     loop
                                     playsInline
                                     preload="metadata"
+                                    onError={(e) => {
+                                        const card = (e.target as HTMLElement).closest('.clip-card');
+                                        if (card) (card as HTMLElement).style.display = 'none';
+                                    }}
                                     onMouseEnter={(e) => (e.target as HTMLVideoElement).play().catch(() => {})}
                                     onMouseLeave={(e) => {
                                         const v = e.target as HTMLVideoElement;

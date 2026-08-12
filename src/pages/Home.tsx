@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell } from 'lucide-react';
@@ -654,12 +654,30 @@ const Home = () => {
                                 >
                                     <div className={`story-tile-rect ${isConnection ? 'story-tile-connection' : ''}`}>
                                         {isVideo ? (
-                                            <video src={`${storyUrl}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            <video 
+                                                src={`${storyUrl}#t=0.001`} 
+                                                preload="metadata" 
+                                                muted 
+                                                playsInline 
+                                                onError={(e) => {
+                                                    const item = (e.target as HTMLElement).closest('.story-rack-item');
+                                                    if (item) (item as HTMLElement).style.display = 'none';
+                                                    if (group.stories[0]?.id) deleteStory(group.stories[0].id);
+                                                }}
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                            />
                                         ) : (
                                             <img
                                                 src={storyUrl || group.avatarUrl}
                                                 alt={group.username}
                                                 loading="lazy"
+                                                onError={(e) => {
+                                                    if (storyUrl) {
+                                                        const item = (e.target as HTMLElement).closest('.story-rack-item');
+                                                        if (item) (item as HTMLElement).style.display = 'none';
+                                                        if (group.stories[0]?.id) deleteStory(group.stories[0].id);
+                                                    }
+                                                }}
                                             />
                                         )}
                                     </div>
