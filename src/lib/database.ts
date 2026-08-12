@@ -4,7 +4,14 @@ import { isVideoPost, type MediaType } from './media';
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
 
-
+// These specific posts have broken Unsplash URLs (HTTP 404) and cannot be
+// deleted via anon key due to RLS. Filter them out at the app layer instead.
+const BROKEN_POST_IDS = new Set([
+    'ae1b9027-acbe-4782-a71f-ea709c23688f',
+    '9349a62b-f4c9-4b5b-8544-232e05602079',
+    'd3484b5a-30ed-4ed5-b4af-e2b18e20e438',
+    'ecb5b028-8d04-4272-be3f-7f40693f9f53',
+]);
 
 // ── Posts ──────────────────────────────────────────────
 
@@ -124,6 +131,7 @@ export async function fetchVideoPosts(): Promise<PostData[]> {
 
 export function normalizePost(post: PostData): PostData {
     if (!post) return post;
+    if (BROKEN_POST_IDS.has(post.id)) return null as any;
     let caption = post.caption || '';
     let music_url = post.music_url;
     let music_title = post.music_title;
