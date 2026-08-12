@@ -279,57 +279,23 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         autoPlay
                         loop
                         playsInline
+                        style={{ display: 'none' }}
                     />
                     <div style={{
                         position: 'absolute', bottom: '130px', left: '0', right: '0',
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center',
                         zIndex: 100
                     }}>
                         {/* Song Info Badge */}
                         <div style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            background: 'rgba(0,0,0,0.75)', padding: '6px 14px', borderRadius: '20px',
-                            border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '11px',
-                            fontWeight: '600', letterSpacing: '0.2px', textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)'
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            background: 'rgba(0,0,0,0.65)', padding: '8px 16px', borderRadius: '24px',
+                            border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: '12px',
+                            fontWeight: '600', textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                            boxShadow: '0 4px 15px rgba(0,0,0,0.4)', backdropFilter: 'blur(10px)'
                         }}>
-                            <Music size={11} color="#f5a524" className="music-icon-spin" style={{ animation: audioPlaying && !isPaused ? 'spin 3s linear infinite' : 'none' }} />
-                            <span>{currentStory.music_title || 'Music'} - {currentStory.music_artist || 'Unknown'}</span>
-                        </div>
-
-                        {/* Custom Controls */}
-                        <div style={{
-                            display: 'flex', alignItems: 'center', gap: '20px',
-                            background: 'rgba(0,0,0,0.85)', padding: '10px 22px', borderRadius: '30px',
-                            boxShadow: '0 8px 30px rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.18)',
-                            backdropFilter: 'blur(10px)'
-                        }}>
-                            {/* Play/Pause Button */}
-                            <button 
-                                onClick={toggleAudioPlay}
-                                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', outline: 'none' }}
-                                title={audioPlaying ? "Pause Story & Music" : "Play Story & Music"}
-                            >
-                                {audioPlaying ? <Pause size={18} fill="#fff" /> : <Play size={18} fill="#fff" />}
-                            </button>
-
-                            {/* Mute/Unmute Button */}
-                            <button 
-                                onClick={toggleMute}
-                                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', outline: 'none' }}
-                                title={musicMuted ? "Unmute Music" : "Mute Music"}
-                            >
-                                {musicMuted ? <VolumeX size={18} color="#f5a524" /> : <Volume2 size={18} />}
-                            </button>
-
-                            {/* Next / Forward Button */}
-                            <button 
-                                onClick={handleForward}
-                                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px', outline: 'none' }}
-                                title="Next Story"
-                            >
-                                <SkipForward size={18} fill="#fff" />
-                            </button>
+                            <Music size={12} color="#f5a524" className="music-icon-spin" style={{ animation: audioPlaying && !isPaused ? 'spin 3s linear infinite' : 'none' }} />
+                            <span>{currentStory.music_title || 'Music'} • {currentStory.music_artist || 'Unknown'}</span>
                         </div>
                     </div>
                 </>
