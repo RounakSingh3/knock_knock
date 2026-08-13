@@ -30,11 +30,12 @@ const PostMedia: React.FC<PostMediaProps> = ({
     soundOn = false,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
     const effectiveMuted =
-        muted !== undefined ? muted : soundOn || controls ? false : true;
+        muted !== undefined ? muted : soundOn ? false : true;
 
     useEffect(() => {
         setHasError(false);
@@ -68,6 +69,27 @@ const PostMedia: React.FC<PostMediaProps> = ({
             return () => video.removeEventListener('loadeddata', playWithSound);
         }
     }, [soundOn, isVideo, autoPlay, post.image_url]);
+
+    // Handle background audio playback strictly: only play when autoPlay OR soundOn is true
+    // When autoPlay and soundOn become false (scrolled away), IMMEDIATELY pause and reset!
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        if (autoPlay || soundOn) {
+            audio.muted = muted !== undefined ? muted : false;
+            audio.currentTime = 0;
+            audio.play().catch((e) => console.warn('Audio play blocked/failed:', e));
+        } else {
+            audio.pause();
+            audio.currentTime = 0;
+        }
+
+        return () => {
+            audio.pause();
+            audio.currentTime = 0;
+        };
+    }, [autoPlay, soundOn, muted, post.music_url]);
 
     let extractedFilter = post.css_filter || 'none';
     try {
@@ -131,10 +153,10 @@ const PostMedia: React.FC<PostMediaProps> = ({
                 />
             )}
             
-            {post.music_url && (autoPlay || soundOn || controls) && (
+            {post.music_url && (
                 <audio
+                    ref={audioRef}
                     src={post.music_url}
-                    autoPlay={autoPlay || soundOn}
                     loop
                     style={{ display: 'none' }}
                     playsInline

@@ -94,10 +94,35 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                 <PostMedia
                     post={post}
                     className="modal-image"
-                    controls
                     playsInline
                     autoPlay={isActive}
+                    soundOn={isActive && !isMuted}
+                    muted={isMuted || !isActive}
                 />
+                <button
+                    className="modal-mute-btn"
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
+                    style={{
+                        position: 'absolute',
+                        top: '16px',
+                        right: '16px',
+                        zIndex: 15,
+                        background: 'rgba(0,0,0,0.6)',
+                        border: 'none',
+                        color: '#fff',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        backdropFilter: 'blur(8px)'
+                    }}
+                >
+                    {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                </button>
                 {post.music_url && (
                     <div style={{
                         position: 'absolute', bottom: '16px', left: '16px', zIndex: 10,
