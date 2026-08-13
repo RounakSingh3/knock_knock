@@ -81,20 +81,20 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{
-                        background: 'linear-gradient(135deg, #ff6b35, #f5a524)',
+                        background: 'linear-gradient(135deg, #ff4500, #f5a524)',
                         borderRadius: '10px',
-                        padding: '5px',
+                        padding: '6px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        boxShadow: '0 2px 10px rgba(245,165,36,0.3)'
+                        boxShadow: '0 2px 10px rgba(245,165,36,0.35)'
                     }}>
-                        <Flame size={16} color="#000" />
+                        <Flame size={18} color="#000" />
                     </div>
                     <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontWeight: '800', fontSize: '15px', color: 'var(--text-active)', letterSpacing: '-0.2px' }}>
-                                Google Daily News & Buzz
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: '800', fontSize: '17px', color: 'var(--text-active)', letterSpacing: '-0.3px' }}>
+                                Trending
                             </span>
                             <span style={{
                                 background: 'rgba(255, 69, 0, 0.2)',
@@ -102,15 +102,16 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                                 border: '1px solid rgba(255, 69, 0, 0.4)',
                                 fontSize: '9px',
                                 fontWeight: '900',
-                                padding: '1px 5px',
+                                padding: '1px 6px',
                                 borderRadius: '6px',
-                                textTransform: 'uppercase'
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px'
                             }}>
                                 LIVE
                             </span>
                         </div>
-                        <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)', marginTop: '1px' }}>
-                            Fresh updates • Cricket, Bollywood, Hollywood & Gaming
+                        <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)', marginTop: '2px' }}>
+                            Swipe horizontally • Cricket, Bollywood, Hollywood, Gaming & Sports
                         </p>
                     </div>
                 </div>
