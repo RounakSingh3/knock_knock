@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { isVideoPost, isVideoUrl } from '../lib/media';
+import React, { useRef, useEffect, useState, memo } from 'react';
+import { isVideoPost, isVideoUrl, getOptimizedImageUrl } from '../lib/media';
 import type { PostData } from '../lib/database';
 
 interface PostMediaProps {
@@ -17,7 +17,7 @@ interface PostMediaProps {
     soundOn?: boolean;
 }
 
-const PostMedia: React.FC<PostMediaProps> = ({
+const PostMediaComponent: React.FC<PostMediaProps> = ({
     post,
     className,
     style,
@@ -124,6 +124,7 @@ const PostMedia: React.FC<PostMediaProps> = ({
     }
 
     const videoSrc = isVideo && post.image_url.includes('#t=') ? post.image_url : (isVideo ? `${post.image_url}#t=0.001` : '');
+    const optimizedImageSrc = isVideo ? '' : getOptimizedImageUrl(post.image_url, 650);
 
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -132,21 +133,21 @@ const PostMedia: React.FC<PostMediaProps> = ({
                     ref={videoRef}
                     src={videoSrc}
                     className={className}
-                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%' }}
+                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', willChange: 'transform' }}
                     muted={effectiveMuted}
                     controls={controls}
                     autoPlay={autoPlay || soundOn}
                     loop={loop}
                     playsInline={playsInline}
-                    preload="metadata"
+                    preload={autoPlay || soundOn || controls ? "metadata" : "none"}
                     onError={() => setHasError(true)}
                 />
             ) : (
                 <img
-                    src={post.image_url}
+                    src={optimizedImageSrc}
                     alt={alt}
                     className={className}
-                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%' }}
+                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', willChange: 'transform' }}
                     loading="lazy"
                     decoding="async"
                     onError={() => setHasError(true)}
@@ -166,4 +167,5 @@ const PostMedia: React.FC<PostMediaProps> = ({
     );
 };
 
+export const PostMedia = memo(PostMediaComponent);
 export default PostMedia;

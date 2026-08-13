@@ -13,6 +13,37 @@ const BROKEN_POST_IDS = new Set([
     'ecb5b028-8d04-4272-be3f-7f40693f9f53',
 ]);
 
+// ── In-Memory Performance Cache ──────────────────────────────
+interface CacheEntry<T> {
+    data: T;
+    timestamp: number;
+}
+const cacheStore = new Map<string, CacheEntry<any>>();
+
+export function getFromCache<T>(key: string, ttlMs = 25000): T | null {
+    const entry = cacheStore.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > ttlMs) {
+        cacheStore.delete(key);
+        return null;
+    }
+    return entry.data;
+}
+
+export function setInCache<T>(key: string, data: T): void {
+    cacheStore.set(key, { data, timestamp: Date.now() });
+}
+
+export function invalidateCache(keyPrefix?: string): void {
+    if (!keyPrefix) {
+        cacheStore.clear();
+    } else {
+        for (const k of cacheStore.keys()) {
+            if (k.startsWith(keyPrefix)) cacheStore.delete(k);
+        }
+    }
+}
+
 // ── Posts ──────────────────────────────────────────────
 
 export interface PostData {
@@ -468,6 +499,9 @@ export async function fetchBoostedStories(): Promise<StoryData[]> {
 
 /** Fetch stories from the last 24 hours for the Home story rack */
 export async function fetchRecentStories(): Promise<StoryData[]> {
+    const cached = getFromCache<StoryData[]>('recent_stories', 20000);
+    if (cached) return cached;
+
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
         .from('stories')
@@ -480,7 +514,9 @@ export async function fetchRecentStories(): Promise<StoryData[]> {
         console.error('Error fetching recent stories:', error);
         return [];
     }
-    return (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+    const result = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+    setInCache('recent_stories', result);
+    return result;
 }
 
 /** Fetch stories belonging to a specific user */
@@ -1219,20 +1255,42 @@ export function subscribeToMessages(user1: string, user2: string, onNewMessage: 
         .subscribe();
 }
 
-/** Fetch multiple profiles by their IDs */
+/** Fetch multiple profiles by their IDs with smart in-memory profile cache */
 export async function fetchProfilesByIds(userIds: string[]): Promise<ProfileData[]> {
     if (userIds.length === 0) return [];
+    
+    const results: ProfileData[] = [];
+    const missingIds: string[] = [];
+
+    userIds.forEach(id => {
+        const cached = getFromCache<ProfileData>(`profile_${id}`, 60000);
+        if (cached) {
+            results.push(cached);
+        } else {
+            missingIds.push(id);
+        }
+    });
+
+    if (missingIds.length === 0) {
+        return results;
+    }
     
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .in('id', userIds);
+        .in('id', missingIds);
         
     if (error) {
         console.error('Error fetching profiles by ids:', error);
-        return [];
+        return results;
     }
-    return data || [];
+
+    (data || []).forEach(p => {
+        setInCache(`profile_${p.id}`, p);
+        results.push(p);
+    });
+
+    return results;
 }
 
 // ── Engagement Tracking ────────────────────────────────────
@@ -1582,6 +1640,9 @@ export async function fetchActiveBoostedPosts(): Promise<PostData[]> {
 
 /** Fetch trending posts — most liked in the last 24 hours */
 export async function fetchTrendingPosts(limit: number = 6): Promise<PostData[]> {
+    const cached = getFromCache<PostData[]>(`trending_posts_${limit}`, 30000);
+    if (cached) return cached;
+
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
         .from('posts')
@@ -1594,7 +1655,9 @@ export async function fetchTrendingPosts(limit: number = 6): Promise<PostData[]>
         console.error('Error fetching trending posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+    const result = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+    setInCache(`trending_posts_${limit}`, result);
+    return result;
 }
 
 /** Count stories posted in the last hour (for FOMO indicator) */

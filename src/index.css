@@ -51,6 +51,8 @@
 html, body {
     -webkit-overflow-scrolling: touch;
     scroll-behavior: smooth;
+    overscroll-behavior-y: none;
+    text-rendering: optimizeLegibility;
 }
 
 body {
@@ -62,6 +64,23 @@ body {
     color: var(--text-active);
     overflow-x: hidden;
     letter-spacing: -0.1px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* 🚀 High Performance Scrolling & Rendering Optimizations */
+.post-card, .masonry-item, .explore-grid-item, .feed-item-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 320px;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+/* GPU hardware acceleration for smooth 60fps animations */
+.gpu-accelerated, .bottom-nav, .story-ring, .modal-media-stage {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    will-change: transform;
 }
 
 .app-container {
