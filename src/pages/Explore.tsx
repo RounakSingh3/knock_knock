@@ -13,6 +13,7 @@ import ChatPanel from '../components/ChatPanel';
 import PullToRefresh from '../components/PullToRefresh';
 import { isVideoPost, isVideoUrl } from '../lib/media';
 import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
+import DailyNewsFeed from '../components/DailyNewsFeed';
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -315,6 +316,24 @@ const Explore = () => {
                     {!isSearching ? (
                         /* Discover Feed (Default View) */
                         <>
+                            {/* 📰 Google Daily News & Trends (Cricket, Bollywood, Hollywood, Gaming, Sports) */}
+                            <DailyNewsFeed onShareNews={(news) => {
+                                const mappedPost: PostData = {
+                                    id: news.id,
+                                    user_id: '',
+                                    image_url: news.imageUrl,
+                                    caption: `${news.title}\n\n📰 Source: ${news.source}\n\n${news.summary}`,
+                                    attached_link: news.url,
+                                    created_at: news.publishedAt,
+                                    likes_count: news.likesCount,
+                                    category: news.category === 'Cricket & IPL' ? 'Cricket' : news.category,
+                                    username: 'google_news',
+                                    avatar_url: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=150'
+                                };
+                                setPostToShare(mappedPost);
+                                setIsShareOpen(true);
+                            }} />
+
                             {/* 🔥 Trending Now Banner — FOMO */}
                             {!isTrendingLoading && trendingPosts.length > 0 && (
                                 <div style={{ marginBottom: '16px' }}>
