@@ -66,12 +66,12 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
         } else if (navigator.share) {
             navigator.share({
                 title: news.title,
-                text: `${news.title}\n\nRead more on Knock Knock!`,
+                text: `${news.title}\n\nCheck this out on Knock Knock!`,
                 url: news.url
             }).catch(() => {});
         } else {
             navigator.clipboard.writeText(`${news.title}\n${news.url}`);
-            alert('News link copied to clipboard!');
+            alert('Link copied to clipboard!');
         }
     };
 
@@ -461,7 +461,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                                     }}
                                 >
                                     <ExternalLink size={16} />
-                                    <span>Read Full Coverage on Google News</span>
+                                    <span>View Full Story</span>
                                 </a>
 
                                 <button
@@ -482,7 +482,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                                     }}
                                 >
                                     <Share2 size={16} />
-                                    <span>Share News with Friends</span>
+                                    <span>Share with Friends</span>
                                 </button>
                             </div>
                         </div>
