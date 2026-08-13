@@ -131,28 +131,14 @@ const PostMedia: React.FC<PostMediaProps> = ({
                 />
             )}
             
-            {/* FOOLPROOF NATIVE AUDIO PLAYER */}
             {post.music_url && (autoPlay || soundOn || controls) && (
-                <div style={{
-                    position: 'absolute',
-                    bottom: '70px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    width: '260px',
-                    zIndex: 1000,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    opacity: 0.8
-                }}>
-                    <audio
-                        src={post.music_url}
-                        autoPlay={autoPlay || soundOn}
-                        loop
-                        controls
-                        style={{ width: '100%', height: '30px', outline: 'none' }}
-                        playsInline
-                    />
-                </div>
+                <audio
+                    src={post.music_url}
+                    autoPlay={autoPlay || soundOn}
+                    loop
+                    style={{ display: 'none' }}
+                    playsInline
+                />
             )}
         </div>
     );

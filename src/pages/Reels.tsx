@@ -655,24 +655,20 @@ const Reels: React.FC = () => {
                                             <span className="reel-creator-name">@{reel.creator}</span>
                                             <button className="reel-follow-btn">Friend</button>
                                         </div>
-                                        <p className="reel-caption">{reel.caption}</p>
-                                        {reel.musicUrl ? (
-                                            <div style={{ marginTop: '8px' }}>
-                                                <audio
-                                                    src={reel.musicUrl}
-                                                    autoPlay={idx === selectedReelIndex}
-                                                    loop
-                                                    controls
-                                                    style={{ width: '100%', maxWidth: '240px', height: '30px', outline: 'none', opacity: 0.9 }}
-                                                    playsInline
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div className="reel-song">
-                                                <Music size={12} />
-                                                <span className="reel-song-marquee">{reel.song}</span>
-                                            </div>
+                                        {reel.musicUrl && (
+                                            <audio
+                                                src={reel.musicUrl}
+                                                autoPlay={idx === selectedReelIndex}
+                                                loop
+                                                style={{ display: 'none' }}
+                                                playsInline
+                                            />
                                         )}
+                                        <div className="reel-song">
+                                            <Music size={12} />
+                                            <span className="reel-song-marquee">{reel.song || 'Original Audio'}</span>
+                                        </div>
+                                        <p className="reel-caption">{reel.caption}</p>
                                     </div>
 
                                     {/* Side actions */}
