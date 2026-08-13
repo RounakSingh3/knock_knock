@@ -429,25 +429,34 @@ const CreatePost = () => {
                     {/* Add Background Music Option */}
                     <div style={{ marginBottom: '16px' }}>
                         {selectedTrack ? (
-                            <div style={{
-                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                background: 'rgba(245, 165, 36, 0.15)', border: '1px solid #f5a524',
-                                borderRadius: '16px', padding: '12px 16px', color: '#fff'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <Music size={20} color="#f5a524" />
-                                    <div>
-                                        <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{selectedTrack.title}</div>
-                                        <div style={{ fontSize: '12px', color: '#aaa' }}>{selectedTrack.artist} • {selectedTrack.category}</div>
+                            <>
+                                <audio
+                                    src={selectedTrack.url}
+                                    autoPlay
+                                    loop
+                                    playsInline
+                                    style={{ display: 'none' }}
+                                />
+                                <div style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    background: 'rgba(245, 165, 36, 0.15)', border: '1px solid #f5a524',
+                                    borderRadius: '16px', padding: '12px 16px', color: '#fff'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <Music size={20} color="#f5a524" />
+                                        <div>
+                                            <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{selectedTrack.title}</div>
+                                            <div style={{ fontSize: '12px', color: '#aaa' }}>{selectedTrack.artist} • {selectedTrack.category}</div>
+                                        </div>
                                     </div>
+                                    <button
+                                        onClick={() => setSelectedTrack(null)}
+                                        style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }}
+                                    >
+                                        <X size={18} />
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={() => setSelectedTrack(null)}
-                                    style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer' }}
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
+                            </>
                         ) : (
                             <button
                                 type="button"

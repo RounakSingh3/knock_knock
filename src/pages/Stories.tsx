@@ -412,23 +412,32 @@ const Stories = () => {
 
                     {/* Selected Music Sticker Badge */}
                     {selectedTrack && (
-                        <div style={{
-                            position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)',
-                            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)',
-                            border: '1px solid rgba(245,165,36,0.6)', borderRadius: '20px',
-                            padding: '6px 14px', color: '#fff', fontSize: '13px', fontWeight: 'bold',
-                            display: 'flex', alignItems: 'center', gap: '8px', zIndex: 10,
-                            boxShadow: '0 4px 15px rgba(0,0,0,0.4)'
-                        }}>
-                            <Music size={14} color="#f5a524" />
-                            <span>{selectedTrack.title} • {selectedTrack.artist}</span>
-                            <button
-                                onClick={() => setSelectedTrack(null)}
-                                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', marginLeft: '4px', display: 'flex' }}
-                            >
-                                <X size={14} />
-                            </button>
-                        </div>
+                        <>
+                            <audio
+                                src={selectedTrack.url}
+                                autoPlay
+                                loop
+                                playsInline
+                                style={{ display: 'none' }}
+                            />
+                            <div style={{
+                                position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)',
+                                background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)',
+                                border: '1px solid rgba(245,165,36,0.6)', borderRadius: '20px',
+                                padding: '6px 14px', color: '#fff', fontSize: '13px', fontWeight: 'bold',
+                                display: 'flex', alignItems: 'center', gap: '8px', zIndex: 10,
+                                boxShadow: '0 4px 15px rgba(0,0,0,0.4)'
+                            }}>
+                                <Music size={14} color="#f5a524" />
+                                <span>{selectedTrack.title} • {selectedTrack.artist}</span>
+                                <button
+                                    onClick={() => setSelectedTrack(null)}
+                                    style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', marginLeft: '4px', display: 'flex' }}
+                                >
+                                    <X size={14} />
+                                </button>
+                            </div>
+                        </>
                     )}
                 </div>
 

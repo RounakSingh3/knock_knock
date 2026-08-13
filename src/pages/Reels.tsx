@@ -261,6 +261,7 @@ const Reels: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const modalScrollRef = useRef<HTMLDivElement>(null);
     const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+    const audioRefs = useRef<(HTMLAudioElement | null)[]>([]);
     const lastTapRef = useRef<number>(0);
     const navigate = useNavigate();
 
@@ -277,6 +278,19 @@ const Reels: React.FC = () => {
                     v.muted = mutedAll;
                     if (idx === selectedReelIndex) {
                         v.play().catch(() => {});
+                    } else {
+                        v.pause();
+                    }
+                });
+                audioRefs.current.forEach((a, idx) => {
+                    if (!a) return;
+                    a.muted = mutedAll;
+                    if (idx === selectedReelIndex && !mutedAll) {
+                        a.currentTime = 0;
+                        a.play().catch(() => {});
+                    } else {
+                        a.pause();
+                        a.currentTime = 0;
                     }
                 });
                 setPlayStates(prev => { const n = [...prev]; n[selectedReelIndex] = true; return n; });
@@ -284,7 +298,7 @@ const Reels: React.FC = () => {
         }
     }, [selectedReelIndex, mutedAll]);
 
-    // IntersectionObserver to auto-play visible video in modal
+    // IntersectionObserver to auto-play visible video in modal and manage audio strictly
     useEffect(() => {
         if (selectedReelIndex === null) return;
         const observer = new IntersectionObserver(
@@ -296,6 +310,18 @@ const Reels: React.FC = () => {
                     if (entry.isIntersecting) {
                         setActiveIndex(idx);
                         video.play().catch(() => { });
+                        // Stop all other audios immediately, and play only this reel's audio
+                        audioRefs.current.forEach((a, i) => {
+                            if (a) {
+                                if (i === idx && !mutedAll) {
+                                    a.currentTime = 0;
+                                    a.play().catch(() => {});
+                                } else {
+                                    a.pause();
+                                    a.currentTime = 0;
+                                }
+                            }
+                        });
                         setPlayStates((prev) => {
                             const next = [...prev];
                             next[idx] = true;
@@ -303,6 +329,10 @@ const Reels: React.FC = () => {
                         });
                     } else {
                         video.pause();
+                        if (audioRefs.current[idx]) {
+                            audioRefs.current[idx]?.pause();
+                            audioRefs.current[idx]!.currentTime = 0;
+                        }
                         setPlayStates((prev) => {
                             const next = [...prev];
                             next[idx] = false;
@@ -317,7 +347,7 @@ const Reels: React.FC = () => {
             if (video) observer.observe(video);
         });
         return () => observer.disconnect();
-    }, [selectedReelIndex]);
+    }, [selectedReelIndex, mutedAll]);
 
     // Watch time tracking: when active reel changes, log watch time for the previous one
     useEffect(() => {
@@ -374,9 +404,11 @@ const Reels: React.FC = () => {
     const togglePlay = useCallback(
         (idx: number) => {
             const video = videoRefs.current[idx];
+            const audio = audioRefs.current[idx];
             if (!video) return;
             if (video.paused) {
                 video.play().catch(() => { });
+                if (audio && !mutedAll) audio.play().catch(() => { });
                 setPlayStates((prev) => {
                     const next = [...prev];
                     next[idx] = true;
@@ -384,6 +416,7 @@ const Reels: React.FC = () => {
                 });
             } else {
                 video.pause();
+                if (audio) audio.pause();
                 setPlayStates((prev) => {
                     const next = [...prev];
                     next[idx] = false;
@@ -391,7 +424,7 @@ const Reels: React.FC = () => {
                 });
             }
         },
-        []
+        [mutedAll]
     );
 
     const handleDoubleTap = useCallback(
@@ -472,8 +505,14 @@ const Reels: React.FC = () => {
     };
 
     const closePlayer = () => {
-        // Pause all videos when returning to grid
+        // Pause all videos and audios when returning to grid
         videoRefs.current.forEach(v => v?.pause());
+        audioRefs.current.forEach(a => {
+            if (a) {
+                a.pause();
+                a.currentTime = 0;
+            }
+        });
         setSelectedReelIndex(null);
     };
 
@@ -569,9 +608,21 @@ const Reels: React.FC = () => {
                         </button>
                         <button
                             onClick={() => {
-                                setMutedAll((m) => !m);
+                                const newMuted = !mutedAll;
+                                setMutedAll(newMuted);
                                 videoRefs.current.forEach((v) => {
-                                    if (v) v.muted = !mutedAll;
+                                    if (v) v.muted = newMuted;
+                                });
+                                audioRefs.current.forEach((a, idx) => {
+                                    if (!a) return;
+                                    a.muted = newMuted;
+                                    if (idx === activeIndex) {
+                                        if (newMuted) {
+                                            a.pause();
+                                        } else {
+                                            a.play().catch(() => {});
+                                        }
+                                    }
                                 });
                             }}
                             style={{ 
@@ -657,8 +708,8 @@ const Reels: React.FC = () => {
                                         </div>
                                         {reel.musicUrl && (
                                             <audio
+                                                ref={(el) => { audioRefs.current[idx] = el; }}
                                                 src={reel.musicUrl}
-                                                autoPlay={idx === selectedReelIndex}
                                                 loop
                                                 style={{ display: 'none' }}
                                                 playsInline
