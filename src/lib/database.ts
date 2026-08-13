@@ -1305,47 +1305,69 @@ export interface EngagementData {
     created_at?: string;
 }
 
-/** Track a user engagement event */
-export async function trackEngagement(
+let engagementQueue: Array<{ user_id: string; post_id: string; action_type: string; value: number; category: string }> = [];
+let engagementFlushTimer: any = null;
+
+/** Track a user engagement event (batched to prevent blocking network pipelines) */
+export function trackEngagement(
     userId: string,
     postId: string,
     actionType: string,
     value: number = 1,
     category: string = 'General'
 ): Promise<void> {
-    const { error } = await supabase
-        .from('engagements')
-        .insert({
-            user_id: userId,
-            post_id: postId,
-            action_type: actionType,
-            value,
-            category,
-        });
+    if (!userId || !postId) return Promise.resolve();
+    engagementQueue.push({
+        user_id: userId,
+        post_id: postId,
+        action_type: actionType,
+        value,
+        category,
+    });
 
-    if (error) {
-        console.error('Error tracking engagement:', error);
+    if (!engagementFlushTimer) {
+        engagementFlushTimer = setTimeout(async () => {
+            engagementFlushTimer = null;
+            const toSend = [...engagementQueue];
+            engagementQueue = [];
+            if (toSend.length > 0) {
+                try {
+                    await supabase.from('engagements').insert(toSend);
+                } catch (e) {
+                    console.warn('Batch engagement track error:', e);
+                }
+            }
+        }, 1200);
     }
+    return Promise.resolve();
 }
 
-/** Fetch all engagements for a user (for building interest profile) */
+/** Fetch all engagements for a user (for building interest profile) with fast cache */
 export async function fetchUserEngagements(userId: string): Promise<EngagementData[]> {
+    const cached = getFromCache<EngagementData[]>(`engagements_${userId}`, 45000);
+    if (cached) return cached;
+
     const { data, error } = await supabase
         .from('engagements')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
-        .limit(500); // Last 500 interactions for recency
+        .limit(300); // Last 300 interactions for fast calculation
 
     if (error) {
         console.error('Error fetching user engagements:', error);
         return [];
     }
-    return data || [];
+    const result = data || [];
+    setInCache(`engagements_${userId}`, result);
+    return result;
 }
 
-/** Fetch all posts (unpaginated) for scoring — used by algorithm.ts */
+/** Fetch all posts (unpaginated) for scoring — used by algorithm.ts with fast cache */
 export async function fetchAllPostsForScoring(excludeUserId: string): Promise<PostData[]> {
+    const cached = getFromCache<PostData[]>(`all_scoring_posts_${excludeUserId}`, 25000);
+    if (cached) return cached;
+
     const connectionIds = await fetchConnectionUserIds(excludeUserId);
     const excludeIds = [...connectionIds, excludeUserId];
 
@@ -1353,7 +1375,7 @@ export async function fetchAllPostsForScoring(excludeUserId: string): Promise<Po
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(80);
+        .limit(60);
 
     if (excludeIds.length > 0) {
         query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
@@ -1365,7 +1387,9 @@ export async function fetchAllPostsForScoring(excludeUserId: string): Promise<Po
         console.error('Error fetching posts for scoring:', error);
         return [];
     }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+    const result = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+    setInCache(`all_scoring_posts_${excludeUserId}`, result);
+    return result;
 }
 
 // ── Voice Reactions ────────────────────────────────────────

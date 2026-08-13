@@ -12,7 +12,7 @@ import ShareModal from '../components/ShareModal';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
 import CommentsSheet from '../components/CommentsSheet';
-import { isVideoPost, isVideoUrl } from '../lib/media';
+import { isVideoPost, isVideoUrl, getOptimizedImageUrl } from '../lib/media';
 import { audioPlayer } from '../lib/audioPlayer';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 
@@ -617,13 +617,14 @@ const Home = () => {
                                     const myStoryUrl = myGroup?.stories[0]?.image_url || '';
                                     const isVideo = isVideoUrl(myStoryUrl);
                                     if (myStoryUrl && isVideo) {
-                                        return <video src={`${myStoryUrl}#t=0.001`} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
+                                        return <video src={`${myStoryUrl}#t=0.001`} preload="none" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
                                     }
                                     return (
                                         <img
-                                            src={myStoryUrl || user?.avatar_url || 'https://i.pravatar.cc/150'}
+                                            src={getOptimizedImageUrl(myStoryUrl || user?.avatar_url || 'https://i.pravatar.cc/150', 160)}
                                             alt="Your Story"
                                             loading="lazy"
+                                            decoding="async"
                                         />
                                     );
                                 })()}
@@ -657,7 +658,7 @@ const Home = () => {
                                         {isVideo ? (
                                             <video 
                                                 src={`${storyUrl}#t=0.001`} 
-                                                preload="metadata" 
+                                                preload="none" 
                                                 muted 
                                                 playsInline 
                                                 onError={(e) => {
@@ -669,9 +670,10 @@ const Home = () => {
                                             />
                                         ) : (
                                             <img
-                                                src={storyUrl}
+                                                src={getOptimizedImageUrl(storyUrl, 160)}
                                                 alt={group.username}
                                                 loading="lazy"
+                                                decoding="async"
                                                 onError={(e) => {
                                                     const item = (e.target as HTMLElement).closest('.story-rack-item');
                                                     if (item) (item as HTMLElement).style.display = 'none';
@@ -765,7 +767,7 @@ const Home = () => {
                                     onClick={() => setSelectedPost(post)}
                                     onDoubleClick={() => handleDoubleTap(post)}
                                 >
-                                    <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={isVideoPost(post)} />
+                                    <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
                                     {post.music_url && (
                                         <div style={{
                                             position: 'absolute', top: '12px', left: '12px', zIndex: 5,
@@ -830,9 +832,11 @@ const Home = () => {
                                     <div className="masonry-card-info">
                                         <div className="masonry-card-user">
                                             <img
-                                                src={post.avatar_url || 'https://i.pravatar.cc/150'}
+                                                src={getOptimizedImageUrl(post.avatar_url || 'https://i.pravatar.cc/150', 80)}
                                                 alt=""
                                                 className="masonry-avatar"
+                                                loading="lazy"
+                                                decoding="async"
                                             />
                                             <span className="masonry-username">{post.username}</span>
                                         </div>
