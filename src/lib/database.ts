@@ -1529,12 +1529,12 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
     return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
-export async function fetchDiscoverPosts(category?: string | null, limit: number = 60): Promise<PostData[]> {
+export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {
     let query = supabase
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(250);
+        .range(offset, offset + limit - 1);
         
     if (category && category !== 'All') {
         query = query.eq('category', category);
@@ -1546,7 +1546,7 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         return [];
     }
     
-    return (data || []).slice(0, limit).map(normalizePost).filter((p): p is PostData => Boolean(p));
+    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 // ── Delete Post ────────────────────────────────────────────

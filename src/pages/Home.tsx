@@ -130,9 +130,17 @@ const Home = () => {
             fetchUserEngagements(user.id)
         ]).then(([rawPosts, engagements]) => {
             const validPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
-            setAllRawPosts(validPosts);
+            const seenUrls = new Set<string>();
+            const seenIds = new Set<string>();
+            const uniquePosts = validPosts.filter(p => {
+                if (!p.image_url || seenUrls.has(p.image_url) || seenIds.has(p.id)) return false;
+                seenUrls.add(p.image_url);
+                seenIds.add(p.id);
+                return true;
+            });
+            setAllRawPosts(uniquePosts);
             const profile = buildInterestProfile(engagements);
-            const firstPage = assembleFeed(validPosts, profile, 0, 10);
+            const firstPage = assembleFeed(uniquePosts, profile, 0, 10);
             
             setScoredFeed(firstPage);
             setPosts(firstPage.map(s => s.post));
@@ -173,12 +181,65 @@ const Home = () => {
 
     useEffect(() => {
         loadForYouFeed();
+    }, [user, feedMode]);
 
-        // Fetch recent stories for the rack
+    // Pull-to-refresh handler (For You Feed)
+    const handleRefreshForYou = useCallback(async () => {
+        if (!user || isRefreshing) return;
+        setIsRefreshing(true);
+        try {
+            const shuffled = shuffleFeedForRefresh(allRawPosts);
+            const engagements = await fetchUserEngagements(user.id);
+            const profile = buildInterestProfile(engagements);
+            const freshFeed = assembleFeed(shuffled, profile, 0, 10);
+            setScoredFeed(freshFeed);
+            setPosts(freshFeed.map(s => s.post));
+            setFeedPage(0);
+            setHasMorePosts(true);
+        } catch (err) {
+            console.error('Refresh failed:', err);
+        }
+        setIsRefreshing(false);
+    }, [user, isRefreshing, allRawPosts]);
+
+    // Infinite scroll — load more posts (Guarantees NO duplicate photos)
+    const loadMorePosts = async () => {
+        if (!user || !hasMorePosts) return;
+        const nextPage = feedPage + 1;
+        const engagements = await fetchUserEngagements(user.id);
+        const profile = buildInterestProfile(engagements);
+        const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10);
+        
+        const currentIds = new Set(posts.map(p => p.id));
+        const currentUrls = new Set(posts.map(p => p.image_url));
+        const freshBatch = nextBatch.filter(s => !currentIds.has(s.post.id) && !currentUrls.has(s.post.image_url));
+
+        if (freshBatch.length === 0) {
+            setHasMorePosts(false);
+            return;
+        }
+
+        setScoredFeed(prev => [...prev, ...freshBatch]);
+        setPosts(prev => [...prev, ...freshBatch.map(s => s.post)]);
+        setFeedPage(nextPage);
+        // Batch check likes for new posts
+        const newPostIds = freshBatch.map(s => s.post.id);
+        checkIfLikedBatch(user.id, newPostIds).then(likedMap => {
+            setLikedPosts(prev => ({ ...prev, ...likedMap }));
+        });
+        freshBatch.forEach(s => {
+            trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
+            setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
+        });
+    };
+
+    // Load recent stories & connections
+    useEffect(() => {
         fetchRecentStories().then(async stories => {
             const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
             const userIds = Array.from(new Set(validStories.map(s => s.user_id).filter(Boolean))) as string[];
             const profilesMap = new Map<string, any>();
+
             if (userIds.length > 0) {
                 const profiles = await fetchProfilesByIds(userIds);
                 profiles.forEach(p => profilesMap.set(p.id, p));
@@ -249,30 +310,6 @@ const Home = () => {
         }
         setIsRefreshing(false);
     }, [user, isRefreshing, allRawPosts]);
-
-    // Infinite scroll — load more posts
-    const loadMorePosts = async () => {
-        if (!user || !hasMorePosts) return;
-        const nextPage = feedPage + 1;
-        const engagements = await fetchUserEngagements(user.id);
-        const profile = buildInterestProfile(engagements);
-        const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10);
-        if (nextBatch.length < 10) setHasMorePosts(false);
-        if (nextBatch.length > 0) {
-            setScoredFeed(prev => [...prev, ...nextBatch]);
-            setPosts(prev => [...prev, ...nextBatch.map(s => s.post)]);
-            setFeedPage(nextPage);
-            // Batch check likes for new posts
-            const newPostIds = nextBatch.map(s => s.post.id);
-            checkIfLikedBatch(user.id, newPostIds).then(likedMap => {
-                setLikedPosts(prev => ({ ...prev, ...likedMap }));
-            });
-            nextBatch.forEach(s => {
-                trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
-                setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
-            });
-        }
-    };
 
     const handleDoubleTap = (post: PostData) => {
         if (!likedPosts[post.id]) {

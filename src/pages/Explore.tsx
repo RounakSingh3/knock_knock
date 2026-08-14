@@ -96,21 +96,31 @@ const Explore = () => {
         setHasMore(true);
         observedPostsRef.current.clear();
         try {
-            let rawPosts = await fetchDiscoverPosts(selectedCategory, 200);
+            let rawPosts = await fetchDiscoverPosts(selectedCategory, 150, 0);
             rawPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
-            rawPostsCacheRef.current = rawPosts;
+            
+            // Strictly deduplicate by image_url and id
+            const seenUrls = new Set<string>();
+            const seenIds = new Set<string>();
+            const uniqueRaw = rawPosts.filter(p => {
+                if (!p.image_url || seenUrls.has(p.image_url) || seenIds.has(p.id)) return false;
+                seenUrls.add(p.image_url);
+                seenIds.add(p.id);
+                return true;
+            });
+            rawPostsCacheRef.current = uniqueRaw;
+
             if (user) {
                 const engagements = await fetchUserEngagements(user.id);
                 const profile = buildInterestProfile(engagements);
                 userProfileRef.current = profile;
-                const scored = assembleFeed(rawPosts, profile, 0, PAGE_SIZE);
-                const shuffled = shuffleFeedForRefresh(scored);
-                setAllScoredPosts(shuffled);
-                setDiscoverPosts(shuffled.map(s => s.post));
-                setHasMore(rawPosts.length > PAGE_SIZE);
+                const scored = assembleFeed(uniqueRaw, profile, 0, PAGE_SIZE);
+                setAllScoredPosts(scored);
+                setDiscoverPosts(scored.map(s => s.post));
+                setHasMore(uniqueRaw.length > PAGE_SIZE);
             } else {
-                setDiscoverPosts(rawPosts.slice(0, PAGE_SIZE));
-                setHasMore(rawPosts.length > PAGE_SIZE);
+                setDiscoverPosts(uniqueRaw.slice(0, PAGE_SIZE));
+                setHasMore(uniqueRaw.length > PAGE_SIZE);
             }
         } catch (e) {
             console.error('Error loading discover feed:', e);
@@ -124,45 +134,68 @@ const Explore = () => {
         loadDiscoverFeed();
     }, [selectedCategory, searchTerm, user]);
 
-    // Infinite Scroll — Load More
+    // Infinite Scroll — Load More (Guarantees NO duplicate photos)
     const loadMore = useCallback(async () => {
         if (isLoadingMore || !hasMore) return;
         setIsLoadingMore(true);
         const nextPage = feedPage + 1;
         
         try {
+            const currentIds = new Set(discoverPosts.map(p => p.id));
+            const currentUrls = new Set(discoverPosts.map(p => p.image_url));
+
             if (user && userProfileRef.current) {
                 const more = assembleFeed(rawPostsCacheRef.current, userProfileRef.current, nextPage, PAGE_SIZE);
-                if (more.length === 0 && rawPostsCacheRef.current.length > 0) {
-                    // Reshuffle explore feed continuously just like Instagram
-                    const reshuffled = shuffleFeedForRefresh(rawPostsCacheRef.current);
-                    const freshMore = assembleFeed(reshuffled, userProfileRef.current, 0, PAGE_SIZE);
-                    setAllScoredPosts(prev => [...prev, ...freshMore]);
-                    setDiscoverPosts(prev => [...prev, ...freshMore.map(s => s.post)]);
-                    setFeedPage(0);
-                } else {
-                    setAllScoredPosts(prev => [...prev, ...more]);
-                    setDiscoverPosts(prev => [...prev, ...more.map(s => s.post)]);
+                const freshUnseen = more.filter(s => !currentIds.has(s.post.id) && !currentUrls.has(s.post.image_url));
+                
+                if (freshUnseen.length > 0) {
+                    setAllScoredPosts(prev => [...prev, ...freshUnseen]);
+                    setDiscoverPosts(prev => [...prev, ...freshUnseen.map(s => s.post)]);
                     setFeedPage(nextPage);
+                } else {
+                    // Fetch next page offset from DB
+                    const nextBatch = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
+                    const freshDbPosts = nextBatch.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url) && (!p.user_id || !blockedIds.includes(p.user_id)));
+                    
+                    if (freshDbPosts.length > 0) {
+                        rawPostsCacheRef.current = [...rawPostsCacheRef.current, ...freshDbPosts];
+                        const freshScored = assembleFeed(freshDbPosts, userProfileRef.current, 0, PAGE_SIZE);
+                        setAllScoredPosts(prev => [...prev, ...freshScored]);
+                        setDiscoverPosts(prev => [...prev, ...freshScored.map(s => s.post)]);
+                        setFeedPage(nextPage);
+                    } else {
+                        setHasMore(false);
+                    }
                 }
             } else {
-                const start = (nextPage) * PAGE_SIZE;
+                const start = nextPage * PAGE_SIZE;
                 const morePosts = rawPostsCacheRef.current.slice(start, start + PAGE_SIZE);
-                if (morePosts.length === 0 && rawPostsCacheRef.current.length > 0) {
-                    const reshuffled = shuffleFeedForRefresh(rawPostsCacheRef.current);
-                    setDiscoverPosts(prev => [...prev, ...reshuffled.slice(0, PAGE_SIZE)]);
-                    setFeedPage(0);
-                } else {
-                    setDiscoverPosts(prev => [...prev, ...morePosts]);
+                const freshUnseen = morePosts.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url));
+                
+                if (freshUnseen.length > 0) {
+                    setDiscoverPosts(prev => [...prev, ...freshUnseen]);
                     setFeedPage(nextPage);
+                } else {
+                    // Fetch next page offset from DB
+                    const nextBatch = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
+                    const freshDbPosts = nextBatch.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url) && (!p.user_id || !blockedIds.includes(p.user_id)));
+                    
+                    if (freshDbPosts.length > 0) {
+                        rawPostsCacheRef.current = [...rawPostsCacheRef.current, ...freshDbPosts];
+                        setDiscoverPosts(prev => [...prev, ...freshDbPosts.slice(0, PAGE_SIZE)]);
+                        setFeedPage(nextPage);
+                    } else {
+                        setHasMore(false);
+                    }
                 }
             }
         } catch (e) {
             console.error('Error loading more posts:', e);
+            setHasMore(false);
         } finally {
             setIsLoadingMore(false);
         }
-    }, [feedPage, isLoadingMore, hasMore, user]);
+    }, [feedPage, isLoadingMore, hasMore, user, discoverPosts, selectedCategory, blockedIds]);
 
     // IntersectionObserver for infinite scroll sentinel
     useEffect(() => {
