@@ -133,8 +133,13 @@ const Explore = () => {
         try {
             if (user && userProfileRef.current) {
                 const more = assembleFeed(rawPostsCacheRef.current, userProfileRef.current, nextPage, PAGE_SIZE);
-                if (more.length === 0) {
-                    setHasMore(false);
+                if (more.length === 0 && rawPostsCacheRef.current.length > 0) {
+                    // Reshuffle explore feed continuously just like Instagram
+                    const reshuffled = shuffleFeedForRefresh(rawPostsCacheRef.current);
+                    const freshMore = assembleFeed(reshuffled, userProfileRef.current, 0, PAGE_SIZE);
+                    setAllScoredPosts(prev => [...prev, ...freshMore]);
+                    setDiscoverPosts(prev => [...prev, ...freshMore.map(s => s.post)]);
+                    setFeedPage(0);
                 } else {
                     setAllScoredPosts(prev => [...prev, ...more]);
                     setDiscoverPosts(prev => [...prev, ...more.map(s => s.post)]);
@@ -143,8 +148,10 @@ const Explore = () => {
             } else {
                 const start = (nextPage) * PAGE_SIZE;
                 const morePosts = rawPostsCacheRef.current.slice(start, start + PAGE_SIZE);
-                if (morePosts.length === 0) {
-                    setHasMore(false);
+                if (morePosts.length === 0 && rawPostsCacheRef.current.length > 0) {
+                    const reshuffled = shuffleFeedForRefresh(rawPostsCacheRef.current);
+                    setDiscoverPosts(prev => [...prev, ...reshuffled.slice(0, PAGE_SIZE)]);
+                    setFeedPage(0);
                 } else {
                     setDiscoverPosts(prev => [...prev, ...morePosts]);
                     setFeedPage(nextPage);
@@ -438,11 +445,6 @@ const Explore = () => {
                                     {/* 📜 Infinite Scroll Sentinel */}
                                     <div ref={sentinelRef} style={{ height: '1px' }} />
                                     {isLoadingMore && <GridSkeleton count={6} />}
-                                    {!hasMore && discoverPosts.length > 12 && (
-                                        <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-inactive)', fontSize: '13px' }}>
-                                            You've seen it all! Pull down to refresh ✨
-                                        </div>
-                                    )}
                                 </>
                             )}
                         </>
