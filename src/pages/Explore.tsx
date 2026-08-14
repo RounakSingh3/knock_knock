@@ -174,12 +174,17 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         const nextPage = feedPage + 1;
         
         try {
-            const currentIds = new Set(discoverPosts.map(p => p.id));
-            const currentUrls = new Set(discoverPosts.map(p => p.image_url));
+            const seenIds = new Set(discoverPosts.map(p => p.id));
+            const seenUrls = new Set(discoverPosts.map(p => p.image_url));
 
             if (user && userProfileRef.current) {
                 const more = assembleFeed(rawPostsCacheRef.current, userProfileRef.current, nextPage, PAGE_SIZE);
-                const freshUnseen = more.filter(s => !currentIds.has(s.post.id) && !currentUrls.has(s.post.image_url));
+                const freshUnseen = more.filter(s => {
+                    if (!s.post.image_url || seenIds.has(s.post.id) || seenUrls.has(s.post.image_url)) return false;
+                    seenIds.add(s.post.id);
+                    seenUrls.add(s.post.image_url);
+                    return true;
+                });
                 
                 if (freshUnseen.length > 0) {
                     setAllScoredPosts(prev => [...prev, ...freshUnseen]);
@@ -188,7 +193,12 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                 } else {
                     // Fetch next page offset from DB
                     const nextBatch = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
-                    const freshDbPosts = nextBatch.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url) && (!p.user_id || !blockedIds.includes(p.user_id)));
+                    const freshDbPosts = nextBatch.filter(p => {
+                        if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
+                        seenIds.add(p.id);
+                        seenUrls.add(p.image_url);
+                        return true;
+                    });
                     
                     if (freshDbPosts.length > 0) {
                         rawPostsCacheRef.current = [...rawPostsCacheRef.current, ...freshDbPosts];
@@ -203,7 +213,12 @@ function interleaveCategories(posts: PostData[]): PostData[] {
             } else {
                 const start = nextPage * PAGE_SIZE;
                 const morePosts = rawPostsCacheRef.current.slice(start, start + PAGE_SIZE);
-                const freshUnseen = morePosts.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url));
+                const freshUnseen = morePosts.filter(p => {
+                    if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url)) return false;
+                    seenIds.add(p.id);
+                    seenUrls.add(p.image_url);
+                    return true;
+                });
                 
                 if (freshUnseen.length > 0) {
                     setDiscoverPosts(prev => [...prev, ...freshUnseen]);
@@ -211,7 +226,12 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                 } else {
                     // Fetch next page offset from DB
                     const nextBatch = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
-                    const freshDbPosts = nextBatch.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url) && (!p.user_id || !blockedIds.includes(p.user_id)));
+                    const freshDbPosts = nextBatch.filter(p => {
+                        if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
+                        seenIds.add(p.id);
+                        seenUrls.add(p.image_url);
+                        return true;
+                    });
                     
                     if (freshDbPosts.length > 0) {
                         rawPostsCacheRef.current = [...rawPostsCacheRef.current, ...freshDbPosts];
