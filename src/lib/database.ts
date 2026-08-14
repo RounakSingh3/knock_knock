@@ -1375,7 +1375,7 @@ export async function fetchAllPostsForScoring(excludeUserId: string): Promise<Po
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(60);
+        .limit(200);
 
     if (excludeIds.length > 0) {
         query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
@@ -1529,13 +1529,12 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
     return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
-export async function fetchDiscoverPosts(category?: string | null, limit: number = 30): Promise<PostData[]> {
+export async function fetchDiscoverPosts(category?: string | null, limit: number = 60): Promise<PostData[]> {
     let query = supabase
         .from('posts')
         .select('*')
-        .order('likes_count', { ascending: false })
         .order('created_at', { ascending: false })
-        .limit(200); // Fetch extra to ensure enough data after deduplication
+        .limit(250);
         
     if (category && category !== 'All') {
         query = query.eq('category', category);
@@ -1547,17 +1546,7 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         return [];
     }
     
-    // Deduplicate by media URL to prevent identical placeholder videos from repeating
-    const seenUrls = new Set<string>();
-    const uniquePosts: PostData[] = [];
-    for (const p of (data || [])) {
-        if (!seenUrls.has(p.image_url)) {
-            seenUrls.add(p.image_url);
-            uniquePosts.push(p);
-        }
-    }
-    
-    return uniquePosts.slice(0, limit).map(normalizePost).filter((p): p is PostData => Boolean(p));
+    return (data || []).slice(0, limit).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 // ── Delete Post ────────────────────────────────────────────
