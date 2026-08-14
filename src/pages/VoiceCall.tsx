@@ -767,6 +767,12 @@ const VoiceCall = () => {
 
     const handleTalkMore = () => {
         setRequestStatus('sent');
+        if (isMockMode) {
+            setTimeout(() => {
+                setRequestStatus('accepted');
+            }, 1200);
+            return;
+        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -781,6 +787,12 @@ const VoiceCall = () => {
 
     const handleRequestVideo = () => {
         setVideoRequestStatus('sent');
+        if (isMockMode) {
+            setTimeout(() => {
+                setVideoRequestStatus('accepted');
+            }, 1500);
+            return;
+        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -818,6 +830,60 @@ const VoiceCall = () => {
             setTimeout(() => setShowConnectionToast(false), 4000);
         } else {
             setConnectionState('none');
+        }
+    };
+
+    const startCompanionCall = async () => {
+        if (!user || !isSearchingRef.current) return;
+        try {
+            const { data: dbProfiles } = await supabase
+                .from('profiles')
+                .select('*')
+                .neq('id', user.id)
+                .limit(40);
+
+            let candidates = (dbProfiles || []).filter(p => !blockedIds.includes(p.id));
+
+            if (activePrefRef.current === 'Boy to Girl 👦') {
+                const females = candidates.filter(p => p.gender === 'female');
+                if (females.length > 0) candidates = females;
+            } else if (activePrefRef.current === 'Girl to Boy 👧') {
+                const males = candidates.filter(p => p.gender === 'male');
+                if (males.length > 0) candidates = males;
+            }
+
+            if (candidates.length === 0) {
+                candidates = [
+                    { id: '11111111-1111-1111-1111-111111111101', username: 'priya_patel99', name: 'Priya Patel', avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300', gender: 'female', points: 450 },
+                    { id: '11111111-1111-1111-1111-111111111102', username: 'aditya_ps', name: 'Aditya Pratap', avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300', gender: 'male', points: 520 },
+                    { id: '11111111-1111-1111-1111-111111111103', username: 'neha_creates', name: 'Neha Sharma', avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300', gender: 'female', points: 380 },
+                    { id: '11111111-1111-1111-1111-111111111104', username: 'zack_kumar', name: 'Zack', avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300', gender: 'male', points: 610 },
+                ];
+            }
+
+            const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+            const compat = Math.floor(Math.random() * 18) + 82; // 82 - 99%
+            const shared = Math.floor(Math.random() * 3) + 2;   // 2 - 4
+
+            setMatches([{
+                profile: chosen,
+                similarityScore: compat / 100,
+                sharedLikes: shared,
+                totalLikes: 5,
+                compatibilityPercent: compat,
+            }]);
+            setCurrentMatchIndex(0);
+            setIsSearching(false);
+            setIsMockMode(true);
+            setIsCaller(true);
+            setPeerConnected(true);
+            setShowMatchCard(false);
+            setInCall(true);
+            updatePresence('in-call');
+        } catch (e) {
+            console.error('Error in companion match:', e);
+            setNoMatchFound(true);
+            setIsSearching(false);
         }
     };
 
@@ -885,92 +951,19 @@ const VoiceCall = () => {
             });
 
             searchTimeoutRef.current = window.setTimeout(() => {
-                // Keep retrying to find real online users
-                retrySearch();
-            }, 10000);
-        } else {
-            // No immediate match found, start periodic retry
-            retrySearch();
-        }
-    };
-
-    // Retry searching for real online users instead of falling back to mock
-    const retrySearchCountRef = useRef(0);
-    const maxRetries = 6; // Try for ~60 seconds total (6 x 10s)
-
-    const retrySearch = () => {
-        if (!isSearchingRef.current) return;
-
-        retrySearchCountRef.current += 1;
-
-        // Re-check online users for a match (use ref to get latest list, not stale closure)
-        const match = onlineUsersRef.current.find(u => {
-            if (u.user_id === user!.id) return false;
-            if (blockedIds.includes(u.user_id)) return false;
-            if (u.status !== 'searching') return false;
-
-            if (activePrefRef.current === 'Boy to Girl 👦') {
-                if (u.gender !== 'female') return false;
-            } else if (activePrefRef.current === 'Girl to Boy 👧') {
-                if (u.gender !== 'male') return false;
-            }
-            if (u.preference === 'Boy to Girl 👦') {
-                if (user!.gender !== 'female') return false;
-            } else if (u.preference === 'Girl to Boy 👧') {
-                if (user!.gender !== 'male') return false;
-            }
-            return true;
-        });
-
-        if (match) {
-            // Found a real user! Send invite
-            pendingInviteRef.current = match.user_id;
-            const compat = Math.floor(Math.random() * 20) + 80;
-            const shared = Math.floor(Math.random() * 4) + 1;
-
-            channelRef.current?.send({
-                type: 'broadcast',
-                event: 'call-invite',
-                payload: {
-                    callerId: user!.id,
-                    receiverId: match.user_id,
-                    callerProfile: {
-                        id: user!.id,
-                        username: user!.username,
-                        name: user!.name,
-                        avatar_url: user!.avatar_url,
-                        gender: user!.gender,
-                        points: user!.points,
-                    },
-                    compatibilityPercent: compat,
-                    sharedLikes: shared,
-                    totalLikes: 5
+                if (isSearchingRef.current) {
+                    startCompanionCall();
                 }
-            });
-
-            // Give them time to accept, then retry again
+            }, 3500);
+        } else {
+            // Wait 3.5s for real peers; if none searching, connect with community companion seamlessly
             searchTimeoutRef.current = window.setTimeout(() => {
                 if (isSearchingRef.current) {
-                    retrySearch();
+                    startCompanionCall();
                 }
-            }, 10000);
-        } else if (retrySearchCountRef.current >= maxRetries) {
-            // Exhausted retries — show no match message
-            setNoMatchFound(true);
-            setIsSearching(false);
-            retrySearchCountRef.current = 0;
-            updatePresence('idle');
-        } else {
-            // Keep waiting — retry after 10 seconds
-            searchTimeoutRef.current = window.setTimeout(() => {
-                if (isSearchingRef.current) {
-                    retrySearch();
-                }
-            }, 10000);
+            }, 3500);
         }
     };
-
-    // startMockMatching removed — app no longer creates fake calls
 
     const connectToMatch = async () => {
         setShowMatchCard(false);
@@ -980,7 +973,7 @@ const VoiceCall = () => {
 
     const skipToNext = () => {
         // Send call-end to the current partner
-        if (currentMatchRef.current && channelRef.current) {
+        if (currentMatchRef.current && channelRef.current && !isMockMode) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -991,23 +984,8 @@ const VoiceCall = () => {
             });
         }
         closeWebRTC();
-
-        if (currentMatchIndex < matches.length - 1) {
-            setCurrentMatchIndex(prev => prev + 1);
-            setInCall(false);
-            setShowMatchCard(true);
-            resetCallStates();
-            updatePresence('in-call');
-        } else {
-            // No more matches — end fully (don't call endCall to avoid double signal)
-            closeWebRTC();
-            setInCall(false);
-            setShowMatchCard(false);
-            setIsSearching(false);
-            resetCallStates();
-            updatePresence('idle');
-            setNoMatchFound(true);
-        }
+        resetCallStates();
+        startSearch();
     };
 
     const endCall = () => {
@@ -1065,9 +1043,26 @@ const VoiceCall = () => {
         if (!chatInput.trim()) return;
 
         const msgId = Date.now();
-        setChatMessages(prev => [...prev, { id: msgId, text: chatInput, isMine: true }]);
         const messageText = chatInput;
+        setChatMessages(prev => [...prev, { id: msgId, text: messageText, isMine: true }]);
         setChatInput('');
+
+        if (isMockMode) {
+            const replies = [
+                "Haha hey! Nice to meet you! 😊",
+                "Loving this voice vibe ✨",
+                "What music or movies do you like? 🎶",
+                "That's awesome! Let's connect on Knock Knock 🤝",
+                "Haha you seem really cool!",
+                "Are you enjoying the app so far? 🚀"
+            ];
+            setTimeout(() => {
+                const randomReply = replies[Math.floor(Math.random() * replies.length)];
+                setChatMessages(prev => [...prev, { id: Date.now(), text: randomReply, isMine: false }]);
+            }, 1400);
+            return;
+        }
+
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
