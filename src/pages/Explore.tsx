@@ -89,6 +89,33 @@ const Explore = () => {
         });
     }, [blockedIds]);
 
+function interleaveCategories(posts: PostData[]): PostData[] {
+    const buckets: Record<string, PostData[]> = {};
+    posts.forEach(p => {
+        const cat = p.category || 'General';
+        if (!buckets[cat]) buckets[cat] = [];
+        buckets[cat].push(p);
+    });
+
+    const categoryKeys = Object.keys(buckets);
+    const result: PostData[] = [];
+    let hasMoreInBuckets = true;
+    let idx = 0;
+
+    while (hasMoreInBuckets) {
+        hasMoreInBuckets = false;
+        for (const cat of categoryKeys) {
+            if (idx < buckets[cat].length) {
+                result.push(buckets[cat][idx]);
+                hasMoreInBuckets = true;
+            }
+        }
+        idx++;
+    }
+
+    return result.length > 0 ? result : posts;
+}
+
     // Load Discover Feed
     const loadDiscoverFeed = async () => {
         setIsDiscoverLoading(true);
@@ -96,18 +123,24 @@ const Explore = () => {
         setHasMore(true);
         observedPostsRef.current.clear();
         try {
-            let rawPosts = await fetchDiscoverPosts(selectedCategory, 150, 0);
+            let rawPosts = await fetchDiscoverPosts(selectedCategory, 200, 0);
             rawPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
             
             // Strictly deduplicate by image_url and id
             const seenUrls = new Set<string>();
             const seenIds = new Set<string>();
-            const uniqueRaw = rawPosts.filter(p => {
+            let uniqueRaw = rawPosts.filter(p => {
                 if (!p.image_url || seenUrls.has(p.image_url) || seenIds.has(p.id)) return false;
                 seenUrls.add(p.image_url);
                 seenIds.add(p.id);
                 return true;
             });
+
+            // If "All" categories selected, interleave categories for a rich Instagram mix
+            if (!selectedCategory || selectedCategory === 'All') {
+                uniqueRaw = interleaveCategories(uniqueRaw);
+            }
+
             rawPostsCacheRef.current = uniqueRaw;
 
             if (user) {
@@ -419,6 +452,48 @@ const Explore = () => {
                                 </div>
                             )}
                             {isTrendingLoading && <TrendingSkeleton />}
+
+                            {/* 🏷️ Instagram-Style Category Filter Pills */}
+                            <div style={{
+                                display: 'flex', gap: '8px', overflowX: 'auto',
+                                padding: '4px 0 14px', scrollbarWidth: 'none',
+                                WebkitOverflowScrolling: 'touch'
+                            }}>
+                                {[
+                                    { label: '✨ All', val: null },
+                                    { label: '😂 Memes', val: 'Memes' },
+                                    { label: '🎬 Bollywood', val: 'Bollywood' },
+                                    { label: '💪 Gym & Fitness', val: 'Fitness' },
+                                    { label: '🏏 Sports & Cricket', val: 'Sports' },
+                                    { label: '🌴 Lifestyle', val: 'Lifestyle' },
+                                    { label: '🎮 Gaming', val: 'Gaming' },
+                                ].map(cat => {
+                                    const isSelected = selectedCategory === cat.val;
+                                    return (
+                                        <button
+                                            key={cat.label}
+                                            onClick={() => setSelectedCategory(cat.val)}
+                                            style={{
+                                                flexShrink: 0,
+                                                padding: '6px 14px',
+                                                borderRadius: '20px',
+                                                fontSize: '12px',
+                                                fontWeight: isSelected ? '600' : '500',
+                                                background: isSelected ? 'var(--primary-gradient, linear-gradient(135deg, #f5a524, #ff5722))' : 'rgba(255, 255, 255, 0.08)',
+                                                color: isSelected ? '#000' : 'var(--text-active)',
+                                                border: isSelected ? 'none' : '1px solid rgba(255, 255, 255, 0.12)',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s ease',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            {cat.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
 
                             {/* Discover Grid */}
                             {isDiscoverLoading ? (
