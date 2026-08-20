@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, Plus, Check as CheckIcon, Info, LogOut, Search, MessageSquarePlus, PhoneCall, Sparkles } from 'lucide-react';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, Plus, Check as CheckIcon, Info, LogOut } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
@@ -46,7 +46,7 @@ interface ChatPanelProps {
     pendingShare?: { receiverId: string; message: MessageData } | null;
 }
 
-const GROUP_EMOJIS = ['🔥', '🚀', '🎉', '🌴', '💬', '✨', '🎸', '⚽', '🍕', '👾', '👑', '⚡', '💃', '🍿'];
+const GROUP_EMOJIS = ['🔥', '🚀', '🎉', '🌴', '💬', '✨', '🎸', '⚽', '🍕', '👾', '👑', '⚡'];
 
 function parseSharePayload(content: string) {
     try {
@@ -72,50 +72,7 @@ function getSharePreview(content: string, isMe: boolean, contactName: string) {
     return isMe ? `You shared a ${label}` : `📷 ${contactName} shared a ${label}`;
 }
 
-function formatWhatsAppDate(isoDateStr: string): string {
-    if (!isoDateStr) return '';
-    const date = new Date(isoDateStr);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-
-    if (isToday) {
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else if (isYesterday) {
-        return 'Yesterday';
-    } else {
-        return date.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' });
-    }
-}
-
-function groupMessagesByDate(msgs: (MessageData | GroupMessage)[]) {
-    const groups: { dateLabel: string; messages: (MessageData | GroupMessage)[] }[] = [];
-    const todayStr = new Date().toDateString();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toDateString();
-
-    msgs.forEach(msg => {
-        const msgDate = new Date(msg.created_at);
-        const msgDateStr = msgDate.toDateString();
-        let label = msgDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-        if (msgDateStr === todayStr) label = 'Today';
-        else if (msgDateStr === yesterdayStr) label = 'Yesterday';
-
-        let existing = groups.find(g => g.dateLabel === label);
-        if (!existing) {
-            existing = { dateLabel: label, messages: [] };
-            groups.push(existing);
-        }
-        existing.messages.push(msg);
-    });
-    return groups;
-}
-
-// ── Multi-Key Local Storage Chat Recovery Helpers ──
+// Multi-Key Local Storage Chat Recovery
 function loadLocalChatMessages(myId: string, partnerId: string): MessageData[] {
     const keys = [
         `knock_chat_msgs_${myId}_${partnerId}`,
@@ -186,8 +143,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const navigate = useNavigate();
 
     const [view, setView] = useState<'list' | 'chat' | 'group_chat'>('list');
-    const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'direct' | 'groups'>('all');
-    const [searchQuery, setSearchQuery] = useState('');
     const [selectedContact, setSelectedContact] = useState<ChatContact | null>(null);
 
     // Group state
@@ -196,11 +151,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [groupMessages, setGroupMessages] = useState<GroupMessage[]>([]);
     const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
     const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
-    const [showNewChatModal, setShowNewChatModal] = useState(false);
     const [newGroupName, setNewGroupName] = useState('');
     const [newGroupEmoji, setNewGroupEmoji] = useState('🔥');
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-    const [newChatSearchQuery, setNewChatSearchQuery] = useState('');
 
     const [messages, setMessages] = useState<MessageData[]>([]);
     const [loadingMessages, setLoadingMessages] = useState(false);
@@ -264,10 +217,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         window.history.pushState({ chatPanel: true }, '');
 
         const handlePopState = () => {
-            if (showNewChatModal) {
-                setShowNewChatModal(false);
-                window.history.pushState({ chatPanel: true }, '');
-            } else if (showCreateGroupModal) {
+            if (showCreateGroupModal) {
                 setShowCreateGroupModal(false);
                 window.history.pushState({ chatPanel: true }, '');
             } else if (showGroupInfoModal) {
@@ -286,9 +236,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [isOpen, viewingSnap, view, showCreateGroupModal, showGroupInfoModal, showNewChatModal, onClose]);
+    }, [isOpen, viewingSnap, view, showCreateGroupModal, showGroupInfoModal, onClose]);
 
-    // Fetch all chat threads from Supabase & merge with local history
     const fetchChatThreads = async (myId: string) => {
         const { data: msgs, error } = await supabase
             .from('messages')
@@ -296,78 +245,94 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             .or(`sender_id.eq.${myId},receiver_id.eq.${myId}`)
             .order('created_at', { ascending: false });
 
-        const threadMap = scanAllLocalChatThreads(myId);
+        const threadsMap = scanAllLocalChatThreads(myId);
 
         if (msgs && Array.isArray(msgs)) {
-            for (const msg of msgs) {
-                const otherId = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
-                if (!threadMap.has(otherId)) {
-                    threadMap.set(otherId, {
-                        lastMessage: msg,
-                        unreadCount: (!msg.is_read && msg.receiver_id === myId) ? 1 : 0,
-                    });
-                } else {
-                    const current = threadMap.get(otherId)!;
-                    if (!msg.is_read && msg.receiver_id === myId) {
-                        current.unreadCount += 1;
-                    }
-                    if (new Date(msg.created_at).getTime() > new Date(current.lastMessage.created_at).getTime()) {
-                        current.lastMessage = msg;
-                    }
+            msgs.forEach((m: MessageData) => {
+                const partnerId = m.sender_id === myId ? m.receiver_id : m.sender_id;
+                if (!threadsMap.has(partnerId)) {
+                    threadsMap.set(partnerId, { lastMessage: m, unreadCount: 0 });
                 }
-            }
+                if (m.receiver_id === myId && !m.is_read) {
+                    threadsMap.get(partnerId)!.unreadCount += 1;
+                }
+            });
         }
 
-        return threadMap;
+        return Array.from(threadsMap.entries()).map(([partnerId, data]) => ({
+            partnerId,
+            ...data,
+        }));
     };
 
     const refreshContacts = useCallback(() => {
         if (!currentUser?.id) return;
         setLoadingContacts(true);
 
-        fetchChatThreads(currentUser.id).then(async threadMap => {
-            try {
-                const [connIds, followingIds, followerIds, { data: allProfiles }] = await Promise.all([
-                    fetchConnectionUserIds(currentUser.id),
-                    fetchFollowing(currentUser.id),
-                    fetchFollowers(currentUser.id),
-                    supabase.from('profiles').select('id, username, name, avatar_url, bio, gender').limit(100)
-                ]);
+        Promise.all([
+            fetchConnectionUserIds(currentUser.id),
+            fetchFollowing(currentUser.id),
+            fetchFollowers(currentUser.id),
+            fetchChatThreads(currentUser.id),
+            supabase.from('profiles').select('id, username, name, avatar_url, bio, gender').limit(100)
+        ]).then(([connIds, followingProfiles, followerProfiles, threadData, { data: allDbProfiles }]) => {
+            const partnerIds = new Set<string>(threadData.map(t => t.partnerId));
 
-                const allIds = new Set<string>([
-                    ...connIds,
-                    ...followingIds,
-                    ...followerIds,
-                    ...Array.from(threadMap.keys()),
-                    ...(allProfiles || []).map(p => p.id)
-                ]);
+            if (initialOpenUserId) {
+                partnerIds.add(initialOpenUserId);
+            }
 
-                allIds.delete(currentUser.id);
+            const dbProfilesMap = new Map((allDbProfiles || []).map(p => [p.id, p]));
 
-                const profilesToUse: any[] = allProfiles && allProfiles.length > 0 
-                    ? (allProfiles as any[]).filter(p => p.id !== currentUser.id)
-                    : await fetchProfilesByIds(Array.from(allIds));
+            fetchProfilesByIds(Array.from(partnerIds)).then(fetchedProfiles => {
+                const profilesMap = new Map<string, ProfileData>();
+                (allDbProfiles || []).forEach(p => profilesMap.set(p.id, p as any));
+                fetchedProfiles.forEach(p => profilesMap.set(p.id, p));
 
-                const contactsWithThreads: ChatContact[] = profilesToUse.map(profile => {
-                    const thread = threadMap.get(profile.id);
-                    return {
-                        ...profile,
-                        lastMessage: thread?.lastMessage || null,
-                        unreadCount: thread?.unreadCount || 0,
-                    };
-                });
+                const activeChats: ChatContact[] = threadData
+                    .map(t => {
+                        const profile = profilesMap.get(t.partnerId) || dbProfilesMap.get(t.partnerId);
+                        if (!profile) return null;
+                        return {
+                            ...profile,
+                            lastMessage: t.lastMessage,
+                            unreadCount: t.unreadCount,
+                        };
+                    })
+                    .filter(Boolean) as ChatContact[];
 
-                let merged = contactsWithThreads.sort((a, b) => {
+                activeChats.sort((a, b) => {
                     const timeA = a.lastMessage?.created_at ?? '';
                     const timeB = b.lastMessage?.created_at ?? '';
-                    if (timeA && timeB) return timeB.localeCompare(timeA);
-                    if (timeA) return -1;
-                    if (timeB) return 1;
-                    return (a.name || a.username || '').localeCompare(b.name || b.username || '');
+                    return timeB.localeCompare(timeA);
                 });
 
+                const chattedSet = new Set(threadData.map(t => t.partnerId));
+                
+                const allFriendIds = new Set<string>([
+                    ...connIds,
+                    ...followingProfiles.map(p => p.id),
+                    ...followerProfiles.map(p => p.id),
+                    ...(allDbProfiles || []).map(p => p.id)
+                ]);
+                allFriendIds.delete(currentUser.id);
+                
+                const unchattedConnIds = Array.from(allFriendIds).filter(id => !chattedSet.has(id));
+
+                const unchattedConns: ChatContact[] = unchattedConnIds.map(id => {
+                    const p = profilesMap.get(id) || dbProfilesMap.get(id);
+                    if (!p) return null;
+                    return {
+                        ...p,
+                        lastMessage: null,
+                        unreadCount: 0,
+                    };
+                }).filter(Boolean) as ChatContact[];
+
+                let merged = [...activeChats, ...unchattedConns];
+
                 if (initialOpenUserId && !merged.some(c => c.id === initialOpenUserId)) {
-                    const p = profilesToUse.find(p => p.id === initialOpenUserId);
+                    const p = profilesMap.get(initialOpenUserId) || dbProfilesMap.get(initialOpenUserId);
                     if (p) {
                         merged = [{ ...p, lastMessage: null, unreadCount: 0 }, ...merged];
                     }
@@ -375,11 +340,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
                 setAllContacts(merged);
                 saveChatListCache(merged);
-            } catch (err) {
-                console.error('Error refreshing contacts:', err);
-            } finally {
                 setLoadingContacts(false);
-            }
+
+                if (initialOpenUserId) {
+                    const targetUser = merged.find(p => p.id === initialOpenUserId);
+                    if (targetUser) {
+                        setSelectedContact(targetUser);
+                        setView('chat');
+                    }
+                }
+            });
         });
     }, [currentUser.id, initialOpenUserId]);
 
@@ -966,33 +936,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
     if (!isOpen) return null;
 
-    // Filter contacts according to active tab & search query
-    const filteredContacts = allContacts.filter(c => {
-        const matchesQuery = 
-            (c.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (c.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (c.lastMessage?.content || '').toLowerCase().includes(searchQuery.toLowerCase());
-        
-        if (!matchesQuery) return false;
-
-        if (activeTab === 'unread') return (c.unreadCount || 0) > 0;
-        if (activeTab === 'direct') return true;
-        if (activeTab === 'groups') return false;
-        return true;
-    });
-
-    const filteredGroups = groups.filter(g => {
-        const matchesQuery = 
-            (g.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (g.lastMessage?.content || '').toLowerCase().includes(searchQuery.toLowerCase());
-        
-        if (!matchesQuery) return false;
-
-        if (activeTab === 'direct') return false;
-        return true;
-    });
-
-    const totalUnreadCount = allContacts.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+    const chattedContacts = allContacts.filter(c => c.lastMessage !== null && c.lastMessage !== undefined);
+    const unchattedContacts = allContacts.filter(c => c.lastMessage === null || c.lastMessage === undefined);
 
     return (
         <div style={{
@@ -1002,24 +947,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         }}>
             {view === 'list' ? (
                 <>
-                    {/* WhatsApp-Style Header */}
+                    {/* Header */}
                     <header style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '16px', borderBottom: '1px solid #222', background: 'var(--surface-color)'
+                        padding: '16px', borderBottom: '1px solid #2c2c2e', background: 'var(--surface-color)'
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h2 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-active)', margin: 0, letterSpacing: '-0.3px' }}>
-                                Chats
-                            </h2>
-                            {totalUnreadCount > 0 && (
-                                <span style={{
-                                    background: '#25D366', color: '#000', fontSize: '11px',
-                                    fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px'
-                                }}>
-                                    {totalUnreadCount}
-                                </span>
-                            )}
-                        </div>
+                        <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--text-active)', margin: 0 }}>
+                            Messages
+                        </h2>
                         
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <button
@@ -1031,78 +966,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer'
                                 }}
                             >
-                                <Users size={15} /> Group
-                            </button>
-                            <button
-                                onClick={() => setShowNewChatModal(true)}
-                                style={{
-                                    background: 'var(--primary-gradient)',
-                                    border: 'none', borderRadius: '16px', padding: '6px 12px',
-                                    color: '#fff', fontSize: '13px', fontWeight: 'bold',
-                                    display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
-                                    boxShadow: '0 2px 8px rgba(245, 165, 36, 0.3)'
-                                }}
-                            >
-                                <MessageSquarePlus size={15} /> + New
+                                <Users size={15} /> + Group
                             </button>
                             <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', padding: '4px' }}>
                                 <X size={24} />
                             </button>
                         </div>
                     </header>
-
-                    {/* WhatsApp-Style Search Bar */}
-                    <div style={{ padding: '10px 16px', background: 'var(--surface-color)', borderBottom: '1px solid #1c1c1e' }}>
-                        <div style={{
-                            display: 'flex', alignItems: 'center', gap: '10px',
-                            background: 'var(--bg-color)', border: '1px solid var(--border-color)',
-                            borderRadius: '16px', padding: '8px 14px',
-                        }}>
-                            <Search size={16} color="var(--text-inactive)" />
-                            <input
-                                type="text"
-                                placeholder="Search chats or messages..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                style={{
-                                    background: 'none', border: 'none', color: '#fff',
-                                    fontSize: '14px', outline: 'none', flex: 1
-                                }}
-                            />
-                            {searchQuery && (
-                                <button onClick={() => setSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }}>
-                                    <X size={16} />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* WhatsApp-Style Filter Pills */}
-                    <div style={{
-                        display: 'flex', gap: '8px', padding: '10px 16px',
-                        borderBottom: '1px solid #1c1c1e', background: 'var(--surface-color)', overflowX: 'auto'
-                    }}>
-                        {[
-                            { id: 'all', label: 'All' },
-                            { id: 'unread', label: `Unread (${totalUnreadCount})` },
-                            { id: 'direct', label: `Direct (${allContacts.length})` },
-                            { id: 'groups', label: `Groups (${groups.length})` },
-                        ].map(tab => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id as any)}
-                                style={{
-                                    padding: '5px 14px', borderRadius: '14px', fontSize: '13px', fontWeight: 'bold',
-                                    border: activeTab === tab.id ? '1px solid var(--primary-color)' : '1px solid rgba(255,255,255,0.08)',
-                                    background: activeTab === tab.id ? 'var(--primary-gradient)' : 'rgba(255,255,255,0.04)',
-                                    color: activeTab === tab.id ? '#fff' : 'var(--text-inactive)',
-                                    cursor: 'pointer', transition: 'all 0.2s ease', whiteSpace: 'nowrap',
-                                }}
-                            >
-                                {tab.label}
-                            </button>
-                        ))}
-                    </div>
 
                     {/* Chat Feed List */}
                     <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
@@ -1111,23 +981,23 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         ) : (
                             <>
                                 {/* ── Groups Section ── */}
-                                {filteredGroups.length > 0 && (
+                                {groups.length > 0 && (
                                     <div>
-                                        {filteredGroups.map(group => (
+                                        {groups.map(group => (
                                             <div
                                                 key={group.id}
                                                 onClick={() => { setSelectedGroup(group); setView('group_chat'); }}
                                                 style={{
-                                                    display: 'flex', alignItems: 'center', padding: '14px 16px',
+                                                    display: 'flex', alignItems: 'center', padding: '16px',
                                                     borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
-                                                    background: 'rgba(245, 165, 36, 0.02)',
+                                                    background: 'rgba(245, 165, 36, 0.03)',
                                                 }}
                                             >
                                                 <div style={{
-                                                    width: '52px', height: '52px', borderRadius: '50%',
+                                                    width: '50px', height: '50px', borderRadius: '50%',
                                                     background: 'linear-gradient(135deg, #f5a524, #a855f7)',
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    fontSize: '24px', marginRight: '14px', flexShrink: 0,
+                                                    fontSize: '24px', marginRight: '16px', flexShrink: 0,
                                                     boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                                                 }}>
                                                     {group.avatar_emoji || '👥'}
@@ -1136,17 +1006,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                         <h3 style={{
                                                             margin: 0, fontSize: '16px', color: 'var(--text-active)',
-                                                            fontWeight: '700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                            fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                                         }}>
                                                             {group.name}
                                                         </h3>
                                                         <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>
-                                                            {group.lastMessage ? formatWhatsAppDate(group.lastMessage.created_at) : ''}
+                                                            {group.lastMessage ? new Date(group.lastMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                                         </span>
                                                     </div>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                                                         <p style={{
-                                                            margin: 0, fontSize: '13px', color: 'var(--text-inactive)',
+                                                            margin: 0, fontSize: '14px', color: 'var(--text-inactive)',
                                                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                                             flex: 1, marginRight: '8px'
                                                         }}>
@@ -1162,14 +1032,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     </div>
                                 )}
 
-                                {/* ── Direct Chats Section ── */}
-                                {filteredContacts.map(contact => {
-                                    const lastMsg = contact.lastMessage;
+                                {/* ── Chatted Contacts ── */}
+                                {chattedContacts.map(contact => {
+                                    const lastMsg = contact.lastMessage!;
                                     const unread = contact.unreadCount || 0;
-                                    const isMe = lastMsg?.sender_id === currentUser.id;
+                                    const isMe = lastMsg.sender_id === currentUser.id;
 
                                     const getMessagePreview = () => {
-                                        if (!lastMsg) return 'Tap to start chatting';
                                         if (lastMsg.content.startsWith('[SHARE_POST]')) {
                                             return getSharePreview(lastMsg.content, isMe, contact.username);
                                         }
@@ -1187,25 +1056,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             key={contact.id}
                                             onClick={() => { setSelectedContact(contact); setView('chat'); }}
                                             style={{
-                                                display: 'flex', alignItems: 'center', padding: '14px 16px',
-                                                borderBottom: '1px solid #1a1a1c', cursor: 'pointer',
-                                                backgroundColor: unread > 0 ? 'rgba(37, 211, 102, 0.05)' : 'transparent',
-                                                transition: 'background-color 0.15s ease',
+                                                display: 'flex', alignItems: 'center', padding: '16px',
+                                                borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
                                             }}
                                         >
-                                            <div style={{ position: 'relative', marginRight: '14px', flexShrink: 0 }}>
-                                                <img
-                                                    src={contact.avatar_url || 'https://i.pravatar.cc/150'}
-                                                    alt={contact.username}
-                                                    style={{ width: '52px', height: '52px', borderRadius: '50%', objectFit: 'cover' }}
-                                                />
-                                                <span style={{
-                                                    position: 'absolute', bottom: '2px', right: '2px',
-                                                    width: '12px', height: '12px', borderRadius: '50%',
-                                                    background: '#25D366', border: '2px solid #000'
-                                                }} />
-                                            </div>
-
+                                            <img
+                                                src={contact.avatar_url || 'https://i.pravatar.cc/150'}
+                                                alt={contact.username}
+                                                style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', marginRight: '16px' }}
+                                            />
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                     <h3 style={{
@@ -1215,38 +1074,26 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     }}>
                                                         {contact.name || contact.username}
                                                     </h3>
-                                                    <span style={{ fontSize: '12px', color: unread > 0 ? '#25D366' : 'var(--text-inactive)', fontWeight: unread > 0 ? 'bold' : 'normal' }}>
-                                                        {lastMsg ? formatWhatsAppDate(lastMsg.created_at) : ''}
+                                                    <span style={{ fontSize: '11px', color: unread > 0 ? '#f5a524' : 'var(--text-inactive)' }}>
+                                                        {new Date(lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                     </span>
                                                 </div>
-
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden', flex: 1, marginRight: '8px' }}>
-                                                        {lastMsg && isMe && (
-                                                            <span>
-                                                                {lastMsg.is_read ? (
-                                                                    <CheckCheck size={16} color="#34B7F1" />
-                                                                ) : (
-                                                                    <Check size={16} color="#8696a0" />
-                                                                )}
-                                                            </span>
-                                                        )}
-                                                        <p style={{
-                                                            margin: 0, fontSize: '14px',
-                                                            color: unread > 0 ? 'var(--text-active)' : 'var(--text-inactive)',
-                                                            fontWeight: unread > 0 ? '600' : 'normal',
-                                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                                        }}>
-                                                            {getMessagePreview()}
-                                                        </p>
-                                                    </div>
-
+                                                    <p style={{
+                                                        margin: 0, fontSize: '14px',
+                                                        color: unread > 0 ? 'var(--text-active)' : 'var(--text-inactive)',
+                                                        fontWeight: unread > 0 ? '500' : 'normal',
+                                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                        marginRight: '8px', flex: 1,
+                                                    }}>
+                                                        {getMessagePreview()}
+                                                    </p>
                                                     {unread > 0 && (
                                                         <span style={{
-                                                            background: '#25D366', color: '#000', fontSize: '12px',
-                                                            fontWeight: 'bold', borderRadius: '50%', minWidth: '20px',
-                                                            height: '20px', display: 'flex', alignItems: 'center',
-                                                            justifyContent: 'center', padding: '0 5px',
+                                                            background: '#f5a524', color: '#000', fontSize: '11px',
+                                                            fontWeight: 'bold', borderRadius: '50%', minWidth: '18px',
+                                                            height: '18px', display: 'flex', alignItems: 'center',
+                                                            justifyContent: 'center', padding: '0 4px',
                                                         }}>
                                                             {unread}
                                                         </span>
@@ -1257,59 +1104,73 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     );
                                 })}
 
-                                {filteredContacts.length === 0 && filteredGroups.length === 0 && (
-                                    <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-inactive)' }}>
-                                        <MessageSquarePlus size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
-                                        <h3 style={{ color: 'var(--text-active)', margin: '0 0 8px' }}>No chats found</h3>
-                                        <p style={{ margin: '0 0 20px', fontSize: '14px' }}>
-                                            {searchQuery ? `No chats matching "${searchQuery}"` : 'Start a new conversation with friends on Knock Knock!'}
-                                        </p>
-                                        <button
-                                            onClick={() => setShowNewChatModal(true)}
-                                            style={{
-                                                background: 'var(--primary-gradient)', border: 'none', borderRadius: '20px',
-                                                padding: '10px 24px', color: '#fff', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer'
-                                            }}
-                                        >
-                                            + Start New Chat
-                                        </button>
+                                {/* ── Connections / Friends Header ── */}
+                                {unchattedContacts.length > 0 && (
+                                    <div style={{ padding: '16px 16px 8px', color: 'var(--text-inactive)', fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px' }}>
+                                        CONNECTIONS
                                     </div>
                                 )}
+
+                                {/* ── Unchatted Contacts ── */}
+                                {unchattedContacts.map(contact => (
+                                    <div
+                                        key={contact.id}
+                                        onClick={() => { setSelectedContact(contact); setView('chat'); }}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', padding: '16px',
+                                            borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
+                                        }}
+                                    >
+                                        <img
+                                            src={contact.avatar_url || 'https://i.pravatar.cc/150'}
+                                            alt={contact.username}
+                                            style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', marginRight: '16px' }}
+                                        />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <h3 style={{ margin: 0, fontSize: '16px', color: 'var(--text-active)', fontWeight: '600' }}>
+                                                {contact.name || contact.username}
+                                            </h3>
+                                            <p style={{ margin: '4px 0 0', fontSize: '14px', color: 'var(--text-inactive)' }}>
+                                                Tap to chat
+                                            </p>
+                                        </div>
+                                    </div>
+                                ))}
                             </>
                         )}
                     </div>
                 </>
             ) : view === 'group_chat' && selectedGroup ? (
-                /* ── WhatsApp-Style Group Chat Room View ── */
+                /* ── Group Chat Room View ── */
                 <>
                     <header style={{
-                        display: 'flex', alignItems: 'center', padding: '12px 16px',
+                        display: 'flex', alignItems: 'center', padding: '16px',
                         borderBottom: '1px solid #2c2c2e', background: 'var(--surface-color)'
                     }}>
                         <button
                             onClick={() => setView('list')}
-                            style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '8px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                            style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '12px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
                         >
-                            <ChevronLeft size={26} />
+                            <ChevronLeft size={24} />
                         </button>
                         <div 
                             style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }}
                             onClick={() => setShowGroupInfoModal(true)}
                         >
                             <div style={{
-                                width: '40px', height: '40px', borderRadius: '50%',
+                                width: '38px', height: '38px', borderRadius: '50%',
                                 background: 'linear-gradient(135deg, #f5a524, #a855f7)',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: '20px', marginRight: '12px', flexShrink: 0
+                                fontSize: '18px', marginRight: '12px', flexShrink: 0
                             }}>
                                 {selectedGroup.avatar_emoji || '👥'}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--text-active)', margin: 0 }}>
+                                <h2 style={{ fontSize: '17px', fontWeight: 'bold', color: 'var(--text-active)', margin: 0 }}>
                                     {selectedGroup.name}
                                 </h2>
                                 <span style={{ fontSize: '12px', color: 'var(--text-inactive)' }}>
-                                    {selectedGroup.members.length} members • Tap for info
+                                    {selectedGroup.members.length} members • Group info
                                 </span>
                             </div>
                         </div>
@@ -1321,10 +1182,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         </button>
                     </header>
 
-                    {/* WhatsApp-Style Group Message Stream */}
+                    {/* Group Message Stream */}
                     <div style={{
                         flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column',
-                        background: 'radial-gradient(circle at center, #111116 0%, #08080a 100%)'
+                        background: 'var(--bg-color)'
                     }}>
                         {groupMessages.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto', padding: '24px' }}>
@@ -1333,107 +1194,92 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <p style={{ margin: 0, fontSize: '13px' }}>Messages in this group are shared in real-time with all members.</p>
                             </div>
                         ) : (
-                            groupMessagesByDate(groupMessages).map((dateGroup, dIdx) => (
-                                <React.Fragment key={dIdx}>
-                                    <div style={{ display: 'flex', justifyContent: 'center', margin: '14px 0 10px' }}>
-                                        <span style={{
-                                            background: 'rgba(255,255,255,0.08)', color: 'var(--text-inactive)',
-                                            fontSize: '11px', fontWeight: 'bold', padding: '3px 12px', borderRadius: '10px'
-                                        }}>
-                                            {dateGroup.dateLabel}
-                                        </span>
-                                    </div>
+                            groupMessages.map(msg => {
+                                const isMe = msg.sender_id === currentUser.id;
+                                const isShare = msg.content.startsWith('[SHARE_POST]');
 
-                                    {(dateGroup.messages as GroupMessage[]).map(msg => {
-                                        const isMe = msg.sender_id === currentUser.id;
-                                        const isShare = msg.content.startsWith('[SHARE_POST]');
-
-                                        return (
-                                            <div
-                                                key={msg.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    alignItems: isMe ? 'flex-end' : 'flex-start',
-                                                    marginBottom: '10px',
-                                                }}
-                                            >
-                                                {!isMe && (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px', marginLeft: '4px' }}>
-                                                        {msg.sender_avatar && (
-                                                            <img src={msg.sender_avatar} alt="" style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover' }} />
-                                                        )}
-                                                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#f5a524' }}>
-                                                            {msg.sender_name}
-                                                        </span>
-                                                    </div>
+                                return (
+                                    <div
+                                        key={msg.id}
+                                        style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: isMe ? 'flex-end' : 'flex-start',
+                                            marginBottom: '12px',
+                                        }}
+                                    >
+                                        {!isMe && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px', marginLeft: '4px' }}>
+                                                {msg.sender_avatar && (
+                                                    <img src={msg.sender_avatar} alt="" style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover' }} />
                                                 )}
-                                                <div style={{
-                                                    background: isMe ? 'linear-gradient(135deg, #005c4b, #025144)' : 'var(--border-color)',
-                                                    color: '#fff',
-                                                    padding: isShare ? '8px' : '10px 14px',
-                                                    borderRadius: isMe ? '16px 16px 2px 16px' : '16px 16px 16px 2px',
-                                                    maxWidth: '82%',
-                                                    fontSize: '15px',
-                                                    lineHeight: '1.4',
-                                                    wordBreak: 'break-word',
-                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                                                }}>
-                                                    {isShare ? renderSharedContent(msg.content, isMe) : (
-                                                        (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                                <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
-                                                                    🎙️ Group Voice Mail
-                                                                </div>
-                                                                <audio
-                                                                    controls
-                                                                    src={msg.content.replace('[VOICE_REACTION] ', '').replace('[VOICE] ', '')}
-                                                                    style={{ width: '200px', height: '36px', borderRadius: '18px' }}
-                                                                />
-                                                            </div>
-                                                        ) : msg.content.startsWith('[SNAP]') ? (() => {
-                                                            const url = msg.content.replace('[SNAP] ', '');
-                                                            const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
-                                                            return (
-                                                                <button 
-                                                                    onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
-                                                                    style={{ 
-                                                                        background: 'rgba(255,255,255,0.15)',
-                                                                        border: 'none', borderRadius: '12px', padding: '12px 18px',
-                                                                        color: '#fff', fontWeight: 'bold', cursor: 'pointer',
-                                                                        display: 'flex', alignItems: 'center', gap: '8px'
-                                                                    }}
-                                                                >
-                                                                    <ImageIcon size={18} /> Tap to View Photo / Video
-                                                                </button>
-                                                            );
-                                                        })() : msg.content
-                                                    )}
-                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
-                                                        <span style={{ fontSize: '10px', opacity: 0.65 }}>
-                                                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                        {isMe && (
-                                                            <button
-                                                                onClick={() => handleDeleteMessage(msg.id)}
-                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.5)' }}
-                                                            >
-                                                                <Trash2 size={11} />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#f5a524' }}>
+                                                    {msg.sender_name}
+                                                </span>
                                             </div>
-                                        );
-                                    })}
-                                </React.Fragment>
-                            ))
+                                        )}
+                                        <div style={{
+                                            background: isMe ? '#f5a524' : 'var(--border-color)',
+                                            color: isMe ? '#000' : 'var(--text-active)',
+                                            padding: isShare ? '8px' : '10px 14px',
+                                            borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                                            maxWidth: '75%',
+                                            fontSize: '15px',
+                                            wordBreak: 'break-word',
+                                        }}>
+                                            {isShare ? renderSharedContent(msg.content, isMe) : (
+                                                (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                        <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
+                                                            🎙️ Group Voice Mail
+                                                        </div>
+                                                        <audio
+                                                            controls
+                                                            src={msg.content.replace('[VOICE_REACTION] ', '').replace('[VOICE] ', '')}
+                                                            style={{ width: '200px', height: '36px', borderRadius: '18px' }}
+                                                        />
+                                                    </div>
+                                                ) : msg.content.startsWith('[SNAP]') ? (() => {
+                                                    const url = msg.content.replace('[SNAP] ', '');
+                                                    const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
+                                                    return (
+                                                        <button 
+                                                            onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
+                                                            style={{ 
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                border: 'none', borderRadius: '12px', padding: '12px 18px',
+                                                                color: '#fff', fontWeight: 'bold', cursor: 'pointer',
+                                                                display: 'flex', alignItems: 'center', gap: '8px'
+                                                            }}
+                                                        >
+                                                            <ImageIcon size={18} /> Tap to View Photo / Video
+                                                        </button>
+                                                    );
+                                                })() : msg.content
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>
+                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                            {isMe && (
+                                                <button
+                                                    onClick={() => handleDeleteMessage(msg.id)}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--text-inactive)' }}
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
                         )}
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* WhatsApp-Style Input Bar */}
-                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', background: 'var(--surface-color)', borderTop: '1px solid #222' }}>
+                    {/* Group Input Bar */}
+                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid #2c2c2e' }}>
                         <input 
                             type="file" 
                             accept="image/*,video/*" 
@@ -1454,13 +1300,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     type="button"
                                     onClick={stopAndSendVoiceRecording}
                                     style={{
-                                        background: '#25D366', color: '#000', border: 'none',
-                                        borderRadius: '50%', width: '42px', height: '42px',
+                                        background: '#ff3366', color: '#fff', border: 'none',
+                                        borderRadius: '50%', width: '44px', height: '44px',
                                         display: 'flex', justifyContent: 'center', alignItems: 'center',
                                         cursor: 'pointer',
                                     }}
                                 >
-                                    <Send size={18} />
+                                    <Send size={20} style={{ marginLeft: '2px' }} />
                                 </button>
                             </div>
                         ) : (
@@ -1468,18 +1314,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <button
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '6px', cursor: 'pointer', marginRight: '4px' }}
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px', cursor: 'pointer', marginRight: '4px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
-                                    <ImageIcon size={22} />
+                                    <ImageIcon size={24} />
                                 </button>
                                 <button
                                     type="button"
                                     onClick={startVoiceRecording}
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '6px', cursor: 'pointer', marginRight: '6px' }}
+                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px', cursor: 'pointer', marginRight: '8px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
-                                    <Mic size={22} />
+                                    <Mic size={24} />
                                 </button>
                                 <input
                                     type="text"
@@ -1488,8 +1334,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     placeholder={`Message ${selectedGroup.name}...`}
                                     disabled={isUploadingImage || isUploadingVoice}
                                     style={{
-                                        flex: 1, background: 'var(--bg-color)', border: '1px solid var(--border-color)',
-                                        borderRadius: '22px', padding: '10px 16px', color: 'var(--text-active)',
+                                        flex: 1, background: 'var(--border-color)', border: 'none',
+                                        borderRadius: '24px', padding: '12px 16px', color: 'var(--text-active)',
                                         outline: 'none', fontSize: '15px',
                                     }}
                                 />
@@ -1497,34 +1343,31 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     type="submit"
                                     disabled={!messageInput.trim()}
                                     style={{
-                                        background: messageInput.trim() ? '#25D366' : 'rgba(255,255,255,0.08)',
-                                        color: messageInput.trim() ? '#000' : 'rgba(255,255,255,0.3)',
-                                        border: 'none', borderRadius: '50%', width: '42px', height: '42px',
-                                        marginLeft: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
+                                        color: messageInput.trim() ? '#000' : 'var(--text-inactive)',
+                                        border: 'none', borderRadius: '50%', width: '44px', height: '44px',
+                                        marginLeft: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center',
                                         cursor: messageInput.trim() ? 'pointer' : 'default',
                                     }}
                                 >
-                                    <Send size={18} style={{ marginLeft: '2px' }} />
+                                    <Send size={20} style={{ marginLeft: '4px' }} />
                                 </button>
                             </>
                         )}
                     </form>
                 </>
             ) : (
-                /* ── WhatsApp-Style Direct 1-on-1 Chat Room ── */
+                /* ── Direct 1-on-1 Chat Room View ── */
                 <>
-                    <header style={{
-                        display: 'flex', alignItems: 'center', padding: '12px 16px',
-                        borderBottom: '1px solid #222', background: 'var(--surface-color)'
-                    }}>
+                    <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: 'var(--surface-color)' }}>
                         <button
                             onClick={() => {
                                 setView('list');
                                 if (initialOpenUserId) onClose();
                             }}
-                            style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '8px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+                            style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '12px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
                         >
-                            <ChevronLeft size={26} />
+                            <ChevronLeft size={24} />
                         </button>
                         <div 
                             style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }}
@@ -1535,154 +1378,117 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 }
                             }}
                         >
-                            <div style={{ position: 'relative', marginRight: '10px' }}>
-                                <img
-                                    src={selectedContact?.avatar_url || 'https://i.pravatar.cc/150'}
-                                    alt=""
-                                    style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }}
-                                />
-                                <span style={{
-                                    position: 'absolute', bottom: '0', right: '0',
-                                    width: '10px', height: '10px', borderRadius: '50%',
-                                    background: '#25D366', border: '2px solid #000'
-                                }} />
-                            </div>
+                            <img
+                                src={selectedContact?.avatar_url || 'https://i.pravatar.cc/150'}
+                                alt=""
+                                style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', marginRight: '12px' }}
+                            />
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--text-active)', margin: 0 }}>
+                                <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-active)', margin: 0 }}>
                                     {selectedContact?.name || selectedContact?.username || 'User'}
                                 </h2>
-                                <span style={{ fontSize: '11px', color: '#25D366' }}>Online</span>
+                                <span style={{ fontSize: '12px', color: 'var(--text-inactive)' }}>View Profile</span>
                             </div>
                         </div>
-
-                        <button
-                            onClick={() => {
-                                navigate(`/call?user=${encodeURIComponent(selectedContact?.username || '')}`);
-                                onClose();
-                            }}
-                            style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px', cursor: 'pointer' }}
-                            title="Direct Voice Call"
-                        >
-                            <PhoneCall size={20} />
-                        </button>
                     </header>
 
-                    {/* WhatsApp-Style Message Stream with Dates & Status Checkmarks */}
+                    {/* Direct Messages Stream */}
                     <div style={{
                         flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column',
-                        background: 'radial-gradient(circle at center, #111116 0%, #08080a 100%)'
+                        background: 'var(--bg-color)'
                     }}>
                         {loadingMessages && messages.length === 0 ? (
-                            <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto' }}>Loading chat history...</div>
+                            <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto' }}>Loading chat...</div>
                         ) : messages.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto', padding: '24px' }}>
                                 <div style={{ fontSize: '32px', marginBottom: '8px' }}>👋</div>
                                 <h3 style={{ color: 'var(--text-active)', margin: '0 0 6px' }}>Say hello to {selectedContact?.username}!</h3>
-                                <p style={{ margin: 0, fontSize: '13px' }}>Send a message or voice note to start the conversation.</p>
+                                <p style={{ margin: 0, fontSize: '13px' }}>Send a message or voice note to start chatting.</p>
                             </div>
                         ) : (
-                            groupMessagesByDate(messages).map((dateGroup, dIdx) => (
-                                <React.Fragment key={dIdx}>
-                                    <div style={{ display: 'flex', justifyContent: 'center', margin: '14px 0 10px' }}>
-                                        <span style={{
-                                            background: 'rgba(255,255,255,0.08)', color: 'var(--text-inactive)',
-                                            fontSize: '11px', fontWeight: 'bold', padding: '3px 12px', borderRadius: '10px'
+                            messages.map(msg => {
+                                const isMe = msg.sender_id === currentUser.id;
+                                const isShare = msg.content.startsWith('[SHARE_POST]');
+
+                                return (
+                                    <div
+                                        key={msg.id}
+                                        style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: isMe ? 'flex-end' : 'flex-start',
+                                            marginBottom: '12px',
+                                        }}
+                                    >
+                                        <div style={{
+                                            background: isMe ? '#f5a524' : 'var(--border-color)',
+                                            color: isMe ? '#000' : 'var(--text-active)',
+                                            padding: isShare ? '8px' : '10px 14px',
+                                            borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                                            maxWidth: '75%',
+                                            fontSize: '15px',
+                                            wordBreak: 'break-word',
                                         }}>
-                                            {dateGroup.dateLabel}
-                                        </span>
-                                    </div>
-
-                                    {(dateGroup.messages as MessageData[]).map(msg => {
-                                        const isMe = msg.sender_id === currentUser.id;
-                                        const isShare = msg.content.startsWith('[SHARE_POST]');
-
-                                        return (
-                                            <div
-                                                key={msg.id}
-                                                style={{
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    alignItems: isMe ? 'flex-end' : 'flex-start',
-                                                    marginBottom: '10px',
-                                                }}
-                                            >
-                                                <div style={{
-                                                    background: isMe ? 'linear-gradient(135deg, #005c4b, #025144)' : 'var(--border-color)',
-                                                    color: '#fff',
-                                                    padding: isShare ? '8px' : '10px 14px',
-                                                    borderRadius: isMe ? '16px 16px 2px 16px' : '16px 16px 16px 2px',
-                                                    maxWidth: '80%',
-                                                    fontSize: '15px',
-                                                    lineHeight: '1.4',
-                                                    wordBreak: 'break-word',
-                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                                                }}>
-                                                    {isShare ? renderSharedContent(msg.content, isMe) : (
-                                                        (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                                <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
-                                                                    🎙️ Voice Mail
-                                                                </div>
-                                                                <audio
-                                                                    controls
-                                                                    src={msg.content.replace('[VOICE_REACTION] ', '').replace('[VOICE] ', '')}
-                                                                    style={{ width: '200px', height: '36px', borderRadius: '18px' }}
-                                                                />
-                                                            </div>
-                                                        ) : msg.content.startsWith('[SNAP]') ? (() => {
-                                                            const url = msg.content.replace('[SNAP] ', '');
-                                                            const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
-                                                            return (
-                                                                <button 
-                                                                    onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
-                                                                    style={{ 
-                                                                        background: 'rgba(255,255,255,0.15)',
-                                                                        border: 'none', borderRadius: '12px', padding: '12px 18px',
-                                                                        color: '#fff', fontWeight: 'bold', cursor: 'pointer',
-                                                                        display: 'flex', alignItems: 'center', gap: '8px'
-                                                                    }}
-                                                                >
-                                                                    <ImageIcon size={18} /> Tap to View Photo / Video
-                                                                </button>
-                                                            );
-                                                        })() : msg.content
-                                                    )}
-
-                                                    {/* WhatsApp-Style Micro Timestamp & Checkmarks inside bubble */}
-                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
-                                                        <span style={{ fontSize: '10px', opacity: 0.65 }}>
-                                                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                        {isMe && (
-                                                            <>
-                                                                <span>
-                                                                    {msg.is_read ? (
-                                                                        <CheckCheck size={14} color="#34B7F1" />
-                                                                    ) : (
-                                                                        <Check size={14} color="#8696a0" />
-                                                                    )}
-                                                                </span>
-                                                                <button
-                                                                    onClick={() => handleDeleteMessage(msg.id)}
-                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.5)' }}
-                                                                >
-                                                                    <Trash2 size={11} />
-                                                                </button>
-                                                            </>
-                                                        )}
+                                            {isShare ? renderSharedContent(msg.content, isMe) : (
+                                                (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                        <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
+                                                            🎙️ Voice Mail
+                                                        </div>
+                                                        <audio
+                                                            controls
+                                                            src={msg.content.replace('[VOICE_REACTION] ', '').replace('[VOICE] ', '')}
+                                                            style={{ width: '200px', height: '36px', borderRadius: '18px' }}
+                                                        />
                                                     </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </React.Fragment>
-                            ))
+                                                ) : msg.content.startsWith('[SNAP]') ? (() => {
+                                                    const url = msg.content.replace('[SNAP] ', '');
+                                                    const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
+                                                    return (
+                                                        <button 
+                                                            onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
+                                                            style={{ 
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                border: 'none', borderRadius: '12px', padding: '12px 18px',
+                                                                color: '#fff', fontWeight: 'bold', cursor: 'pointer',
+                                                                display: 'flex', alignItems: 'center', gap: '8px'
+                                                            }}
+                                                        >
+                                                            <ImageIcon size={18} /> Tap to View Photo / Video
+                                                        </button>
+                                                    );
+                                                })() : msg.content
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>
+                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                            {isMe && (
+                                                <>
+                                                    {msg.is_read ? (
+                                                        <CheckCheck size={12} color="#34B7F1" />
+                                                    ) : (
+                                                        <Check size={12} color="var(--text-inactive)" />
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleDeleteMessage(msg.id)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--text-inactive)' }}
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
                         )}
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* WhatsApp-Style Input Bar */}
-                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', background: 'var(--surface-color)', borderTop: '1px solid #222' }}>
+                    {/* Direct Input Bar */}
+                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid #2c2c2e' }}>
                         <input 
                             type="file" 
                             accept="image/*,video/*" 
@@ -1703,13 +1509,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     type="button"
                                     onClick={stopAndSendVoiceRecording}
                                     style={{
-                                        background: '#25D366', color: '#000', border: 'none',
-                                        borderRadius: '50%', width: '42px', height: '42px',
+                                        background: '#ff3366', color: '#fff', border: 'none',
+                                        borderRadius: '50%', width: '44px', height: '44px',
                                         display: 'flex', justifyContent: 'center', alignItems: 'center',
                                         cursor: 'pointer',
                                     }}
                                 >
-                                    <Send size={18} />
+                                    <Send size={20} style={{ marginLeft: '2px' }} />
                                 </button>
                             </div>
                         ) : (
@@ -1717,28 +1523,28 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <button
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '6px', cursor: 'pointer', marginRight: '4px' }}
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px', cursor: 'pointer', marginRight: '4px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
-                                    <ImageIcon size={22} />
+                                    <ImageIcon size={24} />
                                 </button>
                                 <button
                                     type="button"
                                     onClick={startVoiceRecording}
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '6px', cursor: 'pointer', marginRight: '6px' }}
+                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px', cursor: 'pointer', marginRight: '8px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
-                                    <Mic size={22} />
+                                    <Mic size={24} />
                                 </button>
                                 <input
                                     type="text"
                                     value={messageInput}
                                     onChange={(e) => setMessageInput(e.target.value)}
-                                    placeholder="Type a message..."
+                                    placeholder="Message..."
                                     disabled={isUploadingImage || isUploadingVoice}
                                     style={{
-                                        flex: 1, background: 'var(--bg-color)', border: '1px solid var(--border-color)',
-                                        borderRadius: '22px', padding: '10px 16px', color: 'var(--text-active)',
+                                        flex: 1, background: 'var(--border-color)', border: 'none',
+                                        borderRadius: '24px', padding: '12px 16px', color: 'var(--text-active)',
                                         outline: 'none', fontSize: '15px',
                                     }}
                                 />
@@ -1746,102 +1552,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     type="submit"
                                     disabled={!messageInput.trim()}
                                     style={{
-                                        background: messageInput.trim() ? '#25D366' : 'rgba(255,255,255,0.08)',
-                                        color: messageInput.trim() ? '#000' : 'rgba(255,255,255,0.3)',
-                                        border: 'none', borderRadius: '50%', width: '42px', height: '42px',
-                                        marginLeft: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
+                                        color: messageInput.trim() ? '#000' : 'var(--text-inactive)',
+                                        border: 'none', borderRadius: '50%', width: '44px', height: '44px',
+                                        marginLeft: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center',
                                         cursor: messageInput.trim() ? 'pointer' : 'default',
                                     }}
                                 >
-                                    <Send size={18} style={{ marginLeft: '2px' }} />
+                                    <Send size={20} style={{ marginLeft: '4px' }} />
                                 </button>
                             </>
                         )}
                     </form>
                 </>
-            )}
-
-            {/* ── NEW CHAT MODAL (Start chat with anyone) ── */}
-            {showNewChatModal && (
-                <div style={{
-                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
-                    zIndex: 2000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-                    backdropFilter: 'blur(4px)',
-                }}>
-                    <div style={{
-                        width: '100%', maxWidth: '500px', maxHeight: '85vh',
-                        background: 'var(--surface-color)', borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-                        display: 'flex', flexDirection: 'column', padding: '20px',
-                        border: '1px solid var(--border-color)',
-                        animation: 'slideUp 0.3s ease-out',
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: 'var(--text-active)' }}>
-                                Start New Conversation 💬
-                            </h3>
-                            <button
-                                onClick={() => setShowNewChatModal(false)}
-                                style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }}
-                            >
-                                <X size={22} />
-                            </button>
-                        </div>
-
-                        {/* Search Bar */}
-                        <div style={{
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            background: 'var(--bg-color)', border: '1px solid var(--border-color)',
-                            borderRadius: '14px', padding: '10px 14px', marginBottom: '14px'
-                        }}>
-                            <Search size={18} color="var(--text-inactive)" />
-                            <input
-                                type="text"
-                                placeholder="Search by name or username..."
-                                value={newChatSearchQuery}
-                                onChange={(e) => setNewChatSearchQuery(e.target.value)}
-                                style={{ background: 'none', border: 'none', color: '#fff', fontSize: '14px', outline: 'none', flex: 1 }}
-                            />
-                        </div>
-
-                        {/* Contacts List */}
-                        <div style={{ flex: 1, overflowY: 'auto', minHeight: '200px', maxHeight: '350px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {allContacts
-                                .filter(c => 
-                                    (c.username || '').toLowerCase().includes(newChatSearchQuery.toLowerCase()) ||
-                                    (c.name || '').toLowerCase().includes(newChatSearchQuery.toLowerCase())
-                                )
-                                .map(contact => (
-                                    <div
-                                        key={contact.id}
-                                        onClick={() => {
-                                            setSelectedContact(contact);
-                                            setShowNewChatModal(false);
-                                            setView('chat');
-                                        }}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '12px',
-                                            padding: '10px 12px', borderRadius: '12px', cursor: 'pointer',
-                                            background: 'rgba(255,255,255,0.03)',
-                                        }}
-                                    >
-                                        <img
-                                            src={contact.avatar_url || 'https://i.pravatar.cc/150'}
-                                            alt=""
-                                            style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover' }}
-                                        />
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-active)' }}>
-                                                {contact.name || contact.username}
-                                            </div>
-                                            <div style={{ fontSize: '12px', color: 'var(--text-inactive)' }}>
-                                                @{contact.username}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                        </div>
-                    </div>
-                </div>
             )}
 
             {/* ── CREATE GROUP MODAL ── */}
