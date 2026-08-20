@@ -325,66 +325,61 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         if (!currentUser?.id) return;
         setLoadingContacts(true);
 
-        fetchChatThreads(currentUser.id).then(threadMap => {
-            Promise.all([
-                fetchConnectionUserIds(currentUser.id),
-                fetchFollowing(currentUser.id),
-                fetchFollowers(currentUser.id),
-            ]).then(([connIds, followingIds, followerIds]) => {
+        fetchChatThreads(currentUser.id).then(async threadMap => {
+            try {
+                const [connIds, followingIds, followerIds, { data: allProfiles }] = await Promise.all([
+                    fetchConnectionUserIds(currentUser.id),
+                    fetchFollowing(currentUser.id),
+                    fetchFollowers(currentUser.id),
+                    supabase.from('profiles').select('id, username, name, avatar_url, bio, gender').limit(100)
+                ]);
+
                 const allIds = new Set<string>([
                     ...connIds,
                     ...followingIds,
                     ...followerIds,
                     ...Array.from(threadMap.keys()),
+                    ...(allProfiles || []).map(p => p.id)
                 ]);
 
                 allIds.delete(currentUser.id);
 
-                if (allIds.size === 0) {
-                    setAllContacts([]);
-                    setLoadingContacts(false);
-                    return;
+                const profilesToUse: any[] = allProfiles && allProfiles.length > 0 
+                    ? (allProfiles as any[]).filter(p => p.id !== currentUser.id)
+                    : await fetchProfilesByIds(Array.from(allIds));
+
+                const contactsWithThreads: ChatContact[] = profilesToUse.map(profile => {
+                    const thread = threadMap.get(profile.id);
+                    return {
+                        ...profile,
+                        lastMessage: thread?.lastMessage || null,
+                        unreadCount: thread?.unreadCount || 0,
+                    };
+                });
+
+                let merged = contactsWithThreads.sort((a, b) => {
+                    const timeA = a.lastMessage?.created_at ?? '';
+                    const timeB = b.lastMessage?.created_at ?? '';
+                    if (timeA && timeB) return timeB.localeCompare(timeA);
+                    if (timeA) return -1;
+                    if (timeB) return 1;
+                    return (a.name || a.username || '').localeCompare(b.name || b.username || '');
+                });
+
+                if (initialOpenUserId && !merged.some(c => c.id === initialOpenUserId)) {
+                    const p = profilesToUse.find(p => p.id === initialOpenUserId);
+                    if (p) {
+                        merged = [{ ...p, lastMessage: null, unreadCount: 0 }, ...merged];
+                    }
                 }
 
-                fetchProfilesByIds(Array.from(allIds)).then(profiles => {
-                    const contactsWithThreads: ChatContact[] = profiles.map(profile => {
-                        const thread = threadMap.get(profile.id);
-                        return {
-                            ...profile,
-                            lastMessage: thread?.lastMessage || null,
-                            unreadCount: thread?.unreadCount || 0,
-                        };
-                    });
-
-                    let merged = contactsWithThreads.sort((a, b) => {
-                        const timeA = a.lastMessage?.created_at ?? '';
-                        const timeB = b.lastMessage?.created_at ?? '';
-                        if (timeA && timeB) return timeB.localeCompare(timeA);
-                        if (timeA) return -1;
-                        if (timeB) return 1;
-                        return (a.username || '').localeCompare(b.username || '');
-                    });
-
-                    if (initialOpenUserId && !merged.some(c => c.id === initialOpenUserId)) {
-                        const p = profiles.find(p => p.id === initialOpenUserId);
-                        if (p) {
-                            merged = [{ ...p, lastMessage: null, unreadCount: 0 }, ...merged];
-                        }
-                    }
-
-                    setAllContacts(merged);
-                    saveChatListCache(merged);
-                    setLoadingContacts(false);
-
-                    if (initialOpenUserId) {
-                        const targetUser = merged.find(p => p.id === initialOpenUserId);
-                        if (targetUser) {
-                            setSelectedContact(targetUser);
-                            setView('chat');
-                        }
-                    }
-                });
-            });
+                setAllContacts(merged);
+                saveChatListCache(merged);
+            } catch (err) {
+                console.error('Error refreshing contacts:', err);
+            } finally {
+                setLoadingContacts(false);
+            }
         });
     }, [currentUser.id, initialOpenUserId]);
 
