@@ -115,6 +115,56 @@ function groupMessagesByDate(msgs: (MessageData | GroupMessage)[]) {
     return groups;
 }
 
+// ── Multi-Key Local Storage Chat Recovery Helpers ──
+function loadLocalChatMessages(myId: string, partnerId: string): MessageData[] {
+    const keys = [
+        `knock_chat_msgs_${myId}_${partnerId}`,
+        `knock_chat_msgs_${partnerId}_${myId}`,
+        `knock_chat_msgs_${partnerId}`,
+        `knock_chat_${partnerId}`,
+    ];
+    const idMap = new Map<string, MessageData>();
+
+    keys.forEach(k => {
+        try {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+                const parsed: MessageData[] = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(m => {
+                        if (m && m.id && m.content) idMap.set(m.id, m);
+                    });
+                }
+            }
+        } catch (e) {}
+    });
+
+    return Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+
+function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: MessageData; unreadCount: number }> {
+    const map = new Map<string, { lastMessage: MessageData; unreadCount: number }>();
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('knock_chat_msgs_') || key.startsWith('knock_chat_'))) {
+                const parts = key.replace('knock_chat_msgs_', '').replace('knock_chat_', '').split('_');
+                const otherId = parts.length >= 2 ? (parts[0] === myId ? parts[1] : parts[0]) : parts[0];
+                if (otherId && otherId !== myId) {
+                    try {
+                        const msgs: MessageData[] = JSON.parse(localStorage.getItem(key) || '[]');
+                        if (Array.isArray(msgs) && msgs.length > 0) {
+                            const last = msgs[msgs.length - 1];
+                            map.set(otherId, { lastMessage: last, unreadCount: 0 });
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+    } catch (e) {}
+    return map;
+}
+
 const ChatPanel: React.FC<ChatPanelProps> = ({
     isOpen,
     onClose,
@@ -124,7 +174,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     pendingShare = null,
 }) => {
     const [allContacts, setAllContacts] = useState<ChatContact[]>(() => {
-        // Load initial cached chats from localStorage for 0ms delay like WhatsApp
         if (currentUser?.id) {
             const cached = localStorage.getItem(`knock_chat_list_${currentUser.id}`);
             if (cached) {
@@ -186,7 +235,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         }
     };
 
-    // Save chat list cache
     const saveChatListCache = (list: ChatContact[]) => {
         if (currentUser?.id) {
             localStorage.setItem(`knock_chat_list_${currentUser.id}`, JSON.stringify(list));
@@ -248,21 +296,24 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             .or(`sender_id.eq.${myId},receiver_id.eq.${myId}`)
             .order('created_at', { ascending: false });
 
-        if (error || !msgs) return new Map();
+        const threadMap = scanAllLocalChatThreads(myId);
 
-        const threadMap = new Map<string, { lastMessage: MessageData; unreadCount: number }>();
-
-        for (const msg of msgs) {
-            const otherId = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
-            if (!threadMap.has(otherId)) {
-                threadMap.set(otherId, {
-                    lastMessage: msg,
-                    unreadCount: (!msg.is_read && msg.receiver_id === myId) ? 1 : 0,
-                });
-            } else {
-                const current = threadMap.get(otherId)!;
-                if (!msg.is_read && msg.receiver_id === myId) {
-                    current.unreadCount += 1;
+        if (msgs && Array.isArray(msgs)) {
+            for (const msg of msgs) {
+                const otherId = msg.sender_id === myId ? msg.receiver_id : msg.sender_id;
+                if (!threadMap.has(otherId)) {
+                    threadMap.set(otherId, {
+                        lastMessage: msg,
+                        unreadCount: (!msg.is_read && msg.receiver_id === myId) ? 1 : 0,
+                    });
+                } else {
+                    const current = threadMap.get(otherId)!;
+                    if (!msg.is_read && msg.receiver_id === myId) {
+                        current.unreadCount += 1;
+                    }
+                    if (new Date(msg.created_at).getTime() > new Date(current.lastMessage.created_at).getTime()) {
+                        current.lastMessage = msg;
+                    }
                 }
             }
         }
@@ -397,11 +448,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     useEffect(() => {
         if (view === 'chat' && selectedContact) {
             const cacheKey = `knock_chat_msgs_${currentUser.id}_${selectedContact.id}`;
-            const cached = localStorage.getItem(cacheKey);
-            if (cached) {
-                try {
-                    setMessages(JSON.parse(cached));
-                } catch (e) {}
+            const initialLocalMsgs = loadLocalChatMessages(currentUser.id, selectedContact.id);
+            if (initialLocalMsgs.length > 0) {
+                setMessages(initialLocalMsgs);
             }
 
             setLoadingMessages(true);
@@ -409,8 +458,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
             fetchMessages(currentUser.id, selectedContact.id).then(data => {
                 setMessages(prev => {
-                    // Merge Supabase messages with local cache
                     const idMap = new Map<string, MessageData>();
+                    initialLocalMsgs.forEach(m => idMap.set(m.id, m));
                     prev.forEach(m => idMap.set(m.id, m));
                     data.forEach(m => idMap.set(m.id, m));
                     const sorted = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
