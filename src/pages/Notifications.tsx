@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { ArrowLeft, Bell, PhoneCall, Heart, MessageCircle, UserPlus, Zap, Check, CheckCheck, Sparkles, Flame } from 'lucide-react';
-import { fetchUserLikes, fetchUserEngagements, fetchFollowers } from '../lib/database';
+import { ArrowLeft, Bell, PhoneCall, Heart, MessageCircle, UserPlus, Zap, CheckCheck, Flame, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export interface NotificationItem {
     id: string;
@@ -16,95 +16,134 @@ export interface NotificationItem {
     targetUrl?: string;
 }
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-    {
-        id: 'notif-1',
-        type: 'call',
-        title: 'Incoming Direct Call',
-        description: 'Priya Sharma requested a voice call with you.',
-        userAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-        username: 'priya_sharma',
-        timeAgo: '5m ago',
-        isRead: false,
-        targetUrl: '/call?user=priya_sharma'
-    },
-    {
-        id: 'notif-2',
-        type: 'reward',
-        title: 'Daily Streak Bonus!',
-        description: 'You earned +50 points for maintaining a 3-day story streak 🔥',
-        timeAgo: '25m ago',
-        isRead: false,
-        targetUrl: '/profile'
-    },
-    {
-        id: 'notif-3',
-        type: 'like',
-        title: 'New Like on your Post',
-        description: 'alex_dev liked your latest post: "Midnight vibes 🌙"',
-        userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-        username: 'alex_dev',
-        timeAgo: '1h ago',
-        isRead: false,
-        targetUrl: '/home'
-    },
-    {
-        id: 'notif-4',
-        type: 'follow',
-        title: 'New Connection Request',
-        description: 'sara_vibe started following you on Knock Knock.',
-        userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-        username: 'sara_vibe',
-        timeAgo: '2h ago',
-        isRead: true,
-        targetUrl: '/profile/sara_vibe'
-    },
-    {
-        id: 'notif-5',
-        type: 'comment',
-        title: 'New Comment',
-        description: 'rahul_m commented: "Awesome music selection! 🔥"',
-        userAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150',
-        username: 'rahul_m',
-        timeAgo: '4h ago',
-        isRead: true,
-        targetUrl: '/home'
-    },
-    {
-        id: 'notif-6',
-        type: 'reward',
-        title: 'App Activity Award',
-        description: 'You received 10 bonus points for active engagement today ⚡',
-        timeAgo: '6h ago',
-        isRead: true,
-        targetUrl: '/boost'
-    }
-];
+function formatTimeAgo(isoString: string): string {
+    const diffSec = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDays = Math.floor(diffHr / 24);
+    return `${diffDays}d ago`;
+}
 
 export const Notifications: React.FC = () => {
-    const { user, points } = useContext(AppContext);
+    const { user } = useContext(AppContext);
     const navigate = useNavigate();
 
-    const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
-        const saved = localStorage.getItem('knock_notifications');
-        if (saved) {
-            try { return JSON.parse(saved); } catch (e) {}
-        }
-        return INITIAL_NOTIFICATIONS;
-    });
-
+    const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+    const [loading, setLoading] = useState(true);
     const [activeFilter, setActiveFilter] = useState<'all' | 'calls' | 'social' | 'rewards'>('all');
 
+    // Purge any legacy fake notifications from localStorage
     useEffect(() => {
-        localStorage.setItem('knock_notifications', JSON.stringify(notifications));
-    }, [notifications]);
+        localStorage.removeItem('knock_notifications');
+    }, []);
 
-    const markAsRead = (id: string) => {
+    useEffect(() => {
+        if (!user?.id) {
+            setLoading(false);
+            return;
+        }
+
+        const loadRealNotifications = async () => {
+            setLoading(true);
+            try {
+                const items: NotificationItem[] = [];
+
+                // 1. Fetch real direct messages received by this user
+                const { data: messages } = await supabase
+                    .from('messages')
+                    .select('id, sender_id, text, is_read, created_at')
+                    .eq('receiver_id', user.id)
+                    .order('created_at', { ascending: false })
+                    .limit(25);
+
+                if (messages && messages.length > 0) {
+                    const senderIds = Array.from(new Set(messages.map(m => m.sender_id)));
+                    const { data: senderProfiles } = await supabase
+                        .from('profiles')
+                        .select('id, username, name, avatar_url')
+                        .in('id', senderIds);
+
+                    const profileMap = new Map((senderProfiles || []).map(p => [p.id, p]));
+
+                    messages.forEach(msg => {
+                        const sender = profileMap.get(msg.sender_id);
+                        const senderName = sender?.name || sender?.username || 'Someone';
+                        items.push({
+                            id: `msg-${msg.id}`,
+                            type: 'comment',
+                            title: `Message from ${senderName}`,
+                            description: msg.text || 'Sent you a message',
+                            userAvatar: sender?.avatar_url || `https://i.pravatar.cc/150?u=${msg.sender_id}`,
+                            username: sender?.username,
+                            timeAgo: formatTimeAgo(msg.created_at),
+                            isRead: msg.is_read ?? false,
+                            targetUrl: `/home`
+                        });
+                    });
+                }
+
+                // 2. Fetch real connections
+                const { data: connections } = await supabase
+                    .from('connections')
+                    .select('id, user_a, user_b, created_at, compatibility_percent')
+                    .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
+                    .order('created_at', { ascending: false })
+                    .limit(15);
+
+                if (connections && connections.length > 0) {
+                    const partnerIds = connections.map(c => c.user_a === user.id ? c.user_b : c.user_a);
+                    const { data: partnerProfiles } = await supabase
+                        .from('profiles')
+                        .select('id, username, name, avatar_url')
+                        .in('id', partnerIds);
+
+                    const profileMap = new Map((partnerProfiles || []).map(p => [p.id, p]));
+
+                    connections.forEach(conn => {
+                        const partnerId = conn.user_a === user.id ? conn.user_b : conn.user_a;
+                        const partner = profileMap.get(partnerId);
+                        const partnerName = partner?.name || partner?.username || 'A new friend';
+                        items.push({
+                            id: `conn-${conn.id}`,
+                            type: 'follow',
+                            title: 'New Connection! 🤝',
+                            description: `You connected with ${partnerName} (${conn.compatibility_percent || 90}% match)`,
+                            userAvatar: partner?.avatar_url || `https://i.pravatar.cc/150?u=${partnerId}`,
+                            username: partner?.username,
+                            timeAgo: formatTimeAgo(conn.created_at),
+                            isRead: true,
+                            targetUrl: `/profile/${partner?.username || ''}`
+                        });
+                    });
+                }
+
+                setNotifications(items);
+            } catch (err) {
+                console.error('Error loading real notifications:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadRealNotifications();
+    }, [user?.id]);
+
+    const markAsRead = async (id: string) => {
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+        if (id.startsWith('msg-')) {
+            const msgId = id.replace('msg-', '');
+            await supabase.from('messages').update({ is_read: true }).eq('id', msgId);
+        }
     };
 
-    const markAllAsRead = () => {
+    const markAllAsRead = async () => {
         setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+        if (user?.id) {
+            await supabase.from('messages').update({ is_read: true }).eq('receiver_id', user.id);
+        }
     };
 
     const handleNotificationClick = (notif: NotificationItem) => {
@@ -165,7 +204,7 @@ export const Notifications: React.FC = () => {
                             )}
                         </h1>
                         <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-inactive)' }}>
-                            Stay updated with calls, likes & activity
+                            Real-time updates & activity
                         </p>
                     </div>
                 </div>
@@ -213,14 +252,18 @@ export const Notifications: React.FC = () => {
             </div>
 
             {/* Notifications List */}
-            {filteredNotifications.length === 0 ? (
+            {loading ? (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '60px 0' }}>
+                    <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--accent-color)' }} />
+                </div>
+            ) : filteredNotifications.length === 0 ? (
                 <div style={{
                     textAlign: 'center', padding: '60px 20px', background: 'var(--surface-color)',
                     borderRadius: '20px', border: '1px solid var(--border-color)',
                 }}>
                     <Bell size={48} color="var(--text-inactive)" style={{ opacity: 0.5, marginBottom: '12px' }} />
-                    <h3 style={{ margin: '0 0 6px', color: 'var(--text-active)' }}>No notifications here</h3>
-                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-inactive)' }}>You're all caught up!</p>
+                    <h3 style={{ margin: '0 0 6px', color: 'var(--text-active)' }}>No notifications yet</h3>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-inactive)' }}>You're all caught up! Real notifications will appear here.</p>
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -275,7 +318,7 @@ export const Notifications: React.FC = () => {
                                 </p>
                             </div>
 
-                            {/* Unread Red Dot */}
+                            {/* Unread Indicator */}
                             {!item.isRead && (
                                 <div style={{
                                     width: '8px', height: '8px', borderRadius: '50%',
