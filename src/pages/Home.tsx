@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, type PostData, type StoryData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, fetchDiscoverPosts, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell } from 'lucide-react';
@@ -71,7 +71,9 @@ const Home = () => {
     const [scoredFeed, setScoredFeed] = useState<ScoredPost[]>([]);
     const [feedPage, setFeedPage] = useState(0);
     const [hasMorePosts, setHasMorePosts] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const sentinelRef = useRef<HTMLDivElement>(null);
     
     // Connection List (like Page 3)
     const [connectionsList, setConnectionsList] = useState<any[]>([]);
@@ -202,36 +204,79 @@ const Home = () => {
         setIsRefreshing(false);
     }, [user, isRefreshing, allRawPosts]);
 
-    // Infinite scroll — load more posts (Guarantees NO duplicate photos)
-    const loadMorePosts = async () => {
-        if (!user || !hasMorePosts) return;
-        const nextPage = feedPage + 1;
-        const engagements = await fetchUserEngagements(user.id);
-        const profile = buildInterestProfile(engagements);
-        const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10);
-        
-        const currentIds = new Set(posts.map(p => p.id));
-        const currentUrls = new Set(posts.map(p => p.image_url));
-        const freshBatch = nextBatch.filter(s => !currentIds.has(s.post.id) && !currentUrls.has(s.post.image_url));
+    // Infinite scroll — load more posts automatically (Guarantees NO duplicate photos)
+    const loadMorePosts = useCallback(async () => {
+        if (!user || !hasMorePosts || isLoadingMore || loading) return;
+        setIsLoadingMore(true);
+        try {
+            const nextPage = feedPage + 1;
+            const engagements = await fetchUserEngagements(user.id);
+            const profile = buildInterestProfile(engagements);
+            const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10);
+            
+            const currentIds = new Set(posts.map(p => p.id));
+            const currentUrls = new Set(posts.map(p => p.image_url));
+            const freshBatch = nextBatch.filter(s => {
+                if (!s.post.image_url || currentIds.has(s.post.id) || currentUrls.has(s.post.image_url)) return false;
+                currentIds.add(s.post.id);
+                currentUrls.add(s.post.image_url);
+                return true;
+            });
 
-        if (freshBatch.length === 0) {
-            setHasMorePosts(false);
-            return;
+            if (freshBatch.length > 0) {
+                setScoredFeed(prev => [...prev, ...freshBatch]);
+                setPosts(prev => [...prev, ...freshBatch.map(s => s.post)]);
+                setFeedPage(nextPage);
+                // Batch check likes for new posts
+                const newPostIds = freshBatch.map(s => s.post.id);
+                checkIfLikedBatch(user.id, newPostIds).then(likedMap => {
+                    setLikedPosts(prev => ({ ...prev, ...likedMap }));
+                });
+                freshBatch.forEach(s => {
+                    trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
+                    setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
+                });
+            } else {
+                // If all in-memory raw posts used, fetch more from DB directly
+                const moreDbPosts = await fetchDiscoverPosts(null, 50, allRawPosts.length);
+                const uniqueMoreDb = moreDbPosts.filter(p => {
+                    if (!p.image_url || currentIds.has(p.id) || currentUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
+                    currentIds.add(p.id);
+                    currentUrls.add(p.image_url);
+                    return true;
+                });
+
+                if (uniqueMoreDb.length > 0) {
+                    setAllRawPosts(prev => [...prev, ...uniqueMoreDb]);
+                    const scoredMore = assembleFeed(uniqueMoreDb, profile, 0, 10);
+                    setScoredFeed(prev => [...prev, ...scoredMore]);
+                    setPosts(prev => [...prev, ...scoredMore.map(s => s.post)]);
+                    setFeedPage(nextPage);
+                } else {
+                    setHasMorePosts(false);
+                }
+            }
+        } catch (err) {
+            console.error('Error loading more posts on home:', err);
+        } finally {
+            setIsLoadingMore(false);
         }
+    }, [user, hasMorePosts, isLoadingMore, loading, feedPage, allRawPosts, posts, blockedIds]);
 
-        setScoredFeed(prev => [...prev, ...freshBatch]);
-        setPosts(prev => [...prev, ...freshBatch.map(s => s.post)]);
-        setFeedPage(nextPage);
-        // Batch check likes for new posts
-        const newPostIds = freshBatch.map(s => s.post.id);
-        checkIfLikedBatch(user.id, newPostIds).then(likedMap => {
-            setLikedPosts(prev => ({ ...prev, ...likedMap }));
-        });
-        freshBatch.forEach(s => {
-            trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
-            setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
-        });
-    };
+    // IntersectionObserver for automatic infinite scrolling as user scrolls
+    useEffect(() => {
+        if (!sentinelRef.current) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && !loading && !isLoadingMore && hasMorePosts && feedMode === 'foryou') {
+                    loadMorePosts();
+                }
+            },
+            { rootMargin: '500px' }
+        );
+        observer.observe(sentinelRef.current);
+        return () => observer.disconnect();
+    }, [loadMorePosts, loading, isLoadingMore, hasMorePosts, feedMode]);
 
     // Load recent stories & connections
     useEffect(() => {
@@ -891,20 +936,12 @@ const Home = () => {
                                 </div>
                             ))}
                         </div>
-                        {/* Infinite Scroll: Load More */}
-                        {hasMorePosts && (
-                            <div style={{ display: 'flex', justifyContent: 'center', padding: '24px' }}>
-                                <button
-                                    onClick={loadMorePosts}
-                                    style={{
-                                        background: 'linear-gradient(45deg, #f5a524, #ff6b35)',
-                                        border: 'none', borderRadius: '24px',
-                                        padding: '12px 32px', color: 'var(--text-active)', fontWeight: 'bold',
-                                        fontSize: '14px', cursor: 'pointer'
-                                    }}
-                                >
-                                    Load More
-                                </button>
+                        {/* Seamless Automatic Infinite Scroll Sentinel */}
+                        <div ref={sentinelRef} style={{ height: '30px', width: '100%' }} />
+                        {isLoadingMore && (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px', gap: '8px', color: 'var(--text-inactive)', fontSize: '13px' }}>
+                                <Loader2 size={20} style={{ animation: 'spin 1s linear infinite', color: '#f5a524' }} />
+                                <span>Loading more posts...</span>
                             </div>
                         )}
                         </PullToRefresh>
