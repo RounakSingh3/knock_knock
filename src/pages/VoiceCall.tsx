@@ -65,8 +65,7 @@ const VoiceCall = () => {
     const currentMatch = matches[currentMatchIndex] || null;
     const localVideoRef = useRef<HTMLVideoElement>(null);
 
-    // Real-time voice call addition states
-    const [isMockMode, setIsMockMode] = useState(false);
+    // Real-time voice call states
     const [isCaller, setIsCaller] = useState(false);
     const [onlineUsers, setOnlineUsers] = useState<any[]>([]);
     const [incomingExtensionRequest, setIncomingExtensionRequest] = useState(false);
@@ -93,7 +92,6 @@ const VoiceCall = () => {
     const currentMatchRef = useRef(currentMatch);
     const videoRequestStatusRef = useRef(videoRequestStatus);
     const inCallRef = useRef(inCall);
-    const isMockModeRef = useRef(isMockMode);
     const isCallerRef = useRef(isCaller);
 
     useEffect(() => { isSearchingRef.current = isSearching; }, [isSearching]);
@@ -101,7 +99,6 @@ const VoiceCall = () => {
     useEffect(() => { currentMatchRef.current = currentMatch; }, [currentMatch]);
     useEffect(() => { videoRequestStatusRef.current = videoRequestStatus; }, [videoRequestStatus]);
     useEffect(() => { inCallRef.current = inCall; }, [inCall]);
-    useEffect(() => { isMockModeRef.current = isMockMode; }, [isMockMode]);
     useEffect(() => { isCallerRef.current = isCaller; }, [isCaller]);
     useEffect(() => { onlineUsersRef.current = onlineUsers; }, [onlineUsers]);
 
@@ -118,7 +115,6 @@ const VoiceCall = () => {
             const partnerProfile = profiles[0];
 
             setIsCaller(directRole === 'caller');
-            setIsMockMode(false);
             setMatches([{
                 profile: { ...partnerProfile, username: partnerProfile.username || partnerProfile.name } as any,
                 similarityScore: 1.0,
@@ -219,7 +215,7 @@ const VoiceCall = () => {
         }
     };
 
-    // ÔöÇÔöÇ Supabase Realtime channel subscription ÔöÇÔöÇ
+    // ── Supabase Realtime channel subscription ──
     useEffect(() => {
         if (!user || !user.id) return;
 
@@ -236,6 +232,12 @@ const VoiceCall = () => {
                     });
                 });
                 setOnlineUsers(list);
+                onlineUsersRef.current = list;
+
+                // If currently searching, try matching with any newly synced searching peer
+                if (isSearchingRef.current) {
+                    findAndInviteMatch();
+                }
             })
             .on('broadcast', { event: 'call-invite' }, ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
@@ -268,7 +270,6 @@ const VoiceCall = () => {
                     }
 
                     setIsCaller(false);
-                    setIsMockMode(false);
                     setMatches([{
                         profile: callerProfile,
                         similarityScore: payload.compatibilityPercent / 100,
@@ -312,7 +313,6 @@ const VoiceCall = () => {
                     }
 
                     setIsCaller(true);
-                    setIsMockMode(false);
                     setMatches([{
                         profile: payload.receiverProfile,
                         similarityScore: 0.85,
@@ -522,7 +522,7 @@ const VoiceCall = () => {
     // ── WebRTC Connection Management ──
     useEffect(() => {
         const startWebRTC = async () => {
-            if (!inCall || isMockMode || !currentMatch) return;
+            if (!inCall || !currentMatch) return;
             closeWebRTC();
     
             try {
@@ -712,7 +712,7 @@ const VoiceCall = () => {
             webrtcReadyRef.current = false;
             closeWebRTC();
         };
-    }, [inCall, isMockMode, isCaller, currentMatch?.profile?.id]);
+    }, [inCall, isCaller, currentMatch?.profile?.id]);
 
     // Handle video upgrade separately — add video track to existing connection
     useEffect(() => {
@@ -767,12 +767,6 @@ const VoiceCall = () => {
 
     const handleTalkMore = () => {
         setRequestStatus('sent');
-        if (isMockMode) {
-            setTimeout(() => {
-                setRequestStatus('accepted');
-            }, 1200);
-            return;
-        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -787,12 +781,6 @@ const VoiceCall = () => {
 
     const handleRequestVideo = () => {
         setVideoRequestStatus('sent');
-        if (isMockMode) {
-            setTimeout(() => {
-                setVideoRequestStatus('accepted');
-            }, 1500);
-            return;
-        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -833,109 +821,45 @@ const VoiceCall = () => {
         }
     };
 
-    const startCompanionCall = async () => {
-        if (!user || !isSearchingRef.current) return;
-        try {
-            const { data: dbProfiles } = await supabase
-                .from('profiles')
-                .select('*')
-                .neq('id', user.id)
-                .limit(40);
+    const retrySearchCountRef = useRef(0);
+    const maxRetries = 9; // Check for ~45 seconds (9 x 5s)
 
-            let candidates = (dbProfiles || []).filter(p => !blockedIds.includes(p.id));
+    const findAndInviteMatch = () => {
+        if (!isSearchingRef.current || !user) return false;
 
+        const match = onlineUsersRef.current.find(u => {
+            if (u.user_id === user.id) return false;
+            if (blockedIds.includes(u.user_id)) return false;
+            if (u.status !== 'searching') return false;
+
+            // Match gender based on active preference
             if (activePrefRef.current === 'Boy to Girl 👦') {
-                const females = candidates.filter(p => p.gender === 'female');
-                if (females.length > 0) candidates = females;
+                if (u.gender !== 'female') return false;
             } else if (activePrefRef.current === 'Girl to Boy 👧') {
-                const males = candidates.filter(p => p.gender === 'male');
-                if (males.length > 0) candidates = males;
+                if (u.gender !== 'male') return false;
             }
 
-            if (candidates.length === 0) {
-                candidates = [
-                    { id: '11111111-1111-1111-1111-111111111101', username: 'priya_patel99', name: 'Priya Patel', avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300', gender: 'female', points: 450 },
-                    { id: '11111111-1111-1111-1111-111111111102', username: 'aditya_ps', name: 'Aditya Pratap', avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300', gender: 'male', points: 520 },
-                    { id: '11111111-1111-1111-1111-111111111103', username: 'neha_creates', name: 'Neha Sharma', avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300', gender: 'female', points: 380 },
-                    { id: '11111111-1111-1111-1111-111111111104', username: 'zack_kumar', name: 'Zack', avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300', gender: 'male', points: 610 },
-                ];
+            // Also check if we match their preference
+            if (u.preference === 'Boy to Girl 👦') {
+                if (user.gender !== 'female') return false;
+            } else if (u.preference === 'Girl to Boy 👧') {
+                if (user.gender !== 'male') return false;
             }
 
-            const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-            const compat = Math.floor(Math.random() * 18) + 82; // 82 - 99%
-            const shared = Math.floor(Math.random() * 3) + 2;   // 2 - 4
+            return true;
+        });
 
-            setMatches([{
-                profile: chosen,
-                similarityScore: compat / 100,
-                sharedLikes: shared,
-                totalLikes: 5,
-                compatibilityPercent: compat,
-            }]);
-            setCurrentMatchIndex(0);
-            setIsSearching(false);
-            setIsMockMode(true);
-            setIsCaller(true);
-            setPeerConnected(true);
-            setShowMatchCard(false);
-            setInCall(true);
-            updatePresence('in-call');
-        } catch (e) {
-            console.error('Error in companion match:', e);
-            setNoMatchFound(true);
-            setIsSearching(false);
-        }
-    };
+        if (match) {
+            pendingInviteRef.current = match.user_id;
+            const compat = Math.floor(Math.random() * 20) + 80;
+            const shared = Math.floor(Math.random() * 4) + 1;
 
-    const startSearch = async () => {
-        if (!user) return;
-        setIsSearching(true);
-        setNoMatchFound(false);
-        setShowMatchCard(false);
-        setIsMockMode(false);
-        setIsCaller(false);
-
-        await updatePresence('searching');
-
-        // Check if there is already an online user matching our preference
-        const searchForOnlineMatch = () => {
-            const match = onlineUsers.find(u => {
-                if (u.user_id === user.id) return false;
-                if (blockedIds.includes(u.user_id)) return false;
-                if (u.status !== 'searching') return false;
-                
-                // Match gender based on active preference
-                if (activePref === 'Boy to Girl 👦') {
-                    if (u.gender !== 'female') return false;
-                } else if (activePref === 'Girl to Boy 👧') {
-                    if (u.gender !== 'male') return false;
-                }
-                
-                // Also check if we match their preference
-                if (u.preference === 'Boy to Girl 👦') {
-                    if (user.gender !== 'female') return false;
-                } else if (u.preference === 'Girl to Boy 👧') {
-                    if (user.gender !== 'male') return false;
-                }
-                
-                return true;
-            });
-            return match;
-        };
-
-        const onlineMatch = searchForOnlineMatch();
-        if (onlineMatch) {
-            pendingInviteRef.current = onlineMatch.user_id;
-            
-            const compat = Math.floor(Math.random() * 20) + 80; // 80 - 99%
-            const shared = Math.floor(Math.random() * 4) + 1; // 1 - 4
-            
-            channelRef.current.send({
+            channelRef.current?.send({
                 type: 'broadcast',
                 event: 'call-invite',
                 payload: {
                     callerId: user.id,
-                    receiverId: onlineMatch.user_id,
+                    receiverId: match.user_id,
                     callerProfile: {
                         id: user.id,
                         username: user.username,
@@ -949,19 +873,48 @@ const VoiceCall = () => {
                     totalLikes: 5
                 }
             });
+            return true;
+        }
+        return false;
+    };
 
-            searchTimeoutRef.current = window.setTimeout(() => {
-                if (isSearchingRef.current) {
-                    startCompanionCall();
+    const scheduleRetry = () => {
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+            searchTimeoutRef.current = null;
+        }
+
+        searchTimeoutRef.current = window.setTimeout(() => {
+            if (!isSearchingRef.current) return;
+
+            retrySearchCountRef.current += 1;
+            const found = findAndInviteMatch();
+            if (!found) {
+                if (retrySearchCountRef.current >= maxRetries) {
+                    // No real users searching after 45 seconds
+                    setIsSearching(false);
+                    setNoMatchFound(true);
+                    updatePresence('idle');
+                } else {
+                    scheduleRetry();
                 }
-            }, 3500);
-        } else {
-            // Wait 3.5s for real peers; if none searching, connect with community companion seamlessly
-            searchTimeoutRef.current = window.setTimeout(() => {
-                if (isSearchingRef.current) {
-                    startCompanionCall();
-                }
-            }, 3500);
+            }
+        }, 5000);
+    };
+
+    const startSearch = async () => {
+        if (!user) return;
+        setIsSearching(true);
+        setNoMatchFound(false);
+        setShowMatchCard(false);
+        setIsCaller(false);
+        retrySearchCountRef.current = 0;
+
+        await updatePresence('searching');
+
+        const found = findAndInviteMatch();
+        if (!found) {
+            scheduleRetry();
         }
     };
 
@@ -973,7 +926,7 @@ const VoiceCall = () => {
 
     const skipToNext = () => {
         // Send call-end to the current partner
-        if (currentMatchRef.current && channelRef.current && !isMockMode) {
+        if (currentMatchRef.current && channelRef.current) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -1017,7 +970,6 @@ const VoiceCall = () => {
         setChatMessages([]);
         setIncomingExtensionRequest(false);
         setIncomingVideoRequest(false);
-        setIsMockMode(false);
         setIsCaller(false);
         setAudioBlocked(false);
         setPeerConnected(false);
@@ -1046,22 +998,6 @@ const VoiceCall = () => {
         const messageText = chatInput;
         setChatMessages(prev => [...prev, { id: msgId, text: messageText, isMine: true }]);
         setChatInput('');
-
-        if (isMockMode) {
-            const replies = [
-                "Haha hey! Nice to meet you! 😊",
-                "Loving this voice vibe ✨",
-                "What music or movies do you like? 🎶",
-                "That's awesome! Let's connect on Knock Knock 🤝",
-                "Haha you seem really cool!",
-                "Are you enjoying the app so far? 🚀"
-            ];
-            setTimeout(() => {
-                const randomReply = replies[Math.floor(Math.random() * replies.length)];
-                setChatMessages(prev => [...prev, { id: Date.now(), text: randomReply, isMine: false }]);
-            }, 1400);
-            return;
-        }
 
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
