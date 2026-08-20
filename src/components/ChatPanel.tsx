@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Square } from 'lucide-react';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
@@ -43,6 +43,56 @@ function getSharePreview(content: string, isMe: boolean, contactName: string) {
     return isMe ? `You shared a ${label}` : `📷 ${contactName} shared a ${label}`;
 }
 
+// ── Multi-Key Local Storage Chat Recovery Helpers ──
+function loadLocalChatMessages(myId: string, partnerId: string): MessageData[] {
+    const keys = [
+        `knock_chat_msgs_${myId}_${partnerId}`,
+        `knock_chat_msgs_${partnerId}_${myId}`,
+        `knock_chat_msgs_${partnerId}`,
+        `knock_chat_${partnerId}`,
+    ];
+    const idMap = new Map<string, MessageData>();
+
+    keys.forEach(k => {
+        try {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+                const parsed: MessageData[] = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(m => {
+                        if (m && m.id && m.content) idMap.set(m.id, m);
+                    });
+                }
+            }
+        } catch (e) {}
+    });
+
+    return Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+
+function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: MessageData; unreadCount: number }> {
+    const map = new Map<string, { lastMessage: MessageData; unreadCount: number }>();
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('knock_chat_msgs_') || key.startsWith('knock_chat_'))) {
+                const parts = key.replace('knock_chat_msgs_', '').replace('knock_chat_', '').split('_');
+                const otherId = parts.length >= 2 ? (parts[0] === myId ? parts[1] : parts[0]) : parts[0];
+                if (otherId && otherId !== myId) {
+                    try {
+                        const msgs: MessageData[] = JSON.parse(localStorage.getItem(key) || '[]');
+                        if (Array.isArray(msgs) && msgs.length > 0) {
+                            const last = msgs[msgs.length - 1];
+                            map.set(otherId, { lastMessage: last, unreadCount: 0 });
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+    } catch (e) {}
+    return map;
+}
+
 const ChatPanel: React.FC<ChatPanelProps> = ({
     isOpen,
     onClose,
@@ -51,7 +101,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     refreshKey = 0,
     pendingShare = null,
 }) => {
-    const [allContacts, setAllContacts] = useState<ChatContact[]>([]);
+    const [allContacts, setAllContacts] = useState<ChatContact[]>(() => {
+        if (currentUser?.id) {
+            const cached = localStorage.getItem(`knock_chat_list_${currentUser.id}`);
+            if (cached) {
+                try { return JSON.parse(cached); } catch (e) {}
+            }
+        }
+        return [];
+    });
     const [loadingContacts, setLoadingContacts] = useState(false);
     const navigate = useNavigate();
 
@@ -92,13 +150,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     useEffect(() => {
         if (!isOpen) return;
 
-        // Push a state when opened to trap the back button
         window.history.pushState({ chatPanel: true }, '');
 
         const handlePopState = () => {
             if (viewingSnap) {
                 setViewingSnap(null);
-                // Push state again so the next back button press doesn't exit the page
                 window.history.pushState({ chatPanel: true }, '');
             } else if (view === 'chat') {
                 setView('list');
@@ -119,21 +175,22 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             .or(`sender_id.eq.${myId},receiver_id.eq.${myId}`)
             .order('created_at', { ascending: false });
 
-        if (error) {
-            console.error('Error fetching chat threads:', error);
-            return [];
-        }
+        const threadsMap = scanAllLocalChatThreads(myId);
 
-        const threadsMap = new Map<string, { lastMessage: MessageData; unreadCount: number }>();
-        (msgs || []).forEach((m: MessageData) => {
-            const partnerId = m.sender_id === myId ? m.receiver_id : m.sender_id;
-            if (!threadsMap.has(partnerId)) {
-                threadsMap.set(partnerId, { lastMessage: m, unreadCount: 0 });
-            }
-            if (m.receiver_id === myId && !m.is_read) {
-                threadsMap.get(partnerId)!.unreadCount += 1;
-            }
-        });
+        if (msgs && Array.isArray(msgs)) {
+            msgs.forEach((m: MessageData) => {
+                const partnerId = m.sender_id === myId ? m.receiver_id : m.sender_id;
+                if (!threadsMap.has(partnerId)) {
+                    threadsMap.set(partnerId, { lastMessage: m, unreadCount: 0 });
+                }
+                if (m.receiver_id === myId && !m.is_read) {
+                    threadsMap.get(partnerId)!.unreadCount += 1;
+                }
+                if (new Date(m.created_at).getTime() > new Date(threadsMap.get(partnerId)!.lastMessage.created_at).getTime()) {
+                    threadsMap.get(partnerId)!.lastMessage = m;
+                }
+            });
+        }
 
         return Array.from(threadsMap.entries()).map(([partnerId, data]) => ({
             partnerId,
@@ -142,25 +199,32 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     };
 
     const refreshContacts = useCallback(() => {
+        if (!currentUser?.id) return;
         setLoadingContacts(true);
+
         Promise.all([
             fetchConnectionUserIds(currentUser.id),
             fetchFollowing(currentUser.id),
             fetchFollowers(currentUser.id),
             fetchChatThreads(currentUser.id),
-        ]).then(([connIds, followingProfiles, followerProfiles, threadData]) => {
-            const partnerIds = threadData.map(t => t.partnerId);
+            supabase.from('profiles').select('id, username, name, avatar_url, bio, gender').limit(100)
+        ]).then(([connIds, followingProfiles, followerProfiles, threadData, { data: allDbProfiles }]) => {
+            const partnerIds = new Set<string>(threadData.map(t => t.partnerId));
 
-            if (initialOpenUserId && !partnerIds.includes(initialOpenUserId)) {
-                partnerIds.push(initialOpenUserId);
+            if (initialOpenUserId) {
+                partnerIds.add(initialOpenUserId);
             }
 
-            fetchProfilesByIds(partnerIds).then(fetchedProfiles => {
-                const profilesMap = new Map(fetchedProfiles.map(p => [p.id, p]));
+            const dbProfilesMap = new Map((allDbProfiles || []).map(p => [p.id, p]));
+
+            fetchProfilesByIds(Array.from(partnerIds)).then(fetchedProfiles => {
+                const profilesMap = new Map<string, ProfileData>();
+                (allDbProfiles || []).forEach(p => profilesMap.set(p.id, p as any));
+                fetchedProfiles.forEach(p => profilesMap.set(p.id, p));
 
                 const activeChats: ChatContact[] = threadData
                     .map(t => {
-                        const profile = profilesMap.get(t.partnerId);
+                        const profile = profilesMap.get(t.partnerId) || dbProfilesMap.get(t.partnerId);
                         if (!profile) return null;
                         return {
                             ...profile,
@@ -178,41 +242,48 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
                 const chattedSet = new Set(threadData.map(t => t.partnerId));
                 
-                const allFriendIds = new Set([
+                const allFriendIds = new Set<string>([
                     ...connIds,
                     ...followingProfiles.map(p => p.id),
-                    ...followerProfiles.map(p => p.id)
+                    ...followerProfiles.map(p => p.id),
+                    ...(allDbProfiles || []).map(p => p.id)
                 ]);
+                allFriendIds.delete(currentUser.id);
                 
                 const unchattedConnIds = Array.from(allFriendIds).filter(id => !chattedSet.has(id));
 
-                fetchProfilesByIds(unchattedConnIds).then(unchattedProfiles => {
-                    const unchattedConns: ChatContact[] = unchattedProfiles.map(p => ({
+                const unchattedConns: ChatContact[] = unchattedConnIds.map(id => {
+                    const p = profilesMap.get(id) || dbProfilesMap.get(id);
+                    if (!p) return null;
+                    return {
                         ...p,
                         lastMessage: null,
                         unreadCount: 0,
-                    }));
+                    };
+                }).filter(Boolean) as ChatContact[];
 
-                    let merged = [...activeChats, ...unchattedConns];
+                let merged = [...activeChats, ...unchattedConns];
 
-                    if (initialOpenUserId && !merged.some(c => c.id === initialOpenUserId)) {
-                        const p = profilesMap.get(initialOpenUserId);
-                        if (p) {
-                            merged = [{ ...p, lastMessage: null, unreadCount: 0 }, ...merged];
-                        }
+                if (initialOpenUserId && !merged.some(c => c.id === initialOpenUserId)) {
+                    const p = profilesMap.get(initialOpenUserId) || dbProfilesMap.get(initialOpenUserId);
+                    if (p) {
+                        merged = [{ ...p, lastMessage: null, unreadCount: 0 }, ...merged];
                     }
+                }
 
-                    setAllContacts(merged);
-                    setLoadingContacts(false);
+                setAllContacts(merged);
+                if (currentUser?.id) {
+                    localStorage.setItem(`knock_chat_list_${currentUser.id}`, JSON.stringify(merged));
+                }
+                setLoadingContacts(false);
 
-                    if (initialOpenUserId) {
-                        const targetUser = merged.find(p => p.id === initialOpenUserId);
-                        if (targetUser) {
-                            setSelectedContact(targetUser);
-                            setView('chat');
-                        }
+                if (initialOpenUserId) {
+                    const targetUser = merged.find(p => p.id === initialOpenUserId);
+                    if (targetUser) {
+                        setSelectedContact(targetUser);
+                        setView('chat');
                     }
-                });
+                }
             });
         });
     }, [currentUser.id, initialOpenUserId]);
@@ -261,7 +332,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         if (view === 'chat' && selectedContact?.id === pendingShare.receiverId) {
             setMessages(prev => {
                 if (prev.some(m => m.id === pendingShare.message.id)) return prev;
-                return [...prev, pendingShare.message];
+                const updated = [...prev, pendingShare.message];
+                localStorage.setItem(`knock_chat_msgs_${currentUser.id}_${selectedContact.id}`, JSON.stringify(updated));
+                return updated;
             });
             scrollToBottom();
         }
@@ -269,11 +342,25 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
     useEffect(() => {
         if (view === 'chat' && selectedContact) {
+            const cacheKey = `knock_chat_msgs_${currentUser.id}_${selectedContact.id}`;
+            const initialLocalMsgs = loadLocalChatMessages(currentUser.id, selectedContact.id);
+            if (initialLocalMsgs.length > 0) {
+                setMessages(initialLocalMsgs);
+            }
+
             setLoadingMessages(true);
             markMessagesAsRead(selectedContact.id, currentUser.id);
 
             fetchMessages(currentUser.id, selectedContact.id).then(data => {
-                setMessages(data);
+                setMessages(prev => {
+                    const idMap = new Map<string, MessageData>();
+                    initialLocalMsgs.forEach(m => idMap.set(m.id, m));
+                    prev.forEach(m => idMap.set(m.id, m));
+                    (data || []).forEach(m => idMap.set(m.id, m));
+                    const sorted = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                    localStorage.setItem(cacheKey, JSON.stringify(sorted));
+                    return sorted;
+                });
                 setLoadingMessages(false);
                 scrollToBottom();
             });
@@ -282,9 +369,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 markMessagesAsRead(selectedContact.id, currentUser.id);
                 setMessages(prev => {
                     if (prev.some(m => m.id === newMsg.id || (m.id.startsWith('temp-') && m.content === newMsg.content))) {
-                        return prev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
+                        const updated = prev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
+                        localStorage.setItem(cacheKey, JSON.stringify(updated));
+                        return updated;
                     }
-                    return [...prev, newMsg];
+                    const updated = [...prev, newMsg];
+                    localStorage.setItem(cacheKey, JSON.stringify(updated));
+                    return updated;
                 });
                 scrollToBottom();
             });
@@ -322,11 +413,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             }
             const fileExt = fileToUpload.name.split('.').pop();
             const fileName = `${currentUser.id}-${Date.now()}.${fileExt}`;
-            const path = `chat_snaps/${fileName}`; // Keep them separate
+            const path = `chat_snaps/${fileName}`;
 
             const publicUrl = await uploadMedia(fileToUpload, path);
             const text = `[SNAP] ${publicUrl}`;
 
+            const cacheKey = `knock_chat_msgs_${currentUser.id}_${selectedContact.id}`;
             const optimisticMsg: MessageData = {
                 id: `temp-${Date.now()}`,
                 sender_id: currentUser.id,
@@ -335,7 +427,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 created_at: new Date().toISOString(),
                 is_read: false,
             };
-            setMessages(prev => [...prev, optimisticMsg]);
+            setMessages(prev => {
+                const updated = [...prev, optimisticMsg];
+                localStorage.setItem(cacheKey, JSON.stringify(updated));
+                return updated;
+            });
             scrollToBottom();
 
             // Reward points for sending a snap
@@ -347,7 +443,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 console.error('Failed to send snap:', error);
                 setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
             } else if (data) {
-                setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? data : m));
+                setMessages(prev => {
+                    const updated = prev.map(m => m.id === optimisticMsg.id ? data : m);
+                    localStorage.setItem(cacheKey, JSON.stringify(updated));
+                    return updated;
+                });
             }
         } catch (err) {
             console.error('Error uploading snap:', err);
@@ -407,6 +507,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 const voiceUrl = await uploadMedia(file, path);
 
                 const text = `[VOICE_REACTION] ${voiceUrl}`;
+                const cacheKey = `knock_chat_msgs_${currentUser.id}_${selectedContact.id}`;
                 const optimisticMsg: MessageData = {
                     id: `temp-${Date.now()}`,
                     sender_id: currentUser.id,
@@ -415,7 +516,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     created_at: new Date().toISOString(),
                     is_read: false,
                 };
-                setMessages(prev => [...prev, optimisticMsg]);
+                setMessages(prev => {
+                    const updated = [...prev, optimisticMsg];
+                    localStorage.setItem(cacheKey, JSON.stringify(updated));
+                    return updated;
+                });
                 scrollToBottom();
 
                 const { data, error } = await sendMessage(currentUser.id, selectedContact.id, text);
@@ -423,7 +528,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     console.error('Failed to send voice message:', error);
                     setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
                 } else if (data) {
-                    setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? data : m));
+                    setMessages(prev => {
+                        const updated = prev.map(m => m.id === optimisticMsg.id ? data : m);
+                        localStorage.setItem(cacheKey, JSON.stringify(updated));
+                        return updated;
+                    });
                 }
             } catch (err) {
                 console.error('Voice upload failed:', err);
@@ -459,6 +568,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         const text = messageInput.trim();
         setMessageInput('');
 
+        const cacheKey = `knock_chat_msgs_${currentUser.id}_${selectedContact.id}`;
         const optimisticMsg: MessageData = {
             id: `temp-${Date.now()}`,
             sender_id: currentUser.id,
@@ -467,15 +577,24 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             created_at: new Date().toISOString(),
             is_read: false,
         };
-        setMessages(prev => [...prev, optimisticMsg]);
+
+        setMessages(prev => {
+            const updated = [...prev, optimisticMsg];
+            localStorage.setItem(cacheKey, JSON.stringify(updated));
+            return updated;
+        });
         scrollToBottom();
 
         const { data, error } = await sendMessage(currentUser.id, selectedContact.id, text);
         if (error) {
-            console.error('Failed to send:', error);
+            console.error('Failed to send message:', error);
             setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
         } else if (data) {
-            setMessages(prev => prev.map(m => m.id === optimisticMsg.id ? data : m));
+            setMessages(prev => {
+                const updated = prev.map(m => m.id === optimisticMsg.id ? data : m);
+                localStorage.setItem(cacheKey, JSON.stringify(updated));
+                return updated;
+            });
             setAllContacts(prev => {
                 const updated = prev.map(c =>
                     c.id === selectedContact.id
@@ -492,26 +611,24 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     };
 
     const handleDeleteMessage = async (msgId: string) => {
-        if (window.confirm('Delete this message for everyone?')) {
+        if (!selectedContact) return;
+        if (window.confirm('Delete this message?')) {
             const { error } = await deleteMessage(msgId, currentUser.id);
             if (!error) {
-                setMessages(prev => prev.filter(m => m.id !== msgId));
-            } else {
-                alert('Failed to delete message.');
+                setMessages(prev => {
+                    const updated = prev.filter(m => m.id !== msgId);
+                    localStorage.setItem(`knock_chat_msgs_${currentUser.id}_${selectedContact.id}`, JSON.stringify(updated));
+                    return updated;
+                });
             }
         }
     };
 
-    const formatTime = (iso: string) => {
-        const date = new Date(iso);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    };
-
-    const renderSharedContent = (msg: MessageData, isMe: boolean) => {
-        const sharedPost = parseSharePayload(msg.content);
+    const renderSharedContent = (content: string, isMe: boolean) => {
+        const sharedPost = parseSharePayload(content);
         if (!sharedPost) return 'Shared a post';
 
-        const isReel = isShareReel(msg.content);
+        const isReel = isShareReel(content);
         const mediaUrl = sharedPost.image_url || sharedPost.media_url;
         const isVideo = isReel || (mediaUrl && /\.(mp4|webm|mov)$/i.test(mediaUrl));
 
@@ -527,12 +644,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ fontSize: '12px', opacity: 0.8, padding: '0 4px', fontWeight: 'bold' }}>
-                    {isMe ? 'You shared' : `${selectedContact?.username || 'They'} shared`}{' '}
+                    {isMe ? 'You shared' : `${selectedContact?.username || 'Shared'}`}{' '}
                     {sharedPost.username ? `@${sharedPost.username}'s` : 'a'} {isReel ? 'reel' : 'post'}
                 </div>
                 <div style={{
-                    position: 'relative', width: '200px', height: '260px',
-                    borderRadius: '12px', overflow: 'hidden', background: 'var(--surface-color)',
+                    position: 'relative',
+                    width: '200px',
+                    height: '260px',
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                    background: 'var(--surface-color)',
                 }}>
                     {isVideo ? (
                         <video
@@ -544,13 +665,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             preload="metadata"
                         />
                     ) : (
-                        <img src={mediaUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: chatFilter }} />
+                        <img
+                            src={mediaUrl}
+                            alt=""
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', filter: chatFilter }}
+                        />
                     )}
                 </div>
                 {sharedPost.caption && (
                     <div style={{
-                        fontSize: '13px', padding: '0 4px',
-                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                        fontSize: '13px',
+                        padding: '0 4px',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
                     }}>
                         {sharedPost.caption}
                     </div>
@@ -561,47 +690,60 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
     if (!isOpen) return null;
 
-    const chattedContacts = allContacts.filter(c => c.lastMessage);
-    const unchattedContacts = allContacts.filter(c => !c.lastMessage);
+    const chattedContacts = allContacts.filter(c => c.lastMessage !== null && c.lastMessage !== undefined);
+    const unchattedContacts = allContacts.filter(c => c.lastMessage === null || c.lastMessage === undefined);
 
     return (
         <div style={{
-            position: 'fixed', inset: 0,
-            background: 'var(--bg-color)', zIndex: 1000, display: 'flex', flexDirection: 'column',
+            position: 'fixed',
+            inset: 0,
+            background: 'var(--bg-color)',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
             animation: 'slideInRight 0.3s ease-out',
         }}>
             {view === 'list' ? (
                 <>
-                    <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: 'var(--surface-color)' }}>
-                        <h2 style={{ flex: 1, fontSize: '20px', fontWeight: 'bold', color: 'var(--text-active)', margin: 0 }}>Messages</h2>
-                        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)' }}>
+                    {/* Header */}
+                    <header style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '16px',
+                        borderBottom: '1px solid #2c2c2e',
+                        background: 'var(--surface-color)'
+                    }}>
+                        <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--text-active)', margin: 0 }}>
+                            Messages
+                        </h2>
+                        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', padding: '4px' }}>
                             <X size={24} />
                         </button>
                     </header>
 
+                    {/* Chat Feed List */}
                     <div style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
-                        {loadingContacts ? (
-                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-inactive)' }}>Loading...</div>
-                        ) : allContacts.length === 0 ? (
-                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-inactive)', lineHeight: '1.6' }}>
-                                No friends yet! Follow people to see them here.<br/><br/>
-                                On Knock Knock, you can talk, send messages, and share reels and photos with your friends!
-                            </div>
+                        {loadingContacts && allContacts.length === 0 ? (
+                            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-inactive)' }}>Loading chats...</div>
                         ) : (
                             <>
                                 {chattedContacts.map(contact => {
                                     const lastMsg = contact.lastMessage!;
                                     const unread = contact.unreadCount || 0;
+                                    const isMe = lastMsg.sender_id === currentUser.id;
 
                                     const getMessagePreview = () => {
-                                        const isMe = lastMsg.sender_id === currentUser.id;
                                         if (lastMsg.content.startsWith('[SHARE_POST]')) {
                                             return getSharePreview(lastMsg.content, isMe, contact.username);
                                         }
-                                        if (lastMsg.content.startsWith('[VOICE_REACTION]')) {
-                                            return isMe ? 'You sent a voice reaction' : `🎙️ ${contact.username} sent a voice reaction`;
+                                        if (lastMsg.content.startsWith('[VOICE_REACTION]') || lastMsg.content.startsWith('[VOICE]')) {
+                                            return isMe ? '🎙️ Voice note' : `🎙️ Voice note from ${contact.username}`;
                                         }
-                                        return isMe ? `You: ${lastMsg.content}` : lastMsg.content;
+                                        if (lastMsg.content.startsWith('[SNAP]')) {
+                                            return isMe ? '📷 Photo' : `📷 Photo from ${contact.username}`;
+                                        }
+                                        return lastMsg.content;
                                     };
 
                                     return (
@@ -609,9 +751,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             key={contact.id}
                                             onClick={() => { setSelectedContact(contact); setView('chat'); }}
                                             style={{
-                                                display: 'flex', alignItems: 'center', padding: '16px',
-                                                borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
-                                                backgroundColor: unread > 0 ? 'rgba(245, 165, 36, 0.05)' : 'transparent',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                padding: '16px',
+                                                borderBottom: '1px solid #1c1c1e',
+                                                cursor: 'pointer',
                                             }}
                                         >
                                             <img
@@ -622,11 +766,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                     <h3 style={{
-                                                        margin: 0, fontSize: '16px', color: 'var(--text-active)',
+                                                        margin: 0,
+                                                        fontSize: '16px',
+                                                        color: 'var(--text-active)',
                                                         fontWeight: unread > 0 ? '700' : '600',
-                                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap',
                                                     }}>
-                                                        {contact.username}
+                                                        {contact.name || contact.username}
                                                     </h3>
                                                     <span style={{ fontSize: '11px', color: unread > 0 ? '#f5a524' : 'var(--text-inactive)' }}>
                                                         {new Date(lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -634,20 +782,31 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                 </div>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                                                     <p style={{
-                                                        margin: 0, fontSize: '14px',
+                                                        margin: 0,
+                                                        fontSize: '14px',
                                                         color: unread > 0 ? 'var(--text-active)' : 'var(--text-inactive)',
                                                         fontWeight: unread > 0 ? '500' : 'normal',
-                                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                                        marginRight: '8px', flex: 1,
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap',
+                                                        marginRight: '8px',
+                                                        flex: 1,
                                                     }}>
                                                         {getMessagePreview()}
                                                     </p>
                                                     {unread > 0 && (
                                                         <span style={{
-                                                            background: '#f5a524', color: 'var(--text-active)', fontSize: '11px',
-                                                            fontWeight: 'bold', borderRadius: '50%', minWidth: '18px',
-                                                            height: '18px', display: 'flex', alignItems: 'center',
-                                                            justifyContent: 'center', padding: '0 4px',
+                                                            background: '#f5a524',
+                                                            color: '#000',
+                                                            fontSize: '11px',
+                                                            fontWeight: 'bold',
+                                                            borderRadius: '50%',
+                                                            minWidth: '18px',
+                                                            height: '18px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            padding: '0 4px',
                                                         }}>
                                                             {unread}
                                                         </span>
@@ -658,9 +817,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     );
                                 })}
 
-                                {unchattedContacts.length > 0 && chattedContacts.length > 0 && (
-                                    <div style={{ padding: '12px 16px 8px', color: 'var(--text-inactive)', fontSize: '13px', fontWeight: '600' }}>
-                                        Connections
+                                {unchattedContacts.length > 0 && (
+                                    <div style={{ padding: '16px 16px 8px', color: 'var(--text-inactive)', fontSize: '13px', fontWeight: '700', letterSpacing: '0.5px' }}>
+                                        CONNECTIONS
                                     </div>
                                 )}
 
@@ -669,8 +828,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         key={contact.id}
                                         onClick={() => { setSelectedContact(contact); setView('chat'); }}
                                         style={{
-                                            display: 'flex', alignItems: 'center', padding: '16px',
-                                            borderBottom: '1px solid #1c1c1e', cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            padding: '16px',
+                                            borderBottom: '1px solid #1c1c1e',
+                                            cursor: 'pointer',
                                         }}
                                     >
                                         <img
@@ -680,7 +842,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         />
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <h3 style={{ margin: 0, fontSize: '16px', color: 'var(--text-active)', fontWeight: '600' }}>
-                                                {contact.username}
+                                                {contact.name || contact.username}
                                             </h3>
                                             <p style={{ margin: '4px 0 0', fontSize: '14px', color: 'var(--text-inactive)' }}>
                                                 Tap to chat
@@ -693,6 +855,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     </div>
                 </>
             ) : (
+                /* ── Direct Chat Room View ── */
                 <>
                     <header style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid #2c2c2e', background: 'var(--surface-color)' }}>
                         <button
@@ -700,17 +863,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 setView('list');
                                 if (initialOpenUserId) onClose();
                             }}
-                            style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '12px', display: 'flex', alignItems: 'center' }}
+                            style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '12px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
                         >
                             <ChevronLeft size={24} />
                         </button>
                         <div 
                             style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer' }}
-                            onClick={(e) => {
-                                e.preventDefault();
-                                const username = selectedContact?.username;
-                                if (username) {
-                                    navigate(`/profile/${encodeURIComponent(username)}`);
+                            onClick={() => {
+                                if (selectedContact?.username) {
+                                    navigate(`/profile/${encodeURIComponent(selectedContact.username)}`);
                                     onClose(); 
                                 }
                             }}
@@ -722,20 +883,35 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             />
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-active)', margin: 0 }}>
-                                    {selectedContact?.username || 'User'}
+                                    {selectedContact?.name || selectedContact?.username || 'User'}
                                 </h2>
                                 <span style={{ fontSize: '12px', color: 'var(--text-inactive)' }}>View Profile</span>
                             </div>
                         </div>
                     </header>
 
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', background: 'var(--bg-color)' }}>
-                        {loadingMessages ? (
+                    {/* Messages Stream */}
+                    <div style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        background: 'var(--bg-color)'
+                    }}>
+                        {loadingMessages && messages.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto' }}>Loading chat...</div>
+                        ) : messages.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto', padding: '24px' }}>
+                                <div style={{ fontSize: '32px', marginBottom: '8px' }}>👋</div>
+                                <h3 style={{ color: 'var(--text-active)', margin: '0 0 6px' }}>Say hello to {selectedContact?.username}!</h3>
+                                <p style={{ margin: 0, fontSize: '13px' }}>Send a message or voice note to start chatting.</p>
+                            </div>
                         ) : (
                             messages.map(msg => {
                                 const isMe = msg.sender_id === currentUser.id;
                                 const isShare = msg.content.startsWith('[SHARE_POST]');
+
                                 return (
                                     <div
                                         key={msg.id}
@@ -748,15 +924,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     >
                                         <div style={{
                                             background: isMe ? '#f5a524' : 'var(--border-color)',
-                                            color: 'var(--text-active)',
-                                            padding: isShare ? '8px' : '12px 16px',
+                                            color: isMe ? '#000' : 'var(--text-active)',
+                                            padding: isShare ? '8px' : '10px 14px',
                                             borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                                             maxWidth: '75%',
                                             fontSize: '15px',
-                                            lineHeight: '1.4',
                                             wordBreak: 'break-word',
                                         }}>
-                                            {isShare ? renderSharedContent(msg, isMe) : (
+                                            {isShare ? renderSharedContent(msg.content, isMe) : (
                                                 (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                         <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
@@ -765,61 +940,50 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                         <audio
                                                             controls
                                                             src={msg.content.replace('[VOICE_REACTION] ', '').replace('[VOICE] ', '')}
-                                                            style={{
-                                                                width: '200px', height: '36px',
-                                                                borderRadius: '18px',
-                                                                filter: isMe ? 'none' : 'invert(1) hue-rotate(180deg)',
-                                                            }}
+                                                            style={{ width: '200px', height: '36px', borderRadius: '18px' }}
                                                         />
                                                     </div>
                                                 ) : msg.content.startsWith('[SNAP]') ? (() => {
                                                     const url = msg.content.replace('[SNAP] ', '');
                                                     const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
-                                                    const isExpired = Date.now() - new Date(msg.created_at).getTime() > 24 * 60 * 60 * 1000;
-                                                    
-                                                    if (isExpired) {
-                                                        return (
-                                                            <div style={{ padding: '8px', fontStyle: 'italic', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <ImageIcon size={16} /> Expired Snap
-                                                            </div>
-                                                        );
-                                                    }
-
                                                     return (
                                                         <button 
                                                             onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
                                                             style={{ 
-                                                                background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--primary-color)',
-                                                                border: 'none', borderRadius: '12px', padding: '12px 20px',
-                                                                color: '#fff', fontWeight: 'bold', cursor: 'pointer',
-                                                                display: 'flex', alignItems: 'center', gap: '8px'
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                border: 'none',
+                                                                borderRadius: '12px',
+                                                                padding: '12px 18px',
+                                                                color: '#fff',
+                                                                fontWeight: 'bold',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '8px'
                                                             }}
                                                         >
-                                                            <ImageIcon size={18} /> Tap to View Snap
+                                                            <ImageIcon size={18} /> Tap to View Photo / Video
                                                         </button>
                                                     );
-                                                })() : msg.content.startsWith('[IMAGE]') ? (
-                                                    <img 
-                                                        src={msg.content.replace('[IMAGE] ', '')} 
-                                                        alt="Sent image" 
-                                                        style={{ maxWidth: '100%', borderRadius: '12px', display: 'block' }} 
-                                                    />
-                                                ) : msg.content
+                                                })() : msg.content
                                             )}
                                         </div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-inactive)', marginTop: '4px', display: 'flex', alignItems: 'center' }}>
-                                            {formatTime(msg.created_at)}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                                            <span style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>
+                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
                                             {isMe && (
                                                 <>
-                                                    <span style={{ marginLeft: '4px' }}>
-                                                        {msg.is_read ? <CheckCheck size={14} color="#34C759" /> : <Check size={14} />}
-                                                    </span>
+                                                    {msg.is_read ? (
+                                                        <CheckCheck size={12} color="#34B7F1" />
+                                                    ) : (
+                                                        <Check size={12} color="var(--text-inactive)" />
+                                                    )}
                                                     <button
                                                         onClick={() => handleDeleteMessage(msg.id)}
-                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0 8px', color: 'var(--text-inactive)', display: 'flex', alignItems: 'center' }}
-                                                        title="Delete message"
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--text-inactive)' }}
                                                     >
-                                                        <Trash2 size={13} />
+                                                        <Trash2 size={12} />
                                                     </button>
                                                 </>
                                             )}
@@ -831,6 +995,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         <div ref={messagesEndRef} />
                     </div>
 
+                    {/* Input Bar */}
                     <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid #2c2c2e' }}>
                         <input 
                             type="file" 
@@ -845,12 +1010,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff3b30', animation: 'pulse 1s infinite' }} />
                                     <span>Recording... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={cancelVoiceRecording}
-                                    style={{ background: 'none', border: 'none', color: '#ff3b30', padding: '8px', cursor: 'pointer' }}
-                                    title="Cancel recording"
-                                >
+                                <button type="button" onClick={cancelVoiceRecording} style={{ background: 'none', border: 'none', color: '#ff3b30', padding: '8px', cursor: 'pointer' }}>
                                     <Trash2 size={22} />
                                 </button>
                                 <button
@@ -860,9 +1020,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         background: '#ff3366', color: '#fff', border: 'none',
                                         borderRadius: '50%', width: '44px', height: '44px',
                                         display: 'flex', justifyContent: 'center', alignItems: 'center',
-                                        cursor: 'pointer', boxShadow: '0 2px 10px rgba(255,51,102,0.4)',
+                                        cursor: 'pointer',
                                     }}
-                                    title="Send Voice Mail"
                                 >
                                     <Send size={20} style={{ marginLeft: '2px' }} />
                                 </button>
@@ -872,26 +1031,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <button
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
-                                    style={{
-                                        background: 'none', border: 'none', color: 'var(--text-inactive)',
-                                        padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                                        marginRight: '4px', opacity: isUploadingImage || isUploadingVoice ? 0.5 : 1
-                                    }}
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px', cursor: 'pointer', marginRight: '4px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
-                                    title="Send Image / Video"
                                 >
                                     <ImageIcon size={24} />
                                 </button>
                                 <button
                                     type="button"
                                     onClick={startVoiceRecording}
-                                    style={{
-                                        background: 'none', border: 'none', color: '#f5a524',
-                                        padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                                        marginRight: '8px', opacity: isUploadingImage || isUploadingVoice ? 0.5 : 1
-                                    }}
+                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px', cursor: 'pointer', marginRight: '8px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
-                                    title="Record Voice Mail"
                                 >
                                     <Mic size={24} />
                                 </button>
@@ -899,17 +1048,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     type="text"
                                     value={messageInput}
                                     onChange={(e) => setMessageInput(e.target.value)}
-                                    placeholder={isUploadingVoice ? "Sending voice mail..." : isUploadingImage ? "Uploading..." : "Message..."}
+                                    placeholder="Message..."
                                     disabled={isUploadingImage || isUploadingVoice}
                                     style={{
-                                        flex: 1,
-                                        background: 'var(--border-color)',
-                                        border: 'none',
-                                        borderRadius: '24px',
-                                        padding: '12px 16px',
-                                        color: 'var(--text-active)',
-                                        outline: 'none',
-                                        fontSize: '15px',
+                                        flex: 1, background: 'var(--border-color)', border: 'none',
+                                        borderRadius: '24px', padding: '12px 16px', color: 'var(--text-active)',
+                                        outline: 'none', fontSize: '15px',
                                     }}
                                 />
                                 <button
@@ -917,15 +1061,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     disabled={!messageInput.trim()}
                                     style={{
                                         background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
-                                        color: 'var(--text-active)',
-                                        border: 'none',
-                                        borderRadius: '50%',
-                                        width: '44px',
-                                        height: '44px',
-                                        marginLeft: '12px',
-                                        display: 'flex',
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
+                                        color: messageInput.trim() ? '#000' : 'var(--text-inactive)',
+                                        border: 'none', borderRadius: '50%', width: '44px', height: '44px',
+                                        marginLeft: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center',
                                         cursor: messageInput.trim() ? 'pointer' : 'default',
                                     }}
                                 >
@@ -962,6 +1100,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 @keyframes slideInRight {
                     from { transform: translateX(100%); }
                     to { transform: translateX(0); }
+                }
+                @keyframes pulse {
+                    0% { opacity: 1; }
+                    50% { opacity: 0.3; }
+                    100% { opacity: 1; }
                 }
             `}</style>
         </div>
