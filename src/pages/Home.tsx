@@ -467,8 +467,7 @@ const Home = () => {
         const timer = setInterval(() => {
             setStoryProgress(prev => {
                 if (prev >= 100) {
-                    nextStory();
-                    return 0;
+                    return 100;
                 }
                 return prev + step;
             });
@@ -476,6 +475,12 @@ const Home = () => {
 
         return () => clearInterval(timer);
     }, [viewingGroup, viewingIndex]);
+
+    useEffect(() => {
+        if (storyProgress >= 100) {
+            nextStory();
+        }
+    }, [storyProgress]);
 
     // Handle background music playback for Home story viewer
     useEffect(() => {

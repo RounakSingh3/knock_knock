@@ -38,8 +38,40 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const bgAudioRef = useRef<HTMLAudioElement | null>(null);
     const navigate = useNavigate();
 
+    const currentGroup = storyGroups[groupIndex];
+    const currentStory = currentGroup?.stories[storyIndex];
+
     const [audioPlaying, setAudioPlaying] = useState(true);
     const [musicMuted, setMusicMuted] = useState(false);
+
+    const handleNextStory = useCallback(() => {
+        if (!currentGroup) return;
+        if (storyIndex < currentGroup.stories.length - 1) {
+            setStoryIndex(prev => prev + 1);
+            setProgress(0);
+        } else if (groupIndex < storyGroups.length - 1) {
+            setGroupIndex(prev => prev + 1);
+            setStoryIndex(0);
+            setProgress(0);
+        } else {
+            onClose();
+        }
+    }, [currentGroup, groupIndex, storyGroups.length, storyIndex, onClose]);
+
+    const handlePrevStory = useCallback(() => {
+        if (!currentGroup) return;
+        if (storyIndex > 0) {
+            setStoryIndex(prev => prev - 1);
+            setProgress(0);
+        } else if (groupIndex > 0) {
+            const prevGroup = storyGroups[groupIndex - 1];
+            setGroupIndex(prev => prev - 1);
+            setStoryIndex(prevGroup.stories.length - 1);
+            setProgress(0);
+        } else {
+            setProgress(0);
+        }
+    }, [currentGroup, groupIndex, storyGroups, storyIndex]);
 
     // Sync audio element state with React state
     useEffect(() => {
@@ -83,53 +115,27 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         return () => window.removeEventListener('popstate', handlePopState);
     }, [onClose]);
 
-    const currentGroup = storyGroups[groupIndex];
-    const currentStory = currentGroup?.stories[storyIndex];
-
-    const handleNextStory = useCallback(() => {
-        if (!currentGroup) return;
-        if (storyIndex < currentGroup.stories.length - 1) {
-            setStoryIndex(prev => prev + 1);
-            setProgress(0);
-        } else if (groupIndex < storyGroups.length - 1) {
-            setGroupIndex(prev => prev + 1);
-            setStoryIndex(0);
-            setProgress(0);
-        } else {
-            onClose();
-        }
-    }, [currentGroup, groupIndex, storyGroups.length, storyIndex, onClose]);
-
-    const handlePrevStory = useCallback(() => {
-        if (!currentGroup) return;
-        if (storyIndex > 0) {
-            setStoryIndex(prev => prev - 1);
-            setProgress(0);
-        } else if (groupIndex > 0) {
-            const prevGroup = storyGroups[groupIndex - 1];
-            setGroupIndex(prev => prev - 1);
-            setStoryIndex(prevGroup.stories.length - 1);
-            setProgress(0);
-        } else {
-            setProgress(0); // Reset current
-        }
-    }, [currentGroup, groupIndex, storyGroups, storyIndex]);
-
+    // Auto-advance story timer
     useEffect(() => {
         if (isPaused || !currentStory) return;
 
         const interval = setInterval(() => {
             setProgress(prev => {
                 if (prev >= 100) {
-                    handleNextStory();
-                    return 0;
+                    return 100;
                 }
-                return prev + 2; // 50 steps * 2 = 100% -> 5 seconds (100ms per step)
+                return prev + 2;
             });
-        }, 100); // 50ms * 100 = 5000ms = 5 seconds
+        }, 100);
 
         return () => clearInterval(interval);
-    }, [currentStory, isPaused, handleNextStory]);
+    }, [currentStory, isPaused]);
+
+    useEffect(() => {
+        if (progress >= 100) {
+            handleNextStory();
+        }
+    }, [progress, handleNextStory]);
 
     // Removed audioPlayer.play() since we use a physical native <audio> tag now.
 
