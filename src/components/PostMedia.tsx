@@ -76,16 +76,35 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         const audio = audioRef.current;
         if (!audio) return;
 
+        let cleanupTap: (() => void) | null = null;
+
         if (autoPlay || soundOn) {
             audio.muted = muted !== undefined ? muted : false;
             audio.currentTime = 0;
-            audio.play().catch((e) => console.warn('Audio play blocked/failed:', e));
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch((e) => {
+                    console.warn('[PostMedia] Audio autoplay deferred until tap:', e);
+                    const onUserTap = () => {
+                        audio.play().catch(() => {});
+                        window.removeEventListener('click', onUserTap);
+                        window.removeEventListener('touchstart', onUserTap);
+                    };
+                    window.addEventListener('click', onUserTap, { once: true, capture: true });
+                    window.addEventListener('touchstart', onUserTap, { once: true, capture: true });
+                    cleanupTap = () => {
+                        window.removeEventListener('click', onUserTap);
+                        window.removeEventListener('touchstart', onUserTap);
+                    };
+                });
+            }
         } else {
             audio.pause();
             audio.currentTime = 0;
         }
 
         return () => {
+            if (cleanupTap) cleanupTap();
             audio.pause();
             audio.currentTime = 0;
         };

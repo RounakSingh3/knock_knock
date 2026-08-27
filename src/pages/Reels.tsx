@@ -38,6 +38,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 387,
         shares: 1204,
         category: 'Nature',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/5a/d0/45/5ad0455b-b5ec-8bbb-ed46-b987b4232ad6/mzaf_18002733578142931089.plus.aac.p.m4a',
     },
     {
         id: 2,
@@ -51,6 +52,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 912,
         shares: 3410,
         category: 'Travel',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview125/v4/26/23/3c/26233cdf-ae9e-a40e-3e5c-8645bac1dd00/mzaf_4554903182036177858.plus.aac.p.m4a',
     },
     {
         id: 3,
@@ -64,6 +66,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 1230,
         shares: 5620,
         category: 'Nature',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/d6/59/2b/d6592b0b-1e7e-4743-b2e4-f2af038fd783/mzaf_7697277787797935735.plus.aac.p.m4a',
     },
     {
         id: 4,
@@ -77,6 +80,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 654,
         shares: 2100,
         category: 'Sports',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/96/f2/25/96f225f2-cd07-3639-4133-0910aa9725c0/mzaf_13857358519708863745.plus.aac.p.m4a',
     },
     {
         id: 5,
@@ -90,6 +94,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 2100,
         shares: 8900,
         category: 'Food',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/ac/57/e0/ac57e012-013a-dbc9-8526-ed12c2dacc66/mzaf_4836012189133996186.plus.aac.p.m4a',
     },
     {
         id: 6,
@@ -103,6 +108,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 880,
         shares: 4200,
         category: 'Nature',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview125/v4/95/84/05/95840512-b41d-68e4-e7ff-c8987c9bcceb/mzaf_8934420937865408216.plus.aac.p.m4a',
     },
     {
         id: 7,
@@ -116,6 +122,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 4300,
         shares: 12400,
         category: 'Dance',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/59/dc/4d/59dc4dda-93ff-8f1c-c536-f005f6ea6af5/mzaf_3066686759813252385.plus.aac.p.m4a',
     },
     {
         id: 8,
@@ -129,6 +136,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 8700,
         shares: 24000,
         category: 'Animals',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/ed/a0/19/eda019cf-2794-66d1-208d-2e2e74c26c3d/mzaf_16469762943852039623.plus.aac.p.m4a',
     },
     {
         id: 9,
@@ -142,6 +150,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 1890,
         shares: 6700,
         category: 'Travel',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/c7/ed/61/c7ed61a0-9bfd-a92b-5406-33687f7d12dc/mzaf_16539405415188574752.plus.aac.p.m4a',
     },
     {
         id: 10,
@@ -155,6 +164,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 740,
         shares: 3100,
         category: 'Art',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/ba/35/4b/ba354bd6-e65c-fa1c-20fc-61d0e6f75b48/mzaf_6902806954440222582.plus.aac.p.m4a',
     },
     {
         id: 11,
@@ -168,6 +178,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 3200,
         shares: 9100,
         category: 'Nature',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/be/ee/7d/beee7d83-77c9-0cd1-daa3-f76a5d0db5c5/mzaf_13246627122539623042.plus.aac.p.m4a',
     },
     {
         id: 12,
@@ -181,6 +192,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 1560,
         shares: 5400,
         category: 'Lifestyle',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/3b/40/e6/3b40e66c-157c-2f7e-f783-6a9f640d352f/mzaf_14944651481988462391.plus.aac.p.m4a',
     },
 ];
 
