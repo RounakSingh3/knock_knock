@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck } from 'lucide-react';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
@@ -208,6 +208,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const voiceTimerRef = useRef<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const cameraInputRef = useRef<HTMLInputElement>(null);
 
     // Hide bottom navigation when ChatPanel is open
     useEffect(() => {
@@ -1465,6 +1466,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             ref={fileInputRef} 
                             onChange={handleImageUpload} 
                         />
+                        <input 
+                            type="file" 
+                            accept="image/*,video/*" 
+                            capture="environment"
+                            style={{ display: 'none' }} 
+                            ref={cameraInputRef} 
+                            onChange={handleImageUpload} 
+                        />
                         {isRecordingVoice ? (
                             <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '12px', padding: '0 8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3b30', fontWeight: 'bold', fontSize: '14px', flex: 1 }}>
@@ -1491,8 +1500,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             <>
                                 <button
                                     type="button"
+                                    onClick={() => cameraInputRef.current?.click()}
+                                    title="Take Camera Snap"
+                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer' }}
+                                    disabled={isUploadingImage || isUploadingVoice}
+                                >
+                                    <Camera size={24} />
+                                </button>
+                                <button
+                                    type="button"
                                     onClick={() => fileInputRef.current?.click()}
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px', cursor: 'pointer', marginRight: '4px' }}
+                                    title="Attach Photo / Video"
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px 6px', cursor: 'pointer' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
                                     <ImageIcon size={24} />
@@ -1500,7 +1519,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <button
                                     type="button"
                                     onClick={startVoiceRecording}
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px', cursor: 'pointer', marginRight: '8px' }}
+                                    title="Record Voice Note"
+                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer', marginRight: '4px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
                                     <Mic size={24} />
@@ -1664,6 +1684,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             ref={fileInputRef} 
                             onChange={handleImageUpload} 
                         />
+                        <input 
+                            type="file" 
+                            accept="image/*,video/*" 
+                            capture="environment"
+                            style={{ display: 'none' }} 
+                            ref={cameraInputRef} 
+                            onChange={handleImageUpload} 
+                        />
                         {isRecordingVoice ? (
                             <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '12px', padding: '0 8px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3b30', fontWeight: 'bold', fontSize: '14px', flex: 1 }}>
@@ -1690,8 +1718,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             <>
                                 <button
                                     type="button"
+                                    onClick={() => cameraInputRef.current?.click()}
+                                    title="Take Camera Snap"
+                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer' }}
+                                    disabled={isUploadingImage || isUploadingVoice}
+                                >
+                                    <Camera size={24} />
+                                </button>
+                                <button
+                                    type="button"
                                     onClick={() => fileInputRef.current?.click()}
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px', cursor: 'pointer', marginRight: '4px' }}
+                                    title="Attach Photo / Video"
+                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px 6px', cursor: 'pointer' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
                                     <ImageIcon size={24} />
@@ -1699,7 +1737,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <button
                                     type="button"
                                     onClick={startVoiceRecording}
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px', cursor: 'pointer', marginRight: '8px' }}
+                                    title="Record Voice Note"
+                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer', marginRight: '4px' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
                                     <Mic size={24} />
