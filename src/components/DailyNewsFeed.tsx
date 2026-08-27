@@ -342,32 +342,35 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                     style={{
                         position: 'fixed',
                         inset: 0,
-                        zIndex: 10000,
+                        zIndex: 100000,
                         background: 'rgba(0,0,0,0.85)',
-                        backdropFilter: 'blur(12px)',
+                        backdropFilter: 'blur(16px)',
                         display: 'flex',
-                        alignItems: 'flex-end',
-                        justifyContent: 'center'
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '16px',
+                        boxSizing: 'border-box',
                     }}
                 >
                     <div
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             width: '100%',
-                            maxWidth: '520px',
-                            maxHeight: '85vh',
+                            maxWidth: '480px',
+                            maxHeight: '88vh',
                             background: '#1c1c1e',
-                            borderTopLeftRadius: '24px',
-                            borderTopRightRadius: '24px',
+                            borderRadius: '24px',
                             overflowY: 'auto',
-                            boxShadow: '0 -10px 40px rgba(0,0,0,0.8)',
-                            border: '1px solid rgba(255,255,255,0.12)',
+                            boxShadow: '0 25px 60px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.15)',
+                            border: '1px solid rgba(255,255,255,0.15)',
                             display: 'flex',
-                            flexDirection: 'column'
+                            flexDirection: 'column',
+                            position: 'relative',
+                            animation: 'newsModalScaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
                         }}
                     >
                         {/* Modal Header Image */}
-                        <div style={{ position: 'relative', width: '100%', height: '220px' }}>
+                        <div style={{ position: 'relative', width: '100%', height: '220px', flexShrink: 0 }}>
                             <img
                                 src={activeNewsModal.imageUrl}
                                 alt={activeNewsModal.title}
@@ -384,7 +387,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                                     position: 'absolute',
                                     top: '16px',
                                     right: '16px',
-                                    background: 'rgba(0,0,0,0.6)',
+                                    background: 'rgba(0,0,0,0.65)',
                                     border: 'none',
                                     borderRadius: '50%',
                                     width: '36px',
@@ -394,7 +397,8 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     cursor: 'pointer',
-                                    backdropFilter: 'blur(8px)'
+                                    backdropFilter: 'blur(8px)',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
                                 }}
                             >
                                 <X size={20} />
@@ -489,6 +493,13 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                     </div>
                 </div>
             )}
+
+            <style>{`
+                @keyframes newsModalScaleUp {
+                    from { transform: scale(0.92) translateY(12px); opacity: 0; }
+                    to { transform: scale(1) translateY(0); opacity: 1; }
+                }
+            `}</style>
         </div>
     );
 };
