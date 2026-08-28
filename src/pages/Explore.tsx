@@ -1,19 +1,21 @@
-import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
-import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { AppContext } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
-import ExploreFeedViewer from '../components/ExploreFeedViewer';
-import CommentsSheet from '../components/CommentsSheet';
-import ShareModal from '../components/ShareModal';
-import ChatPanel from '../components/ChatPanel';
 import PullToRefresh from '../components/PullToRefresh';
 import { isVideoPost, isVideoUrl } from '../lib/media';
 import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
-import DailyNewsFeed from '../components/DailyNewsFeed';
+
+// ⚡ Lazy load heavy modals for instant Explore page rendering
+const StoryViewer = lazy(() => import('../components/StoryViewer'));
+const ExploreFeedViewer = lazy(() => import('../components/ExploreFeedViewer'));
+const CommentsSheet = lazy(() => import('../components/CommentsSheet'));
+const ShareModal = lazy(() => import('../components/ShareModal'));
+const ChatPanel = lazy(() => import('../components/ChatPanel'));
+const DailyNewsFeed = lazy(() => import('../components/DailyNewsFeed'));
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -34,9 +36,22 @@ const Explore = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState<'people' | 'posts' | 'stories'>('people');
     
-    // Discover (Default) State
-    const [discoverPosts, setDiscoverPosts] = useState<PostData[]>([]);
-    const [isDiscoverLoading, setIsDiscoverLoading] = useState(true);
+    // Discover (Default) State with instant cache rehydration
+    const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
+        try {
+            const cached = localStorage.getItem('knock_explore_posts_cache');
+            if (cached) return JSON.parse(cached);
+        } catch (e) {}
+        return [];
+    });
+    const [isDiscoverLoading, setIsDiscoverLoading] = useState<boolean>(() => {
+        try {
+            const cached = localStorage.getItem('knock_explore_posts_cache');
+            return !cached || JSON.parse(cached).length === 0;
+        } catch (e) {
+            return true;
+        }
+    });
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
     // Infinite scroll state
@@ -46,9 +61,22 @@ const Explore = () => {
     const [hasMore, setHasMore] = useState(true);
     const sentinelRef = useRef<HTMLDivElement>(null);
 
-    // Trending posts (FOMO)
-    const [trendingPosts, setTrendingPosts] = useState<PostData[]>([]);
-    const [isTrendingLoading, setIsTrendingLoading] = useState(true);
+    // Trending posts (FOMO) with instant cache rehydration
+    const [trendingPosts, setTrendingPosts] = useState<PostData[]>(() => {
+        try {
+            const cached = localStorage.getItem('knock_explore_trending_cache');
+            if (cached) return JSON.parse(cached);
+        } catch (e) {}
+        return [];
+    });
+    const [isTrendingLoading, setIsTrendingLoading] = useState<boolean>(() => {
+        try {
+            const cached = localStorage.getItem('knock_explore_trending_cache');
+            return !cached || JSON.parse(cached).length === 0;
+        } catch (e) {
+            return true;
+        }
+    });
 
     // Viewport tracking for engagement
     const observedPostsRef = useRef<Set<string>>(new Set());
@@ -82,9 +110,13 @@ const Explore = () => {
 
     // Load Trending Posts (FOMO banner)
     useEffect(() => {
-        setIsTrendingLoading(true);
+        if (trendingPosts.length === 0) setIsTrendingLoading(true);
         fetchTrendingPosts(6).then(posts => {
-            setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id))));
+            const filtered = posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)));
+            setTrendingPosts(filtered);
+            try {
+                localStorage.setItem('knock_explore_trending_cache', JSON.stringify(filtered));
+            } catch (e) {}
             setIsTrendingLoading(false);
         });
     }, [blockedIds]);
@@ -118,7 +150,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
 
     // Load Discover Feed
     const loadDiscoverFeed = async () => {
-        setIsDiscoverLoading(true);
+        if (discoverPosts.length === 0) setIsDiscoverLoading(true);
         setFeedPage(0);
         setHasMore(true);
         observedPostsRef.current.clear();
@@ -149,10 +181,18 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                 userProfileRef.current = profile;
                 const scored = assembleFeed(uniqueRaw, profile, 0, PAGE_SIZE);
                 setAllScoredPosts(scored);
-                setDiscoverPosts(scored.map(s => s.post));
+                const fresh = scored.map(s => s.post);
+                setDiscoverPosts(fresh);
+                try {
+                    localStorage.setItem('knock_explore_posts_cache', JSON.stringify(fresh));
+                } catch (e) {}
                 setHasMore(uniqueRaw.length > PAGE_SIZE);
             } else {
-                setDiscoverPosts(uniqueRaw.slice(0, PAGE_SIZE));
+                const fresh = uniqueRaw.slice(0, PAGE_SIZE);
+                setDiscoverPosts(fresh);
+                try {
+                    localStorage.setItem('knock_explore_posts_cache', JSON.stringify(fresh));
+                } catch (e) {}
                 setHasMore(uniqueRaw.length > PAGE_SIZE);
             }
         } catch (e) {
@@ -410,22 +450,24 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                         /* Discover Feed (Default View) */
                         <>
                             {/* 📰 Google Daily News & Trends (Cricket, Bollywood, Hollywood, Gaming, Sports) */}
-                            <DailyNewsFeed onShareNews={(news) => {
-                                const mappedPost: PostData = {
-                                    id: news.id,
-                                    user_id: '',
-                                    image_url: news.imageUrl,
-                                    caption: `${news.title}\n\n📰 Source: ${news.source}\n\n${news.summary}`,
-                                    attached_link: news.url,
-                                    created_at: news.publishedAt,
-                                    likes_count: news.likesCount,
-                                    category: news.category === 'Cricket & IPL' ? 'Cricket' : news.category,
-                                    username: 'google_news',
-                                    avatar_url: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=150'
-                                };
-                                setPostToShare(mappedPost);
-                                setIsShareOpen(true);
-                            }} />
+                            <Suspense fallback={null}>
+                                <DailyNewsFeed onShareNews={(news) => {
+                                    const mappedPost: PostData = {
+                                        id: news.id,
+                                        user_id: '',
+                                        image_url: news.imageUrl,
+                                        caption: `${news.title}\n\n📰 Source: ${news.source}\n\n${news.summary}`,
+                                        attached_link: news.url,
+                                        created_at: news.publishedAt,
+                                        likes_count: news.likesCount,
+                                        category: news.category === 'Cricket & IPL' ? 'Cricket' : news.category,
+                                        username: 'google_news',
+                                        avatar_url: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=150'
+                                    };
+                                    setPostToShare(mappedPost);
+                                    setIsShareOpen(true);
+                                }} />
+                            </Suspense>
 
                             {/* 🔥 Trending Now Banner — FOMO */}
                             {!isTrendingLoading && trendingPosts.length > 0 && (
@@ -688,57 +730,67 @@ function interleaveCategories(posts: PostData[]): PostData[] {
             </PullToRefresh>
 
             {activeStoryGroupIndex !== null && (
-                <StoryViewer
-                    storyGroups={storyResults}
-                    initialGroupIndex={activeStoryGroupIndex}
-                    currentUserId={user?.id}
-                    onClose={() => setActiveStoryGroupIndex(null)}
-                    onGroupsUpdated={setStoryResults}
-                />
+                <Suspense fallback={null}>
+                    <StoryViewer
+                        storyGroups={storyResults}
+                        initialGroupIndex={activeStoryGroupIndex}
+                        currentUserId={user?.id}
+                        onClose={() => setActiveStoryGroupIndex(null)}
+                        onGroupsUpdated={setStoryResults}
+                    />
+                </Suspense>
             )}
 
             {activeFeedState && (
-                <ExploreFeedViewer
-                    posts={activeFeedState.posts}
-                    initialIndex={activeFeedState.index}
-                    onClose={() => setActiveFeedState(null)}
-                    onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
-                    onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
-                />
+                <Suspense fallback={null}>
+                    <ExploreFeedViewer
+                        posts={activeFeedState.posts}
+                        initialIndex={activeFeedState.index}
+                        onClose={() => setActiveFeedState(null)}
+                        onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
+                        onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
+                    />
+                </Suspense>
             )}
 
             {isCommentsOpen && commentsPostId && user && (
-                <CommentsSheet postId={commentsPostId} isOpen={isCommentsOpen} currentUser={user as any} onClose={() => setIsCommentsOpen(false)} />
+                <Suspense fallback={null}>
+                    <CommentsSheet postId={commentsPostId} isOpen={isCommentsOpen} currentUser={user as any} onClose={() => setIsCommentsOpen(false)} />
+                </Suspense>
             )}
 
-            {user && (
-                <ChatPanel 
-                    isOpen={isChatOpen} 
-                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
-                    currentUser={{ ...user, username: user.username || 'user' }} 
-                    initialOpenUserId={chatUserId}
-                    refreshKey={chatRefreshKey}
-                    pendingShare={pendingShare}
-                />
+            {isChatOpen && user && (
+                <Suspense fallback={null}>
+                    <ChatPanel 
+                        isOpen={isChatOpen} 
+                        onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
+                        currentUser={{ ...user, username: user.username || 'user' }} 
+                        initialOpenUserId={chatUserId}
+                        refreshKey={chatRefreshKey}
+                        pendingShare={pendingShare}
+                    />
+                </Suspense>
             )}
 
             {isShareOpen && postToShare && user && (
-                <ShareModal 
-                    post={postToShare} 
-                    isOpen={isShareOpen} 
-                    currentUser={user as any} 
-                    onClose={() => setIsShareOpen(false)} 
-                    onMessageSent={(receiverId, message) => {
-                        setPendingShare({ receiverId, message });
-                        setChatRefreshKey(k => k + 1);
-                    }}
-                    onViewChat={(userId) => {
-                        setIsShareOpen(false);
-                        setPostToShare(null);
-                        setChatUserId(userId);
-                        setIsChatOpen(true);
-                    }}
-                />
+                <Suspense fallback={null}>
+                    <ShareModal 
+                        post={postToShare} 
+                        isOpen={isShareOpen} 
+                        currentUser={user as any} 
+                        onClose={() => setIsShareOpen(false)} 
+                        onMessageSent={(receiverId, message) => {
+                            setPendingShare({ receiverId, message });
+                            setChatRefreshKey(k => k + 1);
+                        }}
+                        onViewChat={(userId) => {
+                            setIsShareOpen(false);
+                            setPostToShare(null);
+                            setChatUserId(userId);
+                            setIsChatOpen(true);
+                        }}
+                    />
+                </Suspense>
             )}
         </div>
     );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useContext, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, fetchDiscoverPosts, type PostData, type StoryData, type MessageData } from '../lib/database';
@@ -7,14 +7,16 @@ import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
-import ChatPanel from '../components/ChatPanel';
-import ShareModal from '../components/ShareModal';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
-import CommentsSheet from '../components/CommentsSheet';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl } from '../lib/media';
 import { audioPlayer } from '../lib/audioPlayer';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
+
+// ⚡ Lazy-load heavy modals so the Home feed renders in 0ms!
+const ChatPanel = lazy(() => import('../components/ChatPanel'));
+const ShareModal = lazy(() => import('../components/ShareModal'));
+const CommentsSheet = lazy(() => import('../components/CommentsSheet'));
 
 export interface UnifiedItem {
     userId: string;
@@ -36,8 +38,23 @@ interface StoryGroup {
 const Home = () => {
     const { signOut, user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
-    const [posts, setPosts] = useState<PostData[]>([]);
-    const [loading, setLoading] = useState(true);
+
+    // ⚡ Instant Cache Rehydration: Show cached posts instantly on frame 1
+    const [posts, setPosts] = useState<PostData[]>(() => {
+        try {
+            const cached = localStorage.getItem('knock_home_posts_cache');
+            if (cached) return JSON.parse(cached);
+        } catch (e) {}
+        return [];
+    });
+    const [loading, setLoading] = useState<boolean>(() => {
+        try {
+            const cached = localStorage.getItem('knock_home_posts_cache');
+            return !cached || JSON.parse(cached).length === 0;
+        } catch (e) {
+            return true;
+        }
+    });
     const [error, setError] = useState('');
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
     const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
@@ -45,8 +62,14 @@ const Home = () => {
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
     const [impCounts, setImpCounts] = useState<Record<string, number>>({});
 
-    // Story rack state
-    const [storyGroups, setStoryGroups] = useState<StoryGroup[]>([]);
+    // Story rack state with instant cache rehydration
+    const [storyGroups, setStoryGroups] = useState<StoryGroup[]>(() => {
+        try {
+            const cached = localStorage.getItem('knock_home_stories_cache');
+            if (cached) return JSON.parse(cached);
+        } catch (e) {}
+        return [];
+    });
     const [viewingGroup, setViewingGroup] = useState<StoryGroup | null>(null);
     const [viewingIndex, setViewingIndex] = useState(0);
     const [storyProgress, setStoryProgress] = useState(0);
@@ -124,7 +147,9 @@ const Home = () => {
 
     const loadForYouFeed = () => {
         if (!user) return;
-        setLoading(true);
+        if (posts.length === 0) {
+            setLoading(true);
+        }
         setError('');
         // Fetch all raw posts and user engagements, then build scored feed
         Promise.all([
@@ -145,7 +170,11 @@ const Home = () => {
             const firstPage = assembleFeed(uniquePosts, profile, 0, 10);
             
             setScoredFeed(firstPage);
-            setPosts(firstPage.map(s => s.post));
+            const freshPosts = firstPage.map(s => s.post);
+            setPosts(freshPosts);
+            try {
+                localStorage.setItem('knock_home_posts_cache', JSON.stringify(freshPosts));
+            } catch (e) {}
             setLoading(false);
             
             const counts: Record<string, number> = {};
@@ -304,7 +333,11 @@ const Home = () => {
                 }
                 groups[uid].stories.push(s);
             });
-            setStoryGroups(Object.values(groups));
+            const groupList = Object.values(groups);
+            setStoryGroups(groupList);
+            try {
+                localStorage.setItem('knock_home_stories_cache', JSON.stringify(groupList));
+            } catch (e) {}
         });
 
         if (user) {
@@ -959,34 +992,38 @@ const Home = () => {
                 <Plus size={28} />
             </button>
 
-            {user && (
-                <ChatPanel 
-                    isOpen={isChatOpen} 
-                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
-                    currentUser={{ ...user, username: user.username || 'user' }} 
-                    initialOpenUserId={chatUserId}
-                    refreshKey={chatRefreshKey}
-                    pendingShare={pendingShare}
-                />
+            {isChatOpen && user && (
+                <Suspense fallback={null}>
+                    <ChatPanel 
+                        isOpen={isChatOpen} 
+                        onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
+                        currentUser={{ ...user, username: user.username || 'user' }} 
+                        initialOpenUserId={chatUserId}
+                        refreshKey={chatRefreshKey}
+                        pendingShare={pendingShare}
+                    />
+                </Suspense>
             )}
 
-            {user && (
-                <ShareModal 
-                    isOpen={isShareOpen} 
-                    onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
-                    post={postToShare}
-                    currentUser={{ ...user, username: user.username || 'user' }} 
-                    onMessageSent={(receiverId, message) => {
-                        setPendingShare({ receiverId, message });
-                        setChatRefreshKey(k => k + 1);
-                    }}
-                    onViewChat={(userId) => {
-                        setIsShareOpen(false);
-                        setPostToShare(null);
-                        setChatUserId(userId);
-                        setIsChatOpen(true);
-                    }}
-                />
+            {isShareOpen && user && (
+                <Suspense fallback={null}>
+                    <ShareModal 
+                        isOpen={isShareOpen} 
+                        onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
+                        post={postToShare}
+                        currentUser={{ ...user, username: user.username || 'user' }} 
+                        onMessageSent={(receiverId, message) => {
+                            setPendingShare({ receiverId, message });
+                            setChatRefreshKey(k => k + 1);
+                        }}
+                        onViewChat={(userId) => {
+                            setIsShareOpen(false);
+                            setPostToShare(null);
+                            setChatUserId(userId);
+                            setIsChatOpen(true);
+                        }}
+                    />
+                </Suspense>
             )}
 
             {/* Post Detail Modal */}
@@ -1089,13 +1126,15 @@ const Home = () => {
             )}
 
             {/* Comments Sheet */}
-            {user && (
-                <CommentsSheet
-                    isOpen={isCommentsOpen}
-                    onClose={() => setIsCommentsOpen(false)}
-                    postId={commentsPostId}
-                    currentUser={{ id: user.id, username: user.username || 'user', avatar_url: user.avatar_url }}
-                />
+            {isCommentsOpen && user && (
+                <Suspense fallback={null}>
+                    <CommentsSheet
+                        isOpen={isCommentsOpen}
+                        onClose={() => setIsCommentsOpen(false)}
+                        postId={commentsPostId}
+                        currentUser={{ id: user.id, username: user.username || 'user', avatar_url: user.avatar_url }}
+                    />
+                </Suspense>
             )}
         </div>
     );

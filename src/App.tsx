@@ -145,10 +145,38 @@ import { AppContext } from './context/AppContext';
 const POINTS_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 function App() {
-    const [points, setPoints] = useState(0);
-    const [user, setUser] = useState<ProfileData | null>(null);
-    const [blockedIds, setBlockedIds] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [user, setUser] = useState<ProfileData | null>(() => {
+        try {
+            const cached = localStorage.getItem('knock_user_session');
+            if (cached) return JSON.parse(cached);
+        } catch (e) {}
+        return null;
+    });
+    const [points, setPoints] = useState<number>(() => {
+        try {
+            const cached = localStorage.getItem('knock_user_session');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                return parsed.points || 0;
+            }
+        } catch (e) {}
+        return 0;
+    });
+    const [blockedIds, setBlockedIds] = useState<string[]>(() => {
+        try {
+            const cached = localStorage.getItem('knock_blocked_ids');
+            if (cached) return JSON.parse(cached);
+        } catch (e) {}
+        return [];
+    });
+    // If cached session exists, render immediately without blocking spinner!
+    const [loading, setLoading] = useState<boolean>(() => {
+        try {
+            return !localStorage.getItem('knock_user_session');
+        } catch (e) {
+            return true;
+        }
+    });
     const [onboardingDone, setOnboardingDone] = useState(false);
 
     const isAuthenticated = !!user;
@@ -167,7 +195,7 @@ function App() {
         }
     }, []);
 
-    // Restore Supabase Auth session + profile
+    // Restore Supabase Auth session + profile in background
     useEffect(() => {
         let mounted = true;
 
@@ -182,7 +210,10 @@ function App() {
                         localStorage.setItem('knock_user_session', JSON.stringify(profile));
                         
                         const bIds = await fetchBlockedIds(profile.id);
-                        if (mounted) setBlockedIds(bIds);
+                        if (mounted) {
+                            setBlockedIds(bIds);
+                            localStorage.setItem('knock_blocked_ids', JSON.stringify(bIds));
+                        }
 
                         setLoading(false);
                         return;
@@ -193,8 +224,16 @@ function App() {
             }
 
             // If no valid session exists, clear local storage and remain logged out
-            localStorage.removeItem('knock_user_session');
-            if (mounted) setLoading(false);
+            if (!localStorage.getItem('knock_user_session')) {
+                localStorage.removeItem('knock_user_session');
+                localStorage.removeItem('knock_blocked_ids');
+                if (mounted) {
+                    setUser(null);
+                    setLoading(false);
+                }
+            } else {
+                if (mounted) setLoading(false);
+            }
         };
 
         loadSession();
@@ -208,13 +247,17 @@ function App() {
                     setPoints(profile.points || 0);
                     localStorage.setItem('knock_user_session', JSON.stringify(profile));
                     const bIds = await fetchBlockedIds(profile.id);
-                    if (mounted) setBlockedIds(bIds);
+                    if (mounted) {
+                        setBlockedIds(bIds);
+                        localStorage.setItem('knock_blocked_ids', JSON.stringify(bIds));
+                    }
                 }
             } else {
                 setUser(null);
                 setPoints(0);
                 setBlockedIds([]);
                 localStorage.removeItem('knock_user_session');
+                localStorage.removeItem('knock_blocked_ids');
             }
         });
 
