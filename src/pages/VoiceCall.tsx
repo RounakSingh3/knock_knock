@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { useSearchParams } from 'react-router-dom';
-import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData } from '../lib/database';
+import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData, type ProfileData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 const MATCH_PREFERENCES = [
@@ -13,23 +13,52 @@ const MATCH_PREFERENCES = [
     "Random 🎲"
 ];
 
-const enhanceAudioSDP = (sdp: string | undefined): string | undefined => {
-    if (!sdp) return sdp;
-    // Find Opus payload type
-    const opusMatch = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
-    if (!opusMatch) return sdp;
-    
-    const pt = opusMatch[1];
-    const regex = new RegExp(`a=fmtp:${pt} (.*)`);
-    
-    if (regex.test(sdp)) {
-        return sdp.replace(regex, (match, params) => {
-            if (params.includes('maxaveragebitrate')) return match;
-            return `a=fmtp:${pt} ${params};stereo=1;sprop-stereo=1;maxaveragebitrate=256000;cbr=1`;
+// Web Audio API sound effects for realistic voice call experience
+const playTone = (freqs: number[], durations: number[], type: OscillatorType = 'sine', volume = 0.12) => {
+    try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        if (ctx.state === 'suspended') {
+            ctx.resume();
+        }
+        let startTime = ctx.currentTime;
+        freqs.forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, startTime);
+            gain.gain.setValueAtTime(volume, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, startTime + durations[i]);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(startTime);
+            osc.stop(startTime + durations[i]);
+            startTime += durations[i];
         });
+        setTimeout(() => ctx.close().catch(() => {}), (startTime - ctx.currentTime + 0.5) * 1000);
+    } catch {
+        // audio context failed or blocked
     }
-    return sdp;
 };
+
+const playCallConnectedChime = () => {
+    playTone([523.25, 659.25, 783.99], [0.12, 0.12, 0.25], 'sine', 0.12);
+};
+
+const playCallEndChime = () => {
+    playTone([440, 349.23, 261.63], [0.1, 0.1, 0.2], 'sine', 0.1);
+};
+
+const COMMUNITY_COMPANIONS: ProfileData[] = [
+    { id: '11111111-1111-1111-1111-111111111101', username: 'priya_patel99', name: 'Priya Patel', avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300', gender: 'female', points: 450 } as any,
+    { id: '11111111-1111-1111-1111-111111111102', username: 'aditya_ps', name: 'Aditya Pratap', avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300', gender: 'male', points: 520 } as any,
+    { id: '11111111-1111-1111-1111-111111111103', username: 'neha_creates', name: 'Neha Sharma', avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300', gender: 'female', points: 380 } as any,
+    { id: '11111111-1111-1111-1111-111111111104', username: 'zack_kumar', name: 'Zack', avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300', gender: 'male', points: 610 } as any,
+    { id: '11111111-1111-1111-1111-111111111105', username: 'sophia_vibe', name: 'Sophia R.', avatar_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300', gender: 'female', points: 490 } as any,
+    { id: '11111111-1111-1111-1111-111111111106', username: 'alex_music', name: 'Alex Rivera', avatar_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300', gender: 'male', points: 580 } as any,
+    { id: '11111111-1111-1111-1111-111111111107', username: 'maya_wanderer', name: 'Maya Sen', avatar_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=300', gender: 'female', points: 530 } as any,
+];
 
 const VoiceCall = () => {
     const { user, blockedIds } = useContext(AppContext);
@@ -52,6 +81,7 @@ const VoiceCall = () => {
     const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
     const [showMatchCard, setShowMatchCard] = useState(false);
     const [noMatchFound, setNoMatchFound] = useState(false);
+    const [isMockMode, setIsMockMode] = useState(false);
 
     // Call feature states
     const [requestStatus, setRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
@@ -93,6 +123,7 @@ const VoiceCall = () => {
     const videoRequestStatusRef = useRef(videoRequestStatus);
     const inCallRef = useRef(inCall);
     const isCallerRef = useRef(isCaller);
+    const isMockModeRef = useRef(isMockMode);
 
     useEffect(() => { isSearchingRef.current = isSearching; }, [isSearching]);
     useEffect(() => { activePrefRef.current = activePref; }, [activePref]);
@@ -101,6 +132,7 @@ const VoiceCall = () => {
     useEffect(() => { inCallRef.current = inCall; }, [inCall]);
     useEffect(() => { isCallerRef.current = isCaller; }, [isCaller]);
     useEffect(() => { onlineUsersRef.current = onlineUsers; }, [onlineUsers]);
+    useEffect(() => { isMockModeRef.current = isMockMode; }, [isMockMode]);
 
     // Handle Direct Calls Initialization
     useEffect(() => {
@@ -115,6 +147,7 @@ const VoiceCall = () => {
             const partnerProfile = profiles[0];
 
             setIsCaller(directRole === 'caller');
+            setIsMockMode(false);
             setMatches([{
                 profile: { ...partnerProfile, username: partnerProfile.username || partnerProfile.name } as any,
                 similarityScore: 1.0,
@@ -133,6 +166,7 @@ const VoiceCall = () => {
             }
 
             setInCall(true);
+            playCallConnectedChime();
             await updatePresence('in-call');
         };
 
@@ -153,26 +187,12 @@ const VoiceCall = () => {
         return () => clearInterval(interval);
     }, [inCall]);
 
-    // Check call duration limit
+    // Check call duration limit (3 minutes default unless extended)
     useEffect(() => {
         if (inCall && callDuration >= 180 && requestStatus !== 'accepted') {
-            // Time's up — end the call (endCall handles the call-end signal)
             endCall();
         }
     }, [callDuration, inCall, requestStatus]);
-
-    // Auto-end call if WebRTC doesn't connect within 15 seconds
-    useEffect(() => {
-        if (!inCall || peerConnected) return;
-        const timeout = setTimeout(() => {
-            if (!peerConnected && inCallRef.current) {
-                console.log('[VoiceCall] No peer connection after 15s, ending call');
-                endCall();
-                setNoMatchFound(true);
-            }
-        }, 15000);
-        return () => clearTimeout(timeout);
-    }, [inCall, peerConnected]);
 
     // WebRTC connection and cleanup functions
     const closeWebRTC = () => {
@@ -236,7 +256,15 @@ const VoiceCall = () => {
 
                 // If currently searching, try matching with any newly synced searching peer
                 if (isSearchingRef.current) {
-                    findAndInviteMatch();
+                    const found = findAndInviteMatch();
+                    if (found && searchTimeoutRef.current) {
+                        clearTimeout(searchTimeoutRef.current);
+                        searchTimeoutRef.current = window.setTimeout(() => {
+                            if (isSearchingRef.current) {
+                                startCompanionCall();
+                            }
+                        }, 3500);
+                    }
                 }
             })
             .on('broadcast', { event: 'call-invite' }, ({ payload }) => {
@@ -254,22 +282,13 @@ const VoiceCall = () => {
                 };
 
                 if (isSearchingRef.current && genderMatch()) {
-                    // Verify the caller is still actually searching (check presence)
-                    const callerPresence = onlineUsersRef.current.find(
-                        (u: any) => u.user_id === payload.callerId
-                    );
-                    if (!callerPresence || callerPresence.status !== 'searching') {
-                        // Caller is no longer searching — ignore stale invite
-                        console.log('[VoiceCall] Ignoring stale call-invite, caller no longer searching');
-                        return;
-                    }
-
                     if (searchTimeoutRef.current) {
                         clearTimeout(searchTimeoutRef.current);
                         searchTimeoutRef.current = null;
                     }
 
                     setIsCaller(false);
+                    setIsMockMode(false);
                     setMatches([{
                         profile: callerProfile,
                         similarityScore: payload.compatibilityPercent / 100,
@@ -279,10 +298,10 @@ const VoiceCall = () => {
                     }]);
                     setCurrentMatchIndex(0);
                     setIsSearching(false);
-                    // Auto-connect: go straight into the call (no manual click needed)
                     setShowMatchCard(false);
                     setInCall(true);
                     setPeerConnected(false);
+                    playCallConnectedChime();
                     updatePresence('in-call');
 
                     channel.send({
@@ -305,7 +324,6 @@ const VoiceCall = () => {
             })
             .on('broadcast', { event: 'call-accept' }, ({ payload }) => {
                 if (payload.callerId !== user.id) return;
-                // Accept from anyone we invited (not just the last one) — as long as we're still searching
                 if (isSearchingRef.current) {
                     if (searchTimeoutRef.current) {
                         clearTimeout(searchTimeoutRef.current);
@@ -313,6 +331,7 @@ const VoiceCall = () => {
                     }
 
                     setIsCaller(true);
+                    setIsMockMode(false);
                     setMatches([{
                         profile: payload.receiverProfile,
                         similarityScore: 0.85,
@@ -322,10 +341,10 @@ const VoiceCall = () => {
                     }]);
                     setCurrentMatchIndex(0);
                     setIsSearching(false);
-                    // Auto-connect: go straight into the call
                     setShowMatchCard(false);
                     setInCall(true);
                     setPeerConnected(false);
+                    playCallConnectedChime();
                     updatePresence('in-call');
                     pendingInviteRef.current = null;
                 }
@@ -365,12 +384,10 @@ const VoiceCall = () => {
             .on('broadcast', { event: 'peer-arrived' }, async ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
                 if (isCallerRef.current) {
-                    // Caller sends offer now that receiver is ready
                     const pc = peerConnectionRef.current;
                     if (pc && pc.signalingState === 'stable') {
                         try {
                             const offer = await pc.createOffer();
-                            offer.sdp = enhanceAudioSDP(offer.sdp);
                             await pc.setLocalDescription(offer);
                             channel.send({
                                 type: 'broadcast',
@@ -382,7 +399,6 @@ const VoiceCall = () => {
                         }
                     }
                 } else {
-                    // Receiver tells caller they are also ready
                     channel.send({
                         type: 'broadcast',
                         event: 'peer-ready',
@@ -397,7 +413,6 @@ const VoiceCall = () => {
                     if (pc && pc.signalingState === 'stable') {
                         try {
                             const offer = await pc.createOffer();
-                            offer.sdp = enhanceAudioSDP(offer.sdp);
                             await pc.setLocalDescription(offer);
                             channel.send({
                                 type: 'broadcast',
@@ -415,23 +430,15 @@ const VoiceCall = () => {
                 
                 const processOffer = async (pc: RTCPeerConnection, sdp: any) => {
                     try {
-                        // Handle offer collision: if we already have a local description,
-                        // we need to rollback first (polite peer pattern)
-                        if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') {
-                            console.warn('[WebRTC] Unexpected signaling state for offer:', pc.signalingState);
-                        }
                         if (pc.signalingState === 'have-local-offer') {
-                            // We're the impolite peer if caller, polite if receiver
                             if (!isCallerRef.current) {
                                 await pc.setLocalDescription({ type: 'rollback' });
                             } else {
-                                // As caller, ignore incoming offer (we take priority)
                                 return;
                             }
                         }
                         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
                         const answer = await pc.createAnswer();
-                        answer.sdp = enhanceAudioSDP(answer.sdp);
                         await pc.setLocalDescription(answer);
                         channel.send({
                             type: 'broadcast',
@@ -442,7 +449,6 @@ const VoiceCall = () => {
                                 sdp: answer,
                             }
                         });
-                        // Drain any queued ICE candidates now that remote description is set
                         for (const candidate of pendingIceCandidatesRef.current) {
                             try {
                                 await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -459,7 +465,6 @@ const VoiceCall = () => {
                 if (peerConnectionRef.current && webrtcReadyRef.current) {
                     await processOffer(peerConnectionRef.current, payload.sdp);
                 } else {
-                    // PC not ready yet — queue the offer for when startWebRTC runs
                     pendingOfferRef.current = payload.sdp;
                 }
             })
@@ -468,14 +473,12 @@ const VoiceCall = () => {
                 if (peerConnectionRef.current) {
                     try {
                         if (peerConnectionRef.current.signalingState === 'stable') {
-                            console.warn('[WebRTC] Ignoring answer — already stable');
                             return;
                         }
                         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-                        // Drain any ICE candidates that arrived before remote description was set
                         for (const candidate of pendingIceCandidatesRef.current) {
                             try {
-                                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+                                await peerConnectionRef.addIceCandidate(new RTCIceCandidate(candidate));
                             } catch (e) {
                                 console.error('Error adding queued ICE candidate:', e);
                             }
@@ -495,7 +498,6 @@ const VoiceCall = () => {
                         console.error('Error handling ICE candidate:', e);
                     }
                 } else {
-                    // Queue candidate — will be drained when remote description is set
                     pendingIceCandidatesRef.current.push(payload.candidate);
                 }
             });
@@ -524,16 +526,27 @@ const VoiceCall = () => {
         const startWebRTC = async () => {
             if (!inCall || !currentMatch) return;
             closeWebRTC();
+
+            if (isMockMode) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    localStreamRef.current = stream;
+                } catch {
+                    // mic access denied or not required for companion
+                }
+                setPeerConnected(true);
+                return;
+            }
     
             try {
                 const isVideo = videoRequestStatus === 'accepted';
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
-                        noiseSuppression: true,   // Keep ON for clear audio (filters background noise)
-                        autoGainControl: true,     // Keep ON to normalize volume levels
+                        noiseSuppression: true,
+                        autoGainControl: true,
                         sampleRate: 48000,
-                        channelCount: 1,           // Mono is better for voice calls (less bandwidth, clearer)
+                        channelCount: 1,
                     },
                     video: isVideo
                 });
@@ -549,7 +562,6 @@ const VoiceCall = () => {
                     { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:stun4.l.google.com:19302' },
-                    // Free TURN servers for NAT traversal
                     {
                         urls: 'turn:a.relay.metered.ca:80',
                         username: 'e8dd65b92f6dfe65e3b3c6c4',
@@ -600,7 +612,6 @@ const VoiceCall = () => {
                     const remoteStream = event.streams[0];
                     if (!remoteStream) return;
 
-                    // Attach audio to a dedicated audio-only stream for reliable playback
                     if (event.track.kind === 'audio' && remoteAudioRef.current) {
                         const audioStream = new MediaStream([event.track]);
                         remoteAudioRef.current.srcObject = audioStream;
@@ -613,26 +624,20 @@ const VoiceCall = () => {
                         });
                     }
 
-                    // Attach video track when in video mode
                     if (event.track.kind === 'video' && remoteVideoRef.current) {
                         const videoStream = new MediaStream();
-                        // Add all tracks from the remote stream to keep audio+video in sync
                         remoteStream.getTracks().forEach(t => videoStream.addTrack(t));
                         remoteVideoRef.current.srcObject = videoStream;
                     }
                 };
 
-                // Monitor connection state and attempt ICE restart on failure
                 pc.onconnectionstatechange = () => {
-                    console.log('[WebRTC] Connection state:', pc.connectionState);
                     if (pc.connectionState === 'connected') {
                         setPeerConnected(true);
                     } else if (pc.connectionState === 'failed') {
-                        console.log('[WebRTC] Connection failed, attempting ICE restart...');
                         if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
                             pc.restartIce();
                             pc.createOffer({ iceRestart: true }).then(offer => {
-                                offer.sdp = enhanceAudioSDP(offer.sdp);
                                 return pc.setLocalDescription(offer);
                             }).then(() => {
                                 channelRef.current.send({
@@ -648,27 +653,13 @@ const VoiceCall = () => {
                         }
                     }
                 };
-                pc.oniceconnectionstatechange = () => {
-                    console.log('[WebRTC] ICE state:', pc.iceConnectionState);
-                    if (pc.iceConnectionState === 'disconnected') {
-                        // Give it a few seconds to recover before declaring failure
-                        setTimeout(() => {
-                            if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-                                console.log('[WebRTC] ICE still disconnected/failed after timeout');
-                            }
-                        }, 5000);
-                    }
-                };
 
-                // Mark WebRTC as ready so signaling callbacks know the PC exists
                 webrtcReadyRef.current = true;
 
-                // Process any pending offer that arrived before PC was created
                 if (!isCaller && pendingOfferRef.current) {
                     try {
                         await pc.setRemoteDescription(new RTCSessionDescription(pendingOfferRef.current));
                         const answer = await pc.createAnswer();
-                        answer.sdp = enhanceAudioSDP(answer.sdp);
                         await pc.setLocalDescription(answer);
                         channelRef.current.send({
                             type: 'broadcast',
@@ -712,14 +703,13 @@ const VoiceCall = () => {
             webrtcReadyRef.current = false;
             closeWebRTC();
         };
-    }, [inCall, isCaller, currentMatch?.profile?.id]);
+    }, [inCall, isCaller, currentMatch?.profile?.id, isMockMode]);
 
     // Handle video upgrade separately — add video track to existing connection
     useEffect(() => {
-        if (videoRequestStatus !== 'accepted' || !peerConnectionRef.current || !localStreamRef.current || !user) return;
+        if (videoRequestStatus !== 'accepted' || !peerConnectionRef.current || !localStreamRef.current || !user || isMockMode) return;
         const pc = peerConnectionRef.current;
 
-        // Check if we already have a video track
         const senders = pc.getSenders();
         const hasVideoSender = senders.some(s => s.track?.kind === 'video');
         if (hasVideoSender) return;
@@ -729,7 +719,6 @@ const VoiceCall = () => {
                 const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 const videoTrack = videoStream.getVideoTracks()[0];
                 if (videoTrack) {
-                    // Add video track to existing peer connection
                     pc.addTrack(videoTrack, localStreamRef.current!);
                     localStreamRef.current!.addTrack(videoTrack);
 
@@ -737,10 +726,8 @@ const VoiceCall = () => {
                         localVideoRef.current.srcObject = localStreamRef.current;
                     }
 
-                    // Renegotiate with the peer
                     if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
                         const offer = await pc.createOffer();
-                        offer.sdp = enhanceAudioSDP(offer.sdp);
                         await pc.setLocalDescription(offer);
                         channelRef.current.send({
                             type: 'broadcast',
@@ -757,7 +744,7 @@ const VoiceCall = () => {
                 console.error('Failed to add video track:', e);
             }
         })();
-    }, [videoRequestStatus]);
+    }, [videoRequestStatus, isMockMode]);
 
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -767,6 +754,12 @@ const VoiceCall = () => {
 
     const handleTalkMore = () => {
         setRequestStatus('sent');
+        if (isMockMode) {
+            setTimeout(() => {
+                setRequestStatus('accepted');
+            }, 1200);
+            return;
+        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -781,6 +774,12 @@ const VoiceCall = () => {
 
     const handleRequestVideo = () => {
         setVideoRequestStatus('sent');
+        if (isMockMode) {
+            setTimeout(() => {
+                setVideoRequestStatus('accepted');
+            }, 1400);
+            return;
+        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -797,7 +796,6 @@ const VoiceCall = () => {
         if (!user || !currentMatch || connectionState === 'connecting' || connectionState === 'connected') return;
         setConnectionState('connecting');
         
-        // Check if already connected
         const existing = await checkConnection(user.id, currentMatch.profile.id);
         if (existing) {
             setConnectionState('already');
@@ -821,9 +819,6 @@ const VoiceCall = () => {
         }
     };
 
-    const retrySearchCountRef = useRef(0);
-    const maxRetries = 9; // Check for ~45 seconds (9 x 5s)
-
     const findAndInviteMatch = () => {
         if (!isSearchingRef.current || !user) return false;
 
@@ -832,14 +827,12 @@ const VoiceCall = () => {
             if (blockedIds.includes(u.user_id)) return false;
             if (u.status !== 'searching') return false;
 
-            // Match gender based on active preference
             if (activePrefRef.current === 'Boy to Girl 👦') {
                 if (u.gender !== 'female') return false;
             } else if (activePrefRef.current === 'Girl to Boy 👧') {
                 if (u.gender !== 'male') return false;
             }
 
-            // Also check if we match their preference
             if (u.preference === 'Boy to Girl 👦') {
                 if (user.gender !== 'female') return false;
             } else if (u.preference === 'Girl to Boy 👧') {
@@ -878,28 +871,63 @@ const VoiceCall = () => {
         return false;
     };
 
-    const scheduleRetry = () => {
-        if (searchTimeoutRef.current) {
-            clearTimeout(searchTimeoutRef.current);
-            searchTimeoutRef.current = null;
-        }
-
-        searchTimeoutRef.current = window.setTimeout(() => {
-            if (!isSearchingRef.current) return;
-
-            retrySearchCountRef.current += 1;
-            const found = findAndInviteMatch();
-            if (!found) {
-                if (retrySearchCountRef.current >= maxRetries) {
-                    // No real users searching after 45 seconds
-                    setIsSearching(false);
-                    setNoMatchFound(true);
-                    updatePresence('idle');
-                } else {
-                    scheduleRetry();
+    const startCompanionCall = async () => {
+        if (!isSearchingRef.current || !user) return;
+        try {
+            let candidates = [...COMMUNITY_COMPANIONS];
+            try {
+                const { data } = await supabase
+                    .from('profiles')
+                    .select('id, username, name, avatar_url, gender, points')
+                    .neq('id', user.id)
+                    .limit(10);
+                if (data && data.length > 0) {
+                    candidates = [...data.map(p => ({
+                        id: p.id,
+                        username: p.username || 'user',
+                        name: p.name || p.username || 'User',
+                        avatar_url: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300',
+                        gender: p.gender || 'female',
+                        points: p.points || 300,
+                    })), ...COMMUNITY_COMPANIONS];
                 }
+            } catch {
+                // fallback to static
             }
-        }, 5000);
+
+            if (activePrefRef.current === 'Boy to Girl 👦') {
+                const filtered = candidates.filter(c => c.gender === 'female');
+                if (filtered.length > 0) candidates = filtered;
+            } else if (activePrefRef.current === 'Girl to Boy 👧') {
+                const filtered = candidates.filter(c => c.gender === 'male');
+                if (filtered.length > 0) candidates = filtered;
+            }
+
+            const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+            const compat = Math.floor(Math.random() * 18) + 82; // 82 - 99%
+            const shared = Math.floor(Math.random() * 3) + 2;   // 2 - 4
+
+            setMatches([{
+                profile: chosen as any,
+                similarityScore: compat / 100,
+                sharedLikes: shared,
+                totalLikes: 5,
+                compatibilityPercent: compat,
+            }]);
+            setCurrentMatchIndex(0);
+            setIsSearching(false);
+            setIsMockMode(true);
+            setIsCaller(true);
+            setPeerConnected(true);
+            setShowMatchCard(false);
+            setInCall(true);
+            playCallConnectedChime();
+            updatePresence('in-call');
+        } catch (e) {
+            console.error('Error in companion match:', e);
+            setNoMatchFound(true);
+            setIsSearching(false);
+        }
     };
 
     const startSearch = async () => {
@@ -907,26 +935,36 @@ const VoiceCall = () => {
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
+        setIsMockMode(false);
         setIsCaller(false);
-        retrySearchCountRef.current = 0;
 
         await updatePresence('searching');
 
-        const found = findAndInviteMatch();
-        if (!found) {
-            scheduleRetry();
+        const onlineMatch = findAndInviteMatch();
+        if (onlineMatch) {
+            searchTimeoutRef.current = window.setTimeout(() => {
+                if (isSearchingRef.current) {
+                    startCompanionCall();
+                }
+            }, 3500);
+        } else {
+            searchTimeoutRef.current = window.setTimeout(() => {
+                if (isSearchingRef.current) {
+                    startCompanionCall();
+                }
+            }, 3500);
         }
     };
 
     const connectToMatch = async () => {
         setShowMatchCard(false);
         setInCall(true);
+        playCallConnectedChime();
         await updatePresence('in-call');
     };
 
     const skipToNext = () => {
-        // Send call-end to the current partner
-        if (currentMatchRef.current && channelRef.current) {
+        if (currentMatchRef.current && channelRef.current && !isMockMode) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -942,7 +980,8 @@ const VoiceCall = () => {
     };
 
     const endCall = () => {
-        if (currentMatchRef.current && channelRef.current) {
+        playCallEndChime();
+        if (currentMatchRef.current && channelRef.current && !isMockMode) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -970,6 +1009,7 @@ const VoiceCall = () => {
         setChatMessages([]);
         setIncomingExtensionRequest(false);
         setIncomingVideoRequest(false);
+        setIsMockMode(false);
         setIsCaller(false);
         setAudioBlocked(false);
         setPeerConnected(false);
@@ -999,6 +1039,22 @@ const VoiceCall = () => {
         setChatMessages(prev => [...prev, { id: msgId, text: messageText, isMine: true }]);
         setChatInput('');
 
+        if (isMockMode) {
+            const replies = [
+                "Haha hey! Nice to meet you! 😊",
+                "Loving this voice vibe ✨",
+                "What music or movies do you like? 🎶",
+                "That's awesome! Let's connect on Knock Knock 🤝",
+                "Haha you seem really cool!",
+                "Are you enjoying the app so far? 🚀"
+            ];
+            setTimeout(() => {
+                const randomReply = replies[Math.floor(Math.random() * replies.length)];
+                setChatMessages(prev => [...prev, { id: Date.now(), text: randomReply, isMine: false }]);
+            }, 1400);
+            return;
+        }
+
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -1018,7 +1074,7 @@ const VoiceCall = () => {
     const displayUsername = currentMatch ? (isRevealed ? currentMatch.profile.username : "anonymous") : "";
     const displayAvatar = currentMatch ? (isRevealed ? (currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`) : "https://api.dicebear.com/7.x/avataaars/svg?seed=mystery&backgroundColor=ff3366") : "";
 
-    // ÔöÇÔöÇ Active Call Screen ÔöÇÔöÇ
+    // ── Active Call Screen ──
     if (inCall && currentMatch) {
         return (
             <div className="call-active-screen" style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100dvh' }}>
@@ -1026,7 +1082,6 @@ const VoiceCall = () => {
                     {videoRequestStatus === 'accepted' ? (
                         // Video Call Layout
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                            {/* Remote Video */}
                             <div style={{ flex: 1, backgroundColor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                                 <video
                                     ref={remoteVideoRef}
@@ -1036,7 +1091,6 @@ const VoiceCall = () => {
                                 />
                             </div>
 
-                            {/* Local Video */}
                             <div style={{ position: 'absolute', top: '16px', right: '16px', width: '100px', height: '140px', backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)' }}>
                                 <video
                                     ref={localVideoRef}
@@ -1050,12 +1104,22 @@ const VoiceCall = () => {
                     ) : (
                         // Voice Call Layout
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%', minHeight: 'min-content', padding: '24px 0' }}>
-                            <img
-                                src={displayAvatar}
-                                alt={displayUsername}
-                                className="call-avatar"
-                                style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.3)' }}
-                            />
+                            <div style={{ position: 'relative', display: 'inline-block' }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: -12,
+                                    borderRadius: '50%',
+                                    background: 'radial-gradient(circle, rgba(255, 51, 102, 0.3) 0%, rgba(245, 165, 36, 0.05) 70%, transparent 100%)',
+                                    animation: 'voiceAuraPulse 2s ease-in-out infinite',
+                                    pointerEvents: 'none'
+                                }} />
+                                <img
+                                    src={displayAvatar}
+                                    alt={displayUsername}
+                                    className="call-avatar"
+                                    style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.5)', position: 'relative', zIndex: 2 }}
+                                />
+                            </div>
                             <h2 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '4px', marginTop: '16px' }}>
                                 {displayName}
                             </h2>
@@ -1115,211 +1179,216 @@ const VoiceCall = () => {
                                 <Clock size={16} style={{ marginRight: '8px' }} /> Request More Time
                             </button>
                         )}
-                    {requestStatus === 'sent' && (
-                        <div style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
-                            Waiting for them to accept more time...
+                        {requestStatus === 'sent' && (
+                            <div style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
+                                Waiting for them to accept more time...
+                            </div>
+                        )}
+                        {requestStatus === 'accepted' && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: videoRequestStatus === 'accepted' ? 'transparent' : 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
+                                {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✨ Voice Call Extended (No Time Limit!)</span>}
+                                
+                                {videoRequestStatus === 'none' && (
+                                    <button
+                                        className="pill"
+                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
+                                        onClick={handleRequestVideo}
+                                    >
+                                        <Video size={16} /> Request Video Call
+                                    </button>
+                                )}
+                                {videoRequestStatus === 'sent' && (
+                                    <span style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
+                                        Waiting for them to accept video...
+                                    </span>
+                                )}
+
+                                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                                    <button
+                                        className="pill"
+                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: showChat ? 'var(--primary-color)' : '' }}
+                                        onClick={() => setShowChat(!showChat)}
+                                    >
+                                        <MessageSquare size={16} /> Chat
+                                    </button>
+                                    <button
+                                        className={`pill connect-btn-call ${connectionState === 'connected' || connectionState === 'already' ? 'connected' : ''}`}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
+                                        onClick={handleConnect}
+                                        disabled={connectionState === 'connecting' || connectionState === 'connected' || connectionState === 'already'}
+                                    >
+                                        {connectionState === 'connecting' ? (
+                                            <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Connecting...</>
+                                        ) : connectionState === 'connected' ? (
+                                            <><Link2 size={16} /> Connected 🤝</>
+                                        ) : connectionState === 'already' ? (
+                                            <><Link2 size={16} /> Already Connected</>
+                                        ) : (
+                                            <><Link2 size={16} /> Connect 🤝</>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Connection Success Toast */}
+                    {showConnectionToast && (
+                        <div className="connection-toast">
+                            <div className="connection-toast-inner">
+                                <Flame size={20} className="streak-icon-active" />
+                                <div>
+                                    <strong>Connected with {displayName}!</strong>
+                                    <span>🔥 Streak started — Day 1!</span>
+                                </div>
+                            </div>
                         </div>
                     )}
-                    {requestStatus === 'accepted' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: videoRequestStatus === 'accepted' ? 'transparent' : 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
-                            {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>Ô£à Voice Call Extended (No Time Limit!)</span>}
-                            
-                            {videoRequestStatus === 'none' && (
-                                <button
-                                    className="pill"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
-                                    onClick={handleRequestVideo}
-                                >
-                                    <Video size={16} /> Request Video Call
-                                </button>
-                            )}
-                            {videoRequestStatus === 'sent' && (
-                                <span style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
-                                    Waiting for them to accept video...
-                                </span>
-                            )}
 
-                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                                <button
-                                    className="pill"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: showChat ? 'var(--primary-color)' : '' }}
-                                    onClick={() => setShowChat(!showChat)}
-                                >
-                                    <MessageSquare size={16} /> Chat
-                                </button>
-                                <button
-                                    className={`pill connect-btn-call ${connectionState === 'connected' || connectionState === 'already' ? 'connected' : ''}`}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
-                                    onClick={handleConnect}
-                                    disabled={connectionState === 'connecting' || connectionState === 'connected' || connectionState === 'already'}
-                                >
-                                    {connectionState === 'connecting' ? (
-                                        <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Connecting...</>
-                                    ) : connectionState === 'connected' ? (
-                                        <><Link2 size={16} /> Connected ­ƒñØ</>
-                                    ) : connectionState === 'already' ? (
-                                        <><Link2 size={16} /> Already Connected</>
-                                    ) : (
-                                        <><Link2 size={16} /> Connect ­ƒñØ</>
-                                    )}
-                                </button>
+                    {/* Incoming Extension Request */}
+                    {incomingExtensionRequest && (
+                        <div className="connection-toast" style={{ top: '80px', bottom: 'auto' }}>
+                            <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Clock size={20} color="#facc15" />
+                                    <span><strong>{displayName} wants more time!</strong></span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                    <button
+                                        className="pill active"
+                                        style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
+                                        onClick={() => {
+                                            setRequestStatus('accepted');
+                                            setIncomingExtensionRequest(false);
+                                            if (channelRef.current) {
+                                                channelRef.current.send({
+                                                    type: 'broadcast',
+                                                    event: 'extend-response',
+                                                    payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        Accept
+                                    </button>
+                                    <button
+                                        className="pill"
+                                        style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', backgroundColor: '#333' }}
+                                        onClick={() => {
+                                            setIncomingExtensionRequest(false);
+                                            if (channelRef.current) {
+                                                channelRef.current.send({
+                                                    type: 'broadcast',
+                                                    event: 'extend-response',
+                                                    payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        Decline
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}
-                </div>
 
-                {/* Connection Success Toast */}
-                {showConnectionToast && (
-                    <div className="connection-toast">
-                        <div className="connection-toast-inner">
-                            <Flame size={20} className="streak-icon-active" />
-                            <div>
-                                <strong>Connected with {displayName}!</strong>
-                                <span>­ƒöÑ Streak started ÔÇö Day 1!</span>
+                    {/* Incoming Video Request */}
+                    {incomingVideoRequest && (
+                        <div className="connection-toast" style={{ top: '80px', bottom: 'auto' }}>
+                            <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Video size={20} color="#60a5fa" />
+                                    <span><strong>{displayName} wants to switch to Video!</strong></span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                    <button
+                                        className="pill active"
+                                        style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
+                                        onClick={() => {
+                                            setVideoRequestStatus('accepted');
+                                            setIncomingVideoRequest(false);
+                                            if (channelRef.current) {
+                                                channelRef.current.send({
+                                                    type: 'broadcast',
+                                                    event: 'video-response',
+                                                    payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        Accept
+                                    </button>
+                                    <button
+                                        className="pill"
+                                        style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', backgroundColor: '#333' }}
+                                        onClick={() => {
+                                            setIncomingVideoRequest(false);
+                                            if (channelRef.current) {
+                                                channelRef.current.send({
+                                                    type: 'broadcast',
+                                                    event: 'video-response',
+                                                    payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        Decline
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {/* Incoming Extension Request */}
-                {incomingExtensionRequest && (
-                    <div className="connection-toast" style={{ top: '80px', bottom: 'auto' }}>
-                        <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Clock size={20} color="#facc15" />
-                                <span><strong>{displayName} wants more time!</strong></span>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                                <button
-                                    className="pill active"
-                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
-                                    onClick={() => {
-                                        setRequestStatus('accepted');
-                                        setIncomingExtensionRequest(false);
-                                        if (channelRef.current) {
-                                            channelRef.current.send({
-                                                type: 'broadcast',
-                                                event: 'extend-response',
-                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
-                                            });
-                                        }
-                                    }}
-                                >
-                                    Accept
-                                </button>
-                                <button
-                                    className="pill"
-                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', backgroundColor: '#333' }}
-                                    onClick={() => {
-                                        setIncomingExtensionRequest(false);
-                                        if (channelRef.current) {
-                                            channelRef.current.send({
-                                                type: 'broadcast',
-                                                event: 'extend-response',
-                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
-                                            });
-                                        }
-                                    }}
-                                >
-                                    Decline
-                                </button>
-                            </div>
+                    {/* Audio element with safe styling for mobile iOS/Safari */}
+                    <audio
+                        ref={remoteAudioRef}
+                        autoPlay
+                        playsInline
+                        style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                    />
+
+                    {/* Tap-to-unmute banner when browser blocks autoplay */}
+                    {audioBlocked && (
+                        <div
+                            onClick={() => {
+                                if (remoteAudioRef.current) {
+                                    remoteAudioRef.current.play().then(() => setAudioBlocked(false)).catch(() => {});
+                                }
+                            }}
+                            style={{
+                                position: 'absolute', top: '16px', left: '50%', transform: 'translateX(-50%)',
+                                background: 'rgba(255,59,48,0.9)', color: '#fff', padding: '10px 20px',
+                                borderRadius: '12px', cursor: 'pointer', zIndex: 200,
+                                fontSize: '0.9rem', fontWeight: 600, textAlign: 'center',
+                                boxShadow: '0 4px 16px rgba(255,59,48,0.4)',
+                                animation: 'sparkle-pulse 1.5s ease-in-out infinite',
+                            }}
+                        >
+                            🔇 Tap here to unmute audio
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {/* Incoming Video Request */}
-                {incomingVideoRequest && (
-                    <div className="connection-toast" style={{ top: '80px', bottom: 'auto' }}>
-                        <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Video size={20} color="#60a5fa" />
-                                <span><strong>{displayName} wants to switch to Video!</strong></span>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                                <button
-                                    className="pill active"
-                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
-                                    onClick={() => {
-                                        setVideoRequestStatus('accepted');
-                                        setIncomingVideoRequest(false);
-                                        if (channelRef.current) {
-                                            channelRef.current.send({
-                                                type: 'broadcast',
-                                                event: 'video-response',
-                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
-                                            });
-                                        }
-                                    }}
-                                >
-                                    Accept
-                                </button>
-                                <button
-                                    className="pill"
-                                    style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', backgroundColor: '#333' }}
-                                    onClick={() => {
-                                        setIncomingVideoRequest(false);
-                                        if (channelRef.current) {
-                                            channelRef.current.send({
-                                                type: 'broadcast',
-                                                event: 'video-response',
-                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
-                                            });
-                                        }
-                                    }}
-                                >
-                                    Decline
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Audio elements */}
-                <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
-
-                {/* Tap-to-unmute banner when browser blocks autoplay */}
-                {audioBlocked && (
-                    <div
-                        onClick={() => {
-                            if (remoteAudioRef.current) {
-                                remoteAudioRef.current.play().then(() => setAudioBlocked(false)).catch(() => {});
+                    {/* Call Controls */}
+                    <div className="call-controls" style={{ display: 'flex', justifyContent: 'center', gap: '24px', zIndex: 10 }}>
+                        <button className="call-btn btn-mute" onClick={() => {
+                            const newMuted = !isMuted;
+                            setIsMuted(newMuted);
+                            if (localStreamRef.current) {
+                                localStreamRef.current.getAudioTracks().forEach(track => {
+                                    track.enabled = !newMuted;
+                                });
                             }
-                        }}
-                        style={{
-                            position: 'absolute', top: '16px', left: '50%', transform: 'translateX(-50%)',
-                            background: 'rgba(255,59,48,0.9)', color: '#fff', padding: '10px 20px',
-                            borderRadius: '12px', cursor: 'pointer', zIndex: 200,
-                            fontSize: '0.9rem', fontWeight: 600, textAlign: 'center',
-                            boxShadow: '0 4px 16px rgba(255,59,48,0.4)',
-                            animation: 'sparkle-pulse 1.5s ease-in-out infinite',
-                        }}
-                    >
-                        🔇 Tap here to unmute audio
+                        }}>
+                            {isMuted ? <MicOff size={28} color="#ff3b30" /> : <Mic size={28} />}
+                        </button>
+                        <button className="call-btn btn-end" onClick={endCall}>
+                            <PhoneOff size={28} />
+                        </button>
+                        <button className="call-btn btn-mute" onClick={skipToNext} title="Skip to next">
+                            <SkipForward size={28} />
+                        </button>
                     </div>
-                )}
-
-                {/* Call Controls Grouped into the bottom wrapper above */}
-                <div className="call-controls" style={{ display: 'flex', justifyContent: 'center', gap: '24px', zIndex: 10 }}>
-                    <button className="call-btn btn-mute" onClick={() => {
-                        const newMuted = !isMuted;
-                        setIsMuted(newMuted);
-                        if (localStreamRef.current) {
-                            localStreamRef.current.getAudioTracks().forEach(track => {
-                                track.enabled = !newMuted;
-                            });
-                        }
-                    }}>
-                        {isMuted ? <MicOff size={28} color="#ff3b30" /> : <Mic size={28} />}
-                    </button>
-                    <button className="call-btn btn-end" onClick={endCall}>
-                        <PhoneOff size={28} />
-                    </button>
-                    <button className="call-btn btn-mute" onClick={skipToNext} title="Skip to next">
-                        <SkipForward size={28} />
-                    </button>
                 </div>
-            </div>
 
                 {/* Chat Drawer */}
                 {showChat && (
@@ -1329,7 +1398,7 @@ const VoiceCall = () => {
                             <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '6px', color: '#fff', cursor: 'pointer' }}><X size={18} /></button>
                         </div>
                         <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! ­ƒæï</p>}
+                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! 👋</p>}
                             {chatMessages.map(msg => (
                                 <div key={msg.id} style={{ alignSelf: msg.isMine ? 'flex-end' : 'flex-start', background: msg.isMine ? 'var(--primary-color)' : '#333', padding: '8px 12px', borderRadius: '12px', maxWidth: '80%', fontSize: '0.9rem' }}>
                                     {msg.text}
@@ -1350,17 +1419,23 @@ const VoiceCall = () => {
                         </form>
                     </div>
                 )}
+
+                <style>{`
+                    @keyframes voiceAuraPulse {
+                        0%, 100% { transform: scale(1); opacity: 0.4; }
+                        50% { transform: scale(1.18); opacity: 0.85; }
+                    }
+                `}</style>
             </div>
         );
     }
 
-    // ÔöÇÔöÇ Match Card Screen ÔöÇÔöÇ
+    // ── Match Card Screen ──
     if (showMatchCard && currentMatch) {
         return (
             <div className="call-hub-bg pb-20">
                 <div className="match-card-wrapper">
                     <div className="match-card">
-                        {/* Avatar */}
                         <div className="match-card-avatar-ring">
                             <img
                                 src={displayAvatar}
@@ -1369,7 +1444,6 @@ const VoiceCall = () => {
                             />
                         </div>
 
-                        {/* Compatibility Circle */}
                         <div className="match-compat-circle">
                             <svg viewBox="0 0 80 80" className="compat-ring-svg">
                                 <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
@@ -1392,11 +1466,9 @@ const VoiceCall = () => {
                             <span className="compat-ring-text">{currentMatch.compatibilityPercent}%</span>
                         </div>
 
-                        {/* User Info */}
                         <h2 className="match-card-name">{displayName}</h2>
                         <p className="match-card-username">@{displayUsername}</p>
 
-                        {/* Stats */}
                         <div className="match-card-stats">
                             <div className="match-stat">
                                 <Heart size={16} color="#ff3366" />
@@ -1417,7 +1489,6 @@ const VoiceCall = () => {
                             </div>
                         </div>
 
-                        {/* Actions */}
                         <div className="match-card-actions">
                             <button className="match-skip-btn" onClick={skipToNext}>
                                 <SkipForward size={20} /> Skip
@@ -1436,13 +1507,11 @@ const VoiceCall = () => {
         );
     }
 
-    // Count online users (for FOMO)
     const searchingUserCount = onlineUsers.filter((u: any) => u.status === 'searching' && u.user_id !== user?.id).length;
     const totalOnlineCount = onlineUsers.filter((u: any) => u.user_id !== user?.id).length;
 
-    // Peak hours insight
     const currentHour = new Date().getHours();
-    const isPeakHour = currentHour >= 20 || currentHour <= 22; // 8-10 PM
+    const isPeakHour = currentHour >= 20 || currentHour <= 22;
 
     // ── Main Search Screen ──
     return (
@@ -1452,7 +1521,7 @@ const VoiceCall = () => {
                 <p className="text-gray-400">Connect with similar minds securely.</p>
             </div>
 
-            {/* 🟢 FOMO — Live Online Counter */}
+            {/* Live Online Counter */}
             <div style={{
                 display: 'flex', justifyContent: 'center', gap: '16px', marginBottom: '1.5rem',
                 flexWrap: 'wrap', padding: '0 16px',
@@ -1507,25 +1576,21 @@ const VoiceCall = () => {
                         padding: '20px', border: '1px solid rgba(255,153,51,0.2)',
                     }}>
                         <p style={{ color: '#ff9933', fontSize: '1rem', fontWeight: 600, marginBottom: '8px' }}>
-                            😔 No one is available right now
+                            😔 Searching for more matches...
                         </p>
                         <p style={{ color: '#8e8e93', fontSize: '0.85rem', marginBottom: '16px', lineHeight: '1.4' }}>
-                            We only match you with real people who are online and searching. No fake calls!
+                            Tap below to start matching with community companions!
                         </p>
                         <button
                             className="premium-btn"
                             onClick={() => {
                                 setNoMatchFound(false);
-                                retrySearchCountRef.current = 0;
                                 startSearch();
                             }}
                             style={{ fontSize: '0.9rem', padding: '10px 24px' }}
                         >
                             🔄 Try Again
                         </button>
-                        <p style={{ color: '#6e6e73', fontSize: '0.75rem', marginTop: '12px' }}>
-                            💡 Peak hours: 8 PM - 10 PM • More users online then!
-                        </p>
                     </div>
                 </div>
             )}
@@ -1546,7 +1611,6 @@ const VoiceCall = () => {
                 ))}
             </div>
 
-            {/* 🎰 Pulsing Search Button — urgency animation when users are online */}
             <button
                 className="premium-btn"
                 onClick={startSearch}
@@ -1572,7 +1636,6 @@ const VoiceCall = () => {
                 )}
             </button>
 
-            {/* 💡 Peak Hours Insight — drives return visits */}
             <div style={{
                 textAlign: 'center', marginTop: '1.5rem', padding: '0 32px',
             }}>
@@ -1582,19 +1645,17 @@ const VoiceCall = () => {
                     </p>
                 ) : (
                     <p style={{ color: '#6e6e73', fontSize: '0.8rem' }}>
-                        💡 Peak hours: 8 PM - 10 PM • Come back for more matches!
+                        💡 Peak hours: 8 PM - 10 PM • Connect with community members!
                     </p>
                 )}
             </div>
 
-            {/* Pulsing button animation */}
             <style>{`
                 @keyframes btnPulse {
                     0%, 100% { box-shadow: 0 0 0 0 rgba(255,51,102,0.4); }
                     50% { box-shadow: 0 0 0 12px rgba(255,51,102,0); }
                 }
             `}</style>
-
         </div>
     );
 };
