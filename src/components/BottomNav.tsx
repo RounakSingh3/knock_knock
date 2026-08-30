@@ -1,29 +1,24 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Search, Film, Rocket, User } from 'lucide-react';
+import { Home, Search, Film, Phone, Settings, Rocket } from 'lucide-react';
 
 const BottomNav = () => {
     return (
         <nav className="bottom-nav">
-            <NavLink to="/home" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Home">
-                <Home size={22} strokeWidth={2.2} />
-                <span className="nav-label">Home</span>
+            <NavLink to="/home" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Home size={24} />
             </NavLink>
-            <NavLink to="/explore" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Explore">
-                <Search size={22} strokeWidth={2.2} />
-                <span className="nav-label">Explore</span>
+            <NavLink to="/explore" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Search size={24} />
             </NavLink>
-            <NavLink to="/reels" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Reels">
-                <Film size={22} strokeWidth={2.2} />
-                <span className="nav-label">Reels</span>
+            <NavLink to="/boost" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Rocket size={24} />
             </NavLink>
-            <NavLink to="/boost" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Boost">
-                <Rocket size={22} strokeWidth={2.2} />
-                <span className="nav-label">Boost</span>
+            <NavLink to="/call" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Phone size={24} />
             </NavLink>
-            <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} title="Profile">
-                <User size={22} strokeWidth={2.2} />
-                <span className="nav-label">Profile</span>
+            <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Settings size={24} />
             </NavLink>
         </nav>
     );

@@ -90,198 +90,149 @@ body {
     padding-bottom: 96px; /* Space for the floating bottom navigation */
 }
 
-/* ═══════════════════════════════════════════
-   PREMIUM FLOATING BOTTOM NAV (Snapchat & Instagram 2026)
-   ═══════════════════════════════════════════ */
+/* Premium Floating Bottom Nav */
 .bottom-nav {
     position: fixed;
-    bottom: 16px;
-    left: 16px;
-    right: 16px;
-    max-width: 480px;
-    margin: 0 auto;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
     height: 64px;
     display: flex;
     justify-content: space-around;
     align-items: center;
-    background: rgba(15, 13, 24, 0.88);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 36px;
+    background: var(--nav-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-color);
+    border-radius: 32px;
     z-index: 1000;
-    padding: 0 12px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    padding: 0 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     will-change: transform;
+    contain: layout style;
 }
 
 .nav-item {
     position: relative;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--text-inactive);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
-    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     text-decoration: none;
-    padding: 6px 12px;
-    border-radius: 20px;
-    cursor: pointer;
-}
-
-.nav-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.2px;
-    opacity: 0.7;
-    transition: all 0.2s ease;
+    padding: 10px;
+    border-radius: 50%;
 }
 
 .nav-item.active {
     color: #fff;
-    transform: translateY(-2px);
-    background: rgba(245, 165, 36, 0.15);
+    transform: scale(1.15) translateY(-2px);
+    background: rgba(255, 255, 255, 0.04);
 }
 
-.nav-item.active .nav-label {
-    color: #f5a524;
-    font-weight: 700;
+.nav-item::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: var(--accent-cyan);
+    opacity: 0;
+    transform: scale(0);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nav-item.active::after {
     opacity: 1;
-}
-
-.nav-item.active svg {
-    color: #f5a524;
-    filter: drop-shadow(0 2px 8px rgba(245, 165, 36, 0.5));
+    transform: scale(1);
+    box-shadow: 0 0 8px var(--accent-cyan);
 }
 
 .nav-item:active {
-    transform: scale(0.92);
+    transform: scale(0.95);
 }
 
-/* ═══════════════════════════════════════════
-   INSTAGRAM & SNAPCHAT STORY RINGS
-   ═══════════════════════════════════════════ */
-.stories-rack-modern {
+/* Typography */
+.font-bold {
+    font-weight: 600;
+}
+
+.mr-2 {
+    margin-right: 0.5rem;
+}
+
+.pb-20 {
+    padding-bottom: 5rem;
+}
+
+/* Home Header */
+.home-header {
     display: flex;
-    gap: 14px;
-    padding: 12px 16px 16px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    background: var(--nav-bg);
+    backdrop-filter: blur(20px);
+    z-index: 99;
 }
 
-.stories-rack-modern::-webkit-scrollbar {
+.app-title {
+    font-family: "Brush Script MT", "Comic Sans MS", cursive;
+    /* fallback for cursive logo */
+    font-size: 1.5rem;
+    letter-spacing: 0.5px;
+}
+
+/* Stories Rack */
+.stories-rack {
+    display: flex;
+    gap: 16px;
+    padding: 12px 16px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border-color);
+    scrollbar-width: none;
+}
+
+.stories-rack::-webkit-scrollbar {
     display: none;
 }
 
-.story-circle-item {
+.story-item {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
-    flex-shrink: 0;
     width: 72px;
-    cursor: pointer;
-    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.story-circle-item:active {
-    transform: scale(0.94);
-}
-
-.story-ring-gradient {
+.story-ring {
     width: 68px;
     height: 68px;
     border-radius: 50%;
-    padding: 2.5px;
-    background: linear-gradient(135deg, #f5a524 0%, #ff4500 35%, #ec4899 70%, #8b5cf6 100%);
-    box-shadow: 0 4px 14px rgba(245, 165, 36, 0.25);
+    padding: 3px;
+    background: linear-gradient(45deg, #f5a524 0%, #ff6b35 50%, #fbbf24 100%);
     display: flex;
-    align-items: center;
     justify-content: center;
-    position: relative;
+    align-items: center;
 }
 
-.story-ring-gradient.your-story {
-    background: linear-gradient(135deg, #38bdf8, #818cf8);
-}
-
-.story-avatar-img {
+.story-ring img {
     width: 100%;
     height: 100%;
     border-radius: 50%;
-    border: 2.5px solid #07060d;
+    border: 3px solid var(--bg-color);
     object-fit: cover;
-    background: #1c1c1e;
-}
-
-.story-add-badge-plus {
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #f5a524, #ff4500);
-    border: 2px solid #07060d;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #000;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-}
-
-.story-username-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-active);
-    max-width: 70px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: center;
 }
 
 /* ═══════════════════════════════════════════
-   DOUBLE-TAP BURSTING HEART ANIMATION
+   HOME PAGE V2 — Masonry Card Grid Layout
    ═══════════════════════════════════════════ */
-@keyframes heartBurst {
-    0% {
-        opacity: 0;
-        transform: scale(0.3) rotate(-15deg);
-    }
-    15% {
-        opacity: 1;
-        transform: scale(1.3) rotate(0deg);
-    }
-    40% {
-        transform: scale(1) rotate(0deg);
-    }
-    80% {
-        opacity: 1;
-        transform: scale(1.1);
-    }
-    100% {
-        opacity: 0;
-        transform: scale(1.4);
-    }
-}
 
-.heart-burst-overlay {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-    z-index: 50;
-    animation: heartBurst 0.85s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-    filter: drop-shadow(0 0 20px rgba(245, 165, 36, 0.8));
-}
-
-/* ═══════════════════════════════════════════
-   HOME PAGE V2 & MODERN CARDS
-   ═══════════════════════════════════════════ */
 .home-page-v2 {
     min-height: 100vh;
     padding-bottom: 100px;
