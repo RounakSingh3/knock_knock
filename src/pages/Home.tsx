@@ -4,7 +4,7 @@ import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, fetchDiscoverPosts, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Camera } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
@@ -36,8 +36,10 @@ interface StoryGroup {
 }
 
 const Home = () => {
-    const { signOut, user, blockedIds } = useContext(AppContext);
+    const { signOut, user, blockedIds, points } = useContext(AppContext);
     const navigate = useNavigate();
+
+    const [burstHeartPostId, setBurstHeartPostId] = useState<string | null>(null);
 
     // ⚡ Instant Cache Rehydration: Show cached posts instantly on frame 1
     const [posts, setPosts] = useState<PostData[]>(() => {
@@ -351,6 +353,10 @@ const Home = () => {
         if (!user) return;
         const currentlyLiked = likedPosts[postId] || false;
         const newLiked = !currentlyLiked;
+        if (newLiked) {
+            setBurstHeartPostId(postId);
+            setTimeout(() => setBurstHeartPostId(prev => prev === postId ? null : prev), 850);
+        }
         setLikedPosts(prev => ({ ...prev, [postId]: newLiked }));
         setLikeCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newLiked ? 1 : -1) }));
         await toggleLike(user.id, postId, currentlyLiked);
@@ -390,6 +396,8 @@ const Home = () => {
     }, [user, isRefreshing, allRawPosts]);
 
     const handleDoubleTap = (post: PostData) => {
+        setBurstHeartPostId(post.id);
+        setTimeout(() => setBurstHeartPostId(prev => prev === post.id ? null : prev), 850);
         if (!likedPosts[post.id]) {
             handleLikeToggle(post.id);
         }
@@ -655,44 +663,80 @@ const Home = () => {
 
     return (
         <div className="home-page-v2">
-            {/* Header + Stories */}
-            <header className="home-header-v2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h1 className="home-brand-title">Knock Knock</h1>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            {/* 🌟 Ultra-Modern Header with Gamification & Dopamine Triggers */}
+            <header className="home-header-v2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: 'rgba(7,6,13,0.92)', backdropFilter: 'blur(20px)', position: 'sticky', top: 0, zIndex: 100 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+                    <span style={{ fontSize: '20px' }}>🔥</span>
+                    <h1 style={{ fontFamily: "'Sora', sans-serif", fontSize: '1.35rem', fontWeight: 800, letterSpacing: '-0.5px', margin: 0, background: 'linear-gradient(135deg, #f5a524, #ff4500, #ec4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                        Knock Knock
+                    </h1>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {/* Streak & Score Badge */}
+                    <div 
+                        onClick={() => navigate('/boost')}
+                        title="Your Streaks & Points"
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '5px',
+                            background: 'rgba(245, 165, 36, 0.12)', border: '1px solid rgba(245, 165, 36, 0.3)',
+                            padding: '4px 10px', borderRadius: '16px', cursor: 'pointer',
+                            fontSize: '12px', fontWeight: '800', color: '#f5a524'
+                        }}
+                    >
+                        <Flame size={14} color="#ff4500" fill="#ff4500" />
+                        <span>{points || 0}</span>
+                    </div>
+
+                    {/* Quick Snap Button (Snapchat style) */}
+                    <button
+                        onClick={() => navigate('/stories')}
+                        title="Send / Post Snap"
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '4px',
+                            background: 'linear-gradient(135deg, #f5a524, #ff4500)',
+                            border: 'none', color: '#000',
+                            padding: '5px 10px', borderRadius: '16px', cursor: 'pointer',
+                            fontSize: '12px', fontWeight: '800', boxShadow: '0 2px 8px rgba(245,165,36,0.35)'
+                        }}
+                    >
+                        <Camera size={14} strokeWidth={2.5} />
+                        <span>Snap</span>
+                    </button>
+
+                    {/* Notifications */}
                     <button
                         onClick={() => navigate('/notifications')}
                         title="Notifications"
-                        style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', padding: '8px', position: 'relative' }}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-active)', cursor: 'pointer', position: 'relative' }}
                     >
-                        <Bell size={24} />
+                        <Bell size={18} />
                         <span style={{
-                            position: 'absolute', top: '4px', right: '4px',
-                            background: 'var(--primary-gradient)', width: '8px', height: '8px',
-                            borderRadius: '50%', boxShadow: '0 0 6px var(--primary-color)'
+                            position: 'absolute', top: '7px', right: '7px',
+                            background: '#ff4500', width: '7px', height: '7px',
+                            borderRadius: '50%', boxShadow: '0 0 6px #ff4500'
                         }} />
                     </button>
+
+                    {/* Direct Messages */}
                     <button 
                         onClick={() => { setChatUserId(null); setIsChatOpen(true); }} 
-                        className="signout-btn-v2" 
                         title="Messages" 
-                        style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', padding: '8px', position: 'relative' }}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-active)', cursor: 'pointer', position: 'relative' }}
                     >
-                        <MessageCircle size={24} />
+                        <MessageCircle size={18} />
                         {unreadCount > 0 && (
                             <span style={{
-                                position: 'absolute', top: '2px', right: '2px',
-                                background: '#f5a524', color: 'var(--text-active)', fontSize: '9px',
+                                position: 'absolute', top: '-2px', right: '-2px',
+                                background: '#f5a524', color: '#000', fontSize: '9px',
                                 fontWeight: 'bold', borderRadius: '50%', minWidth: '15px',
                                 height: '15px', display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', padding: '0 3px',
-                                border: '2px solid #000', boxSizing: 'content-box'
+                                justifyContent: 'center', padding: '0 2px',
+                                border: '2px solid #07060d'
                             }}>
                                 {unreadCount}
                             </span>
                         )}
-                    </button>
-                    <button onClick={signOut} className="signout-btn-v2" title="Sign Out" type="button" style={{ background: 'none', border: 'none', color: '#ff3b30', cursor: 'pointer', padding: '8px' }}>
-                        <LogOut size={20} />
                     </button>
                 </div>
             </header>
@@ -720,10 +764,10 @@ const Home = () => {
                 const otherGroups = storyGroups.filter(g => g.userId !== user?.id);
 
                 return (
-                    <div className="story-rack-v2 story-rack-top">
-                        {/* Your Story tile */}
+                    <div className="stories-rack-modern">
+                        {/* Your Story Circle */}
                         <div
-                            className="story-rack-item"
+                            className="story-circle-item"
                             onClick={() => {
                                 if (myGroup && myGroup.stories.length > 0) {
                                     openStoryViewer(myGroup);
@@ -732,34 +776,31 @@ const Home = () => {
                                 }
                             }}
                         >
-                            <div className={`story-tile-rect ${myGroup && myGroup.stories.length > 0 ? 'story-tile-connection' : 'story-tile-add'}`}>
+                            <div className="story-ring-gradient your-story">
                                 {(() => {
                                     const myStoryUrl = myGroup?.stories[0]?.image_url || '';
-                                    const isVideo = isVideoUrl(myStoryUrl);
-                                    if (myStoryUrl && isVideo) {
-                                        return <video src={`${myStoryUrl}#t=0.001`} preload="none" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
-                                    }
                                     return (
                                         <img
                                             src={getOptimizedImageUrl(myStoryUrl || user?.avatar_url || 'https://i.pravatar.cc/150', 160)}
                                             alt="Your Story"
+                                            className="story-avatar-img"
                                             loading="lazy"
                                             decoding="async"
                                         />
                                     );
                                 })()}
                                 <div
-                                    className="story-add-icon-rect"
+                                    className="story-add-badge-plus"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         navigate('/stories');
                                     }}
-                                    title="Create new story"
+                                    title="Add story"
                                 >
-                                    <Plus size={14} />
+                                    <Plus size={13} strokeWidth={3} />
                                 </div>
                             </div>
-                            <span className="story-rack-name">Your Story</span>
+                            <span className="story-username-label">Your Story</span>
                         </div>
 
                         {/* Other Users' Stories */}
@@ -767,42 +808,22 @@ const Home = () => {
                             const isConnection = connectionUserIds.has(group.userId);
                             const storyUrl = group.stories[0]?.image_url?.split('#')[0] || '';
                             if (!storyUrl) return null;
-                            const isVideo = isVideoUrl(storyUrl);
                             return (
                                 <div
                                     key={group.userId}
-                                    className="story-rack-item"
+                                    className="story-circle-item"
                                     onClick={() => openStoryViewer(group)}
                                 >
-                                    <div className={`story-tile-rect ${isConnection ? 'story-tile-connection' : ''}`}>
-                                        {isVideo ? (
-                                            <video 
-                                                src={`${storyUrl}#t=0.001`} 
-                                                preload="none" 
-                                                muted 
-                                                playsInline 
-                                                onError={(e) => {
-                                                    const item = (e.target as HTMLElement).closest('.story-rack-item');
-                                                    if (item) (item as HTMLElement).style.display = 'none';
-                                                    if (group.stories[0]?.id) deleteStory(group.stories[0].id);
-                                                }}
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                                            />
-                                        ) : (
-                                            <img
-                                                src={getOptimizedImageUrl(storyUrl, 160)}
-                                                alt={group.username}
-                                                loading="lazy"
-                                                decoding="async"
-                                                onError={(e) => {
-                                                    const item = (e.target as HTMLElement).closest('.story-rack-item');
-                                                    if (item) (item as HTMLElement).style.display = 'none';
-                                                    if (group.stories[0]?.id) deleteStory(group.stories[0].id);
-                                                }}
-                                            />
-                                        )}
+                                    <div className="story-ring-gradient">
+                                        <img
+                                            src={getOptimizedImageUrl(group.avatarUrl || storyUrl, 160)}
+                                            alt={group.username}
+                                            className="story-avatar-img"
+                                            loading="lazy"
+                                            decoding="async"
+                                        />
                                     </div>
-                                    <span className="story-rack-name">
+                                    <span className="story-username-label">
                                         {isConnection && '🔥 '}{group.username}
                                     </span>
                                 </div>
@@ -886,8 +907,14 @@ const Home = () => {
                                     className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
                                     onClick={() => setSelectedPost(post)}
                                     onDoubleClick={() => handleDoubleTap(post)}
+                                    style={{ position: 'relative' }}
                                 >
                                     <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
+                                    {burstHeartPostId === post.id && (
+                                        <div className="heart-burst-overlay">
+                                            <Heart size={72} fill="#f5a524" color="#f5a524" />
+                                        </div>
+                                    )}
                                     {post.music_url && (
                                         <div style={{
                                             position: 'absolute', top: '12px', left: '12px', zIndex: 5,
