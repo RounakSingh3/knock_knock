@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { 
     Phone, Mic, MicOff, PhoneOff, Settings2, Clock, Video, VideoOff, 
     Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, 
-    Link2, Flame, RefreshCw, CameraOff, ChevronLeft
+    Link2, Flame, RefreshCw, CameraOff, ChevronLeft, Lock, Bell
 } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { useSearchParams } from 'react-router-dom';
@@ -101,6 +101,55 @@ const VoiceCall = () => {
     const [isCameraOff, setIsCameraOff] = useState(false);
     const [isFrontCamera, setIsFrontCamera] = useState(true);
     const [showVideoControls, setShowVideoControls] = useState(true);
+
+    // 8:00 PM to 10:00 PM Voice Schedule System
+    const getTimeUntilNextWindow = () => {
+        const now = new Date();
+        const hour = now.getHours();
+        
+        if (hour >= 20 && hour < 22) {
+            const end = new Date(now);
+            end.setHours(22, 0, 0, 0);
+            const diff = Math.max(0, end.getTime() - now.getTime());
+            const h = Math.floor(diff / (1000 * 60 * 60));
+            const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const s = Math.floor((diff % (1000 * 60)) / 1000);
+            return {
+                isActive: true,
+                hours: h,
+                minutes: m,
+                seconds: s,
+                formatted: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+            };
+        } else {
+            const nextStart = new Date(now);
+            if (hour >= 22) {
+                nextStart.setDate(nextStart.getDate() + 1);
+            }
+            nextStart.setHours(20, 0, 0, 0);
+            const diff = Math.max(0, nextStart.getTime() - now.getTime());
+            const h = Math.floor(diff / (1000 * 60 * 60));
+            const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const s = Math.floor((diff % (1000 * 60)) / 1000);
+            return {
+                isActive: false,
+                hours: h,
+                minutes: m,
+                seconds: s,
+                formatted: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+            };
+        }
+    };
+
+    const [scheduleInfo, setScheduleInfo] = useState(getTimeUntilNextWindow());
+    const [showScheduleToast, setShowScheduleToast] = useState(true);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setScheduleInfo(getTimeUntilNextWindow());
+        }, 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     const currentMatch = matches[currentMatchIndex] || null;
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -1097,6 +1146,10 @@ const VoiceCall = () => {
 
     const startSearch = async () => {
         if (!user) return;
+        if (!scheduleInfo.isActive && !isDirectCall) {
+            setShowScheduleToast(true);
+            return;
+        }
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
@@ -2419,6 +2472,7 @@ const VoiceCall = () => {
                 )}
             </div>
 
+            {/* Matching Radar */}
             <div className="match-radar">
                 {isSearching && (
                     <>
@@ -2427,9 +2481,17 @@ const VoiceCall = () => {
                         <div className="radar-ring"></div>
                     </>
                 )}
-                <div className="radar-center">
+                <div 
+                    className="radar-center"
+                    style={{
+                        background: !scheduleInfo.isActive ? 'rgba(250,204,21,0.12)' : undefined,
+                        border: !scheduleInfo.isActive ? '2px solid rgba(250,204,21,0.35)' : undefined
+                    }}
+                >
                     {isSearching ? (
                         <Loader2 size={36} style={{ animation: 'spin 1s linear infinite' }} />
+                    ) : !scheduleInfo.isActive ? (
+                        <Lock size={32} color="#facc15" />
                     ) : (
                         <Phone size={36} />
                     )}
@@ -2478,19 +2540,23 @@ const VoiceCall = () => {
                 ))}
             </div>
 
+            {/* Start Matching Action Button */}
             <button
                 className="premium-btn"
                 onClick={startSearch}
                 disabled={isSearching}
                 style={{
-                    opacity: isSearching ? 0.7 : 1,
+                    opacity: isSearching ? 0.7 : !scheduleInfo.isActive ? 0.75 : 1,
                     width: '100%',
-                    maxWidth: '280px',
+                    maxWidth: '290px',
                     justifyContent: 'center',
-                    fontSize: '1.1rem',
+                    fontSize: '1.05rem',
                     padding: '14px 24px',
                     marginTop: '1rem',
-                    animation: !isSearching && totalOnlineCount > 0 ? 'btnPulse 2s ease-in-out infinite' : 'none',
+                    background: !scheduleInfo.isActive ? 'linear-gradient(135deg, #2c2514, #1a150c)' : undefined,
+                    border: !scheduleInfo.isActive ? '1px solid rgba(250,204,21,0.4)' : undefined,
+                    color: !scheduleInfo.isActive ? '#facc15' : '#fff',
+                    animation: !isSearching && scheduleInfo.isActive && totalOnlineCount > 0 ? 'btnPulse 2s ease-in-out infinite' : 'none',
                 }}
             >
                 {isSearching ? (
@@ -2498,29 +2564,170 @@ const VoiceCall = () => {
                         <Loader2 size={20} style={{ animation: 'spin 1s linear infinite', marginRight: '8px' }} />
                         Finding Matches...
                     </>
+                ) : !scheduleInfo.isActive ? (
+                    <>
+                        <Lock size={18} style={{ marginRight: '8px' }} />
+                        Opens at 8:00 PM
+                    </>
                 ) : (
                     'Start Matching'
                 )}
             </button>
 
+            {/* ⏰ Notification / Schedule Reminder Card right below on the fourth page */}
             <div style={{
-                textAlign: 'center', marginTop: '1.5rem', padding: '0 32px',
+                margin: '1.8rem auto 1.5rem',
+                padding: '0 20px',
+                maxWidth: '380px',
+                width: '100%',
+                boxSizing: 'border-box'
             }}>
-                {isPeakHour ? (
-                    <p style={{ color: '#34C759', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                        <Flame size={12} /> Peak hour! Most users are active now
+                <div style={{
+                    background: scheduleInfo.isActive 
+                        ? 'linear-gradient(135deg, rgba(37,211,102,0.12) 0%, rgba(37,211,102,0.04) 100%)' 
+                        : 'linear-gradient(135deg, rgba(250,204,21,0.12) 0%, rgba(255,51,102,0.06) 100%)',
+                    borderRadius: '20px',
+                    padding: '18px 20px',
+                    border: scheduleInfo.isActive 
+                        ? '1px solid rgba(37,211,102,0.35)' 
+                        : '1px solid rgba(250,204,21,0.3)',
+                    backdropFilter: 'blur(16px)',
+                    boxShadow: '0 8px 30px rgba(0,0,0,0.35)',
+                    textAlign: 'center',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '10px'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {scheduleInfo.isActive ? (
+                            <span style={{
+                                background: '#34C759', width: '10px', height: '10px', borderRadius: '50%',
+                                boxShadow: '0 0 10px #34C759', animation: 'pulse 1.8s infinite'
+                            }} />
+                        ) : (
+                            <Bell size={18} color="#facc15" />
+                        )}
+                        <span style={{
+                            fontWeight: 700,
+                            fontSize: '0.95rem',
+                            color: scheduleInfo.isActive ? '#34C759' : '#facc15',
+                            letterSpacing: '0.3px'
+                        }}>
+                            {scheduleInfo.isActive ? 'Voice Space is LIVE Now!' : 'Active Only 8:00 PM – 10:00 PM'}
+                        </span>
+                    </div>
+
+                    <p style={{ color: 'rgba(255,255,255,0.78)', fontSize: '0.82rem', margin: 0, lineHeight: 1.45 }}>
+                        {scheduleInfo.isActive ? (
+                            <>The evening voice session is currently running! Connect and speak with users before 10:00 PM.</>
+                        ) : (
+                            <>The voice system only activates from <strong style={{ color: '#fff' }}>8:00 PM to 10:00 PM</strong> in the evening. Come back at 8:00 PM to connect!</>
+                        )}
                     </p>
-                ) : (
-                    <p style={{ color: '#6e6e73', fontSize: '0.8rem' }}>
-                        💡 Peak hours: 8 PM - 10 PM • Connect with community members!
-                    </p>
-                )}
+
+                    {/* Live Countdown Badge */}
+                    <div style={{
+                        marginTop: '4px',
+                        background: 'rgba(0,0,0,0.45)',
+                        padding: '7px 18px',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <Clock size={15} color={scheduleInfo.isActive ? '#34C759' : '#facc15'} />
+                        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>
+                            {scheduleInfo.isActive ? 'Closes in:' : 'Opens in:'}
+                        </span>
+                        <span style={{
+                            fontFamily: 'monospace',
+                            fontWeight: 700,
+                            fontSize: '0.95rem',
+                            color: scheduleInfo.isActive ? '#34C759' : '#facc15',
+                            letterSpacing: '1px'
+                        }}>
+                            {scheduleInfo.formatted}
+                        </span>
+                    </div>
+                </div>
             </div>
+
+            {/* 🔔 Floating Opening Reminder Toast (Shows when opening the fourth page) */}
+            {showScheduleToast && (
+                <div style={{
+                    position: 'fixed',
+                    bottom: '80px',
+                    left: '16px',
+                    right: '16px',
+                    maxWidth: '440px',
+                    margin: '0 auto',
+                    zIndex: 250,
+                    background: scheduleInfo.isActive 
+                        ? 'linear-gradient(135deg, rgba(17, 35, 24, 0.96), rgba(11, 24, 16, 0.96))' 
+                        : 'linear-gradient(135deg, rgba(38, 28, 12, 0.96), rgba(24, 16, 6, 0.96))',
+                    backdropFilter: 'blur(20px)',
+                    border: scheduleInfo.isActive ? '1px solid rgba(52,199,89,0.45)' : '1px solid rgba(250,204,21,0.45)',
+                    borderRadius: '18px',
+                    padding: '14px 18px',
+                    boxShadow: '0 16px 40px rgba(0,0,0,0.7)',
+                    animation: 'slideUp 0.3s ease-out',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                }}>
+                    <div style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '50%',
+                        background: scheduleInfo.isActive ? 'rgba(52,199,89,0.2)' : 'rgba(250,204,21,0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                    }}>
+                        {scheduleInfo.isActive ? <Flame size={20} color="#34C759" /> : <Clock size={20} color="#facc15" />}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {scheduleInfo.isActive ? '🟢 Voice Space is Live Now!' : '⏰ Voice System Reminder'}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.75)', marginTop: '2px', lineHeight: 1.35 }}>
+                            {scheduleInfo.isActive 
+                                ? `Active now until 10:00 PM! Closes in ${scheduleInfo.formatted}.`
+                                : `Voice system only activates 8:00 PM – 10:00 PM. Opens in ${scheduleInfo.formatted}.`}
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => setShowScheduleToast(false)}
+                        style={{
+                            background: 'rgba(255,255,255,0.1)',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '28px',
+                            height: '28px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            flexShrink: 0
+                        }}
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
 
             <style>{`
                 @keyframes btnPulse {
                     0%, 100% { box-shadow: 0 0 0 0 rgba(255,51,102,0.4); }
                     50% { box-shadow: 0 0 0 12px rgba(255,51,102,0); }
+                }
+                @keyframes slideUp {
+                    from { transform: translateY(30px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
                 }
             `}</style>
         </div>
