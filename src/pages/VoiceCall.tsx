@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
-import { Phone, Mic, MicOff, PhoneOff, Settings2, Clock, UserPlus, Video, VideoOff, Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, Link2, Flame } from 'lucide-react';
+import { 
+    Phone, Mic, MicOff, PhoneOff, Settings2, Clock, Video, VideoOff, 
+    Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, 
+    Link2, Flame, RefreshCw, CameraOff, ChevronLeft
+} from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { useSearchParams } from 'react-router-dom';
 import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData, type ProfileData } from '../lib/database';
@@ -92,8 +96,16 @@ const VoiceCall = () => {
     const [chatInput, setChatInput] = useState('');
     const [chatMessages, setChatMessages] = useState<{ id: number; text: string; isMine: boolean }[]>([]);
 
+    // WhatsApp-Style Video Call States
+    const [isVideoSwapped, setIsVideoSwapped] = useState(false);
+    const [isCameraOff, setIsCameraOff] = useState(false);
+    const [isFrontCamera, setIsFrontCamera] = useState(true);
+    const [showVideoControls, setShowVideoControls] = useState(true);
+
     const currentMatch = matches[currentMatchIndex] || null;
     const localVideoRef = useRef<HTMLVideoElement>(null);
+    const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
     // Real-time voice call states
     const [isCaller, setIsCaller] = useState(false);
@@ -107,14 +119,14 @@ const VoiceCall = () => {
     const channelRef = useRef<any>(null);
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
-    const remoteAudioRef = useRef<HTMLAudioElement>(null);
-    const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    const remoteStreamRef = useRef<MediaStream | null>(null);
 
     const pendingInviteRef = useRef<string | null>(null);
     const searchTimeoutRef = useRef<number | null>(null);
     const pendingOfferRef = useRef<any>(null);
     const pendingIceCandidatesRef = useRef<any[]>([]);
     const webrtcReadyRef = useRef(false);
+    const videoControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // State refs to give signaling callbacks the latest values
     const isSearchingRef = useRef(isSearching);
@@ -203,6 +215,10 @@ const VoiceCall = () => {
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => track.stop());
             localStreamRef.current = null;
+        }
+        if (remoteStreamRef.current) {
+            remoteStreamRef.current.getTracks().forEach(track => track.stop());
+            remoteStreamRef.current = null;
         }
         if (localVideoRef.current) {
             localVideoRef.current.srcObject = null;
@@ -381,6 +397,21 @@ const VoiceCall = () => {
                     setVideoRequestStatus('none');
                 }
             })
+            .on('broadcast', { event: 'switch-to-voice' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                setVideoRequestStatus('none');
+                setIsVideoSwapped(false);
+                setIsCameraOff(false);
+                if (localStreamRef.current) {
+                    localStreamRef.current.getVideoTracks().forEach(track => {
+                        track.stop();
+                        localStreamRef.current?.removeTrack(track);
+                    });
+                }
+                if (localVideoRef.current) {
+                    localVideoRef.current.srcObject = null;
+                }
+            })
             .on('broadcast', { event: 'peer-arrived' }, async ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
                 if (isCallerRef.current) {
@@ -478,7 +509,7 @@ const VoiceCall = () => {
                         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
                         for (const candidate of pendingIceCandidatesRef.current) {
                             try {
-                                await peerConnectionRef.addIceCandidate(new RTCIceCandidate(candidate));
+                                await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
                             } catch (e) {
                                 console.error('Error adding queued ICE candidate:', e);
                             }
@@ -624,10 +655,13 @@ const VoiceCall = () => {
                         });
                     }
 
-                    if (event.track.kind === 'video' && remoteVideoRef.current) {
+                    if (event.track.kind === 'video') {
                         const videoStream = new MediaStream();
                         remoteStream.getTracks().forEach(t => videoStream.addTrack(t));
-                        remoteVideoRef.current.srcObject = videoStream;
+                        remoteStreamRef.current = videoStream;
+                        if (remoteVideoRef.current) {
+                            remoteVideoRef.current.srcObject = videoStream;
+                        }
                     }
                 };
 
@@ -707,7 +741,27 @@ const VoiceCall = () => {
 
     // Handle video upgrade separately — add video track to existing connection
     useEffect(() => {
-        if (videoRequestStatus !== 'accepted' || !peerConnectionRef.current || !localStreamRef.current || !user || isMockMode) return;
+        if (videoRequestStatus !== 'accepted') return;
+
+        if (isMockMode) {
+            // In companion/mock mode, capture camera so user sees their own face
+            (async () => {
+                try {
+                    const videoStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: isFrontCamera ? 'user' : 'environment' } 
+                    });
+                    localStreamRef.current = videoStream;
+                    if (localVideoRef.current) {
+                        localVideoRef.current.srcObject = videoStream;
+                    }
+                } catch (e) {
+                    console.warn('Camera access denied in mock mode:', e);
+                }
+            })();
+            return;
+        }
+
+        if (!peerConnectionRef.current || !localStreamRef.current || !user) return;
         const pc = peerConnectionRef.current;
 
         const senders = pc.getSenders();
@@ -716,7 +770,9 @@ const VoiceCall = () => {
 
         (async () => {
             try {
-                const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: isFrontCamera ? 'user' : 'environment' } 
+                });
                 const videoTrack = videoStream.getVideoTracks()[0];
                 if (videoTrack) {
                     pc.addTrack(videoTrack, localStreamRef.current!);
@@ -744,7 +800,19 @@ const VoiceCall = () => {
                 console.error('Failed to add video track:', e);
             }
         })();
-    }, [videoRequestStatus, isMockMode]);
+    }, [videoRequestStatus, isMockMode, isFrontCamera]);
+
+    // Ensure video stream remains attached when switching views
+    useEffect(() => {
+        if (videoRequestStatus === 'accepted') {
+            if (localVideoRef.current && localStreamRef.current) {
+                localVideoRef.current.srcObject = localStreamRef.current;
+            }
+            if (remoteVideoRef.current && remoteStreamRef.current) {
+                remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            }
+        }
+    }, [isVideoSwapped, videoRequestStatus]);
 
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -790,6 +858,103 @@ const VoiceCall = () => {
                 }
             });
         }
+    };
+
+    // Seamlessly switch from video call back to voice calling
+    const switchToVoiceCall = (e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (localStreamRef.current) {
+            localStreamRef.current.getVideoTracks().forEach(track => {
+                track.stop();
+                localStreamRef.current?.removeTrack(track);
+            });
+        }
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = null;
+        }
+        setVideoRequestStatus('none');
+        setIsVideoSwapped(false);
+        setIsCameraOff(false);
+
+        if (channelRef.current && currentMatchRef.current && !isMockMode) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'switch-to-voice',
+                payload: {
+                    senderId: user!.id,
+                    receiverId: currentMatchRef.current.profile.id
+                }
+            });
+        }
+    };
+
+    // Swap the main full screen and PiP corner video (switch their face <-> our face)
+    const handleSwapVideos = (e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        setIsVideoSwapped(prev => !prev);
+    };
+
+    // Toggle camera on/off
+    const handleToggleCamera = (e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (localStreamRef.current) {
+            const videoTracks = localStreamRef.current.getVideoTracks();
+            if (videoTracks.length > 0) {
+                const newOff = !isCameraOff;
+                videoTracks.forEach(track => { track.enabled = !newOff; });
+                setIsCameraOff(newOff);
+            }
+        } else {
+            setIsCameraOff(prev => !prev);
+        }
+    };
+
+    // Flip camera (front <-> back)
+    const handleFlipCamera = async (e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        const nextFacing = isFrontCamera ? 'environment' : 'user';
+        setIsFrontCamera(!isFrontCamera);
+
+        try {
+            const newStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: nextFacing } },
+                audio: false
+            });
+            const newTrack = newStream.getVideoTracks()[0];
+            if (newTrack) {
+                if (peerConnectionRef.current) {
+                    const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
+                    if (sender) {
+                        await sender.replaceTrack(newTrack);
+                    }
+                }
+                if (localStreamRef.current) {
+                    const oldTrack = localStreamRef.current.getVideoTracks()[0];
+                    if (oldTrack) {
+                        oldTrack.stop();
+                        localStreamRef.current.removeTrack(oldTrack);
+                    }
+                    localStreamRef.current.addTrack(newTrack);
+                }
+                if (localVideoRef.current) {
+                    localVideoRef.current.srcObject = localStreamRef.current;
+                }
+            }
+        } catch (err) {
+            console.error('Failed to flip camera:', err);
+        }
+    };
+
+    // Toggle auto-hiding controls on tap
+    const handleVideoAreaTap = () => {
+        setShowVideoControls(prev => {
+            const nextState = !prev;
+            if (nextState) {
+                if (videoControlsTimeoutRef.current) clearTimeout(videoControlsTimeoutRef.current);
+                videoControlsTimeoutRef.current = setTimeout(() => setShowVideoControls(false), 5000);
+            }
+            return nextState;
+        });
     };
 
     const handleConnect = async () => {
@@ -1013,6 +1178,10 @@ const VoiceCall = () => {
         setIsCaller(false);
         setAudioBlocked(false);
         setPeerConnected(false);
+        setIsVideoSwapped(false);
+        setIsCameraOff(false);
+        setIsFrontCamera(true);
+        setShowVideoControls(true);
         pendingInviteRef.current = null;
         pendingOfferRef.current = null;
         pendingIceCandidatesRef.current = [];
@@ -1020,6 +1189,10 @@ const VoiceCall = () => {
         if (searchTimeoutRef.current) {
             clearTimeout(searchTimeoutRef.current);
             searchTimeoutRef.current = null;
+        }
+        if (videoControlsTimeoutRef.current) {
+            clearTimeout(videoControlsTimeoutRef.current);
+            videoControlsTimeoutRef.current = null;
         }
     };
 
@@ -1076,99 +1249,791 @@ const VoiceCall = () => {
 
     // ── Active Call Screen ──
     if (inCall && currentMatch) {
-        return (
-            <div className="call-active-screen" style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100dvh' }}>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-                    {videoRequestStatus === 'accepted' ? (
-                        // Video Call Layout
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                            <div style={{ flex: 1, backgroundColor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                                <video
-                                    ref={remoteVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                />
-                            </div>
 
-                            <div style={{ position: 'absolute', top: '16px', right: '16px', width: '100px', height: '140px', backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.2)' }}>
+        // ════════════════════════════════════════════════════════════
+        // ── WHATSAPP-STYLE FULL-SCREEN VIDEO CALL ──
+        // ════════════════════════════════════════════════════════════
+        if (videoRequestStatus === 'accepted') {
+            return (
+                <div
+                    className="whatsapp-video-screen"
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 9999,
+                        background: '#0b141a',
+                        width: '100vw',
+                        height: '100dvh',
+                        overflow: 'hidden',
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+                    }}
+                    onClick={handleVideoAreaTap}
+                >
+                    {/* ── FULLSCREEN VIDEO / MAIN VIEW ── */}
+                    {/* If isVideoSwapped is FALSE: Remote peer's face is full screen */}
+                    {/* If isVideoSwapped is TRUE: Your face is full screen */}
+                    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#0b141a' }}>
+                        {isVideoSwapped ? (
+                            // OUR FACE FULL SCREEN
+                            <>
                                 <video
                                     ref={localVideoRef}
                                     autoPlay
                                     playsInline
                                     muted
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        display: isCameraOff ? 'none' : 'block',
+                                        transform: isFrontCamera ? 'scaleX(-1)' : 'none'
+                                    }}
                                 />
-                            </div>
-                        </div>
-                    ) : (
-                        // Voice Call Layout
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%', minHeight: 'min-content', padding: '24px 0' }}>
-                            <div style={{ position: 'relative', display: 'inline-block' }}>
-                                <div style={{
-                                    position: 'absolute',
-                                    inset: -12,
-                                    borderRadius: '50%',
-                                    background: 'radial-gradient(circle, rgba(255, 51, 102, 0.3) 0%, rgba(245, 165, 36, 0.05) 70%, transparent 100%)',
-                                    animation: 'voiceAuraPulse 2s ease-in-out infinite',
-                                    pointerEvents: 'none'
-                                }} />
+                                {isCameraOff && (
+                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#111b21', gap: '16px' }}>
+                                        <img src={user?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'} alt="You" style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '3px solid rgba(255,255,255,0.2)' }} />
+                                        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <CameraOff size={20} color="#ff3b30" /> Camera is off
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            // THEIR FACE FULL SCREEN
+                            <>
+                                <video
+                                    ref={remoteVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        display: isMockMode ? 'none' : 'block'
+                                    }}
+                                />
+                                {/* Simulated companion video / when peer stream has not loaded yet */}
+                                {isMockMode && (
+                                    <div style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        position: 'relative',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        background: '#111b21',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {/* Blurred dynamic backdrop image */}
+                                        <div style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            backgroundImage: `url(${displayAvatar})`,
+                                            backgroundSize: 'cover',
+                                            backgroundPosition: 'center',
+                                            filter: 'blur(45px) brightness(0.4)',
+                                            transform: 'scale(1.15)',
+                                            zIndex: 1
+                                        }} />
+                                        {/* Subtle breathing companion avatar */}
+                                        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                            <div style={{ position: 'relative' }}>
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    inset: -16,
+                                                    borderRadius: '50%',
+                                                    background: 'radial-gradient(circle, rgba(37,211,102,0.4) 0%, rgba(37,211,102,0) 70%)',
+                                                    animation: 'pulse 2.2s infinite ease-in-out'
+                                                }} />
+                                                <img
+                                                    src={displayAvatar}
+                                                    alt={displayName}
+                                                    style={{
+                                                        width: '140px',
+                                                        height: '140px',
+                                                        borderRadius: '50%',
+                                                        objectFit: 'cover',
+                                                        border: '4px solid rgba(255,255,255,0.4)',
+                                                        boxShadow: '0 12px 40px rgba(0,0,0,0.6)'
+                                                    }}
+                                                />
+                                            </div>
+                                            <h3 style={{ color: '#fff', fontSize: '1.4rem', fontWeight: 600, marginTop: '20px', marginBottom: '4px', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                                                {displayName}
+                                            </h3>
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                background: 'rgba(37,211,102,0.2)',
+                                                border: '1px solid rgba(37,211,102,0.3)',
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                marginTop: '6px'
+                                            }}>
+                                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#25D366', boxShadow: '0 0 8px #25D366' }} />
+                                                <span style={{ color: '#25D366', fontSize: '0.8rem', fontWeight: 600 }}>Speaking • Live Audio</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* Top & Bottom gradient scrims for contrast */}
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '140px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0) 100%)', pointerEvents: 'none', zIndex: 10 }} />
+                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '220px', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%)', pointerEvents: 'none', zIndex: 10 }} />
+                    </div>
+
+                    {/* ── WHATSAPP FLOATING PiP (Tap to Switch Faces) ── */}
+                    {/* If isVideoSwapped is FALSE: PiP displays OUR face */}
+                    {/* If isVideoSwapped is TRUE: PiP displays THEIR face */}
+                    <div
+                        onClick={handleSwapVideos}
+                        title="Tap to switch view"
+                        style={{
+                            position: 'absolute',
+                            top: 'max(env(safe-area-inset-top, 16px), 24px)',
+                            right: '16px',
+                            width: '115px',
+                            height: '165px',
+                            borderRadius: '16px',
+                            overflow: 'hidden',
+                            border: '2.5px solid rgba(255,255,255,0.35)',
+                            boxShadow: '0 12px 36px rgba(0,0,0,0.75)',
+                            zIndex: 60,
+                            cursor: 'pointer',
+                            background: '#111b21',
+                            transition: 'transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s ease'
+                        }}
+                    >
+                        {isVideoSwapped ? (
+                            // PiP shows THEIR face
+                            <div style={{ width: '100%', height: '100%', position: 'relative', background: '#111b21' }}>
                                 <img
                                     src={displayAvatar}
-                                    alt={displayUsername}
-                                    className="call-avatar"
-                                    style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.5)', position: 'relative', zIndex: 2 }}
+                                    alt={displayName}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                 />
-                            </div>
-                            <h2 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '4px', marginTop: '16px' }}>
-                                {displayName}
-                            </h2>
-                            <p className="text-gray-400" style={{ fontSize: '1rem', marginBottom: '12px' }}>
-                                @{displayUsername}
-                            </p>
-                            <div className="match-compat-inline" style={{ background: 'rgba(255, 51, 102, 0.1)', padding: '6px 16px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Heart size={14} fill="#ff3366" color="#ff3366" />
-                                <span style={{ fontWeight: 600, color: '#ff3366' }}>{currentMatch.compatibilityPercent}% Compatible</span>
-                                <span className="match-compat-dot" style={{ color: '#ff3366' }}>•</span>
-                                <span style={{ color: '#ff3366' }}>{currentMatch.sharedLikes} shared likes</span>
-                            </div>
-
-                            {/* Connection Status Indicator */}
-                            <div style={{
-                                display: 'flex', alignItems: 'center', gap: '8px',
-                                padding: '6px 14px', borderRadius: '20px', marginTop: '8px',
-                                background: peerConnected ? 'rgba(52,199,89,0.15)' : 'rgba(250,204,21,0.15)',
-                            }}>
-                                <span style={{
-                                    width: '8px', height: '8px', borderRadius: '50%',
-                                    background: peerConnected ? '#34C759' : '#facc15',
-                                    boxShadow: peerConnected ? '0 0 8px #34C759' : '0 0 8px #facc15',
-                                    animation: peerConnected ? 'none' : 'pulse 1.5s ease-in-out infinite',
-                                }} />
-                                <span style={{
-                                    fontSize: '0.8rem', fontWeight: 600,
-                                    color: peerConnected ? '#34C759' : '#facc15',
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    left: 0,
+                                    right: 0,
+                                    padding: '4px 6px',
+                                    background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
+                                    color: '#fff',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    textAlign: 'center',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
                                 }}>
-                                    {peerConnected ? '🎙️ Voice Connected' : '⏳ Connecting voice...'}
+                                    {displayName}
+                                </div>
+                            </div>
+                        ) : (
+                            // PiP shows OUR face
+                            <>
+                                <video
+                                    ref={localVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    muted
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        display: isCameraOff ? 'none' : 'block',
+                                        transform: isFrontCamera ? 'scaleX(-1)' : 'none'
+                                    }}
+                                />
+                                {isCameraOff && (
+                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#111b21' }}>
+                                        <CameraOff size={24} color="#8696a0" />
+                                        <span style={{ color: '#8696a0', fontSize: '0.65rem', marginTop: '4px' }}>Off</span>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* WhatsApp Tap-to-Swap Badge */}
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '8px',
+                            right: '8px',
+                            background: 'rgba(0,0,0,0.65)',
+                            backdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            borderRadius: '12px',
+                            padding: '3px 6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            zIndex: 10
+                        }}>
+                            <RefreshCw size={10} color="#fff" />
+                            <span style={{ color: '#fff', fontSize: '0.65rem', fontWeight: 600 }}>Swap</span>
+                        </div>
+                    </div>
+
+                    {/* ── TOP HEADER BAR (WhatsApp Style) ── */}
+                    <div style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        zIndex: 50,
+                        padding: 'max(env(safe-area-inset-top, 16px), 20px) 16px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        opacity: showVideoControls ? 1 : 0,
+                        transform: showVideoControls ? 'translateY(0)' : 'translateY(-15px)',
+                        transition: 'opacity 0.3s ease, transform 0.3s ease',
+                        pointerEvents: showVideoControls ? 'auto' : 'none',
+                    }}>
+                        {/* Left: Back / Minimize to Voice Button */}
+                        <button
+                            onClick={switchToVoiceCall}
+                            title="Switch to Voice Calling"
+                            style={{
+                                background: 'rgba(255,255,255,0.12)',
+                                backdropFilter: 'blur(12px)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                color: '#fff',
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <ChevronLeft size={22} />
+                        </button>
+
+                        {/* Center: Contact Info & Duration */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, padding: '0 12px' }}>
+                            <div style={{ color: '#fff', fontWeight: 700, fontSize: '1.05rem', textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
+                                {displayName}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.8rem', fontWeight: 600, letterSpacing: '0.5px' }}>
+                                    {formatTime(callDuration)}
+                                </span>
+                                <span style={{ color: 'rgba(255,255,255,0.4)' }}>•</span>
+                                <span style={{ color: '#25D366', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    🔒 Encrypted
                                 </span>
                             </div>
+                        </div>
 
-                            <div className="mt-8" style={{ textAlign: 'center' }}>
-                                <div className={`text-6xl font-mono tracking-wider ${requestStatus !== 'accepted' && callDuration >= 150 ? 'text-red-500 animate-pulse' : 'text-white'}`} style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
-                                    {requestStatus === 'accepted' ? formatTime(callDuration) : formatTime(Math.max(0, 180 - callDuration))}
+                        {/* Right: Quick Voice Switch Pill */}
+                        <button
+                            onClick={switchToVoiceCall}
+                            style={{
+                                background: 'rgba(255, 51, 102, 0.25)',
+                                backdropFilter: 'blur(12px)',
+                                border: '1px solid rgba(255, 51, 102, 0.4)',
+                                color: '#fff',
+                                padding: '6px 12px',
+                                borderRadius: '20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                fontSize: '0.75rem',
+                                fontWeight: 600
+                            }}
+                        >
+                            <Mic size={14} color="#ff3366" />
+                            <span>Voice Call</span>
+                        </button>
+                    </div>
+
+                    {/* ── INCOMING / SYSTEM NOTIFICATIONS ── */}
+                    {showConnectionToast && (
+                        <div style={{ position: 'absolute', top: '80px', left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
+                            <div className="connection-toast-inner">
+                                <Flame size={20} className="streak-icon-active" />
+                                <div>
+                                    <strong>Connected with {displayName}!</strong>
+                                    <span>🔥 Streak started — Day 1!</span>
                                 </div>
-                                {requestStatus !== 'accepted' ? (
-                                    <span style={{ display: 'block', fontSize: '1rem', color: '#facc15', marginTop: '12px', fontWeight: 600 }}>
-                                        Time Remaining
-                                    </span>
-                                ) : (
-                                    <span style={{ display: 'block', fontSize: '1rem', color: '#34d399', marginTop: '12px', fontWeight: 600 }}>
-                                        Unlimited Time
-                                    </span>
-                                )}
                             </div>
                         </div>
                     )}
+
+                    {incomingExtensionRequest && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '85px',
+                            left: '16px',
+                            right: '16px',
+                            zIndex: 200,
+                            background: 'rgba(24, 34, 41, 0.95)',
+                            backdropFilter: 'blur(16px)',
+                            borderRadius: '16px',
+                            padding: '16px',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            boxShadow: '0 12px 30px rgba(0,0,0,0.6)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                                <Clock size={20} color="#facc15" />
+                                <span style={{ color: '#fff', fontWeight: 700 }}>{displayName} requested more time!</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    className="pill active"
+                                    style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem' }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setRequestStatus('accepted');
+                                        setIncomingExtensionRequest(false);
+                                        if (channelRef.current) {
+                                            channelRef.current.send({
+                                                type: 'broadcast',
+                                                event: 'extend-response',
+                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    Accept
+                                </button>
+                                <button
+                                    className="pill"
+                                    style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem', backgroundColor: '#333' }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIncomingExtensionRequest(false);
+                                        if (channelRef.current) {
+                                            channelRef.current.send({
+                                                type: 'broadcast',
+                                                event: 'extend-response',
+                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
+                                            });
+                                        }
+                                    }}
+                                >
+                                    Decline
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Audio element for WebRTC audio */}
+                    <audio ref={remoteAudioRef} autoPlay playsInline style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
+
+                    {audioBlocked && (
+                        <div
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (remoteAudioRef.current) {
+                                    remoteAudioRef.current.play().then(() => setAudioBlocked(false)).catch(() => {});
+                                }
+                            }}
+                            style={{
+                                position: 'absolute',
+                                top: '80px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                background: 'rgba(255,59,48,0.92)',
+                                color: '#fff',
+                                padding: '10px 20px',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                zIndex: 200,
+                                fontSize: '0.9rem',
+                                fontWeight: 600,
+                                textAlign: 'center',
+                                boxShadow: '0 4px 16px rgba(255,59,48,0.4)',
+                                animation: 'sparkle-pulse 1.5s ease-in-out infinite'
+                            }}
+                        >
+                            🔇 Tap here to unmute audio
+                        </div>
+                    )}
+
+                    {/* ── WHATSAPP BOTTOM CONTROLS ── */}
+                    <div style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        zIndex: 50,
+                        padding: '16px 20px max(env(safe-area-inset-bottom, 24px), 30px)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '16px',
+                        opacity: showVideoControls ? 1 : 0,
+                        transform: showVideoControls ? 'translateY(0)' : 'translateY(20px)',
+                        transition: 'opacity 0.3s ease, transform 0.3s ease',
+                        pointerEvents: showVideoControls ? 'auto' : 'none',
+                    }}>
+                        {/* Top action row: Chat & Connect */}
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setShowChat(!showChat); }}
+                                style={{
+                                    background: showChat ? 'var(--primary-color)' : 'rgba(255,255,255,0.18)',
+                                    backdropFilter: 'blur(16px)',
+                                    border: '1px solid rgba(255,255,255,0.15)',
+                                    color: '#fff',
+                                    borderRadius: '24px',
+                                    padding: '8px 16px',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <MessageSquare size={16} /> Chat
+                            </button>
+
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleConnect(); }}
+                                disabled={connectionState === 'connecting' || connectionState === 'connected' || connectionState === 'already'}
+                                style={{
+                                    background: connectionState === 'connected' || connectionState === 'already' ? 'rgba(37,211,102,0.35)' : 'rgba(255,255,255,0.18)',
+                                    backdropFilter: 'blur(16px)',
+                                    border: '1px solid rgba(255,255,255,0.15)',
+                                    color: '#fff',
+                                    borderRadius: '24px',
+                                    padding: '8px 16px',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    cursor: 'pointer',
+                                    opacity: (connectionState === 'connecting' || connectionState === 'connected' || connectionState === 'already') ? 0.8 : 1,
+                                }}
+                            >
+                                <Link2 size={16} />
+                                {connectionState === 'connected' ? 'Connected 🤝' : connectionState === 'already' ? 'Already Connected' : connectionState === 'connecting' ? 'Connecting...' : 'Connect 🤝'}
+                            </button>
+
+                            {requestStatus === 'none' && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleTalkMore(); }}
+                                    style={{
+                                        background: 'rgba(250,204,21,0.25)',
+                                        backdropFilter: 'blur(16px)',
+                                        border: '1px solid rgba(250,204,21,0.4)',
+                                        color: '#facc15',
+                                        borderRadius: '24px',
+                                        padding: '8px 16px',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 600,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    <Clock size={16} /> +Time
+                                </button>
+                            )}
+                        </div>
+
+                        {/* WhatsApp Pill Toolbar */}
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '16px',
+                            background: 'rgba(17, 27, 33, 0.82)',
+                            backdropFilter: 'blur(25px)',
+                            padding: '12px 24px',
+                            borderRadius: '40px',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            boxShadow: '0 16px 40px rgba(0,0,0,0.65)'
+                        }}>
+                            {/* 1. Switch to Voice Calling (Voice Roulette Mode) */}
+                            <button
+                                onClick={switchToVoiceCall}
+                                title="Switch to Voice Call"
+                                style={{
+                                    width: '48px',
+                                    height: '48px',
+                                    borderRadius: '50%',
+                                    background: 'rgba(255,255,255,0.16)',
+                                    border: 'none',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#fff',
+                                    transition: 'transform 0.15s ease'
+                                }}
+                            >
+                                <Phone size={20} color="#34C759" />
+                            </button>
+
+                            {/* 2. Flip Camera (Front <-> Back) */}
+                            <button
+                                onClick={handleFlipCamera}
+                                title="Flip Camera"
+                                style={{
+                                    width: '48px',
+                                    height: '48px',
+                                    borderRadius: '50%',
+                                    background: 'rgba(255,255,255,0.16)',
+                                    border: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#fff',
+                                    transition: 'transform 0.15s ease'
+                                }}
+                            >
+                                <RefreshCw size={20} />
+                            </button>
+
+                            {/* 3. Camera On / Off */}
+                            <button
+                                onClick={handleToggleCamera}
+                                title={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+                                style={{
+                                    width: '48px',
+                                    height: '48px',
+                                    borderRadius: '50%',
+                                    background: isCameraOff ? '#ff3b30' : 'rgba(255,255,255,0.16)',
+                                    border: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#fff',
+                                    transition: 'background 0.2s ease'
+                                }}
+                            >
+                                {isCameraOff ? <VideoOff size={20} /> : <Video size={20} />}
+                            </button>
+
+                            {/* 4. Mic Mute / Unmute */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const newMuted = !isMuted;
+                                    setIsMuted(newMuted);
+                                    if (localStreamRef.current) {
+                                        localStreamRef.current.getAudioTracks().forEach(track => {
+                                            track.enabled = !newMuted;
+                                        });
+                                    }
+                                }}
+                                title={isMuted ? 'Unmute' : 'Mute'}
+                                style={{
+                                    width: '48px',
+                                    height: '48px',
+                                    borderRadius: '50%',
+                                    background: isMuted ? '#ff3b30' : 'rgba(255,255,255,0.16)',
+                                    border: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#fff',
+                                    transition: 'background 0.2s ease'
+                                }}
+                            >
+                                {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                            </button>
+
+                            {/* 5. WhatsApp Prominent Red End Call Button */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); endCall(); }}
+                                title="End Call"
+                                style={{
+                                    width: '56px',
+                                    height: '56px',
+                                    borderRadius: '50%',
+                                    background: '#ea0038',
+                                    border: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#fff',
+                                    boxShadow: '0 6px 20px rgba(234, 0, 56, 0.45)',
+                                    transform: 'scale(1.05)',
+                                    transition: 'transform 0.15s ease'
+                                }}
+                            >
+                                <PhoneOff size={24} />
+                            </button>
+
+                            {/* 6. Skip to Next Match */}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); skipToNext(); }}
+                                title="Skip to next"
+                                style={{
+                                    width: '48px',
+                                    height: '48px',
+                                    borderRadius: '50%',
+                                    background: 'rgba(255,255,255,0.16)',
+                                    border: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#fff'
+                                }}
+                            >
+                                <SkipForward size={20} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Chat Drawer Overlay */}
+                    {showChat && (
+                        <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                position: 'absolute',
+                                bottom: '160px',
+                                left: '16px',
+                                right: '16px',
+                                height: '380px',
+                                backgroundColor: 'rgba(17, 27, 33, 0.94)',
+                                backdropFilter: 'blur(20px)',
+                                borderRadius: '20px',
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                zIndex: 100,
+                                boxShadow: '0 24px 60px rgba(0,0,0,0.7)'
+                            }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                                <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#fff' }}>Chat with {displayName}</span>
+                                <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '6px', color: '#fff', cursor: 'pointer' }}>
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {chatMessages.length === 0 && (
+                                    <p style={{ textAlign: 'center', color: '#8696a0', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.85rem' }}>
+                                        Say hi! 👋
+                                    </p>
+                                )}
+                                {chatMessages.map(msg => (
+                                    <div
+                                        key={msg.id}
+                                        style={{
+                                            alignSelf: msg.isMine ? 'flex-end' : 'flex-start',
+                                            background: msg.isMine ? '#005c4b' : '#202c33',
+                                            color: '#e9edef',
+                                            padding: '8px 14px',
+                                            borderRadius: '12px',
+                                            maxWidth: '80%',
+                                            fontSize: '0.9rem'
+                                        }}
+                                    >
+                                        {msg.text}
+                                    </div>
+                                ))}
+                            </div>
+                            <form onSubmit={sendChatMessage} style={{ display: 'flex', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                                <input
+                                    type="text"
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    placeholder="Type a message..."
+                                    style={{ flex: 1, background: '#2a3942', border: 'none', padding: '10px 16px', borderRadius: '20px', color: '#fff', marginRight: '8px', fontSize: '0.9rem' }}
+                                />
+                                <button type="submit" style={{ background: '#00a884', border: 'none', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                    <Send size={18} />
+                                </button>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // ── VOICE CALL LAYOUT (Roulette / Voice Space) ──
+        // ════════════════════════════════════════════════════════════
+        return (
+            <div className="call-active-screen" style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%', minHeight: 'min-content', padding: '24px 0' }}>
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <div style={{
+                                position: 'absolute',
+                                inset: -12,
+                                borderRadius: '50%',
+                                background: 'radial-gradient(circle, rgba(255, 51, 102, 0.3) 0%, rgba(245, 165, 36, 0.05) 70%, transparent 100%)',
+                                animation: 'voiceAuraPulse 2s ease-in-out infinite',
+                                pointerEvents: 'none'
+                            }} />
+                            <img
+                                src={displayAvatar}
+                                alt={displayUsername}
+                                className="call-avatar"
+                                style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.5)', position: 'relative', zIndex: 2 }}
+                            />
+                        </div>
+                        <h2 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '4px', marginTop: '16px' }}>
+                            {displayName}
+                        </h2>
+                        <p className="text-gray-400" style={{ fontSize: '1rem', marginBottom: '12px' }}>
+                            @{displayUsername}
+                        </p>
+                        <div className="match-compat-inline" style={{ background: 'rgba(255, 51, 102, 0.1)', padding: '6px 16px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Heart size={14} fill="#ff3366" color="#ff3366" />
+                            <span style={{ fontWeight: 600, color: '#ff3366' }}>{currentMatch.compatibilityPercent}% Compatible</span>
+                            <span className="match-compat-dot" style={{ color: '#ff3366' }}>•</span>
+                            <span style={{ color: '#ff3366' }}>{currentMatch.sharedLikes} shared likes</span>
+                        </div>
+
+                        {/* Connection Status Indicator */}
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            padding: '6px 14px', borderRadius: '20px', marginTop: '8px',
+                            background: peerConnected ? 'rgba(52,199,89,0.15)' : 'rgba(250,204,21,0.15)',
+                        }}>
+                            <span style={{
+                                width: '8px', height: '8px', borderRadius: '50%',
+                                background: peerConnected ? '#34C759' : '#facc15',
+                                boxShadow: peerConnected ? '0 0 8px #34C759' : '0 0 8px #facc15',
+                                animation: peerConnected ? 'none' : 'pulse 1.5s ease-in-out infinite',
+                            }} />
+                            <span style={{
+                                fontSize: '0.8rem', fontWeight: 600,
+                                color: peerConnected ? '#34C759' : '#facc15',
+                            }}>
+                                {peerConnected ? '🎙️ Voice Connected' : '⏳ Connecting voice...'}
+                            </span>
+                        </div>
+
+                        <div className="mt-8" style={{ textAlign: 'center' }}>
+                            <div className={`text-6xl font-mono tracking-wider ${requestStatus !== 'accepted' && callDuration >= 150 ? 'text-red-500 animate-pulse' : 'text-white'}`} style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
+                                {requestStatus === 'accepted' ? formatTime(callDuration) : formatTime(Math.max(0, 180 - callDuration))}
+                            </div>
+                            {requestStatus !== 'accepted' ? (
+                                <span style={{ display: 'block', fontSize: '1rem', color: '#facc15', marginTop: '12px', fontWeight: 600 }}>
+                                    Time Remaining
+                                </span>
+                            ) : (
+                                <span style={{ display: 'block', fontSize: '1rem', color: '#34d399', marginTop: '12px', fontWeight: 600 }}>
+                                    Unlimited Time
+                                </span>
+                            )}
+                        </div>
+                    </div>
                 </div>
 
                 {/* Status and Action Buttons & Call Controls Stacked */}
@@ -1184,52 +2049,54 @@ const VoiceCall = () => {
                                 Waiting for them to accept more time...
                             </div>
                         )}
-                        {requestStatus === 'accepted' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: videoRequestStatus === 'accepted' ? 'transparent' : 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
-                                {videoRequestStatus !== 'accepted' && <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✨ Voice Call Extended (No Time Limit!)</span>}
-                                
-                                {videoRequestStatus === 'none' && (
-                                    <button
-                                        className="pill"
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
-                                        onClick={handleRequestVideo}
-                                    >
-                                        <Video size={16} /> Request Video Call
-                                    </button>
-                                )}
-                                {videoRequestStatus === 'sent' && (
-                                    <span style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
-                                        Waiting for them to accept video...
-                                    </span>
-                                )}
 
-                                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                                    <button
-                                        className="pill"
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: showChat ? 'var(--primary-color)' : '' }}
-                                        onClick={() => setShowChat(!showChat)}
-                                    >
-                                        <MessageSquare size={16} /> Chat
-                                    </button>
-                                    <button
-                                        className={`pill connect-btn-call ${connectionState === 'connected' || connectionState === 'already' ? 'connected' : ''}`}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
-                                        onClick={handleConnect}
-                                        disabled={connectionState === 'connecting' || connectionState === 'connected' || connectionState === 'already'}
-                                    >
-                                        {connectionState === 'connecting' ? (
-                                            <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Connecting...</>
-                                        ) : connectionState === 'connected' ? (
-                                            <><Link2 size={16} /> Connected 🤝</>
-                                        ) : connectionState === 'already' ? (
-                                            <><Link2 size={16} /> Already Connected</>
-                                        ) : (
-                                            <><Link2 size={16} /> Connect 🤝</>
-                                        )}
-                                    </button>
-                                </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
+                            {requestStatus === 'accepted' && (
+                                <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✨ Voice Call Extended (No Time Limit!)</span>
+                            )}
+                            
+                            {/* Switch to Video Call Button */}
+                            {videoRequestStatus === 'none' && (
+                                <button
+                                    className="pill active"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', padding: '8px 18px', background: 'linear-gradient(135deg, #ff3366, #ff9933)' }}
+                                    onClick={handleRequestVideo}
+                                >
+                                    <Video size={16} /> Switch to Video Call 📹
+                                </button>
+                            )}
+                            {videoRequestStatus === 'sent' && (
+                                <span style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
+                                    Waiting for them to accept video...
+                                </span>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                                <button
+                                    className="pill"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px', backgroundColor: showChat ? 'var(--primary-color)' : '' }}
+                                    onClick={() => setShowChat(!showChat)}
+                                >
+                                    <MessageSquare size={16} /> Chat
+                                </button>
+                                <button
+                                    className={`pill connect-btn-call ${connectionState === 'connected' || connectionState === 'already' ? 'connected' : ''}`}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '8px 16px' }}
+                                    onClick={handleConnect}
+                                    disabled={connectionState === 'connecting' || connectionState === 'connected' || connectionState === 'already'}
+                                >
+                                    {connectionState === 'connecting' ? (
+                                        <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Connecting...</>
+                                    ) : connectionState === 'connected' ? (
+                                        <><Link2 size={16} /> Connected 🤝</>
+                                    ) : connectionState === 'already' ? (
+                                        <><Link2 size={16} /> Already Connected</>
+                                    ) : (
+                                        <><Link2 size={16} /> Connect 🤝</>
+                                    )}
+                                </button>
                             </div>
-                        )}
+                        </div>
                     </div>
 
                     {/* Connection Success Toast */}
