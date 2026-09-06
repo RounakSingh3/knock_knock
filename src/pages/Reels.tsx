@@ -305,17 +305,32 @@ const Reels: React.FC = () => {
         const p = audio.play();
         if (p !== undefined) {
             p.catch((err) => {
+                if (err.name === 'AbortError') return;
                 console.warn('[Reels] Audio play blocked, awaiting user tap:', err);
                 const handleTapToPlay = () => {
                     audio.play().catch(() => {});
-                    window.removeEventListener('click', handleTapToPlay);
-                    window.removeEventListener('touchstart', handleTapToPlay);
+                    window.removeEventListener('click', handleTapToPlay, { capture: true });
+                    window.removeEventListener('touchstart', handleTapToPlay, { capture: true });
                 };
                 window.addEventListener('click', handleTapToPlay, { once: true, capture: true });
                 window.addEventListener('touchstart', handleTapToPlay, { once: true, capture: true });
             });
         }
     }, [mutedAll]);
+
+    // Unconditionally silence all audio when navigating away from Reels
+    useEffect(() => {
+        return () => {
+            videoRefs.current.forEach(v => v?.pause());
+            audioRefs.current.forEach(a => {
+                if (a) {
+                    a.pause();
+                    a.currentTime = 0;
+                }
+            });
+            audioPlayer.stop();
+        };
+    }, []);
 
     // Auto-scroll to selected reel index when modal opens and play media immediately
     useEffect(() => {

@@ -111,6 +111,21 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         };
     }, [user, posts]);
 
+    // Unconditionally silence any playing audios when closing or leaving feed viewer
+    useEffect(() => {
+        return () => {
+            const allAudios = document.querySelectorAll('audio');
+            allAudios.forEach(a => {
+                if (a.id !== 'knock-call-audio') {
+                    try {
+                        a.pause();
+                        a.currentTime = 0;
+                    } catch(e) {}
+                }
+            });
+        };
+    }, []);
+
     return (
         <div 
             className="post-modal-backdrop post-modal-backdrop--fullscreen" 

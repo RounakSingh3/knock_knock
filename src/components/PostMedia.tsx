@@ -104,6 +104,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         const audio = audioRef.current;
         if (!audio || !resolvedMusicUrl) return;
 
+        let isCancelled = false;
         let cleanupTap: (() => void) | null = null;
         const shouldPlayAudio = (autoPlay || soundOn) && (muted === false || (muted === undefined && soundOn));
 
@@ -113,13 +114,14 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             const playPromise = audio.play();
             if (playPromise !== undefined) {
                 playPromise.catch((e) => {
+                    // Interrupted by pause() or unmount — do NOT attach tap retry
+                    if (e.name === 'AbortError' || isCancelled) return;
                     console.warn('[PostMedia] Audio autoplay deferred until tap:', e);
                     const onUserTap = () => {
+                        if (isCancelled) return;
                         audio.muted = false;
                         audio.volume = 1;
                         audio.play().catch(() => {});
-                        window.removeEventListener('click', onUserTap, { capture: true });
-                        window.removeEventListener('touchstart', onUserTap, { capture: true });
                     };
                     window.addEventListener('click', onUserTap, { once: true, capture: true });
                     window.addEventListener('touchstart', onUserTap, { once: true, capture: true });
@@ -131,14 +133,14 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             }
         } else {
             audio.pause();
-            if (!autoPlay && !soundOn) {
-                audio.currentTime = 0;
-            }
+            audio.currentTime = 0;
         }
 
         return () => {
+            isCancelled = true;
             if (cleanupTap) cleanupTap();
             audio.pause();
+            audio.currentTime = 0;
         };
     }, [autoPlay, soundOn, muted, resolvedMusicUrl]);
 
