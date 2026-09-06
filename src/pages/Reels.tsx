@@ -754,7 +754,7 @@ const Reels: React.FC = () => {
                                     )}
 
                                     {/* Heart burst animation */}
-                                    {heartBursts.map((h) => (
+                                    {idx === activeIndex && heartBursts.map((h) => (
                                         <div
                                             key={h.id}
                                             className="heart-burst"
@@ -785,7 +785,7 @@ const Reels: React.FC = () => {
                                             <span className="reel-creator-name">@{reel.creator}</span>
                                             <button className="reel-follow-btn">Friend</button>
                                         </div>
-                                        {reel.musicUrl && (
+                                        {reel.musicUrl && isNearby && (
                                             <audio
                                                 ref={(el) => { audioRefs.current[idx] = el; }}
                                                 src={reel.musicUrl}

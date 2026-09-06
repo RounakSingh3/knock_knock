@@ -846,7 +846,7 @@ const Home = () => {
                             <div className="masonry-grid">
                                 {unifiedConnectionItems.map((item, index) => (
                                     <ConnectionFeedItem 
-                                        key={item.userId}
+                                        key={`${item.userId}-${item.post?.id || item.story?.id || index}`}
                                         item={item}
                                         isLiked={item.post ? !!likedPosts[item.post.id] : false}
                                         likeCount={item.post ? (likeCounts[item.post.id] || 0) : 0}

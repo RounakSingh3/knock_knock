@@ -13,67 +13,98 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
     const startY = useRef(0);
     const currentY = useRef(0);
     const isDragging = useRef(false);
+    const pullDistanceRef = useRef(0);
+    const isRefreshingRef = useRef(false);
+    const rafId = useRef<number | null>(null);
+    const onRefreshRef = useRef(onRefresh);
+    onRefreshRef.current = onRefresh;
+
     const MAX_PULL_DISTANCE = 100;
     const REFRESH_THRESHOLD = 60;
 
     const handleTouchStart = (e: TouchEvent) => {
-        // Only allow pulling if we are at the very top of the page
-        if (window.scrollY > 0) return;
-        
+        if (window.scrollY > 0 || isRefreshingRef.current) return;
         startY.current = e.touches[0].clientY;
         isDragging.current = true;
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-        if (!isDragging.current || isRefreshing) return;
+        if (!isDragging.current || isRefreshingRef.current) return;
 
         currentY.current = e.touches[0].clientY;
         const distance = currentY.current - startY.current;
 
-        // Only pull down
-        if (distance > 0) {
-            // Prevent default scroll behavior while pulling down
-            if (e.cancelable) {
+        // If user scrolls up, cancel dragging and let native scroll take over
+        if (distance < 0 || window.scrollY > 0) {
+            isDragging.current = false;
+            if (pullDistanceRef.current > 0) {
+                pullDistanceRef.current = 0;
+                setPullDistance(0);
+            }
+            return;
+        }
+
+        // Only pull down when at the top of the viewport
+        if (distance > 0 && window.scrollY <= 0) {
+            if (distance > 10 && e.cancelable) {
                 e.preventDefault();
             }
-            // Add resistance
             const resistance = distance * 0.4;
-            setPullDistance(Math.min(resistance, MAX_PULL_DISTANCE));
+            const targetDistance = Math.min(resistance, MAX_PULL_DISTANCE);
+            pullDistanceRef.current = targetDistance;
+
+            if (rafId.current === null) {
+                rafId.current = requestAnimationFrame(() => {
+                    setPullDistance(pullDistanceRef.current);
+                    rafId.current = null;
+                });
+            }
         }
     };
 
     const handleTouchEnd = async () => {
         if (!isDragging.current) return;
         isDragging.current = false;
+        if (rafId.current !== null) {
+            cancelAnimationFrame(rafId.current);
+            rafId.current = null;
+        }
 
-        if (pullDistance >= REFRESH_THRESHOLD && !isRefreshing) {
+        const dist = pullDistanceRef.current;
+        if (dist >= REFRESH_THRESHOLD && !isRefreshingRef.current) {
+            isRefreshingRef.current = true;
             setIsRefreshing(true);
-            setPullDistance(REFRESH_THRESHOLD); // Hold the spinner at threshold
+            setPullDistance(REFRESH_THRESHOLD);
+            pullDistanceRef.current = REFRESH_THRESHOLD;
             
             try {
-                await onRefresh();
+                await onRefreshRef.current();
             } finally {
+                isRefreshingRef.current = false;
                 setIsRefreshing(false);
+                pullDistanceRef.current = 0;
                 setPullDistance(0);
             }
         } else {
-            // Snap back
+            pullDistanceRef.current = 0;
             setPullDistance(0);
         }
     };
 
     useEffect(() => {
-        // We add non-passive event listeners to preventDefault on touchmove
         document.addEventListener('touchstart', handleTouchStart, { passive: true });
         document.addEventListener('touchmove', handleTouchMove, { passive: false });
-        document.addEventListener('touchend', handleTouchEnd);
+        document.addEventListener('touchend', handleTouchEnd, { passive: true });
 
         return () => {
             document.removeEventListener('touchstart', handleTouchStart);
             document.removeEventListener('touchmove', handleTouchMove);
             document.removeEventListener('touchend', handleTouchEnd);
+            if (rafId.current !== null) {
+                cancelAnimationFrame(rafId.current);
+            }
         };
-    }, [pullDistance, isRefreshing]);
+    }, []);
 
     // Calculate spinner rotation and opacity based on pull distance
     const pullProgress = Math.min(pullDistance / REFRESH_THRESHOLD, 1);

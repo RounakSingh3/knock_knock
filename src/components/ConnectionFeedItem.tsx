@@ -58,7 +58,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                     onClick={() => onClickPost(item.post!)}
                     onDoubleClick={() => onDoubleTap(item.post!.id)}
                 >
-                    <PostMedia post={item.post} className="masonry-card-img" muted loop playsInline autoPlay />
+                    <PostMedia post={item.post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
                     <div className="masonry-card-overlay" />
                     <div className="masonry-connection-badge">
                         <Users size={10} /> Connected
@@ -117,7 +117,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
             {showStory && item.story && (
                 <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, background: 'var(--bg-color)' }}>
                     {isVideoUrl(item.story.image_url) ? (
-                        <video src={`${item.story.image_url}#t=0.001`} className="masonry-card-img" style={{ objectFit: 'contain' }} preload="metadata" muted playsInline />
+                        <video src={`${item.story.image_url}#t=0.001`} className="masonry-card-img" style={{ objectFit: 'contain' }} preload="none" muted playsInline />
                     ) : (
                         <img src={item.story.image_url} className="masonry-card-img" style={{ objectFit: 'contain' }} alt="Story" />
                     )}
@@ -170,4 +170,4 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
     );
 };
 
-export default ConnectionFeedItem;
+export default React.memo(ConnectionFeedItem);

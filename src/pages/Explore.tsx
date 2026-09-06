@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
@@ -87,6 +87,16 @@ const Explore = () => {
             return true;
         }
     });
+
+    const normalizedTrendingPosts = useMemo(
+        () => trendingPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)),
+        [trendingPosts]
+    );
+
+    const normalizedDiscoverPosts = useMemo(
+        () => discoverPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)),
+        [discoverPosts]
+    );
 
     // Viewport tracking for engagement
     const observedPostsRef = useRef<Set<string>>(new Set());
@@ -315,30 +325,40 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         return () => observer.disconnect();
     }, [loadMore, isDiscoverLoading, isLoadingMore, hasMore, searchTerm]);
 
-    // IntersectionObserver for viewport engagement tracking
-    const trackViewRef = useCallback((node: HTMLDivElement | null) => {
-        if (!node || !user) return;
-        const postId = node.dataset.postid;
-        if (!postId || observedPostsRef.current.has(postId)) return;
-        
-        const observer = new IntersectionObserver(
+    // High-performance shared IntersectionObserver for viewport engagement tracking
+    const viewObserverRef = useRef<IntersectionObserver | null>(null);
+
+    useEffect(() => {
+        if (!user) return;
+        viewObserverRef.current = new IntersectionObserver(
             (entries) => {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         const pid = (entry.target as HTMLElement).dataset.postid;
                         if (pid && !observedPostsRef.current.has(pid)) {
                             observedPostsRef.current.add(pid);
-                            const post = discoverPosts.find(p => p.id === pid);
-                            trackEngagement(user.id, pid, 'view', 1, post?.category || 'General');
+                            const post = rawPostsCacheRef.current.find((p: any) => p.id === pid) || discoverPosts.find(p => p.id === pid);
+                            trackEngagement(user.id, pid, 'view', 1, post?.category || 'General').catch(() => {});
                         }
-                        observer.unobserve(entry.target);
+                        viewObserverRef.current?.unobserve(entry.target);
                     }
                 });
             },
             { threshold: 0.5 }
         );
-        observer.observe(node);
+
+        return () => {
+            viewObserverRef.current?.disconnect();
+            viewObserverRef.current = null;
+        };
     }, [user, discoverPosts]);
+
+    const trackViewRef = useCallback((node: HTMLDivElement | null) => {
+        if (!node || !user || !viewObserverRef.current) return;
+        const postId = node.dataset.postid;
+        if (!postId || observedPostsRef.current.has(postId)) return;
+        viewObserverRef.current.observe(node);
+    }, [user]);
 
     const handleRefresh = async () => {
         setIsRefreshing(true);
@@ -496,7 +516,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                                     overflow: 'hidden', position: 'relative', cursor: 'pointer',
                                                     border: '2px solid rgba(245, 165, 36,0.3)',
                                                 }}
-                                                onClick={() => setActiveFeedState({ posts: trendingPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx })}
+                                                onClick={() => setActiveFeedState({ posts: normalizedTrendingPosts, index: idx })}
                                             >
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -582,8 +602,9 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                             key={post.id} 
                                             ref={trackViewRef}
                                             data-postid={post.id}
+                                            className="explore-grid-item"
                                             style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} 
-                                            onClick={() => setActiveFeedState({ posts: discoverPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx })}
+                                            onClick={() => setActiveFeedState({ posts: normalizedDiscoverPosts, index: idx })}
                                         >
                                             <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

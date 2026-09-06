@@ -148,7 +148,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                         ref={el => { itemRefs.current[post.id] = el; }} 
                         data-postid={post.id}
                         data-category={post.category || 'General'}
-                        style={{ height: '100%', scrollSnapAlign: 'start', width: '100%', position: 'relative' }}
+                        style={{ height: '100%', scrollSnapAlign: 'start', scrollSnapStop: 'always', width: '100%', position: 'relative' }}
                     >
                         {isNear ? (
                             <PostModalContent 

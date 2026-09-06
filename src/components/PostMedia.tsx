@@ -17,6 +17,9 @@ interface PostMediaProps {
     soundOn?: boolean;
 }
 
+// In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
+const itunesCache = new Map<string, string>();
+
 const PostMediaComponent: React.FC<PostMediaProps> = ({
     post,
     className,
@@ -33,36 +36,18 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
-    const [asyncMusicUrl, setAsyncMusicUrl] = useState<string | undefined>();
-    const resolvedMusicUrl = staticCleanUrl || (post.music_url && !post.music_url.includes('soundhelix') ? post.music_url : asyncMusicUrl);
-    const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
+    const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
+    const queryKey = post.music_title ? `${post.music_title} ${post.music_artist || ''}`.trim().toLowerCase() : '';
+    
+    const [asyncMusicUrl, setAsyncMusicUrl] = useState<string | undefined>(() => {
+        if (staticCleanUrl) return staticCleanUrl;
+        if (isDirectCleanUrl) return post.music_url!;
+        if (queryKey && itunesCache.has(queryKey)) return itunesCache.get(queryKey);
+        return undefined;
+    });
 
-    // Resolve missing or unknown music_url from music_title via iTunes API only if not in KNOWN_SONG_MAP
-    useEffect(() => {
-        if (staticCleanUrl) {
-            setAsyncMusicUrl(undefined);
-            return;
-        }
-        if (post.music_url && !post.music_url.includes('soundhelix')) {
-            setAsyncMusicUrl(undefined);
-            return;
-        }
-        if (post.music_title) {
-            let active = true;
-            const query = `${post.music_title} ${post.music_artist || ''}`.trim();
-            fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=1`)
-                .then(res => res.json())
-                .then(data => {
-                    if (active && data.results?.[0]?.previewUrl) {
-                        setAsyncMusicUrl(data.results[0].previewUrl);
-                    }
-                })
-                .catch(() => {});
-            return () => { active = false; };
-        } else {
-            setAsyncMusicUrl(undefined);
-        }
-    }, [post.music_url, post.music_title, post.music_artist, staticCleanUrl]);
+    const resolvedMusicUrl = staticCleanUrl || (isDirectCleanUrl ? post.music_url : asyncMusicUrl);
+    const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
     const hasMusic = Boolean(resolvedMusicUrl);
 
@@ -71,6 +56,40 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const effectiveMuted = hasMusic 
         ? true 
         : (muted !== undefined ? muted : soundOn ? false : true);
+
+    const isAudioActive = soundOn || (autoPlay && !effectiveMuted);
+
+    // Resolve missing or unknown music_url from music_title via iTunes API only if active and needed
+    useEffect(() => {
+        if (staticCleanUrl || isDirectCleanUrl) {
+            return;
+        }
+        if (!queryKey) {
+            setAsyncMusicUrl(undefined);
+            return;
+        }
+        if (itunesCache.has(queryKey)) {
+            setAsyncMusicUrl(itunesCache.get(queryKey));
+            return;
+        }
+        // Only trigger network lookup when audio will actually be heard (not for offscreen or muted grid tiles)
+        if (!isAudioActive) {
+            return;
+        }
+
+        let active = true;
+        fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(queryKey)}&media=music&entity=song&limit=1`)
+            .then(res => res.json())
+            .then(data => {
+                if (active && data.results?.[0]?.previewUrl) {
+                    const url = data.results[0].previewUrl;
+                    itunesCache.set(queryKey, url);
+                    setAsyncMusicUrl(url);
+                }
+            })
+            .catch(() => {});
+        return () => { active = false; };
+    }, [isAudioActive, queryKey, staticCleanUrl, isDirectCleanUrl]);
 
     useEffect(() => {
         setHasError(false);
@@ -223,7 +242,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 />
             )}
             
-            {resolvedMusicUrl && (
+            {resolvedMusicUrl && isAudioActive && (
                 <audio
                     ref={audioRef}
                     src={resolvedMusicUrl}
