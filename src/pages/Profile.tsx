@@ -120,10 +120,11 @@ const Profile = () => {
 
         const loadProfile = async () => {
             if (!username) return;
+            const cleanUser = username.replace(/^@+/, '').trim();
             setLoading(true);
             setError('');
             try {
-                const profileData = await fetchProfileByUsername(username);
+                const profileData = await fetchProfileByUsername(cleanUser);
                 if (!profileData) {
                     setError('User not found');
                     setLoading(false);
@@ -132,8 +133,8 @@ const Profile = () => {
                 setProfile(profileData);
                 
                 const [userPosts, stats] = await Promise.all([
-                    fetchUserPosts(username),
-                    fetchFollowCounts(profileData.id)
+                    fetchUserPosts(profileData.username || cleanUser, profileData.id),
+                    fetchFollowCounts(profileData.id).catch(() => ({ followers: 0, following: 0 }))
                 ]);
                 setPosts(userPosts);
                 setFollowStats(stats);
@@ -266,8 +267,37 @@ const Profile = () => {
 
     if (error || !profile) {
         return (
-            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-inactive)' }}>
-                <p>{error || 'User not found'}</p>
+            <div style={{ minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-active)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', padding: '16px', borderBottom: '1px solid var(--border-color)' }}>
+                    <button 
+                        onClick={() => navigate(-1)} 
+                        style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '16px' }}
+                    >
+                        <ChevronLeft size={24} /> Back
+                    </button>
+                    <span style={{ marginLeft: '12px', fontWeight: 'bold' }}>@{username}</span>
+                </div>
+                <div style={{ textAlign: 'center', padding: '5rem 2rem', color: 'var(--text-inactive)' }}>
+                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>👤</div>
+                    <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--text-active)', marginBottom: '8px' }}>User not found</h2>
+                    <p style={{ maxWidth: '320px', margin: '0 auto 24px', fontSize: '14px', lineHeight: '1.5' }}>
+                        The account @{username} doesn't exist or may have been renamed.
+                    </p>
+                    <button
+                        onClick={() => navigate('/home')}
+                        style={{
+                            background: 'linear-gradient(45deg, #f5a524, #ff6b35)',
+                            border: 'none',
+                            borderRadius: '20px',
+                            padding: '10px 24px',
+                            color: '#fff',
+                            fontWeight: 'bold',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Go to Home Feed
+                    </button>
+                </div>
             </div>
         );
     }
@@ -713,7 +743,7 @@ const Profile = () => {
                                         muted
                                         loop
                                         playsInline
-                                        autoPlay={isVideoPost(post)}
+                                        autoPlay={false}
                                     />
                                     {isVideoPost(post) && (
                                         <div

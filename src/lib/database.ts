@@ -110,18 +110,61 @@ export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
     return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
-export async function fetchUserPosts(username: string): Promise<PostData[]> {
-    const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .eq('username', username)
-        .order('created_at', { ascending: false });
+export async function fetchUserPosts(username: string, userId?: string): Promise<PostData[]> {
+    if (!username) return [];
+    const cleanUsername = username.replace(/^@+/, '').trim();
+    if (!cleanUsername) return [];
+
+    let query = supabase.from('posts').select('*');
+    if (userId && userId !== '00000000-0000-0000-0000-000000000000' && !userId.startsWith('creator-')) {
+        query = query.or(`username.ilike.${cleanUsername},user_id.eq.${userId}`);
+    } else {
+        query = query.ilike('username', cleanUsername);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
         console.error('Error fetching user posts:', error);
-        return [];
     }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+
+    const dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+
+    // Fallback: If no DB posts exist, check if this is a known reel creator from REELS_DATA
+    if (dbPosts.length === 0) {
+        const REEL_CREATOR_POSTS: Record<string, { videoUrl: string; song: string; caption: string; category: string }[]> = {
+            'nature_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', song: 'Chill Vibes — LofiBeats', caption: '🌅 Golden hour hits different when you\'re at the coast', category: 'Nature' }],
+            'city_explorer': [{ videoUrl: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', song: 'After Dark — Mr.Kitty', caption: '🏙️ Neon lights and late-night bites in the city that never sleeps', category: 'Travel' }],
+            'ocean_dreams': [{ videoUrl: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', song: 'Ocean Eyes — Billie Eilish', caption: '🌊 The ocean is calling and I must go 🐠', category: 'Nature' }],
+            'fitness_freak': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Stronger — Kanye West', caption: '💪 No shortcuts. Just grind. Who\'s in? 🔥', category: 'Sports' }],
+            'foodie_fam': [{ videoUrl: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', song: 'THAT\'S WHAT I WANT — Lil Nas X', caption: '🍕 Wait for it… the cheese pull is insane 🤤', category: 'Food' }],
+            'sky_watcher': [{ videoUrl: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', song: 'Weightless — Marconi Union', caption: '☁️ Clouds moving in time-lapse is pure therapy', category: 'Nature' }],
+            'dance_queen': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Can\'t stop dancing to this beat! Tutorial coming soon 🔥', category: 'Dance' }],
+            'pet_paradise': [{ videoUrl: 'https://videos.pexels.com/video-files/1739010/1739010-sd_640_360_25fps.mp4', song: 'Happy — Pharrell Williams', caption: '🐶 The purest soul in the world. Look at that tail wag! ❤️', category: 'Pets' }],
+            'art_daily': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Golden Hour — JVKE', caption: '🎨 30 hours of work in 30 seconds. What should I paint next?', category: 'Art' }],
+            'coffee_corner': [{ videoUrl: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4', song: 'Coffee — Beabadoobee', caption: '☕ The perfect pour. Nothing beats that first sip in the morning', category: 'Lifestyle' }],
+            'astro_lover': [{ videoUrl: 'https://videos.pexels.com/video-files/2519660/2519660-sd_640_360_24fps.mp4', song: 'Starlight — Muse', caption: '🌌 The Milky Way never gets old. Who else is a night owl? 🦉', category: 'Nature' }],
+            'morning_routine': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Sunrise — Norah Jones', caption: '☀️ 5AM morning routine that changed my life', category: 'Lifestyle' }],
+        };
+
+        const creatorKey = cleanUsername.toLowerCase();
+        if (REEL_CREATOR_POSTS[creatorKey]) {
+            return REEL_CREATOR_POSTS[creatorKey].map((p, idx) => ({
+                id: `reel-${creatorKey}-${idx}`,
+                username: creatorKey,
+                avatar_url: `https://i.pravatar.cc/150?u=${creatorKey}`,
+                image_url: p.videoUrl,
+                caption: p.caption,
+                likes_count: 1200 + idx * 350,
+                media_type: 'video',
+                category: p.category,
+                music_title: p.song,
+                created_at: new Date().toISOString()
+            }));
+        }
+    }
+
+    return dbPosts;
 }
 
 export async function uploadMedia(
@@ -473,17 +516,98 @@ export async function fetchProfile(userId: string): Promise<ProfileData | null> 
 }
 
 export async function fetchProfileByUsername(username: string): Promise<ProfileData | null> {
+    if (!username) return null;
+    const cleanUsername = username.replace(/^@+/, '').trim();
+    if (!cleanUsername) return null;
+
+    // 1. Try case-insensitive lookup in profiles table
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('username', username)
+        .ilike('username', cleanUsername)
         .maybeSingle();
+
+    if (!error && data) {
+        return data;
+    }
+
+    // 2. What if cleanUsername is a UUID (user_id)?
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanUsername);
+    if (isUuid) {
+        const { data: idData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', cleanUsername)
+            .maybeSingle();
+        if (idData) return idData;
+    }
+
+    // 3. Check if this user exists in the posts table (e.g. content creators / community pages)
+    const { data: postData } = await supabase
+        .from('posts')
+        .select('user_id, username, avatar_url, caption')
+        .ilike('username', cleanUsername)
+        .limit(1)
+        .maybeSingle();
+
+    if (postData) {
+        const displayName = (postData.username || cleanUsername)
+            .split('_')
+            .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+
+        return {
+            id: postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' 
+                ? postData.user_id 
+                : `creator-${(postData.username || cleanUsername).toLowerCase()}`,
+            name: displayName,
+            username: postData.username || cleanUsername,
+            gender: 'other',
+            avatar_url: postData.avatar_url || `https://i.pravatar.cc/150?u=${postData.username || cleanUsername}`,
+            points: 100,
+            bio: `Creator on Knock Knock ✨`,
+            is_online: false,
+            streak_count: 5,
+        };
+    }
+
+    // 4. Check if this is a reel creator (from REELS_DATA in Reels.tsx) or news bot
+    const REEL_CREATOR_MAP: Record<string, { name: string; avatar: string; bio: string }> = {
+        'nature_vibes': { name: 'Nature Vibes 🌅', avatar: 'https://i.pravatar.cc/150?img=1', bio: 'Capturing the golden hour and coastlines 🌊' },
+        'city_explorer': { name: 'City Explorer 🏙️', avatar: 'https://i.pravatar.cc/150?img=5', bio: 'Neon lights and late-night city walks 🌃' },
+        'ocean_dreams': { name: 'Ocean Dreams 🌊', avatar: 'https://i.pravatar.cc/150?img=12', bio: 'The ocean is calling and I must go 🐠' },
+        'fitness_freak': { name: 'Fitness Freak 💪', avatar: 'https://i.pravatar.cc/150?img=8', bio: 'No shortcuts. Just grind. 🔥' },
+        'foodie_fam': { name: 'Foodie Fam 🍕', avatar: 'https://i.pravatar.cc/150?img=20', bio: 'Food adventures & best culinary spots 🤤' },
+        'sky_watcher': { name: 'Sky Watcher ☁️', avatar: 'https://i.pravatar.cc/150?img=33', bio: 'Cloud timelapses & stargazing therapy 🌌' },
+        'dance_queen': { name: 'Dance Queen 💃', avatar: 'https://i.pravatar.cc/150?img=44', bio: 'Choreography & rhythm daily ✨' },
+        'pet_paradise': { name: 'Pet Paradise 🐾', avatar: 'https://i.pravatar.cc/150?img=53', bio: 'Cute puppies & cats making your day brighter 🐶' },
+        'art_daily': { name: 'Art Daily 🎨', avatar: 'https://i.pravatar.cc/150?img=60', bio: 'Visual art, paintings, and process sketches 🖌️' },
+        'coffee_corner': { name: 'Coffee Corner ☕', avatar: 'https://i.pravatar.cc/150?img=68', bio: 'Latte art & cozy morning aesthetics ☕' },
+        'astro_lover': { name: 'Astro Lover 🌌', avatar: 'https://i.pravatar.cc/150?img=65', bio: 'The Milky Way never gets old. Night owl 🦉' },
+        'morning_routine': { name: 'Morning Routine ☀️', avatar: 'https://i.pravatar.cc/150?img=22', bio: '5AM morning routines that change lives ☀️' },
+        'google_news_daily': { name: 'Google News Daily 📰', avatar: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=150', bio: 'Trending news from India and around the world 📰' }
+    };
+
+    const creatorKey = cleanUsername.toLowerCase();
+    if (REEL_CREATOR_MAP[creatorKey]) {
+        const c = REEL_CREATOR_MAP[creatorKey];
+        return {
+            id: `creator-${creatorKey}`,
+            name: c.name,
+            username: creatorKey,
+            gender: 'other',
+            avatar_url: c.avatar,
+            points: 250,
+            bio: c.bio,
+            is_online: false,
+            streak_count: 7,
+        };
+    }
 
     if (error) {
         console.error('Error fetching profile by username:', error);
-        return null;
     }
-    return data;
+    return null;
 }
 
 export async function updatePoints(userId: string, newPoints: number) {
