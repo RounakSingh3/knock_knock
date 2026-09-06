@@ -732,7 +732,7 @@ const Profile = () => {
                                             ▶ Tap for sound
                                         </div>
                                     )}
-                                    {post.music_url && (
+                                    {(post.music_url || post.music_title) && (
                                         <div style={{
                                             position: 'absolute', top: '6px', left: '6px', zIndex: 5,
                                             display: 'flex', alignItems: 'center', gap: '4px',
@@ -866,7 +866,7 @@ const Profile = () => {
                                     </button>
                                 )}
                             </div>
-                            {selectedPost.music_url && (
+                            {(selectedPost.music_url || selectedPost.music_title) && (
                                 <div style={{
                                     display: 'flex', alignItems: 'center', gap: '8px',
                                     padding: '8px 16px',

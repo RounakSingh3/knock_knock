@@ -38,7 +38,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 387,
         shares: 1204,
         category: 'Nature',
-        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/5a/d0/45/5ad0455b-b5ec-8bbb-ed46-b987b4232ad6/mzaf_18002733578142931089.plus.aac.p.m4a',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/09/81/85/0981857c-ef55-7eb1-d631-f7e1068bd2dc/mzaf_17162354108241480327.plus.aac.p.m4a',
     },
     {
         id: 2,
@@ -52,7 +52,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 912,
         shares: 3410,
         category: 'Travel',
-        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview125/v4/26/23/3c/26233cdf-ae9e-a40e-3e5c-8645bac1dd00/mzaf_4554903182036177858.plus.aac.p.m4a',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/3e/cb/52/3ecb5294-5ea1-e392-7262-1b10cc67a299/mzaf_17548677748266742699.plus.aac.p.m4a',
     },
     {
         id: 3,
@@ -80,7 +80,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 654,
         shares: 2100,
         category: 'Sports',
-        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/96/f2/25/96f225f2-cd07-3639-4133-0910aa9725c0/mzaf_13857358519708863745.plus.aac.p.m4a',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/9e/cc/69/9ecc6918-a8dc-354f-909f-ccc20a0a7a33/mzaf_7863921970418240507.plus.aac.p.m4a',
     },
     {
         id: 5,
@@ -108,7 +108,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 880,
         shares: 4200,
         category: 'Nature',
-        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview125/v4/95/84/05/95840512-b41d-68e4-e7ff-c8987c9bcceb/mzaf_8934420937865408216.plus.aac.p.m4a',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/65/69/07/656907c9-eb54-c59c-72b9-dad8489a0165/mzaf_3316991574698499044.plus.aac.p.m4a',
     },
     {
         id: 7,
@@ -159,12 +159,12 @@ export const REELS_DATA: ReelData[] = [
         creator: 'street_vibes',
         creatorAvatar: 'https://i.pravatar.cc/150?img=60',
         caption: '🎨 Street art is the voice of the city walls',
-        song: 'Who Am I — Lemon Jelly',
+        song: 'The Staunton Lick — Lemon Jelly',
         likes: 27800,
         comments: 740,
         shares: 3100,
         category: 'Art',
-        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/ba/35/4b/ba354bd6-e65c-fa1c-20fc-61d0e6f75b48/mzaf_6902806954440222582.plus.aac.p.m4a',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/4b/ad/b7/4badb793-5d36-f0f6-a790-04d2ad573fec/mzaf_13864281869793412693.plus.aac.p.m4a',
     },
     {
         id: 11,
@@ -178,7 +178,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 3200,
         shares: 9100,
         category: 'Nature',
-        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/be/ee/7d/beee7d83-77c9-0cd1-daa3-f76a5d0db5c5/mzaf_13246627122539623042.plus.aac.p.m4a',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/00/2c/2a/002c2a41-d59f-92a6-740a-35641b4e1e48/mzaf_9814325723002930170.plus.aac.p.m4a',
     },
     {
         id: 12,
@@ -192,7 +192,7 @@ export const REELS_DATA: ReelData[] = [
         comments: 1560,
         shares: 5400,
         category: 'Lifestyle',
-        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/3b/40/e6/3b40e66c-157c-2f7e-f783-6a9f640d352f/mzaf_14944651481988462391.plus.aac.p.m4a',
+        musicUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/2d/50/49/2d5049cd-24d9-73a9-b0f2-2a69cfec5337/mzaf_10789591133834750192.plus.aac.p.m4a',
     },
 ];
 
@@ -260,15 +260,28 @@ const Reels: React.FC = () => {
     const replayCountRef = useRef<Record<number, number>>({});
 
     useEffect(() => {
-        fetchVideoPosts().then((videoPosts) => {
+        fetchVideoPosts().then(async (videoPosts) => {
             const validPosts = videoPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
-            const userReels = validPosts.map(postToReel);
+            const resolvedPosts = await Promise.all(validPosts.map(async (p) => {
+                if (p.music_title && !p.music_url) {
+                    try {
+                        const query = `${p.music_title} ${p.music_artist || ''}`.trim();
+                        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=1`);
+                        const data = await res.json();
+                        if (data.results?.[0]?.previewUrl) {
+                            return { ...p, music_url: data.results[0].previewUrl };
+                        }
+                    } catch (e) {}
+                }
+                return p;
+            }));
+            const userReels = resolvedPosts.map(postToReel);
             const merged = [...userReels, ...REELS_DATA];
             setReelsList(merged);
             setPlayStates(merged.map(() => true));
             setProgresses(merged.map(() => 0));
         });
-    }, []);
+    }, [blockedIds]);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const modalScrollRef = useRef<HTMLDivElement>(null);
@@ -277,17 +290,38 @@ const Reels: React.FC = () => {
     const lastTapRef = useRef<number>(0);
     const navigate = useNavigate();
 
+    // Helper to safely play audio with interaction fallback if browser blocks autoplay
+    const playReelAudio = useCallback((audio: HTMLAudioElement | null) => {
+        if (!audio || mutedAll) return;
+        audio.currentTime = 0;
+        const p = audio.play();
+        if (p !== undefined) {
+            p.catch((err) => {
+                console.warn('[Reels] Audio play blocked, awaiting user tap:', err);
+                const handleTapToPlay = () => {
+                    audio.play().catch(() => {});
+                    window.removeEventListener('click', handleTapToPlay);
+                    window.removeEventListener('touchstart', handleTapToPlay);
+                };
+                window.addEventListener('click', handleTapToPlay, { once: true, capture: true });
+                window.addEventListener('touchstart', handleTapToPlay, { once: true, capture: true });
+            });
+        }
+    }, [mutedAll]);
 
-    // Auto-scroll to selected reel index when modal opens
+    // Auto-scroll to selected reel index when modal opens and play media immediately
     useEffect(() => {
         if (selectedReelIndex !== null && modalScrollRef.current) {
             const height = modalScrollRef.current.clientHeight;
             modalScrollRef.current.scrollTo(0, height * selectedReelIndex);
             setActiveIndex(selectedReelIndex);
-            setTimeout(() => {
+
+            const syncReelMedia = () => {
                 videoRefs.current.forEach((v, idx) => {
                     if (!v) return;
-                    v.muted = mutedAll;
+                    const reel = reelsList[idx];
+                    const hasMusic = Boolean(reel?.musicUrl);
+                    v.muted = hasMusic ? true : mutedAll;
                     if (idx === selectedReelIndex) {
                         v.play().catch(() => {});
                     } else {
@@ -298,17 +332,20 @@ const Reels: React.FC = () => {
                     if (!a) return;
                     a.muted = mutedAll;
                     if (idx === selectedReelIndex && !mutedAll) {
-                        a.currentTime = 0;
-                        a.play().catch(() => {});
+                        playReelAudio(a);
                     } else {
                         a.pause();
                         a.currentTime = 0;
                     }
                 });
                 setPlayStates(prev => { const n = [...prev]; n[selectedReelIndex] = true; return n; });
-            }, 300);
+            };
+
+            syncReelMedia();
+            const timer = setTimeout(syncReelMedia, 150);
+            return () => clearTimeout(timer);
         }
-    }, [selectedReelIndex, mutedAll]);
+    }, [selectedReelIndex, mutedAll, reelsList, playReelAudio]);
 
     // IntersectionObserver to auto-play visible video in modal and manage audio strictly
     useEffect(() => {
@@ -319,15 +356,19 @@ const Reels: React.FC = () => {
                     const idx = videoRefs.current.findIndex((v) => v === entry.target);
                     if (idx === -1) return;
                     const video = entry.target as HTMLVideoElement;
+                    const reel = reelsList[idx];
+                    const hasMusic = Boolean(reel?.musicUrl);
+
                     if (entry.isIntersecting) {
                         setActiveIndex(idx);
+                        video.muted = hasMusic ? true : mutedAll;
                         video.play().catch(() => { });
                         // Stop all other audios immediately, and play only this reel's audio
                         audioRefs.current.forEach((a, i) => {
                             if (a) {
+                                a.muted = mutedAll;
                                 if (i === idx && !mutedAll) {
-                                    a.currentTime = 0;
-                                    a.play().catch(() => {});
+                                    playReelAudio(a);
                                 } else {
                                     a.pause();
                                     a.currentTime = 0;
@@ -359,7 +400,7 @@ const Reels: React.FC = () => {
             if (video) observer.observe(video);
         });
         return () => observer.disconnect();
-    }, [selectedReelIndex, mutedAll]);
+    }, [selectedReelIndex, mutedAll, reelsList, playReelAudio]);
 
     // Watch time tracking: when active reel changes, log watch time for the previous one
     useEffect(() => {
@@ -622,8 +663,11 @@ const Reels: React.FC = () => {
                             onClick={() => {
                                 const newMuted = !mutedAll;
                                 setMutedAll(newMuted);
-                                videoRefs.current.forEach((v) => {
-                                    if (v) v.muted = newMuted;
+                                videoRefs.current.forEach((v, vIdx) => {
+                                    if (v) {
+                                        const hasMusic = Boolean(reelsList[vIdx]?.musicUrl);
+                                        v.muted = hasMusic ? true : newMuted;
+                                    }
                                 });
                                 audioRefs.current.forEach((a, idx) => {
                                     if (!a) return;
@@ -632,7 +676,7 @@ const Reels: React.FC = () => {
                                         if (newMuted) {
                                             a.pause();
                                         } else {
-                                            a.play().catch(() => {});
+                                            playReelAudio(a);
                                         }
                                     }
                                 });
@@ -673,7 +717,7 @@ const Reels: React.FC = () => {
                                         loop
                                         playsInline
                                         autoPlay={idx === selectedReelIndex}
-                                        muted={mutedAll}
+                                        muted={Boolean(reel.musicUrl) || mutedAll}
                                         className="reel-video"
                                         style={{ filter: reel.css_filter || 'none' }}
                                         onClick={(e) => handleDoubleTap(idx, e)}
@@ -723,7 +767,7 @@ const Reels: React.FC = () => {
                                                 ref={(el) => { audioRefs.current[idx] = el; }}
                                                 src={reel.musicUrl}
                                                 loop
-                                                style={{ display: 'none' }}
+                                                style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
                                                 playsInline
                                             />
                                         )}

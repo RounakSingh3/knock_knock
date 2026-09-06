@@ -888,7 +888,7 @@ const Home = () => {
                                     onDoubleClick={() => handleDoubleTap(post)}
                                 >
                                     <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
-                                    {post.music_url && (
+                                    {(post.music_url || post.music_title) && (
                                         <div style={{
                                             position: 'absolute', top: '12px', left: '12px', zIndex: 5,
                                             display: 'flex', alignItems: 'center', gap: '5px',

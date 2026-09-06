@@ -123,7 +123,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                 >
                     {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                 </button>
-                {post.music_url && (
+                {(post.music_url || post.music_title) && (
                     <div style={{
                         position: 'absolute', bottom: '16px', left: '16px', zIndex: 10,
                         display: 'flex', alignItems: 'center', gap: '8px',

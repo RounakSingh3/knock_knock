@@ -32,55 +32,78 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
+    const [resolvedMusicUrl, setResolvedMusicUrl] = useState<string | undefined>(post.music_url);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
-    const effectiveMuted =
-        muted !== undefined ? muted : soundOn ? false : true;
+    // Resolve missing music_url from music_title via iTunes
+    useEffect(() => {
+        if (post.music_url) {
+            setResolvedMusicUrl(post.music_url);
+            return;
+        }
+        if (post.music_title) {
+            let active = true;
+            const query = `${post.music_title} ${post.music_artist || ''}`.trim();
+            fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=1`)
+                .then(res => res.json())
+                .then(data => {
+                    if (active && data.results?.[0]?.previewUrl) {
+                        setResolvedMusicUrl(data.results[0].previewUrl);
+                    }
+                })
+                .catch(() => {});
+            return () => { active = false; };
+        } else {
+            setResolvedMusicUrl(undefined);
+        }
+    }, [post.music_url, post.music_title, post.music_artist]);
+
+    const hasMusic = Boolean(resolvedMusicUrl);
+
+    // If post has a music track, the video element should be muted so only the song plays!
+    // If post does not have music, the video's own sound plays when soundOn / unmuted.
+    const effectiveMuted = hasMusic 
+        ? true 
+        : (muted !== undefined ? muted : soundOn ? false : true);
 
     useEffect(() => {
         setHasError(false);
     }, [post.image_url]);
 
+    // Handle video play/pause & sound
     useEffect(() => {
         if (!isVideo) return;
         const video = videoRef.current;
         if (!video) return;
 
-        // Auto-play / pause based on active state
+        // If post has music attached, force video element to remain muted
+        if (hasMusic) {
+            video.muted = true;
+        } else if (soundOn && (muted === false || muted === undefined)) {
+            video.muted = false;
+            video.volume = 1;
+        } else {
+            video.muted = true;
+        }
+
         if (autoPlay || soundOn) {
             video.play().catch(() => {});
         } else {
             video.pause();
         }
-        
-        // Handle soundOn logic
-        if (!soundOn) return;
+    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, muted]);
 
-        const playWithSound = () => {
-            video.muted = false;
-            video.volume = 1;
-            video.play().catch(() => {});
-        };
-
-        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-            playWithSound();
-        } else {
-            video.addEventListener('loadeddata', playWithSound, { once: true });
-            return () => video.removeEventListener('loadeddata', playWithSound);
-        }
-    }, [soundOn, isVideo, autoPlay, post.image_url]);
-
-    // Handle background audio playback strictly: only play when autoPlay OR soundOn is true
-    // When autoPlay and soundOn become false (scrolled away), IMMEDIATELY pause and reset!
+    // Handle background audio playback
     useEffect(() => {
         const audio = audioRef.current;
-        if (!audio) return;
+        if (!audio || !resolvedMusicUrl) return;
 
         let cleanupTap: (() => void) | null = null;
+        const shouldPlayAudio = (autoPlay || soundOn) && (muted === false || (muted === undefined && soundOn));
 
-        if (autoPlay || soundOn) {
-            audio.muted = muted !== undefined ? muted : false;
-            audio.currentTime = 0;
+        if (shouldPlayAudio) {
+            audio.muted = false;
+            audio.volume = 1;
             const playPromise = audio.play();
             if (playPromise !== undefined) {
                 playPromise.catch((e) => {
@@ -100,15 +123,32 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             }
         } else {
             audio.pause();
-            audio.currentTime = 0;
+            if (!autoPlay && !soundOn) {
+                audio.currentTime = 0;
+            }
         }
 
         return () => {
             if (cleanupTap) cleanupTap();
             audio.pause();
-            audio.currentTime = 0;
         };
-    }, [autoPlay, soundOn, muted, post.music_url]);
+    }, [autoPlay, soundOn, muted, resolvedMusicUrl]);
+
+    // Sync audio restart when video loops
+    useEffect(() => {
+        const video = videoRef.current;
+        const audio = audioRef.current;
+        if (!video || !audio) return;
+
+        const handleEnded = () => {
+            audio.currentTime = 0;
+            if (!audio.paused) {
+                audio.play().catch(() => {});
+            }
+        };
+        video.addEventListener('ended', handleEnded);
+        return () => video.removeEventListener('ended', handleEnded);
+    }, []);
 
     let extractedFilter = post.css_filter || 'none';
     try {
@@ -173,12 +213,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 />
             )}
             
-            {post.music_url && (
+            {resolvedMusicUrl && (
                 <audio
                     ref={audioRef}
-                    src={post.music_url}
+                    src={resolvedMusicUrl}
                     loop
-                    style={{ display: 'none' }}
+                    style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
                     playsInline
                 />
             )}
