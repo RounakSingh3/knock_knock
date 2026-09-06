@@ -35,6 +35,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
+    const retryCountRef = useRef(0);
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
     const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
     const queryKey = post.music_title ? `${post.music_title} ${post.music_artist || ''}`.trim().toLowerCase() : '';
@@ -93,6 +94,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
     useEffect(() => {
         setHasError(false);
+        retryCountRef.current = 0;
     }, [post.image_url]);
 
     // Handle video play/pause & sound
@@ -190,55 +192,76 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     } catch(e) {}
 
+    // Retry handler: retries loading up to 2 times before giving up
+    const handleMediaError = () => {
+        if (retryCountRef.current < 2) {
+            retryCountRef.current += 1;
+            // Brief delay then reset hasError to trigger re-render/re-fetch
+            setTimeout(() => setHasError(false), 1500 * retryCountRef.current);
+        }
+        setHasError(true);
+    };
+
     if (hasError || !post.image_url) {
         return (
             <div 
                 className={className}
                 style={{
                     width: '100%',
-                    height: '100%',
+                    height: style?.height || '100%',
+                    minHeight: '160px',
                     background: 'linear-gradient(135deg, #1c1c1e, #2c2c2e)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: 'var(--text-inactive)',
-                    fontSize: '14px',
+                    fontSize: '18px',
                     ...style
                 }}
             >
-                📷
+                {isVideo ? '🎬' : '📷'}
             </div>
         );
     }
 
-    const videoSrc = isVideo && post.image_url.includes('#t=') ? post.image_url : (isVideo ? `${post.image_url}#t=0.001` : '');
+    // Strip filter query params from video URLs to avoid CDN/range-request issues
+    let cleanImageUrl = post.image_url;
+    try {
+        const parsed = new URL(post.image_url);
+        if (parsed.searchParams.has('filter')) {
+            parsed.searchParams.delete('filter');
+            cleanImageUrl = parsed.toString();
+        }
+    } catch (_) {}
+
+    const videoSrc = isVideo && cleanImageUrl.includes('#t=') ? cleanImageUrl : (isVideo ? `${cleanImageUrl}#t=0.001` : '');
     const optimizedImageSrc = isVideo ? '' : getOptimizedImageUrl(post.image_url, 650);
 
     return (
-        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <div style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: '160px' }}>
             {isVideo ? (
                 <video
                     ref={videoRef}
                     src={videoSrc}
                     className={className}
-                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', willChange: 'transform' }}
+                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     muted={effectiveMuted}
                     controls={controls}
                     autoPlay={autoPlay || soundOn}
                     loop={loop}
                     playsInline={playsInline}
-                    preload={autoPlay || soundOn || controls ? "metadata" : "none"}
-                    onError={() => setHasError(true)}
+                    preload="metadata"
+                    onError={handleMediaError}
                 />
             ) : (
                 <img
                     src={optimizedImageSrc}
                     alt={alt}
                     className={className}
-                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', willChange: 'transform' }}
+                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     loading="lazy"
                     decoding="async"
-                    onError={() => setHasError(true)}
+                    onError={handleMediaError}
                 />
             )}
             

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward } from 'lucide-react';
 import { type UserStoryGroup, deleteStory } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
-import { getCleanSongUrl } from '../lib/media';
+import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 
 // Map filter names stored in DB to actual CSS filter values
 const FILTER_MAP: Record<string, string> = {
@@ -253,7 +253,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             />
 
             {/* Story Image / Video */}
-            {/\.(mp4|webm|mov)(\?.*)?$/i.test(currentStory.image_url) || currentStory.image_url.startsWith('data:video') ? (
+            {isVideoUrl(currentStory.image_url) ? (
                 <video
                     src={currentStory.image_url}
                     autoPlay

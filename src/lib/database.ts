@@ -129,21 +129,95 @@ export async function uploadMedia(
     path: string,
     onProgress?: (progress: { loaded: number; total: number }) => void
 ): Promise<string> {
-    const { error } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .upload(path, file, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: file.type || undefined,
-        });
+    const MAX_RETRIES = 2;
+    let lastError: Error | null = null;
 
-    if (error) {
-        console.error('Error uploading media:', error);
-        throw new Error(error.message || 'Failed to upload file to storage.');
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            if (onProgress) {
+                // Use XMLHttpRequest for real upload progress tracking
+                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+                const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`;
+
+                // Get auth token for authenticated uploads
+                const { data: sessionData } = await supabase.auth.getSession();
+                const token = sessionData?.session?.access_token || supabaseKey;
+
+                await new Promise<void>((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', uploadUrl, true);
+                    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                    xhr.setRequestHeader('apikey', supabaseKey);
+                    xhr.setRequestHeader('x-upsert', 'false');
+                    xhr.setRequestHeader('cache-control', '3600');
+                    if (file.type) {
+                        xhr.setRequestHeader('Content-Type', file.type);
+                    }
+
+                    xhr.upload.onprogress = (e) => {
+                        if (e.lengthComputable) {
+                            onProgress({ loaded: e.loaded, total: e.total });
+                        }
+                    };
+
+                    xhr.onload = () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve();
+                        } else {
+                            let msg = 'Upload failed';
+                            try {
+                                const body = JSON.parse(xhr.responseText);
+                                msg = body.message || body.error || msg;
+                            } catch (_) {}
+                            reject(new Error(msg));
+                        }
+                    };
+
+                    xhr.onerror = () => reject(new Error('Network error during upload'));
+                    xhr.ontimeout = () => reject(new Error('Upload timed out'));
+                    xhr.timeout = 120000; // 2 minute timeout
+
+                    xhr.send(file);
+                });
+            } else {
+                // Standard Supabase SDK upload (no progress needed)
+                const { error } = await supabase.storage
+                    .from(STORAGE_BUCKET)
+                    .upload(path, file, {
+                        cacheControl: '3600',
+                        upsert: false,
+                        contentType: file.type || undefined,
+                    });
+
+                if (error) {
+                    throw new Error(error.message || 'Failed to upload file to storage.');
+                }
+            }
+
+            // Upload succeeded — get public URL
+            const { data: publicUrlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+            return publicUrlData.publicUrl;
+
+        } catch (err: any) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.warn(`[uploadMedia] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, lastError.message);
+
+            // Don't retry if it's a duplicate or auth error
+            if (lastError.message.includes('Duplicate') || lastError.message.includes('already exists') ||
+                lastError.message.includes('unauthorized') || lastError.message.includes('Invalid')) {
+                break;
+            }
+
+            if (attempt < MAX_RETRIES) {
+                // Wait before retrying (exponential backoff: 1s, 2s)
+                await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            }
+        }
     }
 
-    const { data: publicUrlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-    return publicUrlData.publicUrl;
+    console.error('Error uploading media after retries:', lastError);
+    throw lastError || new Error('Failed to upload file to storage.');
 }
 
 export async function fetchVideoPosts(): Promise<PostData[]> {

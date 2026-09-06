@@ -51,10 +51,10 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
     const showPost = viewIndex === 0 && hasPost;
 
     return (
-        <div className="masonry-card masonry-card--tall" style={{ position: 'relative' }}>
+        <div className="masonry-card masonry-card--tall" style={{ position: 'relative', minHeight: '280px' }}>
             {showPost && item.post && (
                 <div 
-                    style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}
+                    style={{ width: '100%', height: '100%', position: 'relative' }}
                     onClick={() => onClickPost(item.post!)}
                     onDoubleClick={() => onDoubleTap(item.post!.id)}
                 >
@@ -115,11 +115,11 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
             )}
 
             {showStory && item.story && (
-                <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, background: 'var(--bg-color)' }}>
+                <div style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-color)' }}>
                     {isVideoUrl(item.story.image_url) ? (
-                        <video src={`${item.story.image_url}#t=0.001`} className="masonry-card-img" style={{ objectFit: 'contain' }} preload="none" muted playsInline />
+                        <video src={`${item.story.image_url}#t=0.001`} className="masonry-card-img" style={{ objectFit: 'cover' }} preload="metadata" muted playsInline />
                     ) : (
-                        <img src={item.story.image_url} className="masonry-card-img" style={{ objectFit: 'contain' }} alt="Story" />
+                        <img src={item.story.image_url} className="masonry-card-img" style={{ objectFit: 'cover' }} alt="Story" />
                     )}
                     <div className="masonry-connection-badge" style={{ background: '#af52de' }}>
                         Story Time

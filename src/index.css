@@ -77,9 +77,26 @@ body::before {
 }
 
 /* 🚀 High Performance Scrolling & Rendering Optimizations */
-.post-card, .masonry-card, .masonry-item, .explore-grid-item, .feed-item-card, .story-rack-item, .reel-card {
+.post-card, .masonry-item, .feed-item-card {
     content-visibility: auto;
-    contain-intrinsic-size: 320px;
+    contain-intrinsic-block-size: auto 320px;
+    contain-intrinsic-inline-size: auto 100%;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+/* Masonry cards and explore grid items must NOT use content-visibility: auto
+   because their small size + 2-column layout causes the browser to skip
+   rendering near-viewport items, producing blank white/grey spots. */
+.masonry-card, .explore-grid-item, .story-rack-item {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+/* Reel cards are full-viewport height, safe for content-visibility */
+.reel-card {
+    content-visibility: auto;
+    contain-intrinsic-block-size: 100vh;
     transform: translateZ(0);
     backface-visibility: hidden;
 }

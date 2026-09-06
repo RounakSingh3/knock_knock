@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useContext } from 'rea
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
 import { fetchVideoPosts, trackEngagement, toggleImp, normalizePost, type PostData, type MessageData } from '../lib/database';
-import { getCleanSongUrl } from '../lib/media';
+import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
@@ -622,9 +622,19 @@ const Reels: React.FC = () => {
                         key={reel.id} 
                         className="explore-item" 
                         onClick={() => setSelectedReelIndex(idx)}
-                        style={{ cursor: 'pointer', position: 'relative' }}
+                        style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
                     >
-                        <img src={reel.posterUrl} alt={reel.caption || 'Reel'} loading="lazy" />
+                        {isVideoUrl(reel.posterUrl) || isVideoUrl(reel.videoUrl) ? (
+                            <video
+                                src={reel.videoUrl.includes('#t=') ? reel.videoUrl : `${reel.videoUrl}#t=0.001`}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                muted
+                                playsInline
+                                preload="metadata"
+                            />
+                        ) : (
+                            <img src={reel.posterUrl} alt={reel.caption || 'Reel'} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        )}
                         <div style={{
                             position: 'absolute',
                             top: 8,
@@ -736,7 +746,7 @@ const Reels: React.FC = () => {
                                             }
                                         }}
                                         src={isNearby ? reel.videoUrl : undefined}
-                                        poster={reel.posterUrl}
+                                        poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
                                         loop
                                         playsInline
                                         autoPlay={idx === selectedReelIndex}

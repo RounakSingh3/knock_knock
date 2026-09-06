@@ -1,6 +1,6 @@
 export type MediaType = 'image' | 'video';
 
-const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(\?|$)/i;
+const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(\?|#|$)/i;
 
 export function isVideoFile(file: File): boolean {
     if (file.type.startsWith('video/')) return true;
@@ -11,7 +11,7 @@ export function isVideoFile(file: File): boolean {
 export function isVideoUrl(url: string | null | undefined): boolean {
     if (!url) return false;
     if (url.startsWith('data:video/')) return true;
-    return VIDEO_EXTENSIONS.test(url) || /\/video\//i.test(url);
+    return VIDEO_EXTENSIONS.test(url) || /\/(videos?|video-files)\//i.test(url);
 }
 
 export function getMediaTypeFromFile(file: File): MediaType {

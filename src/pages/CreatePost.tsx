@@ -37,7 +37,7 @@ const CreatePost = () => {
     const [category, setCategory] = useState('General');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+    const [uploadProgress, setUploadProgress] = useState<{ percentage: number; loadedMB: string; totalMB: string } | null>(null);
     const [boostToSpotlight, setBoostToSpotlight] = useState(isFromSpotlight && points >= 10);
     const [boostAmount, setBoostAmount] = useState(points >= 100 ? 100 : Math.max(10, points));
 
@@ -90,15 +90,18 @@ const CreatePost = () => {
                 }
             }
 
-            setUploadProgress(0);
+            const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
+            setUploadProgress({ percentage: 0, loadedMB: '0.0', totalMB: initialTotalMB });
             const fileExt = fileToUpload.name.split('.').pop();
             const fileName = `${user.id}-${Date.now()}.${fileExt}`;
             const path = `posts/${fileName}`;
 
             const publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
                 const total = progress.total || fileToUpload.size || 1;
-                const percentage = Math.round((progress.loaded / total) * 100);
-                setUploadProgress(percentage);
+                const percentage = Math.min(100, Math.round((progress.loaded / total) * 100));
+                const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
+                const totalMB = (total / (1024 * 1024)).toFixed(1);
+                setUploadProgress({ percentage, loadedMB, totalMB });
             });
 
             let finalUrl = publicUrl;
@@ -197,12 +200,28 @@ const CreatePost = () => {
                     ) : (
                         <img src={previewUrl} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', filter: selectedFilter }} alt="Preview" />
                     )}
+                    {file && (
+                        <div style={{
+                            position: 'absolute', top: '12px', left: '12px',
+                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                            padding: '4px 10px', borderRadius: '12px',
+                            fontSize: '11px', color: '#fff', fontWeight: 'bold'
+                        }}>
+                            {file.type.startsWith('video/') ? '🎬 Video' : '📷 Photo'} • {(file.size / (1024 * 1024)).toFixed(1)} MB
+                        </div>
+                    )}
                     <button 
                         onClick={handleRemoveFile}
                         style={{ position: 'absolute', top: '12px', right: '12px', background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%', padding: '8px', cursor: 'pointer', display: 'flex' }}
                     >
                         <Trash2 size={20} color="#ff3b30" />
                     </button>
+                </div>
+            )}
+
+            {file && file.type.startsWith('video/') && file.size > 20 * 1024 * 1024 && (
+                <div style={{ marginBottom: '16px', padding: '10px 14px', background: 'rgba(245, 165, 36, 0.1)', border: '1px solid rgba(245, 165, 36, 0.25)', borderRadius: '12px', fontSize: '12px', color: '#f5a524' }}>
+                    💡 Large video detected ({(file.size / (1024 * 1024)).toFixed(1)} MB). Upload may take a minute depending on your connection.
                 </div>
             )}
 
@@ -411,10 +430,16 @@ const CreatePost = () => {
                         <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: 'var(--text-active)', fontWeight: 'bold' }}>
                                 <span>Uploading {file ? getMediaTypeFromFile(file) : 'file'}...</span>
-                                <span>{uploadProgress}%</span>
+                                <span style={{ color: '#f5a524' }}>
+                                    {uploadProgress.percentage}% ({uploadProgress.loadedMB} / {uploadProgress.totalMB} MB)
+                                </span>
                             </div>
                             <div style={{ width: '100%', height: '8px', background: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div style={{ width: `${uploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #f5a524, #ff6b35)', transition: 'width 0.1s ease-out' }} />
+                                <div style={{ width: `${uploadProgress.percentage}%`, height: '100%', background: 'linear-gradient(90deg, #f5a524, #ff6b35)', transition: 'width 0.15s ease-out' }} />
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: 'var(--text-inactive)' }}>
+                                <span>⚡ Direct cloud upload</span>
+                                <span>{uploadProgress.percentage === 100 ? 'Saving post...' : 'Please keep app open'}</span>
                             </div>
                         </div>
                     ) : (
