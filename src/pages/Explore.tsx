@@ -39,7 +39,7 @@ const Explore = () => {
     // Discover (Default) State with instant cache rehydration
     const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
         try {
-            const cached = localStorage.getItem('knock_explore_posts_cache');
+            const cached = localStorage.getItem('knock_explore_posts_cache_v5');
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed)) {
@@ -51,7 +51,7 @@ const Explore = () => {
     });
     const [isDiscoverLoading, setIsDiscoverLoading] = useState<boolean>(() => {
         try {
-            const cached = localStorage.getItem('knock_explore_posts_cache');
+            const cached = localStorage.getItem('knock_explore_posts_cache_v5');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -69,7 +69,7 @@ const Explore = () => {
     // Trending posts (FOMO) with instant cache rehydration
     const [trendingPosts, setTrendingPosts] = useState<PostData[]>(() => {
         try {
-            const cached = localStorage.getItem('knock_explore_trending_cache');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v5');
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed)) {
@@ -81,7 +81,7 @@ const Explore = () => {
     });
     const [isTrendingLoading, setIsTrendingLoading] = useState<boolean>(() => {
         try {
-            const cached = localStorage.getItem('knock_explore_trending_cache');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v5');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -135,7 +135,7 @@ const Explore = () => {
             const filtered = posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)));
             setTrendingPosts(filtered);
             try {
-                localStorage.setItem('knock_explore_trending_cache', JSON.stringify(filtered));
+                localStorage.setItem('knock_explore_trending_cache_v5', JSON.stringify(filtered));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
@@ -204,14 +204,14 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                 const fresh = scored.map(s => s.post);
                 setDiscoverPosts(fresh);
                 try {
-                    localStorage.setItem('knock_explore_posts_cache', JSON.stringify(fresh));
+                    localStorage.setItem('knock_explore_posts_cache_v5', JSON.stringify(fresh));
                 } catch (e) {}
                 setHasMore(uniqueRaw.length > PAGE_SIZE);
             } else {
                 const fresh = uniqueRaw.slice(0, PAGE_SIZE);
                 setDiscoverPosts(fresh);
                 try {
-                    localStorage.setItem('knock_explore_posts_cache', JSON.stringify(fresh));
+                    localStorage.setItem('knock_explore_posts_cache_v5', JSON.stringify(fresh));
                 } catch (e) {}
                 setHasMore(uniqueRaw.length > PAGE_SIZE);
             }

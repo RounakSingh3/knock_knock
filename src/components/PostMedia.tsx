@@ -20,6 +20,18 @@ interface PostMediaProps {
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
 const itunesCache = new Map<string, string>();
 
+const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
+const CATEGORY_FALLBACKS: Record<string, string> = {
+    'Memes': 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop',
+    'Bollywood': 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600&auto=format&fit=crop',
+    'Fitness': 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=600&auto=format&fit=crop',
+    'Sports': 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=600&auto=format&fit=crop',
+    'Lifestyle': 'https://images.unsplash.com/photo-1511988617509-a57c8a288659?w=600&auto=format&fit=crop',
+    'Gaming': 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&auto=format&fit=crop',
+    'Nature': 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600&auto=format&fit=crop',
+    'Food': 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&auto=format&fit=crop',
+};
+
 const PostMediaComponent: React.FC<PostMediaProps> = ({
     post,
     className,
@@ -36,6 +48,20 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
     const retryCountRef = useRef(0);
+    const fallbackUsedRef = useRef(false);
+    const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
+
+    const [currentImgSrc, setCurrentImgSrc] = useState<string>(() => {
+        return isVideo ? '' : getOptimizedImageUrl(post.image_url, 650);
+    });
+
+    useEffect(() => {
+        setHasError(false);
+        retryCountRef.current = 0;
+        fallbackUsedRef.current = false;
+        setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, 650));
+    }, [post.image_url, isVideo]);
+
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
     const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
     const queryKey = post.music_title ? `${post.music_title} ${post.music_artist || ''}`.trim().toLowerCase() : '';
@@ -48,7 +74,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     });
 
     const resolvedMusicUrl = staticCleanUrl || (isDirectCleanUrl ? post.music_url : asyncMusicUrl);
-    const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
     const hasMusic = Boolean(resolvedMusicUrl);
 
@@ -192,12 +217,21 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     } catch(e) {}
 
-    // Retry handler: retries loading up to 2 times before giving up
+    // Retry handler: automatically switches to high-quality fallback image on failure
+
     const handleMediaError = () => {
+        if (!isVideo && !fallbackUsedRef.current) {
+            fallbackUsedRef.current = true;
+            const category = (post as any)?.category;
+            const fallback = (category && CATEGORY_FALLBACKS[category]) || UNIVERSAL_FALLBACK_IMAGE;
+            setCurrentImgSrc(fallback);
+            setHasError(false);
+            return;
+        }
         if (retryCountRef.current < 2) {
             retryCountRef.current += 1;
-            // Brief delay then reset hasError to trigger re-render/re-fetch
             setTimeout(() => setHasError(false), 1500 * retryCountRef.current);
+            return;
         }
         setHasError(true);
     };
@@ -235,7 +269,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     } catch (_) {}
 
     const videoSrc = isVideo && cleanImageUrl.includes('#t=') ? cleanImageUrl : (isVideo ? `${cleanImageUrl}#t=0.001` : '');
-    const optimizedImageSrc = isVideo ? '' : getOptimizedImageUrl(post.image_url, 650);
 
     return (
         <div style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: '160px' }}>
@@ -255,12 +288,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 />
             ) : (
                 <img
-                    src={optimizedImageSrc}
+                    src={currentImgSrc}
                     alt={alt}
                     className={className}
                     style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     loading="lazy"
                     decoding="async"
+                    referrerPolicy="no-referrer"
                     onError={handleMediaError}
                 />
             )}

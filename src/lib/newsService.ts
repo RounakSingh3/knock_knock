@@ -35,7 +35,7 @@ const CATEGORY_IMAGES: Record<string, string[]> = {
         'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop',
     ],
     'Sports': [
-        'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=600&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=600&auto=format&fit=crop',
         'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=600&auto=format&fit=crop',
         'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=600&auto=format&fit=crop',
     ],
@@ -94,7 +94,7 @@ const FALLBACK_NEWS: NewsItem[] = [
         source: 'World Sports',
         publishedAt: new Date().toISOString(),
         category: 'Sports',
-        imageUrl: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=600&auto=format&fit=crop',
+        imageUrl: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=600&auto=format&fit=crop',
         likesCount: 980,
     },
 ];

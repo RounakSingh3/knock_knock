@@ -8,9 +8,6 @@ const BottomNav = () => {
             <NavLink to="/call" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <Phone size={24} />
             </NavLink>
-            <NavLink to="/boost" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-                <Rocket size={24} />
-            </NavLink>
             <NavLink to="/explore" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <Search size={24} />
             </NavLink>
