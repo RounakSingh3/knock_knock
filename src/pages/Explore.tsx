@@ -10,12 +10,48 @@ import PullToRefresh from '../components/PullToRefresh';
 import { isVideoPost, isVideoUrl } from '../lib/media';
 import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
 
+import DailyNewsFeed from '../components/DailyNewsFeed';
+import type { NewsItem } from '../lib/newsService';
+
 // ⚡ Lazy load heavy modals for instant Explore page rendering
 const StoryViewer = lazy(() => import('../components/StoryViewer'));
 const CommentsSheet = lazy(() => import('../components/CommentsSheet'));
 const ShareModal = lazy(() => import('../components/ShareModal'));
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
-const DailyNewsFeed = lazy(() => import('../components/DailyNewsFeed'));
+
+const isNewsPost = (p: PostData): boolean => {
+    return (
+        p.username === 'google_news_daily' ||
+        p.username === 'google_news' ||
+        Boolean(p.caption && p.caption.includes('[NEWS:'))
+    );
+};
+
+function postToNewsItem(post: PostData): NewsItem {
+    const isNewsFormat = Boolean(post.caption && post.caption.includes('[NEWS:'));
+    let title = post.caption || 'Daily News';
+    let source = 'Trending News';
+    let summary = post.caption || '';
+
+    if (isNewsFormat) {
+        const parts = post.caption.split('\n\n');
+        title = parts[0]?.replace(/🔥\s*\[NEWS:[^\]]*\]\s*/, '').trim() || post.caption;
+        source = parts[1]?.replace(/📰\s*Source:\s*/, '').trim() || 'Trending News';
+        summary = parts.slice(2).join('\n\n').trim() || parts[0];
+    }
+
+    return {
+        id: post.id,
+        title,
+        summary: summary || title,
+        url: post.attached_link || '#',
+        source,
+        publishedAt: post.created_at,
+        category: (post.category as any) || 'Sports',
+        imageUrl: post.image_url,
+        likesCount: post.likes_count || 0
+    };
+}
 
 function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -35,6 +71,7 @@ const Explore = () => {
     
     const [searchTerm, setSearchTerm] = useState('');
     const [activeTab, setActiveTab] = useState<'people' | 'posts' | 'stories'>('people');
+    const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
     
     // Discover (Default) State with instant cache rehydration
     const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
@@ -480,8 +517,10 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                         /* Discover Feed (Default View) */
                         <>
                             {/* 📰 Google Daily News & Trends (Cricket, Bollywood, Hollywood, Gaming, Sports) */}
-                            <Suspense fallback={null}>
-                                <DailyNewsFeed onShareNews={(news) => {
+                            <DailyNewsFeed 
+                                externalActiveNews={selectedNews}
+                                onCloseNews={() => setSelectedNews(null)}
+                                onShareNews={(news) => {
                                     const mappedPost: PostData = {
                                         id: news.id,
                                         user_id: '',
@@ -496,8 +535,8 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                     };
                                     setPostToShare(mappedPost);
                                     setIsShareOpen(true);
-                                }} />
-                            </Suspense>
+                                }} 
+                            />
 
                             {/* 🔥 Trending Now Banner — FOMO */}
                             {!isTrendingLoading && trendingPosts.length > 0 && (
@@ -516,7 +555,13 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                                     overflow: 'hidden', position: 'relative', cursor: 'pointer',
                                                     border: '2px solid rgba(245, 165, 36,0.3)',
                                                 }}
-                                                onClick={() => setActiveFeedState({ posts: normalizedTrendingPosts, index: idx })}
+                                                onClick={() => {
+                                                    if (isNewsPost(post)) {
+                                                        setSelectedNews(postToNewsItem(post));
+                                                    } else {
+                                                        setActiveFeedState({ posts: normalizedTrendingPosts, index: idx });
+                                                    }
+                                                }}
                                             >
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -603,8 +648,14 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                             ref={trackViewRef}
                                             data-postid={post.id}
                                             className="explore-grid-item"
-                                            style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} 
-                                            onClick={() => setActiveFeedState({ posts: normalizedDiscoverPosts, index: idx })}
+                                            style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }}
+                                            onClick={() => {
+                                                if (isNewsPost(post)) {
+                                                    setSelectedNews(postToNewsItem(post));
+                                                } else {
+                                                    setActiveFeedState({ posts: normalizedDiscoverPosts, index: idx });
+                                                }
+                                            }}
                                         >
                                             <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

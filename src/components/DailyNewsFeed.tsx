@@ -4,6 +4,8 @@ import { fetchGoogleNews, syncNewsToDatabase, type NewsItem } from '../lib/newsS
 
 interface DailyNewsFeedProps {
     onShareNews?: (news: NewsItem) => void;
+    externalActiveNews?: NewsItem | null;
+    onCloseNews?: () => void;
 }
 
 const CATEGORIES: ('All' | 'Cricket & IPL' | 'Bollywood' | 'Hollywood' | 'Gaming' | 'Sports')[] = [
@@ -24,7 +26,7 @@ const CATEGORY_EMOJIS: Record<string, string> = {
     'Sports': '🏆',
 };
 
-export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => {
+export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, externalActiveNews, onCloseNews }) => {
     const [selectedCategory, setSelectedCategory] = useState<'All' | 'Cricket & IPL' | 'Bollywood' | 'Hollywood' | 'Gaming' | 'Sports'>('All');
     const [newsList, setNewsList] = useState<NewsItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -32,11 +34,20 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
     const [likedNews, setLikedNews] = useState<Set<string>>(new Set());
     const modalContentRef = useRef<HTMLDivElement>(null);
 
+    const currentActiveNews = externalActiveNews !== undefined && externalActiveNews !== null 
+        ? externalActiveNews 
+        : activeNewsModal;
+
+    const closeModal = () => {
+        setActiveNewsModal(null);
+        if (onCloseNews) onCloseNews();
+    };
+
     useEffect(() => {
-        if (activeNewsModal && modalContentRef.current) {
+        if (currentActiveNews && modalContentRef.current) {
             modalContentRef.current.scrollTop = 0;
         }
-    }, [activeNewsModal]);
+    }, [currentActiveNews]);
 
     useEffect(() => {
         let isMounted = true;
@@ -348,15 +359,16 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
             )}
 
             {/* Decent, Comfortable News Reader Card */}
-            {activeNewsModal && (
+            {currentActiveNews && (
                 <div
-                    onClick={() => setActiveNewsModal(null)}
+                    onClick={closeModal}
                     style={{
                         position: 'fixed',
                         inset: 0,
                         zIndex: 100000,
-                        background: 'rgba(0,0,0,0.6)',
-                        backdropFilter: 'blur(8px)',
+                        background: 'rgba(0, 0, 0, 0.75)',
+                        backdropFilter: 'blur(10px)',
+                        WebkitBackdropFilter: 'blur(10px)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -369,161 +381,200 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             width: '100%',
-                            maxWidth: '360px',
-                            background: '#1c1c1e',
-                            borderRadius: '20px',
-                            boxShadow: '0 16px 40px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.12)',
+                            maxWidth: '390px',
+                            background: '#18181b',
+                            borderRadius: '22px',
+                            boxShadow: '0 24px 60px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.12)',
                             border: '1px solid rgba(255,255,255,0.12)',
-                            padding: '16px',
+                            padding: '16px 18px',
                             display: 'flex',
                             flexDirection: 'column',
                             position: 'relative',
-                            animation: 'newsCardFadeIn 0.2s ease-out'
+                            animation: 'newsCardPopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+                            maxHeight: '90vh',
+                            boxSizing: 'border-box',
                         }}
                     >
-                        {/* Top bar: Category + Source + Close button */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        {/* Top Bar: Category pill + Source badge + Close button */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span style={{
                                     background: 'rgba(245, 165, 36, 0.15)',
                                     color: '#f5a524',
-                                    border: '1px solid rgba(245, 165, 36, 0.3)',
-                                    padding: '2px 8px',
-                                    borderRadius: '8px',
+                                    border: '1px solid rgba(245, 165, 36, 0.35)',
+                                    padding: '3px 9px',
+                                    borderRadius: '10px',
                                     fontSize: '11px',
-                                    fontWeight: '700'
+                                    fontWeight: '700',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
                                 }}>
-                                    {CATEGORY_EMOJIS[activeNewsModal.category]} {activeNewsModal.category}
+                                    <span>{CATEGORY_EMOJIS[currentActiveNews.category] || '📰'}</span>
+                                    <span>{currentActiveNews.category}</span>
                                 </span>
-                                <span style={{ fontSize: '11px', color: '#8e8e93', fontWeight: '500' }}>
-                                    {activeNewsModal.source}
+                                <span style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: '600' }}>
+                                    {currentActiveNews.source}
                                 </span>
                             </div>
+
                             <button
-                                onClick={() => setActiveNewsModal(null)}
+                                onClick={closeModal}
+                                aria-label="Close News"
                                 style={{
                                     background: 'rgba(255,255,255,0.1)',
                                     border: 'none',
                                     borderRadius: '50%',
-                                    width: '28px',
-                                    height: '28px',
-                                    color: '#aaa',
+                                    width: '30px',
+                                    height: '30px',
+                                    color: '#fff',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     cursor: 'pointer',
-                                    transition: 'all 0.2s'
+                                    transition: 'background 0.2s',
+                                    flexShrink: 0
                                 }}
                             >
-                                <X size={16} />
+                                <X size={17} />
                             </button>
                         </div>
 
-                        {/* Middle Row: Photo Thumbnail + Headline side-by-side */}
-                        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', marginBottom: '12px' }}>
+                        {/* Image Preview Banner */}
+                        <div style={{
+                            width: '100%',
+                            height: '145px',
+                            borderRadius: '14px',
+                            overflow: 'hidden',
+                            position: 'relative',
+                            marginBottom: '12px',
+                            background: '#0a0a0a',
+                            flexShrink: 0
+                        }}>
                             <img
-                                src={activeNewsModal.imageUrl}
-                                alt={activeNewsModal.title}
+                                src={currentActiveNews.imageUrl}
+                                alt={currentActiveNews.title}
                                 referrerPolicy="no-referrer"
                                 onError={(e) => {
                                     e.currentTarget.onerror = null;
                                     e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
                                 }}
                                 style={{
-                                    width: '76px',
-                                    height: '76px',
-                                    borderRadius: '12px',
-                                    objectFit: 'cover',
-                                    flexShrink: 0,
-                                    border: '1px solid rgba(255,255,255,0.1)'
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover'
                                 }}
                             />
-                            <h3 style={{
-                                margin: 0,
-                                fontSize: '14.5px',
-                                fontWeight: '700',
-                                color: '#fff',
-                                lineHeight: '1.3',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden'
-                            }}>
-                                {activeNewsModal.title}
-                            </h3>
+                            <div style={{
+                                position: 'absolute',
+                                inset: 0,
+                                background: 'linear-gradient(to top, rgba(24, 24, 27, 0.5) 0%, transparent 60%)'
+                            }} />
                         </div>
 
-                        {/* News Summary - directly in front */}
+                        {/* Headline */}
+                        <h3 style={{
+                            margin: '0 0 8px 0',
+                            fontSize: '15px',
+                            fontWeight: '800',
+                            color: '#ffffff',
+                            lineHeight: 1.35,
+                            letterSpacing: '-0.2px'
+                        }}>
+                            {currentActiveNews.title}
+                        </h3>
+
+                        {/* Full News Story - Directly in front, easy to read, zero scrolling */}
                         <p style={{
                             margin: '0 0 14px 0',
                             color: '#cbd5e1',
                             fontSize: '13px',
-                            lineHeight: '1.5',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 4,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden'
+                            lineHeight: 1.55,
+                            fontWeight: '400'
                         }}>
-                            {activeNewsModal.summary}
+                            {currentActiveNews.summary}
                         </p>
 
-                        {/* Actions Row */}
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <a
-                                href={activeNewsModal.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                        {/* Bottom Actions Row: Like, Share, Source Link & Close */}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: 'auto', paddingTop: '4px' }}>
+                            <button
+                                onClick={(e) => toggleLike(currentActiveNews.id, e)}
                                 style={{
-                                    flex: 1,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center',
                                     gap: '6px',
-                                    background: 'linear-gradient(90deg, #f5a524, #ff6b35)',
-                                    color: '#000',
-                                    fontWeight: '700',
-                                    fontSize: '12.5px',
-                                    height: '36px',
+                                    background: likedNews.has(currentActiveNews.id) ? 'rgba(245, 165, 36, 0.2)' : 'rgba(255,255,255,0.06)',
+                                    color: likedNews.has(currentActiveNews.id) ? '#f5a524' : '#fff',
+                                    fontWeight: '600',
+                                    fontSize: '12px',
+                                    height: '34px',
+                                    padding: '0 12px',
                                     borderRadius: '10px',
-                                    textDecoration: 'none',
-                                    boxShadow: '0 2px 10px rgba(245,165,36,0.25)',
-                                    textAlign: 'center'
+                                    border: likedNews.has(currentActiveNews.id) ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease'
                                 }}
                             >
-                                <ExternalLink size={14} />
-                                <span>Read Full Story</span>
-                            </a>
+                                <Heart
+                                    size={14}
+                                    fill={likedNews.has(currentActiveNews.id) ? '#f5a524' : 'none'}
+                                    color={likedNews.has(currentActiveNews.id) ? '#f5a524' : '#fff'}
+                                />
+                                <span>{currentActiveNews.likesCount + (likedNews.has(currentActiveNews.id) ? 1 : 0)}</span>
+                            </button>
 
                             <button
-                                onClick={(e) => handleShare(activeNewsModal, e)}
+                                onClick={(e) => handleShare(currentActiveNews, e)}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center',
                                     gap: '6px',
-                                    background: 'rgba(255,255,255,0.08)',
+                                    background: 'rgba(255,255,255,0.06)',
                                     color: '#fff',
                                     fontWeight: '600',
-                                    fontSize: '12.5px',
-                                    height: '36px',
-                                    padding: '0 14px',
+                                    fontSize: '12px',
+                                    height: '34px',
+                                    padding: '0 12px',
                                     borderRadius: '10px',
-                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
                                     cursor: 'pointer'
                                 }}
                             >
                                 <Share2 size={14} />
                                 <span>Share</span>
                             </button>
+
+                            {currentActiveNews.url && currentActiveNews.url !== '#' && (
+                                <a
+                                    href={currentActiveNews.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        marginLeft: 'auto',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        color: '#94a3b8',
+                                        fontSize: '11px',
+                                        textDecoration: 'none',
+                                        padding: '4px 6px',
+                                        borderRadius: '6px',
+                                        transition: 'color 0.2s'
+                                    }}
+                                >
+                                    <span>Source</span>
+                                    <ExternalLink size={11} />
+                                </a>
+                            )}
                         </div>
                     </div>
                 </div>
             )}
 
             <style>{`
-                @keyframes newsCardFadeIn {
-                    from { opacity: 0; transform: translateY(8px); }
-                    to { opacity: 1; transform: translateY(0); }
+                @keyframes newsCardPopIn {
+                    from { opacity: 0; transform: scale(0.94) translateY(8px); }
+                    to { opacity: 1; transform: scale(1) translateY(0); }
                 }
             `}</style>
         </div>
