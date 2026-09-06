@@ -152,7 +152,7 @@ const Boost: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--surface-color)', zIndex: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-active)' }}>
                     <Rocket size={24} color="#f5a524" />
-                    <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>Spotlight</h1>
+                    <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>Boost</h1>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <span style={{ color: '#ffcc00', fontWeight: 'bold' }}>{points || 0} pts</span>
@@ -215,7 +215,7 @@ const Boost: React.FC = () => {
                 <div style={{ padding: '16px', paddingBottom: '80px', flex: 1, overflowY: 'auto' }}>
                     <h2 style={{ color: 'var(--text-active)', fontSize: '18px', marginBottom: '16px' }}>Select a post to boost</h2>
                     <p style={{ color: 'var(--text-inactive)', fontSize: '14px', marginBottom: '24px' }}>
-                        Boosting a post puts it in the Spotlight feed for 24 hours. You can choose how many points to spend to guarantee targeted views!
+                        Boosting a post puts it in the Boost feed for 24 hours. You can choose how many points to spend to guarantee targeted views!
                     </p>
                     
                     <button 

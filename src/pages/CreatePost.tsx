@@ -365,8 +365,8 @@ const CreatePost = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '20px' }}>🚀</span>
                         <div>
-                            <span style={{ color: 'var(--text-active)', fontWeight: 'bold', display: 'block' }}>Boost to Spotlight</span>
-                            <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Feature on Spotlight for 24h</span>
+                            <span style={{ color: 'var(--text-active)', fontWeight: 'bold', display: 'block' }}>Boost Post</span>
+                            <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Feature in Boost feed for 24h</span>
                         </div>
                     </div>
                     {points > 0 ? (
