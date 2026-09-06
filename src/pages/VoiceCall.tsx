@@ -176,6 +176,7 @@ const VoiceCall = () => {
     const pendingIceCandidatesRef = useRef<any[]>([]);
     const webrtcReadyRef = useRef(false);
     const videoControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const channelSubscribedRef = useRef(false);
 
     // State refs to give signaling callbacks the latest values
     const isSearchingRef = useRef(isSearching);
@@ -584,6 +585,7 @@ const VoiceCall = () => {
 
         channel.subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
+                channelSubscribedRef.current = true;
                 await channel.track({
                     user_id: user.id,
                     username: user.username,
@@ -593,10 +595,20 @@ const VoiceCall = () => {
                     status: isSearchingRef.current ? 'searching' : inCallRef.current ? 'in-call' : 'idle',
                     preference: activePrefRef.current,
                 });
+                // If already in a call (e.g. direct call set inCall before channel was ready),
+                // re-send peer-arrived so the WebRTC handshake can begin
+                if (inCallRef.current && currentMatchRef.current && peerConnectionRef.current) {
+                    channel.send({
+                        type: 'broadcast',
+                        event: 'peer-arrived',
+                        payload: { senderId: user.id, receiverId: currentMatchRef.current.profile.id }
+                    });
+                }
             }
         });
 
         return () => {
+            channelSubscribedRef.current = false;
             channel.unsubscribe();
         };
     }, [user?.id]);
@@ -706,7 +718,9 @@ const VoiceCall = () => {
 
                     if (event.track.kind === 'video') {
                         const videoStream = new MediaStream();
-                        remoteStream.getTracks().forEach(t => videoStream.addTrack(t));
+                        // Only add video tracks — adding audio tracks here would cause
+                        // browser autoplay blocking since remoteVideoRef is not muted
+                        remoteStream.getVideoTracks().forEach(t => videoStream.addTrack(t));
                         remoteStreamRef.current = videoStream;
                         if (remoteVideoRef.current) {
                             remoteVideoRef.current.srcObject = videoStream;
@@ -769,11 +783,15 @@ const VoiceCall = () => {
                 }
 
                 // Announce arrival to start WebRTC handshake
-                channelRef.current.send({
-                    type: 'broadcast',
-                    event: 'peer-arrived',
-                    payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
-                });
+                // Only send if channel is subscribed — if not, the subscribe callback
+                // will re-send peer-arrived once it's ready
+                if (channelSubscribedRef.current && channelRef.current) {
+                    channelRef.current.send({
+                        type: 'broadcast',
+                        event: 'peer-arrived',
+                        payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
+                    });
+                }
             } catch (e) {
                 console.error('Failed to capture stream or create RTCPeerConnection:', e);
                 alert('Could not access your microphone. Please allow microphone permission and try again.');
@@ -831,7 +849,10 @@ const VoiceCall = () => {
                         localVideoRef.current.srcObject = localStreamRef.current;
                     }
 
-                    if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
+                    // Both caller and answerer need to renegotiate when adding video
+                    // The glare handling in webrtc-offer listener (rollback logic) handles
+                    // simultaneous offers gracefully
+                    if (channelRef.current && currentMatchRef.current) {
                         const offer = await pc.createOffer();
                         await pc.setLocalDescription(offer);
                         channelRef.current.send({
@@ -851,7 +872,7 @@ const VoiceCall = () => {
         })();
     }, [videoRequestStatus, isMockMode, isFrontCamera]);
 
-    // Ensure video stream remains attached when switching views
+    // Ensure video and audio streams remain attached when switching views
     useEffect(() => {
         if (videoRequestStatus === 'accepted') {
             if (localVideoRef.current && localStreamRef.current) {
@@ -859,6 +880,17 @@ const VoiceCall = () => {
             }
             if (remoteVideoRef.current && remoteStreamRef.current) {
                 remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            }
+        }
+        // Re-attach remote audio when the <audio> element remounts during view transitions
+        if (remoteAudioRef.current && peerConnectionRef.current) {
+            const receivers = peerConnectionRef.current.getReceivers();
+            const audioReceiver = receivers.find(r => r.track?.kind === 'audio');
+            if (audioReceiver?.track) {
+                const audioStream = new MediaStream([audioReceiver.track]);
+                remoteAudioRef.current.srcObject = audioStream;
+                remoteAudioRef.current.volume = 1.0;
+                remoteAudioRef.current.play().catch(() => {});
             }
         }
     }, [isVideoSwapped, videoRequestStatus]);
@@ -1302,14 +1334,22 @@ const VoiceCall = () => {
 
     // ── Active Call Screen ──
     if (inCall && currentMatch) {
+        return (
+            <>
+                {/* Persistent audio element for WebRTC audio - never unmounts between voice and video */}
+                <audio
+                    ref={remoteAudioRef}
+                    autoPlay
+                    playsInline
+                    style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                />
 
-        // ════════════════════════════════════════════════════════════
-        // ── WHATSAPP-STYLE FULL-SCREEN VIDEO CALL ──
-        // ════════════════════════════════════════════════════════════
-        if (videoRequestStatus === 'accepted') {
-            return (
-                <div
-                    className="whatsapp-video-screen"
+                {videoRequestStatus === 'accepted' ? (
+                    // ════════════════════════════════════════════════════════════
+                    // ── WHATSAPP-STYLE FULL-SCREEN VIDEO CALL ──
+                    // ════════════════════════════════════════════════════════════
+                    <div
+                        className="whatsapp-video-screen"
                     style={{
                         position: 'fixed',
                         inset: 0,
@@ -1462,13 +1502,23 @@ const VoiceCall = () => {
                         }}
                     >
                         {isVideoSwapped ? (
-                            // PiP shows THEIR face
+                            // PiP shows THEIR face — use video element for real peers, avatar for mock
                             <div style={{ width: '100%', height: '100%', position: 'relative', background: '#111b21' }}>
-                                <img
-                                    src={displayAvatar}
-                                    alt={displayName}
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                />
+                                {!isMockMode && (
+                                    <video
+                                        ref={remoteVideoRef}
+                                        autoPlay
+                                        playsInline
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    />
+                                )}
+                                {isMockMode && (
+                                    <img
+                                        src={displayAvatar}
+                                        alt={displayName}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    />
+                                )}
                                 <div style={{
                                     position: 'absolute',
                                     bottom: 0,
@@ -1679,8 +1729,6 @@ const VoiceCall = () => {
                         </div>
                     )}
 
-                    {/* Audio element for WebRTC audio */}
-                    <audio ref={remoteAudioRef} autoPlay playsInline style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
 
                     {audioBlocked && (
                         <div
@@ -2013,14 +2061,11 @@ const VoiceCall = () => {
                         </div>
                     )}
                 </div>
-            );
-        }
-
-        // ════════════════════════════════════════════════════════════
-        // ── VOICE CALL LAYOUT (Roulette / Voice Space) ──
-        // ════════════════════════════════════════════════════════════
-        return (
-            <div className="call-active-screen" style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+            ) : (
+                // ════════════════════════════════════════════════════════════
+                // ── VOICE CALL LAYOUT (Roulette / Voice Space) ──
+                // ════════════════════════════════════════════════════════════
+                <div className="call-active-screen" style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100dvh' }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%', minHeight: 'min-content', padding: '24px 0' }}>
                         <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -2259,13 +2304,7 @@ const VoiceCall = () => {
                         </div>
                     )}
 
-                    {/* Audio element with safe styling for mobile iOS/Safari */}
-                    <audio
-                        ref={remoteAudioRef}
-                        autoPlay
-                        playsInline
-                        style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
-                    />
+
 
                     {/* Tap-to-unmute banner when browser blocks autoplay */}
                     {audioBlocked && (
@@ -2346,9 +2385,11 @@ const VoiceCall = () => {
                         50% { transform: scale(1.18); opacity: 0.85; }
                     }
                 `}</style>
-            </div>
-        );
-    }
+                </div>
+            )}
+        </>
+    );
+}
 
     // ── Match Card Screen ──
     if (showMatchCard && currentMatch) {
