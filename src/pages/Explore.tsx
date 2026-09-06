@@ -29,26 +29,38 @@ const isNewsPost = (p: PostData): boolean => {
 
 function postToNewsItem(post: PostData): NewsItem {
     const isNewsFormat = Boolean(post.caption && post.caption.includes('[NEWS:'));
-    let title = post.caption || 'Daily News';
-    let source = 'Trending News';
-    let summary = post.caption || '';
+    let title = 'Trending Story';
+    let source = post.username ? `@${post.username}` : 'Trending News';
+    let summary = post.caption || 'Trending story on Knock Knock.';
 
     if (isNewsFormat) {
-        const parts = post.caption.split('\n\n');
-        title = parts[0]?.replace(/🔥\s*\[NEWS:[^\]]*\]\s*/, '').trim() || post.caption;
+        const parts = (post.caption || '').split('\n\n');
+        title = parts[0]?.replace(/🔥\s*\[NEWS:[^\]]*\]\s*/, '').trim() || post.caption || 'Trending News';
         source = parts[1]?.replace(/📰\s*Source:\s*/, '').trim() || 'Trending News';
-        summary = parts.slice(2).join('\n\n').trim() || parts[0];
+        summary = parts.slice(2).join('\n\n').trim() || parts[0] || '';
+    } else if (post.caption) {
+        const lines = post.caption.split('\n').filter(Boolean);
+        if (lines.length > 1) {
+            title = lines[0];
+            summary = lines.slice(1).join('\n');
+        } else if (post.caption.length > 65) {
+            title = post.caption.slice(0, 62) + '...';
+            summary = post.caption;
+        } else {
+            title = post.caption;
+            summary = post.caption;
+        }
     }
 
     return {
         id: post.id,
-        title,
-        summary: summary || title,
+        title: title || 'Trending Story',
+        summary: summary || title || 'Check out this trending story on Knock Knock!',
         url: post.attached_link || '#',
-        source,
-        publishedAt: post.created_at,
+        source: source || 'Trending',
+        publishedAt: post.created_at || new Date().toISOString(),
         category: (post.category as any) || 'Sports',
-        imageUrl: post.image_url,
+        imageUrl: post.image_url || 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600',
         likesCount: post.likes_count || 0
     };
 }
@@ -556,11 +568,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                                     border: '2px solid rgba(245, 165, 36,0.3)',
                                                 }}
                                                 onClick={() => {
-                                                    if (isNewsPost(post)) {
-                                                        setSelectedNews(postToNewsItem(post));
-                                                    } else {
-                                                        setActiveFeedState({ posts: normalizedTrendingPosts, index: idx });
-                                                    }
+                                                    setSelectedNews(postToNewsItem(post));
                                                 }}
                                             >
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
@@ -650,7 +658,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                             className="explore-grid-item"
                                             style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }}
                                             onClick={() => {
-                                                if (isNewsPost(post)) {
+                                                if (isNewsPost(post) || post.category === 'Bollywood' || post.category === 'Sports' || post.category === 'Cricket' || post.category === 'Gaming' || Boolean(post.caption && post.caption.length > 50)) {
                                                     setSelectedNews(postToNewsItem(post));
                                                 } else {
                                                     setActiveFeedState({ posts: normalizedDiscoverPosts, index: idx });

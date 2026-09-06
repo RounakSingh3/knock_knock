@@ -440,42 +440,10 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             </button>
                         </div>
 
-                        {/* Image Preview Banner */}
-                        <div style={{
-                            width: '100%',
-                            height: '145px',
-                            borderRadius: '14px',
-                            overflow: 'hidden',
-                            position: 'relative',
-                            marginBottom: '12px',
-                            background: '#0a0a0a',
-                            flexShrink: 0
-                        }}>
-                            <img
-                                src={currentActiveNews.imageUrl}
-                                alt={currentActiveNews.title}
-                                referrerPolicy="no-referrer"
-                                onError={(e) => {
-                                    e.currentTarget.onerror = null;
-                                    e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
-                                }}
-                                style={{
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: 'cover'
-                                }}
-                            />
-                            <div style={{
-                                position: 'absolute',
-                                inset: 0,
-                                background: 'linear-gradient(to top, rgba(24, 24, 27, 0.5) 0%, transparent 60%)'
-                            }} />
-                        </div>
-
-                        {/* Headline */}
+                        {/* Headline - Immediately in front */}
                         <h3 style={{
                             margin: '0 0 8px 0',
-                            fontSize: '15px',
+                            fontSize: '15.5px',
                             fontWeight: '800',
                             color: '#ffffff',
                             lineHeight: 1.35,
@@ -484,16 +452,45 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             {currentActiveNews.title}
                         </h3>
 
-                        {/* Full News Story - Directly in front, easy to read, zero scrolling */}
+                        {/* Full News Story - Directly in front, zero scrolling needed */}
                         <p style={{
-                            margin: '0 0 14px 0',
-                            color: '#cbd5e1',
-                            fontSize: '13px',
+                            margin: '0 0 12px 0',
+                            color: '#e2e8f0',
+                            fontSize: '13.5px',
                             lineHeight: 1.55,
                             fontWeight: '400'
                         }}>
                             {currentActiveNews.summary}
                         </p>
+
+                        {/* Image Preview Banner */}
+                        {currentActiveNews.imageUrl && (
+                            <div style={{
+                                width: '100%',
+                                height: '135px',
+                                borderRadius: '12px',
+                                overflow: 'hidden',
+                                position: 'relative',
+                                marginBottom: '12px',
+                                background: '#0a0a0a',
+                                flexShrink: 0
+                            }}>
+                                <img
+                                    src={currentActiveNews.imageUrl}
+                                    alt={currentActiveNews.title}
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => {
+                                        e.currentTarget.onerror = null;
+                                        e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
+                                    }}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover'
+                                    }}
+                                />
+                            </div>
+                        )}
 
                         {/* Bottom Actions Row: Like, Share, Source Link & Close */}
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: 'auto', paddingTop: '4px' }}>
