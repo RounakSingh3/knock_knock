@@ -347,7 +347,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                 </div>
             )}
 
-            {/* Full News Reader Modal */}
+            {/* Decent, Comfortable News Reader Card */}
             {activeNewsModal && (
                 <div
                     onClick={() => setActiveNewsModal(null)}
@@ -355,8 +355,8 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                         position: 'fixed',
                         inset: 0,
                         zIndex: 100000,
-                        background: 'rgba(0,0,0,0.85)',
-                        backdropFilter: 'blur(16px)',
+                        background: 'rgba(0,0,0,0.6)',
+                        backdropFilter: 'blur(8px)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -369,21 +369,58 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             width: '100%',
-                            maxWidth: '440px',
-                            maxHeight: '86vh',
+                            maxWidth: '360px',
                             background: '#1c1c1e',
                             borderRadius: '20px',
-                            overflowY: 'auto',
-                            boxShadow: '0 25px 60px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.15)',
-                            border: '1px solid rgba(255,255,255,0.15)',
+                            boxShadow: '0 16px 40px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.12)',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            padding: '16px',
                             display: 'flex',
                             flexDirection: 'column',
                             position: 'relative',
-                            animation: 'newsModalScaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+                            animation: 'newsCardFadeIn 0.2s ease-out'
                         }}
                     >
-                        {/* Compact Header Image - allows news content to be right in front */}
-                        <div style={{ position: 'relative', width: '100%', height: '130px', flexShrink: 0, overflow: 'hidden' }}>
+                        {/* Top bar: Category + Source + Close button */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{
+                                    background: 'rgba(245, 165, 36, 0.15)',
+                                    color: '#f5a524',
+                                    border: '1px solid rgba(245, 165, 36, 0.3)',
+                                    padding: '2px 8px',
+                                    borderRadius: '8px',
+                                    fontSize: '11px',
+                                    fontWeight: '700'
+                                }}>
+                                    {CATEGORY_EMOJIS[activeNewsModal.category]} {activeNewsModal.category}
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#8e8e93', fontWeight: '500' }}>
+                                    {activeNewsModal.source}
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => setActiveNewsModal(null)}
+                                style={{
+                                    background: 'rgba(255,255,255,0.1)',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '28px',
+                                    height: '28px',
+                                    color: '#aaa',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Middle Row: Photo Thumbnail + Headline side-by-side */}
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', marginBottom: '12px' }}>
                             <img
                                 src={activeNewsModal.imageUrl}
                                 alt={activeNewsModal.title}
@@ -392,134 +429,101 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews }) => 
                                     e.currentTarget.onerror = null;
                                     e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
                                 }}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
-                            <div style={{
-                                position: 'absolute',
-                                inset: 0,
-                                background: 'linear-gradient(to top, #1c1c1e 0%, rgba(28,28,30,0.3) 60%, transparent 100%)'
-                            }} />
-                            <button
-                                onClick={() => setActiveNewsModal(null)}
                                 style={{
-                                    position: 'absolute',
-                                    top: '10px',
-                                    right: '10px',
-                                    background: 'rgba(0,0,0,0.7)',
-                                    border: 'none',
-                                    borderRadius: '50%',
-                                    width: '32px',
-                                    height: '32px',
-                                    color: '#fff',
+                                    width: '76px',
+                                    height: '76px',
+                                    borderRadius: '12px',
+                                    objectFit: 'cover',
+                                    flexShrink: 0,
+                                    border: '1px solid rgba(255,255,255,0.1)'
+                                }}
+                            />
+                            <h3 style={{
+                                margin: 0,
+                                fontSize: '14.5px',
+                                fontWeight: '700',
+                                color: '#fff',
+                                lineHeight: '1.3',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden'
+                            }}>
+                                {activeNewsModal.title}
+                            </h3>
+                        </div>
+
+                        {/* News Summary - directly in front */}
+                        <p style={{
+                            margin: '0 0 14px 0',
+                            color: '#cbd5e1',
+                            fontSize: '13px',
+                            lineHeight: '1.5',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 4,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden'
+                        }}>
+                            {activeNewsModal.summary}
+                        </p>
+
+                        {/* Actions Row */}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <a
+                                href={activeNewsModal.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                    flex: 1,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    backdropFilter: 'blur(8px)',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-                                    zIndex: 10
+                                    gap: '6px',
+                                    background: 'linear-gradient(90deg, #f5a524, #ff6b35)',
+                                    color: '#000',
+                                    fontWeight: '700',
+                                    fontSize: '12.5px',
+                                    height: '36px',
+                                    borderRadius: '10px',
+                                    textDecoration: 'none',
+                                    boxShadow: '0 2px 10px rgba(245,165,36,0.25)',
+                                    textAlign: 'center'
                                 }}
                             >
-                                <X size={18} />
+                                <ExternalLink size={14} />
+                                <span>Read Full Story</span>
+                            </a>
+
+                            <button
+                                onClick={(e) => handleShare(activeNewsModal, e)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    background: 'rgba(255,255,255,0.08)',
+                                    color: '#fff',
+                                    fontWeight: '600',
+                                    fontSize: '12.5px',
+                                    height: '36px',
+                                    padding: '0 14px',
+                                    borderRadius: '10px',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <Share2 size={14} />
+                                <span>Share</span>
                             </button>
-                            <div style={{
-                                position: 'absolute',
-                                bottom: '8px',
-                                left: '14px',
-                                background: '#f5a524',
-                                color: '#000',
-                                padding: '3px 8px',
-                                borderRadius: '8px',
-                                fontSize: '10px',
-                                fontWeight: 'bold'
-                            }}>
-                                {CATEGORY_EMOJIS[activeNewsModal.category]} {activeNewsModal.category}
-                            </div>
-                        </div>
-
-                        {/* Modal Body Content - Positioned right in front */}
-                        <div style={{ padding: '14px 16px 16px', display: 'flex', flexDirection: 'column' }}>
-                            <div style={{ fontSize: '11px', color: '#999', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span>Source:</span>
-                                <strong style={{ color: '#ddd' }}>{activeNewsModal.source}</strong>
-                            </div>
-                            <h2 style={{
-                                margin: 0,
-                                fontSize: '16px',
-                                fontWeight: '800',
-                                color: '#fff',
-                                lineHeight: 1.35,
-                                marginBottom: '10px'
-                            }}>
-                                {activeNewsModal.title}
-                            </h2>
-
-                            <p style={{
-                                color: 'rgba(255,255,255,0.88)',
-                                fontSize: '13.5px',
-                                lineHeight: 1.5,
-                                margin: '0 0 16px 0'
-                            }}>
-                                {activeNewsModal.summary}
-                            </p>
-
-                            {/* Actions & Links - Side-by-side row to eliminate vertical scrolling */}
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                <a
-                                    href={activeNewsModal.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{
-                                        flex: 1,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '6px',
-                                        background: 'linear-gradient(90deg, #f5a524, #ff6b35)',
-                                        color: '#000',
-                                        fontWeight: '700',
-                                        fontSize: '13px',
-                                        padding: '10px 16px',
-                                        borderRadius: '12px',
-                                        textDecoration: 'none',
-                                        boxShadow: '0 4px 14px rgba(245,165,36,0.3)',
-                                        textAlign: 'center'
-                                    }}
-                                >
-                                    <ExternalLink size={15} />
-                                    <span>Read Full Story</span>
-                                </a>
-
-                                <button
-                                    onClick={(e) => handleShare(activeNewsModal, e)}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '6px',
-                                        background: 'rgba(255,255,255,0.08)',
-                                        color: '#fff',
-                                        fontWeight: '600',
-                                        fontSize: '13px',
-                                        padding: '10px 16px',
-                                        borderRadius: '12px',
-                                        border: '1px solid rgba(255,255,255,0.12)',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    <Share2 size={15} />
-                                    <span>Share</span>
-                                </button>
-                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
             <style>{`
-                @keyframes newsModalScaleUp {
-                    from { transform: scale(0.92) translateY(12px); opacity: 0; }
-                    to { transform: scale(1) translateY(0); opacity: 1; }
+                @keyframes newsCardFadeIn {
+                    from { opacity: 0; transform: translateY(8px); }
+                    to { opacity: 1; transform: translateY(0); }
                 }
             `}</style>
         </div>
