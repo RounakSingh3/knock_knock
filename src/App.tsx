@@ -375,7 +375,7 @@ function App() {
                             </>
                         ) : (
                             <>
-                                <Route path="/" element={<Navigate to="/home" />} />
+                                <Route path="/" element={<Navigate to="/call" />} />
                                 <Route path="/home" element={<Suspense fallback={<PageLoader message="Loading home..." />}><Home /></Suspense>} />
                                 <Route path="/stories" element={<Suspense fallback={<PageLoader />}><Stories /></Suspense>} />
                                 <Route path="/explore" element={<Suspense fallback={<PageLoader />}><Explore /></Suspense>} />
@@ -388,7 +388,7 @@ function App() {
                                 <Route path="/profile" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/profile/:username" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/notifications" element={<Suspense fallback={<PageLoader />}><Notifications /></Suspense>} />
-                                <Route path="/login" element={<Navigate to="/home" />} />
+                                <Route path="/login" element={<Navigate to="/call" />} />
                             </>
                         )}
                     </Routes>

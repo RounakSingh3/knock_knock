@@ -4,14 +4,33 @@ import { isVideoPost, getCleanSongUrl, type MediaType } from './media';
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
 
-// These specific posts have broken Unsplash URLs (HTTP 404) and cannot be
-// deleted via anon key due to RLS. Filter them out at the app layer instead.
+// These specific posts have broken Unsplash URLs (HTTP 404) or failed media.
+// Filter them out at the app layer to keep the feed completely clean.
 const BROKEN_POST_IDS = new Set([
     'ae1b9027-acbe-4782-a71f-ea709c23688f',
+    '35d1da81-ed85-496d-9356-205a912a389a',
     '9349a62b-f4c9-4b5b-8544-232e05602079',
     'd3484b5a-30ed-4ed5-b4af-e2b18e20e438',
     'ecb5b028-8d04-4272-be3f-7f40693f9f53',
+    'f9137acc-3838-42db-902c-9365b4da027a',
+    '326ec467-e226-40ca-ac3e-c93426734ccc',
+    'ec51efe9-e026-4e3b-a641-e2b015a32c86',
+    '6b168e1f-fb76-497c-baae-c84798a32a4e',
 ]);
+
+// Inappropriate or test accounts filtered out from feeds and search to keep app clean
+export const BLOCKED_USERNAMES = new Set([
+    'fuck',
+    'gspotexpert',
+]);
+
+export function isRemovedUser(userId?: string | null, username?: string | null): boolean {
+    if (username) {
+        const clean = username.replace(/^@+/, '').trim().toLowerCase();
+        if (!clean || BLOCKED_USERNAMES.has(clean)) return true;
+    }
+    return false;
+}
 
 // ── In-Memory Performance Cache ──────────────────────────────
 interface CacheEntry<T> {
@@ -278,8 +297,21 @@ export async function fetchVideoPosts(): Promise<PostData[]> {
 }
 
 export function normalizePost(post: PostData): PostData {
-    if (!post) return post;
+    if (!post) return null as any;
     if (BROKEN_POST_IDS.has(post.id)) return null as any;
+
+    // Filter out posts with empty, null, or invalid image_url
+    if (!post.image_url || typeof post.image_url !== 'string') return null as any;
+    const trimmedUrl = post.image_url.trim();
+    if (!trimmedUrl || trimmedUrl === 'undefined' || trimmedUrl === 'null' || trimmedUrl === 'none') {
+        return null as any;
+    }
+
+    // Filter out posts by blocked/inappropriate test accounts
+    if (BLOCKED_USERNAMES.has((post.username || '').toLowerCase())) {
+        return null as any;
+    }
+
     let caption = post.caption || '';
     let music_url = post.music_url;
     let music_title = post.music_title;
@@ -512,13 +544,16 @@ export async function fetchProfile(userId: string): Promise<ProfileData | null> 
         console.error('Error fetching profile:', error);
         return null;
     }
+    if (data && isRemovedUser(data.id, data.username)) {
+        return null;
+    }
     return data;
 }
 
 export async function fetchProfileByUsername(username: string): Promise<ProfileData | null> {
     if (!username) return null;
     const cleanUsername = username.replace(/^@+/, '').trim();
-    if (!cleanUsername) return null;
+    if (!cleanUsername || isRemovedUser(undefined, cleanUsername)) return null;
 
     // 1. Try case-insensitive lookup in profiles table
     const { data, error } = await supabase
@@ -528,6 +563,7 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
         .maybeSingle();
 
     if (!error && data) {
+        if (isRemovedUser(data.id, data.username)) return null;
         return data;
     }
 
@@ -931,7 +967,7 @@ export async function fetchAllProfiles(excludeUserId: string): Promise<(ProfileD
         console.error('Error fetching all profiles:', error);
         return [];
     }
-    return data || [];
+    return (data || []).filter(u => !isRemovedUser(u.id, u.username));
 }
 
 /**
@@ -1579,8 +1615,10 @@ export async function fetchProfilesByIds(userIds: string[]): Promise<ProfileData
     }
 
     (data || []).forEach(p => {
-        setInCache(`profile_${p.id}`, p);
-        results.push(p);
+        if (!isRemovedUser(p.id, p.username)) {
+            setInCache(`profile_${p.id}`, p);
+            results.push(p);
+        }
     });
 
     return results;
@@ -1803,7 +1841,7 @@ export async function searchUsers(query: string): Promise<ProfileData[]> {
         console.error('Error searching users:', error);
         return [];
     }
-    return data || [];
+    return (data || []).filter(u => !isRemovedUser(u.id, u.username));
 }
 
 /** Search posts by caption */

@@ -102,7 +102,7 @@ const Login = () => {
 
             localStorage.setItem('knock_user_session', JSON.stringify(profile));
             setUser(profile);
-            navigate('/home');
+            navigate('/call');
         } catch (err: any) {
             console.error('Auth error:', err);
             // Provide user-friendly error messages
