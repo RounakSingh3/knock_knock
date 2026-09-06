@@ -162,9 +162,10 @@ export const KNOWN_SONG_MAP: Record<string, string> = {
  */
 export function getCleanSongUrl(musicTitle?: string | null, musicUrl?: string | null): string | undefined {
     if (musicTitle) {
-        const lower = musicTitle.toLowerCase().trim();
+        const lower = musicTitle.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
         for (const [key, realUrl] of Object.entries(KNOWN_SONG_MAP)) {
-            if (lower.includes(key)) {
+            const cleanKey = key.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (lower.includes(cleanKey) || cleanKey.includes(lower)) {
                 return realUrl;
             }
         }

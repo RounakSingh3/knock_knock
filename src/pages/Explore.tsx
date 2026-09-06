@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
+import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import { AppContext } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import PullToRefresh from '../components/PullToRefresh';
@@ -11,7 +12,6 @@ import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
 
 // ⚡ Lazy load heavy modals for instant Explore page rendering
 const StoryViewer = lazy(() => import('../components/StoryViewer'));
-const ExploreFeedViewer = lazy(() => import('../components/ExploreFeedViewer'));
 const CommentsSheet = lazy(() => import('../components/CommentsSheet'));
 const ShareModal = lazy(() => import('../components/ShareModal'));
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
@@ -40,7 +40,12 @@ const Explore = () => {
     const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
         try {
             const cached = localStorage.getItem('knock_explore_posts_cache');
-            if (cached) return JSON.parse(cached);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed)) {
+                    return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+                }
+            }
         } catch (e) {}
         return [];
     });
@@ -65,7 +70,12 @@ const Explore = () => {
     const [trendingPosts, setTrendingPosts] = useState<PostData[]>(() => {
         try {
             const cached = localStorage.getItem('knock_explore_trending_cache');
-            if (cached) return JSON.parse(cached);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed)) {
+                    return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+                }
+            }
         } catch (e) {}
         return [];
     });
@@ -486,7 +496,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                                     overflow: 'hidden', position: 'relative', cursor: 'pointer',
                                                     border: '2px solid rgba(245, 165, 36,0.3)',
                                                 }}
-                                                onClick={() => setActiveFeedState({ posts: trendingPosts, index: idx })}
+                                                onClick={() => setActiveFeedState({ posts: trendingPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx })}
                                             >
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -573,7 +583,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                             ref={trackViewRef}
                                             data-postid={post.id}
                                             style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} 
-                                            onClick={() => setActiveFeedState({ posts: discoverPosts, index: idx })}
+                                            onClick={() => setActiveFeedState({ posts: discoverPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx })}
                                         >
                                             <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -673,7 +683,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                 ) : (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px' }}>
                                         {postResults.map((post, idx) => (
-                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: postResults, index: idx })}>
+                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: postResults.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx })}>
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 {isVideoPost(post) && (
@@ -742,15 +752,13 @@ function interleaveCategories(posts: PostData[]): PostData[] {
             )}
 
             {activeFeedState && (
-                <Suspense fallback={null}>
-                    <ExploreFeedViewer
-                        posts={activeFeedState.posts}
-                        initialIndex={activeFeedState.index}
-                        onClose={() => setActiveFeedState(null)}
-                        onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
-                        onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
-                    />
-                </Suspense>
+                <ExploreFeedViewer
+                    posts={activeFeedState.posts}
+                    initialIndex={activeFeedState.index}
+                    onClose={() => setActiveFeedState(null)}
+                    onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
+                    onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
+                />
             )}
 
             {isCommentsOpen && commentsPostId && user && (

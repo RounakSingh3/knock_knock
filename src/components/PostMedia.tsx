@@ -32,21 +32,19 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
-    const [resolvedMusicUrl, setResolvedMusicUrl] = useState<string | undefined>(() => 
-        getCleanSongUrl(post.music_title, post.music_url) || 
-        (post.music_url && !post.music_url.includes('soundhelix') ? post.music_url : undefined)
-    );
+    const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
+    const [asyncMusicUrl, setAsyncMusicUrl] = useState<string | undefined>();
+    const resolvedMusicUrl = staticCleanUrl || (post.music_url && !post.music_url.includes('soundhelix') ? post.music_url : asyncMusicUrl);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
-    // Resolve missing or bogus SoundHelix music_url from music_title via iTunes
+    // Resolve missing or unknown music_url from music_title via iTunes API only if not in KNOWN_SONG_MAP
     useEffect(() => {
-        const cleanStatic = getCleanSongUrl(post.music_title, post.music_url);
-        if (cleanStatic) {
-            setResolvedMusicUrl(cleanStatic);
+        if (staticCleanUrl) {
+            setAsyncMusicUrl(undefined);
             return;
         }
         if (post.music_url && !post.music_url.includes('soundhelix')) {
-            setResolvedMusicUrl(post.music_url);
+            setAsyncMusicUrl(undefined);
             return;
         }
         if (post.music_title) {
@@ -56,15 +54,15 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 .then(res => res.json())
                 .then(data => {
                     if (active && data.results?.[0]?.previewUrl) {
-                        setResolvedMusicUrl(data.results[0].previewUrl);
+                        setAsyncMusicUrl(data.results[0].previewUrl);
                     }
                 })
                 .catch(() => {});
             return () => { active = false; };
         } else {
-            setResolvedMusicUrl(undefined);
+            setAsyncMusicUrl(undefined);
         }
-    }, [post.music_url, post.music_title, post.music_artist]);
+    }, [post.music_url, post.music_title, post.music_artist, staticCleanUrl]);
 
     const hasMusic = Boolean(resolvedMusicUrl);
 
@@ -117,15 +115,17 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 playPromise.catch((e) => {
                     console.warn('[PostMedia] Audio autoplay deferred until tap:', e);
                     const onUserTap = () => {
+                        audio.muted = false;
+                        audio.volume = 1;
                         audio.play().catch(() => {});
-                        window.removeEventListener('click', onUserTap);
-                        window.removeEventListener('touchstart', onUserTap);
+                        window.removeEventListener('click', onUserTap, { capture: true });
+                        window.removeEventListener('touchstart', onUserTap, { capture: true });
                     };
                     window.addEventListener('click', onUserTap, { once: true, capture: true });
                     window.addEventListener('touchstart', onUserTap, { once: true, capture: true });
                     cleanupTap = () => {
-                        window.removeEventListener('click', onUserTap);
-                        window.removeEventListener('touchstart', onUserTap);
+                        window.removeEventListener('click', onUserTap, { capture: true });
+                        window.removeEventListener('touchstart', onUserTap, { capture: true });
                     };
                 });
             }
@@ -226,6 +226,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     ref={audioRef}
                     src={resolvedMusicUrl}
                     loop
+                    preload="auto"
                     style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
                     playsInline
                 />

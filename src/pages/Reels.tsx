@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
-import { fetchVideoPosts, trackEngagement, toggleImp, type PostData, type MessageData } from '../lib/database';
+import { fetchVideoPosts, trackEngagement, toggleImp, normalizePost, type PostData, type MessageData } from '../lib/database';
+import { getCleanSongUrl } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
@@ -203,6 +204,7 @@ export function formatCount(n: number): string {
 }
 
 function postToReel(post: PostData): ReelData {
+    const cleanMusicUrl = getCleanSongUrl(post.music_title, post.music_url) || (post.music_url && !post.music_url.includes('soundhelix') ? post.music_url : undefined);
     let filter = post.css_filter;
     try {
         if (!filter || filter === 'none') {
@@ -227,7 +229,7 @@ function postToReel(post: PostData): ReelData {
         category: 'Uploads',
         css_filter: filter,
         attachedLink: post.attached_link,
-        musicUrl: post.music_url,
+        musicUrl: cleanMusicUrl,
     };
 }
 
@@ -262,8 +264,14 @@ const Reels: React.FC = () => {
     useEffect(() => {
         fetchVideoPosts().then(async (videoPosts) => {
             const validPosts = videoPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
-            const resolvedPosts = await Promise.all(validPosts.map(async (p) => {
-                if (p.music_title && !p.music_url) {
+            const resolvedPosts = await Promise.all(validPosts.map(async (rawP) => {
+                const p = normalizePost(rawP);
+                if (!p) return null;
+                const cleanUrl = getCleanSongUrl(p.music_title, p.music_url);
+                if (cleanUrl) {
+                    return { ...p, music_url: cleanUrl };
+                }
+                if (p.music_title && (!p.music_url || p.music_url.includes('soundhelix'))) {
                     try {
                         const query = `${p.music_title} ${p.music_artist || ''}`.trim();
                         const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=1`);
@@ -275,7 +283,7 @@ const Reels: React.FC = () => {
                 }
                 return p;
             }));
-            const userReels = resolvedPosts.map(postToReel);
+            const userReels = resolvedPosts.filter((p): p is PostData => Boolean(p)).map(postToReel);
             const merged = [...userReels, ...REELS_DATA];
             setReelsList(merged);
             setPlayStates(merged.map(() => true));

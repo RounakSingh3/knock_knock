@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useContext, useState } from 'react';
-import { type PostData, trackEngagement } from '../lib/database';
+import React, { useRef, useEffect, useLayoutEffect, useContext, useState } from 'react';
+import { type PostData, trackEngagement, normalizePost } from '../lib/database';
 import { PostModalContent } from './PostModal';
 import { AppContext } from '../context/AppContext';
 
@@ -16,19 +16,52 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
     const scrollRef = useRef<HTMLDivElement>(null);
     const watchTimers = useRef<Record<string, number>>({});
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
-    const [activePostId, setActivePostId] = useState<string | null>(posts[initialIndex]?.id || null);
+    const targetPost = posts[initialIndex] || posts[0];
+    const [activePostId, setActivePostId] = useState<string | null>(targetPost?.id || null);
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
+    const isInitialMountRef = useRef(true);
 
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTo(0, scrollRef.current.clientHeight * initialIndex);
+    // Immediate layout positioning to guarantee target reel is active and visible
+    useLayoutEffect(() => {
+        if (!scrollRef.current || !targetPost) return;
+        const targetEl = itemRefs.current[targetPost.id];
+        if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'start' });
+        } else {
+            scrollRef.current.scrollTop = scrollRef.current.clientHeight * initialIndex;
         }
-    }, [initialIndex]);
+    }, [initialIndex, targetPost]);
 
+    // Secondary alignment after backdrop mount
     useEffect(() => {
-        if (!user || !scrollRef.current) return;
+        const scrollToInitial = () => {
+            if (!scrollRef.current || !targetPost) return;
+            const targetEl = itemRefs.current[targetPost.id];
+            if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'start' });
+            } else {
+                scrollRef.current.scrollTop = scrollRef.current.clientHeight * initialIndex;
+            }
+        };
+
+        scrollToInitial();
+        const timer = setTimeout(() => {
+            scrollToInitial();
+            // Unlock observer after scroll settling
+            isInitialMountRef.current = false;
+        }, 200);
+
+        return () => clearTimeout(timer);
+    }, [initialIndex, targetPost]);
+
+    // Responsive IntersectionObserver for swiping/scrolling between reels
+    useEffect(() => {
+        if (!scrollRef.current) return;
         
         const observer = new IntersectionObserver((entries) => {
+            // Do not let initial rendering overrides the clicked reel
+            if (isInitialMountRef.current) return;
+
             entries.forEach(entry => {
                 const postId = entry.target.getAttribute('data-postid');
                 const category = entry.target.getAttribute('data-category') || 'General';
@@ -39,16 +72,20 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                     const idx = posts.findIndex(p => p.id === postId);
                     if (idx !== -1) setCurrentIndex(idx);
                     
-                    watchTimers.current[postId] = Date.now();
-                    trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
+                    if (user) {
+                        watchTimers.current[postId] = Date.now();
+                        trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
+                    }
                 } else {
-                    const startTime = watchTimers.current[postId];
-                    if (startTime) {
-                        const durationSeconds = (Date.now() - startTime) / 1000;
-                        if (durationSeconds > 0.5) {
-                            trackEngagement(user.id, postId, 'watch_time', durationSeconds, category).catch(() => {});
+                    if (user) {
+                        const startTime = watchTimers.current[postId];
+                        if (startTime) {
+                            const durationSeconds = (Date.now() - startTime) / 1000;
+                            if (durationSeconds > 0.5) {
+                                trackEngagement(user.id, postId, 'watch_time', durationSeconds, category).catch(() => {});
+                            }
+                            delete watchTimers.current[postId];
                         }
-                        delete watchTimers.current[postId];
                     }
                 }
             });
@@ -63,14 +100,14 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
 
         return () => {
             observer.disconnect();
-            // Optional: flush any remaining watch time when component unmounts
-            Object.entries(watchTimers.current).forEach(([pId, startT]) => {
-                const durationSeconds = (Date.now() - startT) / 1000;
-                if (durationSeconds > 0.5) {
-                    // We don't have the category easily here, but we can just use General as fallback
-                    trackEngagement(user.id, pId, 'watch_time', durationSeconds, 'General').catch(() => {});
-                }
-            });
+            if (user) {
+                Object.entries(watchTimers.current).forEach(([pId, startT]) => {
+                    const durationSeconds = (Date.now() - startT) / 1000;
+                    if (durationSeconds > 0.5) {
+                        trackEngagement(user.id, pId, 'watch_time', durationSeconds, 'General').catch(() => {});
+                    }
+                });
+            }
         };
     }, [user, posts]);
 
@@ -87,7 +124,8 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
             }} 
             ref={scrollRef}
         >
-            {posts.map((post, index) => {
+            {posts.map((rawPost, index) => {
+                const post = normalizePost(rawPost) || rawPost;
                 const isNear = Math.abs(index - currentIndex) <= 2;
                 return (
                     <div 
