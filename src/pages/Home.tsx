@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, fetchDiscoverPosts, type PostData, type StoryData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell } from 'lucide-react';
@@ -9,7 +9,7 @@ import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
-import { isVideoPost, isVideoUrl, getOptimizedImageUrl } from '../lib/media';
+import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
 import { audioPlayer } from '../lib/audioPlayer';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
 
@@ -43,7 +43,10 @@ const Home = () => {
     const [posts, setPosts] = useState<PostData[]>(() => {
         try {
             const cached = localStorage.getItem('knock_home_posts_cache');
-            if (cached) return JSON.parse(cached);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                return (parsed || []).map(normalizePost).filter(Boolean);
+            }
         } catch (e) {}
         return [];
     });
@@ -518,8 +521,9 @@ const Home = () => {
     // Handle background music playback for Home story viewer
     useEffect(() => {
         const currentStory = viewingGroup?.stories[viewingIndex];
-        if (currentStory?.music_url) {
-            audioPlayer.play(currentStory.music_url, true);
+        const songUrl = currentStory ? getCleanSongUrl(currentStory.music_title, currentStory.music_url) || currentStory.music_url : undefined;
+        if (songUrl && !songUrl.includes('soundhelix')) {
+            audioPlayer.play(songUrl, true);
         } else {
             audioPlayer.stop();
         }
@@ -577,6 +581,7 @@ const Home = () => {
                                 autoPlay
                                 loop
                                 playsInline
+                                muted={Boolean(currentStory.music_url || currentStory.music_title)}
                                 className="story-viewer-image"
                                 style={{ filter: currentStory.filter_name && currentStory.filter_name !== 'Normal' ? ({
                                     'Vintage': 'sepia(0.5) contrast(1.2)',
@@ -884,7 +889,7 @@ const Home = () => {
                                 <div
                                     key={post.id}
                                     className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
-                                    onClick={() => setSelectedPost(post)}
+                                    onClick={() => setSelectedPost(normalizePost(post))}
                                     onDoubleClick={() => handleDoubleTap(post)}
                                 >
                                     <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} />

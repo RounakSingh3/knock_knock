@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, memo } from 'react';
-import { isVideoPost, isVideoUrl, getOptimizedImageUrl } from '../lib/media';
+import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
 import type { PostData } from '../lib/database';
 
 interface PostMediaProps {
@@ -32,12 +32,20 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
-    const [resolvedMusicUrl, setResolvedMusicUrl] = useState<string | undefined>(post.music_url);
+    const [resolvedMusicUrl, setResolvedMusicUrl] = useState<string | undefined>(() => 
+        getCleanSongUrl(post.music_title, post.music_url) || 
+        (post.music_url && !post.music_url.includes('soundhelix') ? post.music_url : undefined)
+    );
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
-    // Resolve missing music_url from music_title via iTunes
+    // Resolve missing or bogus SoundHelix music_url from music_title via iTunes
     useEffect(() => {
-        if (post.music_url) {
+        const cleanStatic = getCleanSongUrl(post.music_title, post.music_url);
+        if (cleanStatic) {
+            setResolvedMusicUrl(cleanStatic);
+            return;
+        }
+        if (post.music_url && !post.music_url.includes('soundhelix')) {
             setResolvedMusicUrl(post.music_url);
             return;
         }

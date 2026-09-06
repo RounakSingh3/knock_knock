@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { isVideoPost, type MediaType } from './media';
+import { isVideoPost, getCleanSongUrl, type MediaType } from './media';
 
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
@@ -171,13 +171,21 @@ export function normalizePost(post: PostData): PostData {
     if (caption.includes('[MUSIC:')) {
         const match = caption.match(/\[MUSIC:([^|]+)\|([^|]*)\|([^\]]*)\]/);
         if (match) {
-            if (!music_url) {
+            if (!music_url || music_url.includes('soundhelix')) {
                 music_url = match[1];
                 music_title = match[2] || 'Song';
                 music_artist = match[3] || '';
             }
         }
         caption = caption.replace(/\[MUSIC:[^\]]+\]/g, '').trim();
+    }
+
+    // Replace any SoundHelix/MIDI dummy URLs with authentic preview streams
+    const cleanUrl = getCleanSongUrl(music_title, music_url);
+    if (cleanUrl) {
+        music_url = cleanUrl;
+    } else if (music_url && music_url.includes('soundhelix')) {
+        music_url = undefined;
     }
 
     return {
@@ -465,6 +473,14 @@ export function normalizeStory(story: StoryData): StoryData {
                 }
             }
         }
+    }
+
+    // Replace any SoundHelix/MIDI dummy URLs with authentic preview streams
+    const cleanUrl = getCleanSongUrl(music_title, music_url);
+    if (cleanUrl) {
+        music_url = cleanUrl;
+    } else if (music_url && music_url.includes('soundhelix')) {
+        music_url = undefined;
     }
 
     return {

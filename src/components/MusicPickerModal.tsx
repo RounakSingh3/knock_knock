@@ -15,33 +15,33 @@ export interface Track {
 }
 
 export const FREE_MUSIC_TRACKS: Track[] = [
-    // 🔥 Trending & Viral
+    // 🔥 Trending & Viral (100% Real Studio Audio)
     {
         id: 'trend-1',
-        title: 'Epic Adventure',
-        artist: 'Creative Commons',
-        category: 'Trending',
-        url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+        title: 'Chaleya',
+        artist: 'Arijit Singh & Anirudh',
+        category: 'Bollywood',
+        url: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/55/fb/9c/55fb9c31-320a-5dba-0a3f-5e69552085a7/mzaf_13508224660474474886.plus.aac.p.m4a',
         cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150',
-        duration: '6:12',
+        duration: '0:30',
     },
     {
         id: 'trend-2',
-        title: 'Calm Flow',
-        artist: 'Creative Commons',
-        category: 'Trending',
-        url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+        title: 'Winning Speech',
+        artist: 'Karan Aujla',
+        category: 'Punjabi',
+        url: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/e3/ae/b6/e3aeb64f-cadd-5830-c39f-6af51cd91670/mzaf_6001527501800958065.plus.aac.p.m4a',
         cover: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=150',
-        duration: '4:20',
+        duration: '0:30',
     },
     {
         id: 'trend-3',
-        title: 'Ambient Walk',
-        artist: 'Creative Commons',
-        category: 'Trending',
-        url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3',
+        title: 'Starboy',
+        artist: 'The Weeknd',
+        category: 'Hollywood',
+        url: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/11/71/d6/1171d6ad-3c96-e027-2af6-58028426588c/mzaf_15137631797407745471.plus.aac.p.m4a',
         cover: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=150',
-        duration: '3:05',
+        duration: '0:30',
     }
 ];
 

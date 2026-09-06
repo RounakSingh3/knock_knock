@@ -1,3 +1,5 @@
+import { getCleanSongUrl } from './media';
+
 // Universal Web Audio Player with mobile-friendly DOM element unlock
 class AudioPlayerService {
     private audioEl: HTMLAudioElement | null = null;
@@ -11,7 +13,13 @@ class AudioPlayerService {
                 if (!el) {
                     el = document.createElement('audio');
                     el.id = 'knock-global-audio';
-                    el.style.display = 'none';
+                    el.style.position = 'fixed';
+                    el.style.top = '-9999px';
+                    el.style.left = '-9999px';
+                    el.style.width = '1px';
+                    el.style.height = '1px';
+                    el.style.opacity = '0';
+                    el.style.pointerEvents = 'none';
                     // Important for mobile browsers
                     el.setAttribute('playsinline', 'true');
                     el.setAttribute('preload', 'auto');
@@ -53,7 +61,13 @@ class AudioPlayerService {
             if (!el) {
                 el = document.createElement('audio');
                 el.id = 'knock-global-audio';
-                el.style.display = 'none';
+                el.style.position = 'fixed';
+                el.style.top = '-9999px';
+                el.style.left = '-9999px';
+                el.style.width = '1px';
+                el.style.height = '1px';
+                el.style.opacity = '0';
+                el.style.pointerEvents = 'none';
                 el.setAttribute('playsinline', 'true');
                 if (document.body) {
                     document.body.appendChild(el);
@@ -66,6 +80,9 @@ class AudioPlayerService {
 
     public play(url: string, loop: boolean = true): HTMLAudioElement | null {
         if (!url) return null;
+        const cleanUrl = getCleanSongUrl(undefined, url) || url;
+        if (cleanUrl.includes('soundhelix')) return null;
+        url = cleanUrl;
 
         const audio = this.getAudioElement();
         if (!audio) return null;

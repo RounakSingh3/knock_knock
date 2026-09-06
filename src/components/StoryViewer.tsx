@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward } from 'lucide-react';
 import { type UserStoryGroup, deleteStory } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
+import { getCleanSongUrl } from '../lib/media';
 
 // Map filter names stored in DB to actual CSS filter values
 const FILTER_MAP: Record<string, string> = {
@@ -80,7 +81,16 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             if (isPaused || !audioPlaying) {
                 bgAudioRef.current.pause();
             } else {
-                bgAudioRef.current.play().catch(e => console.warn('Audio play blocked:', e));
+                bgAudioRef.current.play().catch(e => {
+                    console.warn('[StoryViewer] Audio play blocked, waiting for tap:', e);
+                    const onStoryTap = () => {
+                        bgAudioRef.current?.play().catch(() => {});
+                        window.removeEventListener('click', onStoryTap);
+                        window.removeEventListener('touchstart', onStoryTap);
+                    };
+                    window.addEventListener('click', onStoryTap, { once: true, capture: true });
+                    window.addEventListener('touchstart', onStoryTap, { once: true, capture: true });
+                });
             }
         }
     }, [isPaused, audioPlaying, musicMuted, currentStory]);
@@ -249,6 +259,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     autoPlay
                     loop
                     playsInline
+                    muted={Boolean(currentStory.music_url || currentStory.music_title)}
                     className="story-image"
                     onError={() => {
                         deleteStory(currentStory.id);
@@ -277,16 +288,19 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             )}
 
             {/* CUSTOM NATIVE AUDIO PLAYER WITH CONTROLS */}
-            {currentStory.music_url && (
-                <>
-                    <audio
-                        ref={bgAudioRef}
-                        src={currentStory.music_url}
-                        autoPlay
-                        loop
-                        playsInline
-                        style={{ display: 'none' }}
-                    />
+            {(currentStory.music_url || currentStory.music_title) && (() => {
+                const storySongUrl = getCleanSongUrl(currentStory.music_title, currentStory.music_url) || currentStory.music_url;
+                if (!storySongUrl || storySongUrl.includes('soundhelix')) return null;
+                return (
+                    <>
+                        <audio
+                            ref={bgAudioRef}
+                            src={storySongUrl}
+                            autoPlay
+                            loop
+                            playsInline
+                            style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                        />
                     <div style={{
                         position: 'absolute', bottom: '130px', left: '0', right: '0',
                         display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -305,7 +319,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         </div>
                     </div>
                 </>
-            )}
+                );
+            })()}
             
             <style>{`
                 .story-viewer-overlay {

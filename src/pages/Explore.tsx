@@ -583,7 +583,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                                 </div>
                                             )}
 
-                                            {post.music_url && (
+                                            {(post.music_url || post.music_title) && (
                                                 <div style={{
                                                     position: 'absolute', top: '6px', left: '6px', zIndex: 5,
                                                     display: 'flex', alignItems: 'center', gap: '4px',
