@@ -284,7 +284,16 @@ const Boost: React.FC = () => {
                                     {isVideoPost(post) ? (
                                         <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} muted playsInline preload="metadata" />
                                     ) : (
-                                        <img src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} alt="" />
+                                        <img 
+                                            src={post.image_url} 
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} 
+                                            alt="" 
+                                            referrerPolicy="no-referrer"
+                                            onError={(e) => {
+                                                e.currentTarget.onerror = null;
+                                                e.currentTarget.src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop&q=80';
+                                            }}
+                                        />
                                     )}
                                     {post.music_url && (
                                         <div style={{
