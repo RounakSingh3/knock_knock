@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Flame, ExternalLink, Globe, Heart, Share2, Sparkles, X, ChevronRight, MessageSquare } from 'lucide-react';
 import { fetchGoogleNews, syncNewsToDatabase, type NewsItem } from '../lib/newsService';
 
@@ -358,8 +359,8 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 </div>
             )}
 
-            {/* Decent, Comfortable News Reader Card */}
-            {currentActiveNews && (
+            {/* Decent, Comfortable News Reader Card — Portal to escape PullToRefresh transform */}
+            {currentActiveNews && createPortal(
                 <div
                     onClick={closeModal}
                     style={{
@@ -571,7 +572,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                         </div>
                     </div>
                 </div>
-            )}
+            , document.body)}
 
             <style>{`
                 @keyframes newsCardPopIn {
