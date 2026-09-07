@@ -4211,7 +4211,6 @@ select option {
    ─────────────────────────────────────────────────────────── */
 
 /* GPU layer promotion for scrollable feeds — prevents jank during scroll */
-.explore-page,
 .masonry-grid,
 .connections-page,
 .chat-messages {

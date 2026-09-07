@@ -243,7 +243,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 style={{
                     width: '100%',
                     height: style?.height || '100%',
-                    minHeight: '160px',
+                    minHeight: style?.minHeight || '0px',
                     background: 'linear-gradient(135deg, #1c1c1e, #2c2c2e)',
                     display: 'flex',
                     alignItems: 'center',
@@ -271,7 +271,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const videoSrc = isVideo && cleanImageUrl.includes('#t=') ? cleanImageUrl : (isVideo ? `${cleanImageUrl}#t=0.001` : '');
 
     return (
-        <div style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: '160px' }}>
+        <div style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: style?.minHeight || '0px' }}>
             {isVideo ? (
                 <video
                     ref={videoRef}

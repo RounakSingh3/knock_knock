@@ -568,7 +568,11 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                                     border: '2px solid rgba(245, 165, 36,0.3)',
                                                 }}
                                                 onClick={() => {
-                                                    setSelectedNews(postToNewsItem(post));
+                                                    if (isNewsPost(post)) {
+                                                        setSelectedNews(postToNewsItem(post));
+                                                    } else {
+                                                        setActiveFeedState({ posts: normalizedTrendingPosts, index: idx });
+                                                    }
                                                 }}
                                             >
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
@@ -649,16 +653,20 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                 </div>
                             ) : (
                                 <>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                                         {discoverPosts.map((post, idx) => (
                                         <div 
                                             key={post.id} 
                                             ref={trackViewRef}
                                             data-postid={post.id}
                                             className="explore-grid-item"
-                                            style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }}
+                                            style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', overflow: 'hidden', borderRadius: '4px' }}
                                             onClick={() => {
-                                                setSelectedNews(postToNewsItem(post));
+                                                if (isNewsPost(post)) {
+                                                    setSelectedNews(postToNewsItem(post));
+                                                } else {
+                                                    setActiveFeedState({ posts: normalizedDiscoverPosts, index: idx });
+                                                }
                                             }}
                                         >
                                             <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
@@ -757,9 +765,19 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                         No posts found
                                     </div>
                                 ) : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px' }}>
-                                        {postResults.map((post, idx) => (
-                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedNews(postToNewsItem(post))}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                            {postResults.map((post, idx) => (
+                                                <div 
+                                                    key={post.id} 
+                                                    style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', overflow: 'hidden', borderRadius: '4px' }} 
+                                                    onClick={() => {
+                                                        if (isNewsPost(post)) {
+                                                            setSelectedNews(postToNewsItem(post));
+                                                        } else {
+                                                            setActiveFeedState({ posts: postResults.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx });
+                                                        }
+                                                    }}
+                                                >
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 {isVideoPost(post) && (

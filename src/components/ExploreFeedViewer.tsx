@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useLayoutEffect, useContext, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { type PostData, trackEngagement, normalizePost } from '../lib/database';
 import { PostModalContent } from './PostModal';
 import { AppContext } from '../context/AppContext';
@@ -26,7 +27,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         if (!scrollRef.current || !targetPost) return;
         const targetEl = itemRefs.current[targetPost.id];
         if (targetEl) {
-            targetEl.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'start' });
+            scrollRef.current.scrollTop = targetEl.offsetTop;
         } else {
             scrollRef.current.scrollTop = scrollRef.current.clientHeight * initialIndex;
         }
@@ -38,7 +39,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
             if (!scrollRef.current || !targetPost) return;
             const targetEl = itemRefs.current[targetPost.id];
             if (targetEl) {
-                targetEl.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'start' });
+                scrollRef.current.scrollTop = targetEl.offsetTop;
             } else {
                 scrollRef.current.scrollTop = scrollRef.current.clientHeight * initialIndex;
             }
@@ -126,15 +127,22 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         };
     }, []);
 
-    return (
+    return createPortal(
         <div 
             className="post-modal-backdrop post-modal-backdrop--fullscreen" 
             onClick={onClose} 
             style={{ 
-                zIndex: 9999, 
+                position: 'fixed',
+                inset: 0,
+                width: '100vw',
+                height: '100dvh',
+                zIndex: 99999, 
                 overflowY: 'auto', 
                 scrollSnapType: 'y mandatory', 
                 scrollBehavior: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                overscrollBehaviorY: 'contain',
+                background: '#000',
                 display: 'block'
             }} 
             ref={scrollRef}
@@ -148,7 +156,17 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                         ref={el => { itemRefs.current[post.id] = el; }} 
                         data-postid={post.id}
                         data-category={post.category || 'General'}
-                        style={{ height: '100%', scrollSnapAlign: 'start', scrollSnapStop: 'always', width: '100%', position: 'relative' }}
+                        style={{ 
+                            height: '100dvh', 
+                            minHeight: '100dvh',
+                            maxHeight: '100dvh',
+                            width: '100vw',
+                            scrollSnapAlign: 'start', 
+                            scrollSnapStop: 'always', 
+                            position: 'relative',
+                            overflow: 'hidden',
+                            boxSizing: 'border-box'
+                        }}
                     >
                         {isNear ? (
                             <PostModalContent 
@@ -160,12 +178,13 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                                 isActive={post.id === activePostId}
                             />
                         ) : (
-                            <div style={{ width: '100%', height: '100%', background: 'var(--bg-color)' }} />
+                            <div style={{ width: '100vw', height: '100dvh', minHeight: '100dvh', background: '#000' }} />
                         )}
                     </div>
                 );
             })}
-        </div>
+        </div>,
+        document.body
     );
 };
 

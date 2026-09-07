@@ -67,7 +67,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
     };
 
     return (
-        <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()} style={isEmbedded ? { height: '100%', width: '100%', borderRadius: 0, margin: 0, position: 'relative' } : undefined}>
+        <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()} style={isEmbedded ? { height: '100dvh', width: '100vw', maxHeight: '100dvh', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden' } : undefined}>
             <div className="modal-top-bar">
                 <div className="modal-user-row">
                     <img
@@ -90,7 +90,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     <X size={22} />
                 </button>
             </div>
-            <div className="modal-media-stage" style={{ position: 'relative' }}>
+            <div className="modal-media-stage" style={isEmbedded ? { position: 'absolute', inset: 0, zIndex: 1 } : { position: 'relative' }}>
                 <PostMedia
                     post={post}
                     className="modal-image"
