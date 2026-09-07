@@ -391,7 +391,8 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             flexDirection: 'column',
                             position: 'relative',
                             animation: 'newsCardPopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
-                            maxHeight: '90vh',
+                            maxHeight: '85vh',
+                            overflowY: 'auto',
                             boxSizing: 'border-box',
                         }}
                     >
@@ -458,7 +459,11 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             color: '#e2e8f0',
                             fontSize: '13.5px',
                             lineHeight: 1.55,
-                            fontWeight: '400'
+                            fontWeight: '400',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 6,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden'
                         }}>
                             {currentActiveNews.summary}
                         </p>

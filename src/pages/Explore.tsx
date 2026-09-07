@@ -658,11 +658,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                             className="explore-grid-item"
                                             style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }}
                                             onClick={() => {
-                                                if (isNewsPost(post) || post.category === 'Bollywood' || post.category === 'Sports' || post.category === 'Cricket' || post.category === 'Gaming' || Boolean(post.caption && post.caption.length > 50)) {
-                                                    setSelectedNews(postToNewsItem(post));
-                                                } else {
-                                                    setActiveFeedState({ posts: normalizedDiscoverPosts, index: idx });
-                                                }
+                                                setSelectedNews(postToNewsItem(post));
                                             }}
                                         >
                                             <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
@@ -763,7 +759,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                 ) : (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px' }}>
                                         {postResults.map((post, idx) => (
-                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setActiveFeedState({ posts: postResults.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx })}>
+                                            <div key={post.id} style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer' }} onClick={() => setSelectedNews(postToNewsItem(post))}>
                                                 <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 {isVideoPost(post) && (
