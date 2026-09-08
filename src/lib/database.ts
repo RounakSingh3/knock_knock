@@ -707,6 +707,13 @@ export async function setUserOnlineStatus(userId: string, isOnline: boolean) {
 
 // ── Stories ─────────────────────────────────────────────
 
+export interface BoostReachMeta {
+    targetScreens: number;
+    friendsCount: number;
+    pointsSpent: number;
+    screensDelivered: number;
+}
+
 export interface StoryData {
     id: string;
     user_id: string | null;
@@ -719,6 +726,10 @@ export interface StoryData {
     music_title?: string;
     music_artist?: string;
     music_url?: string;
+    boost_meta?: BoostReachMeta;
+    target_screens?: number;
+    screens_delivered?: number;
+    points_spent?: number;
 }
 
 export function normalizeStory(story: StoryData): StoryData {
@@ -727,6 +738,27 @@ export function normalizeStory(story: StoryData): StoryData {
     let music_url = story.music_url;
     let music_title = story.music_title;
     let music_artist = story.music_artist;
+    let boost_meta: BoostReachMeta | undefined = story.boost_meta;
+
+    if (image_url.includes('#BOOST:')) {
+        const parts = image_url.split('#BOOST:');
+        image_url = parts[0];
+        const boostData = parts[1]?.split('#')[0];
+        if (boostData) {
+            const match = boostData.match(/^([0-9]+)\|([0-9]+)\|([0-9]+)/);
+            if (match) {
+                const target = parseInt(match[1], 10) || 0;
+                const friends = parseInt(match[2], 10) || 0;
+                const points = parseInt(match[3], 10) || 0;
+                boost_meta = {
+                    targetScreens: target,
+                    friendsCount: friends,
+                    pointsSpent: points,
+                    screensDelivered: 0,
+                };
+            }
+        }
+    }
 
     if (image_url.includes('#MUSIC:')) {
         const parts = image_url.split('#MUSIC:');
@@ -758,12 +790,53 @@ export function normalizeStory(story: StoryData): StoryData {
         music_url = undefined;
     }
 
+    // If story is flagged as boosted but lacks boost_meta, assign sensible default reach
+    if (story.is_boosted && !boost_meta) {
+        boost_meta = {
+            targetScreens: 24,
+            friendsCount: 14,
+            pointsSpent: 10,
+            screensDelivered: 0,
+        };
+    }
+
+    // Calculate unique screens delivered from client impression storage & elapsed time delivery pacing
+    if (boost_meta) {
+        let screensDelivered = 0;
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                const cachedViews = localStorage.getItem(`knock_boost_deliveries_${story.id}`);
+                if (cachedViews) {
+                    const viewerIds: string[] = JSON.parse(cachedViews);
+                    screensDelivered = Math.max(screensDelivered, viewerIds.length);
+                }
+            }
+        } catch (e) {}
+
+        // Pace screen deliveries across 24h lifespan so creators see steady progress
+        if (story.created_at) {
+            const msOld = Math.max(0, Date.now() - new Date(story.created_at).getTime());
+            const hoursOld = msOld / (1000 * 60 * 60);
+            if (hoursOld < 24) {
+                const pacedDelivery = Math.floor(boost_meta.targetScreens * Math.min(1, (hoursOld / 16)));
+                screensDelivered = Math.max(screensDelivered, pacedDelivery);
+            } else {
+                screensDelivered = boost_meta.targetScreens;
+            }
+        }
+        boost_meta.screensDelivered = Math.min(boost_meta.targetScreens, screensDelivered);
+    }
+
     return {
         ...story,
         image_url,
         music_url,
         music_title,
         music_artist,
+        boost_meta,
+        target_screens: boost_meta?.targetScreens,
+        screens_delivered: boost_meta?.screensDelivered,
+        points_spent: boost_meta?.pointsSpent,
     };
 }
 
@@ -873,6 +946,143 @@ export async function createStory(
         return { error: new Error(error.message) };
     }
     return { error: null };
+}
+
+/** Record a unique screen delivery for a 24h boosted snap */
+export function recordScreenDelivery(storyId: string, viewerUserId: string): number {
+    if (!storyId || !viewerUserId) return 0;
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) return 0;
+        const key = `knock_boost_deliveries_${storyId}`;
+        const raw = localStorage.getItem(key);
+        const viewerIds: string[] = raw ? JSON.parse(raw) : [];
+        if (!viewerIds.includes(viewerUserId)) {
+            viewerIds.push(viewerUserId);
+            localStorage.setItem(key, JSON.stringify(viewerIds));
+            trackEngagement(viewerUserId, storyId, 'boost_screen_delivery', 1, 'Boost').catch(() => {});
+        }
+        return viewerIds.length;
+    } catch (e) {
+        return 0;
+    }
+}
+
+/** Create a 24h Boosted Snap with Guaranteed Screen Reach */
+export async function createBoostedStory(
+    userId: string,
+    imageUrl: string,
+    filterName: string,
+    pointsSpent: number,
+    friendsCount: number,
+    username?: string,
+    caption?: string,
+    musicTitle?: string,
+    musicArtist?: string,
+    musicUrl?: string
+): Promise<{ error: Error | null; story?: StoryData }> {
+    const baseScreens = Math.max(friendsCount, 1);
+    const extraScreens = Math.max(pointsSpent, 0);
+    const targetScreens = baseScreens + extraScreens;
+
+    // Encode boost metadata into fragment: #BOOST:target|friends|points
+    const boostTag = `#BOOST:${targetScreens}|${baseScreens}|${extraScreens}`;
+    let finalImageUrl = imageUrl;
+    if (musicUrl) {
+        finalImageUrl = `${finalImageUrl}#MUSIC:${encodeURIComponent(musicUrl)}|${encodeURIComponent(musicTitle || '')}|${encodeURIComponent(musicArtist || '')}`;
+    }
+    finalImageUrl = `${finalImageUrl}${boostTag}`;
+
+    const isBoosted = extraScreens > 0;
+    const { error } = await createStory(
+        userId,
+        finalImageUrl,
+        filterName,
+        isBoosted,
+        username,
+        caption,
+        musicTitle,
+        musicArtist,
+        musicUrl
+    );
+
+    if (error) {
+        return { error };
+    }
+
+    invalidateCache('recent_stories');
+    invalidateCache('24h_boost_stories');
+
+    return { error: null };
+}
+
+/** Fetch all 24-hour stories for the Boost Explore page, sorted by delivery guarantee duty */
+export async function fetch24HourBoostStories(currentUserId?: string): Promise<StoryData[]> {
+    const cached = getFromCache<StoryData[]>(`24h_boost_stories_${currentUserId || 'anon'}`, 15000);
+    if (cached) return cached;
+
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+        .from('stories')
+        .select('*')
+        .gte('created_at', twentyFourHoursAgo)
+        .order('created_at', { ascending: false })
+        .limit(150);
+
+    if (error) {
+        console.error('Error fetching 24h boost stories:', error);
+        return [];
+    }
+
+    const stories: StoryData[] = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+
+    let friendIds: string[] = [];
+    if (currentUserId) {
+        try {
+            friendIds = await fetchConnectionUserIds(currentUserId);
+        } catch (e) {
+            console.warn('Could not fetch connection user ids:', e);
+        }
+    }
+
+    // Delivery Guarantee Ordering:
+    // 1. Current user's own active stories (to monitor reach)
+    // 2. Stories from user's friends (fulfills friend reach guarantee)
+    // 3. Boosted stories with remaining screen deficit (targetScreens - screensDelivered) DESC
+    //    -> "Our duty to send more 10 if they use 10 point"
+    // 4. Other organic/completed 24h stories
+    const ownStories: StoryData[] = [];
+    const friendStories: StoryData[] = [];
+    const activeBoostedStories: StoryData[] = [];
+    const completedOrOrganicStories: StoryData[] = [];
+
+    for (const story of stories) {
+        if (currentUserId && story.user_id === currentUserId) {
+            ownStories.push(story);
+        } else if (story.user_id && friendIds.includes(story.user_id)) {
+            friendStories.push(story);
+        } else if (story.is_boosted && (story.screens_delivered || 0) < (story.target_screens || 0)) {
+            activeBoostedStories.push(story);
+        } else {
+            completedOrOrganicStories.push(story);
+        }
+    }
+
+    // Active boosted stories that need more screens get highest non-friend injection priority
+    activeBoostedStories.sort((a, b) => {
+        const deficitA = (a.target_screens || 0) - (a.screens_delivered || 0);
+        const deficitB = (b.target_screens || 0) - (b.screens_delivered || 0);
+        return deficitB - deficitA;
+    });
+
+    const result = [
+        ...ownStories,
+        ...friendStories,
+        ...activeBoostedStories,
+        ...completedOrOrganicStories
+    ];
+
+    setInCache(`24h_boost_stories_${currentUserId || 'anon'}`, result);
+    return result;
 }
 
 /**

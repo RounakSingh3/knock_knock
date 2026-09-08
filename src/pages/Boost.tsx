@@ -1,356 +1,1128 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Loader2, Rocket, PlusCircle, Music } from 'lucide-react';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { 
+    Rocket, 
+    PlusCircle, 
+    Flame, 
+    Clock, 
+    Sparkles, 
+    Camera, 
+    Image as ImageIcon, 
+    Music, 
+    X, 
+    Users, 
+    Play, 
+    Loader2, 
+    AlertCircle, 
+    ShieldCheck, 
+    TrendingUp,
+    RefreshCw
+} from 'lucide-react';
 import { AppContext } from '../context/AppContext';
-import { fetchActiveBoostedPosts, fetchUserEngagements, boostPost, type PostData, fetchUserPosts, trackEngagement, type MessageData } from '../lib/database';
-import { buildInterestProfile, assembleFeed } from '../lib/algorithm';
-import { isVideoPost } from '../lib/media';
-import { PostModalContent } from '../components/PostModal';
-import CommentsSheet from '../components/CommentsSheet';
-import ShareModal from '../components/ShareModal';
-import ChatPanel from '../components/ChatPanel';
+import { 
+    fetch24HourBoostStories, 
+    createBoostedStory, 
+    recordScreenDelivery, 
+    fetchConnectionUserIds, 
+    updatePoints, 
+    updateStreak, 
+    uploadMedia, 
+    uploadStoryImage, 
+    type StoryData, 
+    type UserStoryGroup 
+} from '../lib/database';
+import { isVideoUrl, compressImage } from '../lib/media';
+import StoryViewer from '../components/StoryViewer';
+import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 
+const FILTERS = [
+    { name: 'Normal', style: '' },
+    { name: 'Vintage', style: 'sepia(0.5) contrast(1.2)' },
+    { name: 'B&W', style: 'grayscale(1) contrast(1.1)' },
+    { name: 'Neon', style: 'hue-rotate(90deg) saturate(2)' },
+    { name: 'Cinematic', style: 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)' },
+    { name: 'Cool', style: 'hue-rotate(-30deg) saturate(1.2)' },
+    { name: 'Warm', style: 'sepia(0.3) saturate(1.4)' },
+    { name: 'Alien', style: 'invert(0.8) hue-rotate(180deg)' },
+];
+
+function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
+    const groups: Record<string, UserStoryGroup> = {};
+    stories.forEach((s) => {
+        const uid = s.user_id || 'unknown';
+        if (!groups[uid]) {
+            groups[uid] = {
+                userId: uid,
+                username: s.username || 'user',
+                avatarUrl: `https://i.pravatar.cc/150?u=${s.username || uid}`,
+                stories: [],
+            };
+        }
+        groups[uid].stories.push(s);
+    });
+    return Object.values(groups);
+}
+
+function getTimeRemaining(createdAt: string): { text: string; hoursLeft: number; percentElapsed: number } {
+    const createdTime = new Date(createdAt).getTime();
+    const expiryTime = createdTime + 24 * 60 * 60 * 1000;
+    const msLeft = expiryTime - Date.now();
+    
+    if (msLeft <= 0) {
+        return { text: 'Expired', hoursLeft: 0, percentElapsed: 100 };
+    }
+    
+    const hours = Math.floor(msLeft / (1000 * 60 * 60));
+    const mins = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
+    const percentElapsed = Math.min(100, Math.max(0, ((24 * 60 * 60 * 1000 - msLeft) / (24 * 60 * 60 * 1000)) * 100));
+
+    if (hours > 0) {
+        return { text: `${hours}h ${mins}m left`, hoursLeft: hours, percentElapsed };
+    }
+    return { text: `${mins}m left`, hoursLeft: 0, percentElapsed };
+}
 
 const Boost: React.FC = () => {
-    const { user, points, setPoints } = useContext(AppContext);
+    const { user, points, setPoints, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
-    const location = useLocation();
-    
-    const params = new URLSearchParams(location.search);
-    const initialMode = params.get('mode') === 'select' ? 'select' : 'feed';
-    const [mode, setMode] = useState<'feed' | 'select'>(initialMode);
 
+    // Explore Feed State
+    const [stories, setStories] = useState<StoryData[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [filterTab, setFilterTab] = useState<'all' | 'boosted' | 'friends' | 'videos'>('all');
+    const [userFriends, setUserFriends] = useState<string[]>([]);
+
+    // Story Viewer State
+    const [activeViewerGroupIndex, setActiveViewerGroupIndex] = useState<number | null>(null);
+    const [viewerStoryGroups, setViewerStoryGroups] = useState<UserStoryGroup[]>([]);
+
+    // Upload / Snap Creator Modal State
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isCameraActive, setIsCameraActive] = useState(false);
+    const [capturedMediaUrl, setCapturedMediaUrl] = useState<string | null>(null);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [isVideo, setIsVideo] = useState(false);
+    const [activeFilterIndex, setActiveFilterIndex] = useState(0);
+    const [caption, setCaption] = useState('');
+    const [pointsToSpend, setPointsToSpend] = useState<number>(10);
+    const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+    const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+
+    // Load user's connections (friends)
     useEffect(() => {
-        const queryParams = new URLSearchParams(location.search);
-        const m = queryParams.get('mode');
-        if (m === 'select' || m === 'feed') {
-            setMode(m);
+        if (!user) return;
+        fetchConnectionUserIds(user.id).then(ids => {
+            setUserFriends(ids);
+        }).catch(() => {});
+    }, [user]);
+
+    // Load 24-hour Boost Explore Feed
+    const loadFeed = useCallback(async (showRefreshing = false) => {
+        if (showRefreshing) setIsRefreshing(true);
+        else setIsLoading(true);
+
+        try {
+            const data = await fetch24HourBoostStories(user?.id);
+            // Filter out blocked users
+            const valid = data.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
+            setStories(valid);
+        } catch (e) {
+            console.error('Error loading boost feed:', e);
+        } finally {
+            setIsLoading(false);
+            setIsRefreshing(false);
         }
-    }, [location.search]);
-    
-    // Feed Mode State
-    const [boostedPosts, setBoostedPosts] = useState<PostData[]>([]);
-    const [isLoadingFeed, setIsLoadingFeed] = useState(true);
-    const [isCommentsOpen, setIsCommentsOpen] = useState(false);
-    const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
-    const [isShareOpen, setIsShareOpen] = useState(false);
-    const [postToShare, setPostToShare] = useState<PostData | null>(null);
-    const [isChatOpen, setIsChatOpen] = useState(false);
-    const [chatUserId, setChatUserId] = useState<string | null>(null);
-    const [chatRefreshKey, setChatRefreshKey] = useState(0);
-    const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: MessageData } | null>(null);
-    
-    // Select Mode State
-    const [userPosts, setUserPosts] = useState<PostData[]>([]);
-    const [isLoadingPosts, setIsLoadingPosts] = useState(false);
-    
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const [activeBoostPostId, setActiveBoostPostId] = useState<string | null>(boostedPosts[0]?.id || null);
-    const watchTimers = useRef<Record<string, number>>({});
-    const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    }, [user?.id, blockedIds]);
 
     useEffect(() => {
-        if (!user || mode !== 'feed') return;
-        
-        const loadFeed = async () => {
-            setIsLoadingFeed(true);
-            const activePosts = await fetchActiveBoostedPosts();
-            const engagements = await fetchUserEngagements(user.id);
-            const interestProfile = buildInterestProfile(engagements);
-            
-            // Score and sort active boosted posts
-            const scored = assembleFeed(activePosts, interestProfile, 0, 100);
-            setBoostedPosts(scored.map(s => s.post));
-            setIsLoadingFeed(false);
-        };
-        
         loadFeed();
-    }, [user, mode]);
+    }, [loadFeed]);
 
-    // Tracking observer for the feed
+    // Screen impression delivery tracker (IntersectionObserver)
     useEffect(() => {
-        if (!user || !scrollRef.current || mode !== 'feed' || boostedPosts.length === 0) return;
-        
+        if (!user || stories.length === 0) return;
+
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
-                const postId = entry.target.getAttribute('data-postid');
-                const category = entry.target.getAttribute('data-category') || 'General';
-                if (!postId) return;
-
                 if (entry.isIntersecting) {
-                    watchTimers.current[postId] = Date.now();
-                    trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
-                    setActiveBoostPostId(postId);
-                    // Note: Here we'd also decrement boost_impressions_remaining in a production setting
-                } else {
-                    const startTime = watchTimers.current[postId];
-                    if (startTime) {
-                        const durationSeconds = (Date.now() - startTime) / 1000;
-                        if (durationSeconds > 0.5) {
-                            trackEngagement(user.id, postId, 'watch_time', durationSeconds, category).catch(() => {});
-                        }
-                        delete watchTimers.current[postId];
+                    const storyId = entry.target.getAttribute('data-story-id');
+                    if (storyId) {
+                        recordScreenDelivery(storyId, user.id);
                     }
                 }
             });
-        }, {
-            root: scrollRef.current,
-            threshold: 0.6
-        });
+        }, { threshold: 0.5 });
 
-        Object.values(itemRefs.current).forEach(el => {
+        Object.values(cardRefs.current).forEach(el => {
             if (el) observer.observe(el);
         });
 
-        return () => {
-            observer.disconnect();
-        };
-    }, [user, mode, boostedPosts]);
+        return () => observer.disconnect();
+    }, [user, stories]);
 
-    const handleSwitchToSelect = async () => {
-        setMode('select');
-        if (user && userPosts.length === 0) {
-            setIsLoadingPosts(true);
-            const posts = await fetchUserPosts(user.username);
-            setUserPosts(posts);
-            setIsLoadingPosts(false);
+    // Derived lists
+    const myActiveSnaps = stories.filter(s => user && s.user_id === user.id);
+    
+    const filteredStories = stories.filter(s => {
+        if (filterTab === 'boosted') return s.is_boosted;
+        if (filterTab === 'friends') return s.user_id && userFriends.includes(s.user_id);
+        if (filterTab === 'videos') return isVideoUrl(s.image_url);
+        return true;
+    });
+
+    // Open Story Viewer
+    const handleOpenStory = (story: StoryData) => {
+        // Record screen delivery immediately upon full view
+        if (user && story.id) {
+            recordScreenDelivery(story.id, user.id);
+        }
+
+        const groups = groupStoriesByUser(filteredStories);
+        const groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
+        if (groupIdx >= 0) {
+            setViewerStoryGroups(groups);
+            setActiveViewerGroupIndex(groupIdx);
         }
     };
 
-    const handleBoostPost = async (post: PostData) => {
-        if (!user) return;
-        
-        const amountStr = prompt(`You have ${points} points. How many points do you want to spend? (1 point = 1 view)`, '100');
-        if (!amountStr) return;
-        
-        const amount = parseInt(amountStr, 10);
-        if (isNaN(amount) || amount <= 0) {
-            alert('Please enter a valid amount.');
-            return;
+    // Camera Controls
+    const startCamera = async () => {
+        setIsCameraActive(true);
+        setCapturedMediaUrl(null);
+        setSelectedFile(null);
+        setIsVideo(false);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'user' },
+                audio: false 
+            });
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+            }
+        } catch (err) {
+            console.error('Error accessing camera:', err);
+            alert('Could not access camera. Please allow camera permissions or upload a file from your device.');
+            setIsCameraActive(false);
         }
-        
-        if (points < amount) {
-            alert(`You don't have enough points. You only have ${points} points.`);
-            return;
+    };
+
+    const stopCamera = () => {
+        if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(t => t.stop());
+            videoRef.current.srcObject = null;
         }
-        
-        if (confirm(`Spend ${amount} points to boost this post for 24 hours?`)) {
-            const success = await boostPost(post.id, user.id as string, points, amount);
-            if (success) {
-                setPoints(prev => prev - amount);
-                alert('Post boosted successfully!');
-                setMode('feed');
-            } else {
-                alert('Failed to boost post. Please try again.');
+        setIsCameraActive(false);
+    };
+
+    const capturePhoto = () => {
+        if (videoRef.current && canvasRef.current) {
+            const video = videoRef.current;
+            const canvas = canvasRef.current;
+            canvas.width = video.videoWidth || 720;
+            canvas.height = video.videoHeight || 1280;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                setCapturedMediaUrl(dataUrl);
+                setIsVideo(false);
+                stopCamera();
             }
         }
     };
 
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            const isVid = file.type.startsWith('video/');
+            setSelectedFile(file);
+            setIsVideo(isVid);
+            setCapturedMediaUrl(URL.createObjectURL(file));
+            stopCamera();
+        }
+    };
+
+    const closeCreateModal = () => {
+        stopCamera();
+        setIsCreateModalOpen(false);
+        setCapturedMediaUrl(null);
+        setSelectedFile(null);
+        setIsVideo(false);
+        setCaption('');
+        setSelectedTrack(null);
+        setUploadError(null);
+        setActiveFilterIndex(0);
+    };
+
+    // Guaranteed Reach Calculations
+    const baseFriendsCount = Math.max(userFriends.length, 1);
+    const extraGuaranteedScreens = Math.max(pointsToSpend, 0);
+    const totalGuaranteedReach = baseFriendsCount + extraGuaranteedScreens;
+
+    // Handle Snap Upload & Point Deduction
+    const handleLaunchBoostSnap = async () => {
+        if (!user) {
+            alert('Please log in to post a 24h boost snap.');
+            return;
+        }
+        if (!capturedMediaUrl && !selectedFile) {
+            setUploadError('Please take a photo or select media to upload.');
+            return;
+        }
+        if (pointsToSpend > points) {
+            setUploadError(`You need ${pointsToSpend} points to launch this reach. You only have ${points} points.`);
+            return;
+        }
+
+        setIsSubmitting(true);
+        setUploadError(null);
+
+        try {
+            // Step 1: Upload media
+            let uploadedUrl = '';
+            if (selectedFile) {
+                let fileToUpload = selectedFile;
+                if (selectedFile.type.startsWith('image/')) {
+                    try {
+                        fileToUpload = await compressImage(selectedFile, 1280, 1280, 0.8);
+                    } catch (e) {
+                        console.warn('Compression skipped:', e);
+                    }
+                }
+                const ext = fileToUpload.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
+                const path = `stories/${user.id}-${Date.now()}.${ext}`;
+                uploadedUrl = await uploadMedia(fileToUpload, path);
+            } else if (capturedMediaUrl) {
+                uploadedUrl = await uploadStoryImage(capturedMediaUrl, user.id);
+            }
+
+            if (!uploadedUrl) {
+                throw new Error('Failed to upload media. Please try again.');
+            }
+
+            // Step 2: Create 24-hour boosted story with reach guarantee metadata
+            const filterName = FILTERS[activeFilterIndex].name;
+            const { error: storyError } = await createBoostedStory(
+                user.id,
+                uploadedUrl,
+                filterName,
+                pointsToSpend,
+                baseFriendsCount,
+                user.username || user.name,
+                caption.trim() || undefined,
+                selectedTrack?.title,
+                selectedTrack?.artist,
+                selectedTrack?.url
+            );
+
+            if (storyError) {
+                throw storyError;
+            }
+
+            // Step 3: Deduct boost points
+            if (pointsToSpend > 0) {
+                const newPoints = Math.max(0, points - pointsToSpend);
+                setPoints(newPoints);
+                updatePoints(user.id, newPoints).catch(() => {});
+            }
+
+            // Step 4: Award streak points for posting a 24h snap
+            updateStreak(user.id, 1, null, points - pointsToSpend).catch(() => {});
+
+            // Close modal and reload 24h feed
+            closeCreateModal();
+            await loadFeed();
+        } catch (err: any) {
+            console.error('Failed to post 24h boost snap:', err);
+            setUploadError(err.message || 'Failed to post snap. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     return (
-        <div style={{ background: 'var(--bg-color)', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--surface-color)', zIndex: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-active)' }}>
-                    <Rocket size={24} color="#f5a524" />
-                    <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>Boost</h1>
+        <div style={{ background: 'var(--bg-color)', minHeight: '100vh', paddingBottom: '90px', color: 'var(--text-active)' }}>
+            
+            {/* ── Top Header ── */}
+            <div style={{
+                position: 'sticky', top: 0, zIndex: 30,
+                background: 'rgba(18, 18, 18, 0.85)',
+                backdropFilter: 'blur(16px)',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                padding: '14px 16px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                        width: '36px', height: '36px', borderRadius: '12px',
+                        background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 4px 12px rgba(245, 165, 36, 0.35)'
+                    }}>
+                        <Rocket size={20} color="#000" />
+                    </div>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '800', letterSpacing: '-0.3px' }}>Boost Explore</h1>
+                            <span style={{
+                                fontSize: '10px', fontWeight: '800', color: '#ff6b35',
+                                background: 'rgba(255,107,53,0.15)', padding: '2px 6px',
+                                borderRadius: '6px', border: '1px solid rgba(255,107,53,0.3)',
+                                textTransform: 'uppercase', letterSpacing: '0.5px'
+                            }}>
+                                24H
+                            </span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)' }}>
+                            Guaranteed Screen Reach • 24h Ephemeral
+                        </p>
+                    </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ color: '#ffcc00', fontWeight: 'bold' }}>{points || 0} pts</span>
-                    {mode === 'feed' ? (
-                        <button 
-                            onClick={handleSwitchToSelect}
-                            style={{ background: 'linear-gradient(45deg, #f5a524, #ff6b35)', border: 'none', borderRadius: '20px', padding: '6px 12px', color: 'var(--text-active)', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}
-                        >
-                            <PlusCircle size={14} /> Boost
-                        </button>
-                    ) : (
-                        <button 
-                            onClick={() => setMode('feed')}
-                            style={{ background: 'var(--border-color)', border: 'none', borderRadius: '20px', padding: '6px 12px', color: 'var(--text-active)', fontSize: '12px', fontWeight: 'bold' }}
-                        >
-                            Cancel
-                        </button>
-                    )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {/* Points Pill */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: '5px',
+                        background: 'rgba(245,165,36,0.12)', border: '1px solid rgba(245,165,36,0.35)',
+                        padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', color: '#f5a524'
+                    }}>
+                        <Flame size={14} color="#f5a524" />
+                        <span>{points} pts</span>
+                    </div>
+
+                    {/* Post Snap Action */}
+                    <button
+                        onClick={() => {
+                            setPointsToSpend(Math.min(10, points));
+                            setIsCreateModalOpen(true);
+                        }}
+                        style={{
+                            background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                            border: 'none', borderRadius: '20px', padding: '8px 14px',
+                            color: '#000', fontSize: '12px', fontWeight: '800',
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            cursor: 'pointer', boxShadow: '0 4px 14px rgba(245, 165, 36, 0.4)',
+                            transition: 'transform 0.15s ease'
+                        }}
+                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                    >
+                        <PlusCircle size={15} color="#000" />
+                        <span>Post Snap</span>
+                    </button>
                 </div>
             </div>
 
-            {/* Content */}
-            {mode === 'feed' ? (
-                <div 
-                    ref={scrollRef}
-                    style={{ flex: 1, overflowY: 'auto', scrollSnapType: 'y mandatory', scrollBehavior: 'auto' }}
-                >
-                    {isLoadingFeed ? (
-                        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
+            {/* ── Creator's Active 24h Snaps & Reach Guarantee Dashboard ── */}
+            {myActiveSnaps.length > 0 && (
+                <div style={{ padding: '16px', background: 'linear-gradient(180deg, rgba(245, 165, 36, 0.08) 0%, transparent 100%)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <TrendingUp size={16} color="#f5a524" />
+                            <h2 style={{ margin: 0, fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                My Active Snaps & Delivery Guarantee
+                            </h2>
                         </div>
-                    ) : boostedPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
-                            <Rocket size={48} style={{ margin: '0 auto', marginBottom: '16px', opacity: 0.5 }} />
-                            <p>No active boosted posts right now.</p>
-                            <p style={{ fontSize: '13px', marginTop: '8px' }}>Be the first to boost a post!</p>
-                        </div>
-                    ) : (
-                        boostedPosts.map((post) => (
-                            <div 
-                                key={post.id} 
-                                ref={el => { itemRefs.current[post.id] = el; }} 
-                                data-postid={post.id}
-                                data-category={post.category || 'General'}
-                                style={{ height: 'calc(100vh - 120px)', scrollSnapAlign: 'start', width: '100%', position: 'relative' }}
-                            >
-                                <PostModalContent 
-                                    post={post} 
-                                    onClose={() => {}} 
-                                    onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }} 
-                                    onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }} 
-                                    isEmbedded={true}
-                                    isActive={post.id === activeBoostPostId}
-                                />
-                            </div>
-                        ))
-                    )}
-                </div>
-            ) : (
-                <div style={{ padding: '16px', paddingBottom: '80px', flex: 1, overflowY: 'auto' }}>
-                    <h2 style={{ color: 'var(--text-active)', fontSize: '18px', marginBottom: '16px' }}>Select a post to boost</h2>
-                    <p style={{ color: 'var(--text-inactive)', fontSize: '14px', marginBottom: '24px' }}>
-                        Boosting a post puts it in the Boost feed for 24 hours. You can choose how many points to spend to guarantee targeted views!
-                    </p>
-                    
-                    <button 
-                        onClick={() => navigate('/create?redirect=boost')}
-                        style={{ 
-                            width: '100%', 
-                            background: 'rgba(245, 165, 36, 0.1)', 
-                            border: '1.5px dashed #f5a524', 
-                            borderRadius: '12px', 
-                            padding: '14px', 
-                            color: '#f5a524', 
-                            fontSize: '14px', 
-                            fontWeight: 'bold', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            gap: '8px', 
-                            cursor: 'pointer',
-                            marginBottom: '20px',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        <PlusCircle size={18} /> Upload New Photo or Video
-                    </button>
-                    
-                    {isLoadingPosts ? (
-                        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-inactive)' }} />
-                        </div>
-                    ) : userPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--text-inactive)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-                            <p style={{ margin: 0 }}>You haven't posted anything yet.</p>
-                            <button 
-                                onClick={() => navigate('/create?redirect=boost')}
-                                style={{ 
-                                    background: 'linear-gradient(45deg, #f5a524, #ff6b35)', 
-                                    border: 'none', 
-                                    borderRadius: '24px', 
-                                    padding: '10px 24px', 
-                                    color: '#fff', 
-                                    fontSize: '14px', 
-                                    fontWeight: 'bold', 
-                                    cursor: 'pointer' 
-                                }}
-                            >
-                                Upload Photo / Video
-                            </button>
-                        </div>
-                    ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
-                            {userPosts.map(post => {
-                                let filter = post.css_filter || 'none';
-                                try {
-                                    if (filter === 'none') {
-                                        const url = new URL(post.image_url);
-                                        const f = url.searchParams.get('filter');
-                                        if (f) filter = decodeURIComponent(f);
-                                    }
-                                } catch(e) {}
-                                return (
-                                <div 
-                                    key={post.id} 
-                                    onClick={() => handleBoostPost(post)}
-                                    style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', background: 'var(--border-color)' }}
+                        <button 
+                            onClick={() => loadFeed(true)} 
+                            style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
+                        >
+                            <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+                            Refresh
+                        </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '6px' }}>
+                        {myActiveSnaps.map((snap) => {
+                            const timeInfo = getTimeRemaining(snap.created_at);
+                            const target = snap.target_screens || 24;
+                            const delivered = snap.screens_delivered || 0;
+                            const pct = Math.min(100, Math.round((delivered / target) * 100));
+                            const friends = snap.boost_meta?.friendsCount || baseFriendsCount;
+                            const boosted = snap.boost_meta?.pointsSpent || 0;
+
+                            return (
+                                <div
+                                    key={snap.id}
+                                    onClick={() => handleOpenStory(snap)}
+                                    style={{
+                                        minWidth: '260px', maxWidth: '280px',
+                                        background: 'var(--surface-color)',
+                                        border: '1px solid rgba(245, 165, 36, 0.35)',
+                                        borderRadius: '16px',
+                                        padding: '12px',
+                                        cursor: 'pointer',
+                                        boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                                        flexShrink: 0,
+                                        display: 'flex',
+                                        gap: '12px',
+                                        position: 'relative'
+                                    }}
                                 >
-                                    {isVideoPost(post) ? (
-                                        <video src={post.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} muted playsInline preload="metadata" />
-                                    ) : (
-                                        <img 
-                                            src={post.image_url} 
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover', filter }} 
-                                            alt="" 
-                                            referrerPolicy="no-referrer"
-                                            onError={(e) => {
-                                                e.currentTarget.onerror = null;
-                                                e.currentTarget.src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop&q=80';
-                                            }}
-                                        />
-                                    )}
-                                    {post.music_url && (
+                                    {/* Thumbnail */}
+                                    <div style={{ width: '64px', height: '90px', borderRadius: '10px', overflow: 'hidden', background: '#000', position: 'relative', flexShrink: 0 }}>
+                                        {isVideoUrl(snap.image_url) ? (
+                                            <video 
+                                                src={`${snap.image_url.split('#')[0]}#t=0.001`}
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                muted playsInline preload="metadata"
+                                            />
+                                        ) : (
+                                            <img 
+                                                src={snap.image_url.split('#')[0]} 
+                                                alt="" 
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            />
+                                        )}
                                         <div style={{
-                                            position: 'absolute', top: '6px', left: '6px', zIndex: 5,
-                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
-                                            padding: '2px 6px', borderRadius: '10px', color: '#fff',
-                                            fontSize: '9px', fontWeight: '600',
+                                            position: 'absolute', bottom: '4px', left: '4px',
+                                            background: 'rgba(0,0,0,0.7)', borderRadius: '4px',
+                                            padding: '1px 4px', fontSize: '9px', color: '#fff', fontWeight: 'bold'
                                         }}>
-                                            <Music size={9} color="#f5a524" />
-                                            <span>{post.music_title || '♪'}</span>
+                                            24h
                                         </div>
-                                    )}
-                                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }} onMouseEnter={e => e.currentTarget.style.opacity = '1'} onMouseLeave={e => e.currentTarget.style.opacity = '0'}>
-                                        <span style={{ color: 'var(--text-active)', fontWeight: 'bold', textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>Boost</span>
+                                    </div>
+
+                                    {/* Reach Guarantee Details */}
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                        <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                                <span style={{ fontSize: '11px', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '600' }}>
+                                                    <Clock size={11} /> {timeInfo.text}
+                                                </span>
+                                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#f5a524' }}>
+                                                    {pct}%
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-active)', marginBottom: '4px' }}>
+                                                Delivered to {delivered} / {target} Screens
+                                            </div>
+                                        </div>
+
+                                        {/* Progress Bar */}
+                                        <div>
+                                            <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginBottom: '6px' }}>
+                                                <div style={{
+                                                    width: `${pct}%`, height: '100%',
+                                                    background: 'linear-gradient(90deg, #f5a524, #ff6b35)',
+                                                    borderRadius: '4px',
+                                                    transition: 'width 0.4s ease'
+                                                }} />
+                                            </div>
+                                            <div style={{ fontSize: '10px', color: 'var(--text-inactive)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <span>👥 {friends} Friends</span>
+                                                <span>⚡ +{boosted} Boosted</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                );
-                            })}
-                        </div>
-                    )}
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
-            {isCommentsOpen && commentsPostId && user && (
-                <CommentsSheet postId={commentsPostId} isOpen={isCommentsOpen} currentUser={user as any} onClose={() => setIsCommentsOpen(false)} />
+            {/* ── Exploration Filter Tabs ── */}
+            <div style={{
+                display: 'flex', gap: '8px', padding: '12px 16px',
+                overflowX: 'auto', borderBottom: '1px solid rgba(255,255,255,0.06)'
+            }}>
+                {[
+                    { id: 'all', label: 'All Snaps', icon: Sparkles },
+                    { id: 'boosted', label: 'Boosted 🔥', icon: Flame },
+                    { id: 'friends', label: 'Friends 👥', icon: Users },
+                    { id: 'videos', label: 'Videos 🎬', icon: Play },
+                ].map(tab => {
+                    const active = filterTab === tab.id;
+                    const Icon = tab.icon;
+                    return (
+                        <button
+                            key={tab.id}
+                            onClick={() => setFilterTab(tab.id as any)}
+                            style={{
+                                background: active ? 'linear-gradient(135deg, rgba(245,165,36,0.2), rgba(255,107,53,0.2))' : 'var(--surface-color)',
+                                border: active ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.08)',
+                                color: active ? '#f5a524' : 'var(--text-inactive)',
+                                padding: '6px 14px', borderRadius: '20px',
+                                fontSize: '12px', fontWeight: active ? '700' : '500',
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                cursor: 'pointer', whiteSpace: 'nowrap',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            <Icon size={13} />
+                            {tab.label}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* ── 24-Hour Ephemeral Discovery Feed (Grid) ── */}
+            <div style={{ padding: '16px' }}>
+                {isLoading ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 0', gap: '12px' }}>
+                        <Loader2 size={36} className="animate-spin" color="#f5a524" />
+                        <p style={{ color: 'var(--text-inactive)', fontSize: '13px' }}>Loading active 24-hour snaps...</p>
+                    </div>
+                ) : filteredStories.length === 0 ? (
+                    <div style={{
+                        textAlign: 'center', padding: '64px 20px',
+                        background: 'var(--surface-color)', borderRadius: '20px',
+                        border: '1px dashed rgba(255,255,255,0.15)',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px'
+                    }}>
+                        <div style={{
+                            width: '56px', height: '56px', borderRadius: '50%',
+                            background: 'rgba(245,165,36,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        }}>
+                            <Rocket size={28} color="#f5a524" />
+                        </div>
+                        <div>
+                            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700' }}>No active 24h snaps in this filter</h3>
+                            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-inactive)', maxWidth: '280px' }}>
+                                Be the first to post a 24-hour snap! Spend boost points to guarantee screen reach across the app.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setPointsToSpend(Math.min(10, points));
+                                setIsCreateModalOpen(true);
+                            }}
+                            style={{
+                                background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                                border: 'none', borderRadius: '24px', padding: '10px 20px',
+                                color: '#000', fontSize: '13px', fontWeight: '800',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                            }}
+                        >
+                            <PlusCircle size={16} /> Post 24h Boost Snap
+                        </button>
+                    </div>
+                ) : (
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                        gap: '12px'
+                    }}>
+                        {filteredStories.map((story) => {
+                            const timeInfo = getTimeRemaining(story.created_at);
+                            const isUserOwn = user && story.user_id === user.id;
+                            const targetScreens = story.target_screens || 24;
+                            const deliveredScreens = story.screens_delivered || 0;
+                            const isBoosted = story.is_boosted;
+
+                            return (
+                                <div
+                                    key={story.id}
+                                    ref={el => { cardRefs.current[story.id] = el; }}
+                                    data-story-id={story.id}
+                                    onClick={() => handleOpenStory(story)}
+                                    style={{
+                                        aspectRatio: '9 / 16',
+                                        borderRadius: '16px',
+                                        overflow: 'hidden',
+                                        position: 'relative',
+                                        background: '#181818',
+                                        cursor: 'pointer',
+                                        boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                                        border: isBoosted ? '1.5px solid rgba(245, 165, 36, 0.45)' : '1px solid rgba(255,255,255,0.06)',
+                                        transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.transform = 'translateY(-3px)';
+                                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(245, 165, 36, 0.25)';
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+                                    }}
+                                >
+                                    {/* Media */}
+                                    {isVideoUrl(story.image_url) ? (
+                                        <video
+                                            src={`${story.image_url.split('#')[0]}#t=0.001`}
+                                            muted
+                                            playsInline
+                                            preload="metadata"
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    ) : (
+                                        <img
+                                            src={story.image_url.split('#')[0]}
+                                            alt=""
+                                            loading="lazy"
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    )}
+
+                                    {/* Top Overlay Badges */}
+                                    <div style={{
+                                        position: 'absolute', top: '8px', left: '8px', right: '8px',
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        zIndex: 5
+                                    }}>
+                                        {/* 24h Countdown Badge */}
+                                        <div style={{
+                                            background: 'rgba(0,0,0,0.7)',
+                                            backdropFilter: 'blur(8px)',
+                                            borderRadius: '12px',
+                                            padding: '3px 8px',
+                                            display: 'flex', alignItems: 'center', gap: '4px',
+                                            fontSize: '10px', fontWeight: '700',
+                                            color: '#60a5fa',
+                                            border: '1px solid rgba(96,165,250,0.3)'
+                                        }}>
+                                            <Clock size={10} />
+                                            <span>{timeInfo.text}</span>
+                                        </div>
+
+                                        {/* Boost Screen Guarantee Badge */}
+                                        {isBoosted && (
+                                            <div style={{
+                                                background: 'linear-gradient(135deg, rgba(245,165,36,0.9), rgba(255,107,53,0.9))',
+                                                borderRadius: '12px',
+                                                padding: '3px 7px',
+                                                display: 'flex', alignItems: 'center', gap: '3px',
+                                                fontSize: '10px', fontWeight: '800',
+                                                color: '#000',
+                                                boxShadow: '0 2px 8px rgba(245, 165, 36, 0.4)'
+                                            }}>
+                                                <Flame size={10} />
+                                                <span>+{story.points_spent || 10}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Bottom Gradient Overlay & Details */}
+                                    <div style={{
+                                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                                        background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 40%, rgba(0,0,0,0.95) 100%)',
+                                        padding: '24px 10px 10px 10px',
+                                        zIndex: 5,
+                                        display: 'flex', flexDirection: 'column', gap: '6px'
+                                    }}>
+                                        {/* Creator info */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <img
+                                                src={`https://i.pravatar.cc/150?u=${story.username || story.user_id}`}
+                                                alt=""
+                                                style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #fff' }}
+                                            />
+                                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {isUserOwn ? 'You' : `@${story.username || 'user'}`}
+                                            </span>
+                                        </div>
+
+                                        {/* Caption snippet */}
+                                        {story.caption && (
+                                            <p style={{
+                                                margin: 0, fontSize: '11px', color: 'rgba(255,255,255,0.85)',
+                                                display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical',
+                                                overflow: 'hidden', textOverflow: 'ellipsis'
+                                            }}>
+                                                {story.caption}
+                                            </p>
+                                        )}
+
+                                        {/* Music Badge */}
+                                        {story.music_title && (
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                fontSize: '10px', color: '#f5a524',
+                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                            }}>
+                                                <Music size={10} />
+                                                <span>{story.music_title}</span>
+                                            </div>
+                                        )}
+
+                                        {/* Reach Delivery Indicator */}
+                                        {isBoosted && (
+                                            <div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#ffcc00', fontWeight: '700', marginBottom: '2px' }}>
+                                                    <span>{deliveredScreens} / {targetScreens} screens</span>
+                                                    <span>{Math.round((deliveredScreens / targetScreens) * 100)}%</span>
+                                                </div>
+                                                <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
+                                                    <div style={{
+                                                        width: `${Math.min(100, Math.round((deliveredScreens / targetScreens) * 100))}%`,
+                                                        height: '100%',
+                                                        background: 'linear-gradient(90deg, #f5a524, #ff6b35)'
+                                                    }} />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* ── Direct 24h Snap Creator Modal ── */}
+            {isCreateModalOpen && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '16px'
+                }}>
+                    <div style={{
+                        background: 'var(--surface-color)',
+                        width: '100%', maxWidth: '440px', maxHeight: '92vh',
+                        borderRadius: '24px', overflowY: 'auto',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
+                        display: 'flex', flexDirection: 'column'
+                    }}>
+                        {/* Modal Header */}
+                        <div style={{
+                            padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Rocket size={20} color="#f5a524" />
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>Post 24h Boost Snap</h3>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>Disappears in 24 hours</span>
+                                </div>
+                            </div>
+                            <button onClick={closeCreateModal} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }}>
+                                <X size={22} />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                            {/* Viewfinder / Media Preview */}
+                            <div style={{
+                                width: '100%', aspectRatio: '9 / 12', borderRadius: '16px',
+                                overflow: 'hidden', background: '#0a0a0a', position: 'relative',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                border: '1px solid rgba(255,255,255,0.1)'
+                            }}>
+                                {isCameraActive ? (
+                                    <>
+                                        <video
+                                            ref={videoRef}
+                                            autoPlay
+                                            playsInline
+                                            muted
+                                            style={{
+                                                width: '100%', height: '100%', objectFit: 'cover',
+                                                filter: FILTERS[activeFilterIndex].style
+                                            }}
+                                        />
+                                        <button
+                                            onClick={capturePhoto}
+                                            style={{
+                                                position: 'absolute', bottom: '16px',
+                                                width: '64px', height: '64px', borderRadius: '50%',
+                                                background: '#fff', border: '4px solid #f5a524',
+                                                cursor: 'pointer', boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+                                            }}
+                                        />
+                                    </>
+                                ) : capturedMediaUrl ? (
+                                    <>
+                                        {isVideo ? (
+                                            <video
+                                                src={capturedMediaUrl}
+                                                autoPlay
+                                                loop
+                                                muted
+                                                playsInline
+                                                style={{
+                                                    width: '100%', height: '100%', objectFit: 'cover',
+                                                    filter: FILTERS[activeFilterIndex].style
+                                                }}
+                                            />
+                                        ) : (
+                                            <img
+                                                src={capturedMediaUrl}
+                                                alt="Preview"
+                                                style={{
+                                                    width: '100%', height: '100%', objectFit: 'cover',
+                                                    filter: FILTERS[activeFilterIndex].style
+                                                }}
+                                            />
+                                        )}
+                                        <button
+                                            onClick={() => {
+                                                setCapturedMediaUrl(null);
+                                                setSelectedFile(null);
+                                                setIsVideo(false);
+                                            }}
+                                            style={{
+                                                position: 'absolute', top: '10px', right: '10px',
+                                                background: 'rgba(0,0,0,0.65)', border: 'none',
+                                                borderRadius: '50%', width: '32px', height: '32px',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                color: '#fff', cursor: 'pointer'
+                                            }}
+                                        >
+                                            <X size={18} />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                            <button
+                                                onClick={startCamera}
+                                                style={{
+                                                    background: 'rgba(245,165,36,0.15)', border: '1px solid #f5a524',
+                                                    borderRadius: '16px', padding: '14px 18px', color: '#f5a524',
+                                                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                                                    cursor: 'pointer', fontWeight: '700', fontSize: '12px'
+                                                }}
+                                            >
+                                                <Camera size={26} />
+                                                <span>Open Camera</span>
+                                            </button>
+
+                                            <button
+                                                onClick={() => fileInputRef.current?.click()}
+                                                style={{
+                                                    background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+                                                    borderRadius: '16px', padding: '14px 18px', color: 'var(--text-active)',
+                                                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                                                    cursor: 'pointer', fontWeight: '700', fontSize: '12px'
+                                                }}
+                                            >
+                                                <ImageIcon size={26} />
+                                                <span>Upload File</span>
+                                            </button>
+                                        </div>
+                                        <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>Supports photos and video clips</span>
+                                    </div>
+                                )}
+                                <canvas ref={canvasRef} style={{ display: 'none' }} />
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*,video/*"
+                                    style={{ display: 'none' }}
+                                    onChange={handleFileSelect}
+                                />
+                            </div>
+
+                            {/* AR Filter Selection */}
+                            {(capturedMediaUrl || isCameraActive) && (
+                                <div>
+                                    <label style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-inactive)', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
+                                        Filters
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                                        {FILTERS.map((f, idx) => (
+                                            <button
+                                                key={f.name}
+                                                onClick={() => setActiveFilterIndex(idx)}
+                                                style={{
+                                                    padding: '5px 12px', borderRadius: '16px',
+                                                    background: activeFilterIndex === idx ? '#f5a524' : 'rgba(255,255,255,0.06)',
+                                                    color: activeFilterIndex === idx ? '#000' : 'var(--text-inactive)',
+                                                    border: 'none', fontSize: '11px', fontWeight: '700', cursor: 'pointer',
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                            >
+                                                {f.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Soundtrack Button */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.04)', padding: '10px 14px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Music size={16} color="#f5a524" />
+                                    <span style={{ fontSize: '12px', fontWeight: '600' }}>
+                                        {selectedTrack ? `${selectedTrack.title} • ${selectedTrack.artist}` : 'Add Soundtrack'}
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={() => setIsMusicModalOpen(true)}
+                                    style={{
+                                        background: selectedTrack ? 'rgba(245,165,36,0.2)' : 'var(--border-color)',
+                                        border: 'none', borderRadius: '14px', padding: '4px 10px',
+                                        color: selectedTrack ? '#f5a524' : 'var(--text-active)',
+                                        fontSize: '11px', fontWeight: '700', cursor: 'pointer'
+                                    }}
+                                >
+                                    {selectedTrack ? 'Change' : 'Choose 🎵'}
+                                </button>
+                            </div>
+
+                            {/* Caption Input */}
+                            <input
+                                type="text"
+                                value={caption}
+                                onChange={e => setCaption(e.target.value)}
+                                placeholder="Add a caption or story note..."
+                                style={{
+                                    width: '100%', background: 'rgba(255,255,255,0.06)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: '12px', padding: '12px 14px',
+                                    color: 'var(--text-active)', fontSize: '13px', outline: 'none'
+                                }}
+                            />
+
+                            {/* ── Screen Delivery Reach Engine (The Core Feature) ── */}
+                            <div style={{
+                                background: 'linear-gradient(135deg, rgba(245,165,36,0.1), rgba(255,107,53,0.1))',
+                                border: '1px solid rgba(245,165,36,0.3)',
+                                borderRadius: '16px', padding: '16px',
+                                display: 'flex', flexDirection: 'column', gap: '12px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <ShieldCheck size={16} color="#f5a524" />
+                                        <span style={{ fontSize: '13px', fontWeight: '800', color: '#f5a524' }}>
+                                            Screen Delivery Guarantee
+                                        </span>
+                                    </div>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>
+                                        Balance: <strong style={{ color: '#fff' }}>{points} pts</strong>
+                                    </span>
+                                </div>
+
+                                {/* Math Breakdown */}
+                                <div style={{
+                                    background: 'rgba(0,0,0,0.4)', borderRadius: '12px', padding: '10px 14px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-around',
+                                    textAlign: 'center'
+                                }}>
+                                    <div>
+                                        <div style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>Friends Reach</div>
+                                        <div style={{ fontSize: '16px', fontWeight: '800', color: '#fff' }}>{baseFriendsCount}</div>
+                                        <div style={{ fontSize: '9px', color: '#60a5fa' }}>screens</div>
+                                    </div>
+                                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#f5a524' }}>+</div>
+                                    <div>
+                                        <div style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>Boost Points</div>
+                                        <div style={{ fontSize: '16px', fontWeight: '800', color: '#f5a524' }}>{extraGuaranteedScreens}</div>
+                                        <div style={{ fontSize: '9px', color: '#f5a524' }}>extra screens</div>
+                                    </div>
+                                    <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff6b35' }}>=</div>
+                                    <div>
+                                        <div style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>Total Guaranteed</div>
+                                        <div style={{ fontSize: '18px', fontWeight: '900', color: '#ff6b35' }}>{totalGuaranteedReach}</div>
+                                        <div style={{ fontSize: '9px', color: '#ff6b35', fontWeight: 'bold' }}>SCREENS 🔥</div>
+                                    </div>
+                                </div>
+
+                                {/* Point Stepper / Selector */}
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <span style={{ fontSize: '12px', color: 'var(--text-inactive)' }}>
+                                            Points to allocate (1 pt = 1 extra user screen):
+                                        </span>
+                                        <span style={{ fontSize: '13px', fontWeight: '800', color: '#f5a524' }}>
+                                            {pointsToSpend} pts
+                                        </span>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        {[0, 5, 10, 25, 50].map(amt => (
+                                            <button
+                                                key={amt}
+                                                type="button"
+                                                onClick={() => setPointsToSpend(Math.min(amt, points))}
+                                                style={{
+                                                    flex: 1, padding: '7px 0', borderRadius: '10px',
+                                                    background: pointsToSpend === amt ? '#f5a524' : 'rgba(255,255,255,0.06)',
+                                                    color: pointsToSpend === amt ? '#000' : 'var(--text-active)',
+                                                    border: 'none', fontSize: '11px', fontWeight: '700', cursor: 'pointer'
+                                                }}
+                                            >
+                                                +{amt}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <p style={{ margin: 0, fontSize: '11px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4' }}>
+                                    💡 <em>Our delivery engine guarantees your snap reaches all {baseFriendsCount} of your friends, plus {extraGuaranteedScreens} additional user screens across the app within 24 hours.</em>
+                                </p>
+                            </div>
+
+                            {/* Error display */}
+                            {uploadError && (
+                                <div style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
+                                    borderRadius: '10px', padding: '10px', color: '#ef4444', fontSize: '12px'
+                                }}>
+                                    <AlertCircle size={16} />
+                                    <span>{uploadError}</span>
+                                </div>
+                            )}
+
+                            {/* Launch Action */}
+                            <button
+                                onClick={handleLaunchBoostSnap}
+                                disabled={isSubmitting || (!capturedMediaUrl && !selectedFile)}
+                                style={{
+                                    background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                                    border: 'none', borderRadius: '14px', padding: '14px',
+                                    color: '#000', fontSize: '14px', fontWeight: '800',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                                    opacity: isSubmitting || (!capturedMediaUrl && !selectedFile) ? 0.6 : 1,
+                                    boxShadow: '0 6px 20px rgba(245, 165, 36, 0.45)',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                {isSubmitting ? (
+                                    <>
+                                        <Loader2 size={18} className="animate-spin" />
+                                        <span>Publishing 24h Snap...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Rocket size={18} />
+                                        <span>Launch 24h Boost Snap ({totalGuaranteedReach} Screens)</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
-            {user && (
-                <ChatPanel 
-                    isOpen={isChatOpen} 
-                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
-                    currentUser={{ ...user, username: user.username || 'user' }} 
-                    initialOpenUserId={chatUserId}
-                    refreshKey={chatRefreshKey}
-                    pendingShare={pendingShare}
+            {/* ── Fullscreen Story Viewer ── */}
+            {activeViewerGroupIndex !== null && (
+                <StoryViewer
+                    storyGroups={viewerStoryGroups}
+                    initialGroupIndex={activeViewerGroupIndex}
+                    currentUserId={user?.id}
+                    onClose={() => setActiveViewerGroupIndex(null)}
+                    onGroupsUpdated={(newGroups) => {
+                        setViewerStoryGroups(newGroups);
+                        const updatedFlat = newGroups.flatMap(g => g.stories);
+                        setStories(updatedFlat);
+                    }}
                 />
             )}
 
-            {isShareOpen && postToShare && user && (
-                <ShareModal 
-                    post={postToShare} 
-                    isOpen={isShareOpen} 
-                    currentUser={user as any} 
-                    onClose={() => setIsShareOpen(false)} 
-                    onMessageSent={(receiverId, message) => {
-                        setPendingShare({ receiverId, message });
-                        setChatRefreshKey(k => k + 1);
-                    }}
-                    onViewChat={(userId) => {
-                        setIsShareOpen(false);
-                        setPostToShare(null);
-                        setChatUserId(userId);
-                        setIsChatOpen(true);
-                    }}
-                />
-            )}
+            {/* ── Music Picker Modal ── */}
+            <MusicPickerModal
+                isOpen={isMusicModalOpen}
+                onClose={() => setIsMusicModalOpen(false)}
+                onSelectTrack={(track) => setSelectedTrack(track)}
+                selectedTrackId={selectedTrack?.id}
+            />
         </div>
     );
 };

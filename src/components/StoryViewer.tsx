@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward } from 'lucide-react';
-import { type UserStoryGroup, deleteStory } from '../lib/database';
+import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap } from 'lucide-react';
+import { type UserStoryGroup, deleteStory, recordScreenDelivery } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 
@@ -182,6 +182,13 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         setIsPaused(false);
     };
 
+    // Record unique screen delivery
+    useEffect(() => {
+        if (currentStory?.id && currentUserId) {
+            recordScreenDelivery(currentStory.id, currentUserId);
+        }
+    }, [currentStory?.id, currentUserId]);
+
     if (!currentGroup || !currentStory) return null;
 
     const timeSince = (dateString: string) => {
@@ -189,6 +196,17 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         if (diff < 60) return `${diff}s`;
         if (diff < 3600) return `${Math.floor(diff / 60)}m`;
         return `${Math.floor(diff / 3600)}h`;
+    };
+
+    const getTimeLeft24h = (createdStr?: string) => {
+        if (!createdStr) return null;
+        const expiryTime = new Date(createdStr).getTime() + 24 * 60 * 60 * 1000;
+        const msLeft = expiryTime - Date.now();
+        if (msLeft <= 0) return 'Expired';
+        const hours = Math.floor(msLeft / (1000 * 60 * 60));
+        const mins = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
+        if (hours > 0) return `${hours}h ${mins}m left`;
+        return `${mins}m left`;
     };
 
     return (
@@ -219,8 +237,45 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     style={{ cursor: 'pointer' }}
                 >
                     <img src={currentGroup.avatarUrl} alt={currentGroup.username} />
-                    <span className="story-username">{currentGroup.username}</span>
-                    <span className="story-time">{timeSince(currentStory.created_at)}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="story-username">{currentGroup.username}</span>
+                            <span className="story-time">{timeSince(currentStory.created_at)}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
+                            <span style={{
+                                fontSize: '10px',
+                                padding: '1px 6px',
+                                borderRadius: '10px',
+                                background: 'rgba(0,0,0,0.6)',
+                                color: '#60a5fa',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                border: '1px solid rgba(96,165,250,0.3)',
+                                backdropFilter: 'blur(4px)'
+                            }}>
+                                <Clock size={10} /> {getTimeLeft24h(currentStory.created_at) || '24h'}
+                            </span>
+                            {currentStory.is_boosted && (
+                                <span style={{
+                                    fontSize: '10px',
+                                    padding: '1px 6px',
+                                    borderRadius: '10px',
+                                    background: 'rgba(245,165,36,0.3)',
+                                    color: '#f5a524',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    fontWeight: 'bold',
+                                    border: '1px solid rgba(245,165,36,0.5)',
+                                    backdropFilter: 'blur(4px)'
+                                }}>
+                                    <Rocket size={10} /> {currentStory.screens_delivered || 0}/{currentStory.target_screens || 24} Screens
+                                </span>
+                            )}
+                        </div>
+                    </div>
                 </div>
                 <div className="story-actions">
                     {currentStory.user_id === currentUserId && (
