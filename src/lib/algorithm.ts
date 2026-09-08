@@ -1,12 +1,16 @@
 /**
  * algorithm.ts — Knock Knock Recommendation Engine
  * 
- * Implements a weighted scoring system inspired by Instagram's Two-Tower architecture:
+ * Implements a weighted scoring and Instagram-style feed blending engine:
  * - User interest profiling based on engagement history
- * - Post scoring based on weighted engagement signals
- * - Time-decay to favor fresh content
- * - "Surprise" content injection for variable reward scheduling
+ * - Post scoring based on weighted engagement signals + new creator exploration boost
+ * - Author anti-clustering (consecutive creator penalty)
+ * - Media format interleaving (videos and photos mixed: "all form")
+ * - Category rotation & variable reward surprise content injection
+ * - Active user new-upload priority
  */
+
+import { isVideoPost } from './media';
 
 // ── Weight Configuration ───────────────────────────────────
 export const ENGAGEMENT_WEIGHTS: Record<string, number> = {
@@ -82,127 +86,295 @@ export interface ScoredPost {
  * Calculate a relevance score for a single post relative to the user's interest profile.
  */
 export function calculatePostScore(
-    post: { category?: string; created_at: string; likes_count?: number; shares_count?: number; imps_count?: number },
-    userProfile: UserInterestProfile
+    post: { id?: string; user_id?: string; category?: string; created_at: string; likes_count?: number; shares_count?: number; imps_count?: number; comments_count?: number },
+    userProfile: UserInterestProfile,
+    currentUserId?: string
 ): number {
-    let score = 0;
+    let score = 1.0; // Baseline score so all posts have initial relevance
 
-    // 1. Category affinity: boost if post matches user's top interests
+    // 1. Category affinity: boost if post matches user's tracked top interests
     const postCategory = post.category || 'General';
     const categoryScore = userProfile.categoryScores[postCategory] || 0;
-    score += categoryScore * 0.5; // Scale down to avoid overwhelming
+    score += categoryScore * 0.6;
 
-    // 2. Popularity signal: posts with more likes/shares get a small boost
-    score += (post.likes_count || 0) * 0.01;
-    score += (post.shares_count || 0) * 0.05;
+    // 2. Engagement signals: likes, shares, comments
+    score += (post.likes_count || 0) * 0.05;
+    score += (post.shares_count || 0) * 0.1;
+    score += ((post as any).comments_count || 0) * 0.1;
 
     // 3. Imp Boost: Massive visibility multiplier if users have imped the content
     if (post.imps_count && post.imps_count > 0) {
-        score += (post.imps_count * 100);
+        score += (post.imps_count * 50);
     }
 
-    // 4. Time decay: newer content gets a significant boost
-    const hoursOld = (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60);
+    // 4. Time decay & Exploration Boost for fresh uploads
+    const hoursOld = Math.max(0, (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60));
     const decay = decayFactor(hoursOld);
     score *= decay;
+
+    // 5. Active user's own recent upload priority (< 48 hours)
+    if (currentUserId && post.user_id && post.user_id === currentUserId && hoursOld < 48) {
+        score += 1000; // Pin/prioritize user's own newly posted content at the top of their feed
+    }
 
     return score;
 }
 
 /**
- * Time decay function. Content loses relevance over time.
- * - < 1 hour: 1.5x boost (brand new!)
- * - 1-6 hours: 1.2x boost
- * - 6-24 hours: 1.0x (neutral)
- * - 1-3 days: 0.7x
- * - 3-7 days: 0.4x
- * - > 7 days: 0.2x
+ * Time decay function. Content loses relevance over time, but fresh content
+ * gets an Instagram-style "Exploration Boost" for creator discovery.
+ * - < 2 hours: 2.5x boost (new upload exploration phase)
+ * - 2-12 hours: 1.8x boost
+ * - 12-24 hours: 1.4x boost
+ * - 1-3 days: 1.0x (neutral)
+ * - 3-7 days: 0.6x
+ * - > 7 days: 0.3x
  */
 export function decayFactor(hoursOld: number): number {
-    if (hoursOld < 1) return 1.5;
-    if (hoursOld < 6) return 1.2;
-    if (hoursOld < 24) return 1.0;
-    if (hoursOld < 72) return 0.7;
-    if (hoursOld < 168) return 0.4;
-    return 0.2;
+    if (hoursOld < 2) return 2.5;
+    if (hoursOld < 12) return 1.8;
+    if (hoursOld < 24) return 1.4;
+    if (hoursOld < 72) return 1.0;
+    if (hoursOld < 168) return 0.6;
+    return 0.3;
 }
 
 /**
- * Assemble a fully ranked, paginated feed with variable reward injection.
+ * Instagram-Style Feed Diversification & Blending
+ * 
+ * Takes scored candidate posts and applies:
+ * 1. Author Anti-Clustering: Prevents bulk uploads from one creator (e.g. 37 Tara videos)
+ *    from appearing consecutively. Spreads creator posts across the feed.
+ * 2. Media Format Interleaving ("Mixed, all form"): Smoothly interleaves video reels and photo posts.
+ * 3. Category Rotation: Rotates across different categories to prevent topic fatigue.
+ * 4. Variable Reward Surprise Content: Injects fresh unexplored content periodically (~every 5 posts).
+ * 5. Own Post Priority: Pins the logged-in user's own fresh uploads to the top.
+ */
+export function blendFeed(
+    scoredPosts: ScoredPost[],
+    userProfile: UserInterestProfile,
+    currentUserId?: string
+): ScoredPost[] {
+    if (scoredPosts.length <= 1) return scoredPosts;
+
+    // Separate user's own fresh posts to pin at the very top (positions 0-1)
+    const ownFreshPosts: ScoredPost[] = [];
+    const regularPosts: ScoredPost[] = [];
+
+    for (const item of scoredPosts) {
+        const hoursOld = Math.max(0, (Date.now() - new Date(item.post.created_at).getTime()) / (1000 * 60 * 60));
+        if (currentUserId && item.post.user_id === currentUserId && hoursOld < 48) {
+            ownFreshPosts.push(item);
+        } else {
+            regularPosts.push(item);
+        }
+    }
+
+    // Sort regular candidates by score descending
+    regularPosts.sort((a, b) => b.score - a.score);
+
+    // Identify surprise candidates from unexplored categories
+    const surprisePool: ScoredPost[] = [];
+    const mainPool: ScoredPost[] = [];
+
+    for (const item of regularPosts) {
+        const cat = item.post.category || 'General';
+        if (userProfile.unexploredCategories.includes(cat)) {
+            surprisePool.push(item);
+        } else {
+            mainPool.push(item);
+        }
+    }
+
+    // If mainPool is empty, move surprisePool items to mainPool
+    if (mainPool.length === 0) {
+        mainPool.push(...surprisePool);
+        surprisePool.length = 0;
+    }
+
+    const blended: ScoredPost[] = [];
+    // Start with user's own fresh posts at the top
+    for (const own of ownFreshPosts) {
+        blended.push(own);
+    }
+
+    // Working copy of candidate items
+    const candidates = [...mainPool];
+    let surpriseIdx = 0;
+
+    const recentAuthors: string[] = blended.map(s => s.post.username || s.post.user_id || 'anon').slice(-2);
+    const recentFormats: ('video' | 'image')[] = blended.map(s => isVideoPost(s.post) ? 'video' : 'image').slice(-2);
+    const recentCategories: string[] = blended.map(s => s.post.category || 'General').slice(-2);
+
+    while (candidates.length > 0) {
+        const nextIndex = blended.length;
+
+        // Check if we should inject a surprise post (every 5th item)
+        if (nextIndex % 5 === 0 && surpriseIdx < surprisePool.length) {
+            const surprise = { ...surprisePool[surpriseIdx], isSurprise: true };
+            const author = surprise.post.username || surprise.post.user_id || 'anon';
+            // Only inject if surprise author does not match immediate previous author
+            if (recentAuthors.length === 0 || recentAuthors[recentAuthors.length - 1] !== author) {
+                blended.push(surprise);
+                recentAuthors.push(author);
+                if (recentAuthors.length > 3) recentAuthors.shift();
+                recentFormats.push(isVideoPost(surprise.post) ? 'video' : 'image');
+                if (recentFormats.length > 3) recentFormats.shift();
+                recentCategories.push(surprise.post.category || 'General');
+                if (recentCategories.length > 3) recentCategories.shift();
+                surpriseIdx++;
+                continue;
+            }
+        }
+
+        // Determine ideal target format: if last 2 were videos, prefer image; if last 2 were images, prefer video
+        const wantImage = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'video');
+        const wantVideo = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'image');
+
+        const lastAuthor = recentAuthors.length > 0 ? recentAuthors[recentAuthors.length - 1] : '';
+        const lastCategory = recentCategories.length > 0 ? recentCategories[recentCategories.length - 1] : '';
+
+        // Search for the best candidate that satisfies:
+        // Priority 1: Different author from lastAuthor AND format match AND different category
+        // Priority 2: Different author from lastAuthor AND format match
+        // Priority 3: Different author from lastAuthor
+        // Priority 4: Fallback (only 1 author remains)
+        let bestCandidateIdx = -1;
+        let bestCandidateScore = -Infinity;
+
+        // Pass 1: Strict author diversity + format & category preference
+        for (let i = 0; i < candidates.length; i++) {
+            const c = candidates[i];
+            const author = c.post.username || c.post.user_id || 'anon';
+            const isVid = isVideoPost(c.post);
+            const format = isVid ? 'video' : 'image';
+            const cat = c.post.category || 'General';
+
+            if (lastAuthor && author === lastAuthor) continue; // No consecutive author!
+
+            let candidateBonus = c.score;
+
+            // Format interleaving bonus ("mixed, all form")
+            if (wantImage && format === 'image') candidateBonus += 50;
+            if (wantVideo && format === 'video') candidateBonus += 50;
+
+            // Category rotation bonus
+            if (lastCategory && cat !== lastCategory) candidateBonus += 20;
+
+            // Second-previous author penalty to avoid A-B-A-B oscillation if more authors exist
+            if (recentAuthors.length >= 2 && recentAuthors[recentAuthors.length - 2] === author) {
+                candidateBonus -= 15;
+            }
+
+            if (candidateBonus > bestCandidateScore) {
+                bestCandidateScore = candidateBonus;
+                bestCandidateIdx = i;
+            }
+        }
+
+        // Pass 2: If no candidate passed (e.g. all available have same format or category), relax to just author difference
+        if (bestCandidateIdx === -1) {
+            for (let i = 0; i < candidates.length; i++) {
+                const c = candidates[i];
+                const author = c.post.username || c.post.user_id || 'anon';
+                if (!lastAuthor || author !== lastAuthor) {
+                    if (c.score > bestCandidateScore) {
+                        bestCandidateScore = c.score;
+                        bestCandidateIdx = i;
+                    }
+                }
+            }
+        }
+
+        // Pass 3: Fallback (only 1 author remains, e.g. remaining videos after all other creators placed)
+        if (bestCandidateIdx === -1) {
+            bestCandidateIdx = 0;
+        }
+
+        // Pick the chosen candidate
+        const [chosen] = candidates.splice(bestCandidateIdx, 1);
+        blended.push(chosen);
+
+        const author = chosen.post.username || chosen.post.user_id || 'anon';
+        recentAuthors.push(author);
+        if (recentAuthors.length > 3) recentAuthors.shift();
+
+        recentFormats.push(isVideoPost(chosen.post) ? 'video' : 'image');
+        if (recentFormats.length > 3) recentFormats.shift();
+
+        recentCategories.push(chosen.post.category || 'General');
+        if (recentCategories.length > 3) recentCategories.shift();
+    }
+
+    // Append any leftover surprises at the end
+    while (surpriseIdx < surprisePool.length) {
+        blended.push({ ...surprisePool[surpriseIdx], isSurprise: true });
+        surpriseIdx++;
+    }
+
+    return blended;
+}
+
+/**
+ * Assemble a fully ranked, blended feed with Instagram-style diversity:
+ * - Author anti-clustering (consecutive creator penalty)
+ * - Media format interleaving (videos and photos mixed: "all form")
+ * - Category rotation & variable reward surprise content injection
+ * - Active user new-upload priority
  * 
  * @param posts - Raw posts from the database
  * @param userProfile - The user's interest profile
  * @param page - Pagination page (0-indexed)
  * @param pageSize - Number of posts per page
+ * @param currentUserId - Optional logged-in user ID to prioritize own uploads
  */
 export function assembleFeed(
     posts: any[],
     userProfile: UserInterestProfile,
     page: number = 0,
-    pageSize: number = 10
+    pageSize: number = 10,
+    currentUserId?: string
 ): ScoredPost[] {
     // Score all posts
     const scored: ScoredPost[] = posts.map(post => ({
         post,
-        score: calculatePostScore(post, userProfile),
+        score: calculatePostScore(post, userProfile, currentUserId),
         isSurprise: false,
     }));
 
-    // Sort by score (highest first)
-    scored.sort((a, b) => b.score - a.score);
-
-    // Variable Reward: inject "surprise" content every ~5 posts
-    // Pick from unexplored categories to create novelty
-    const surprisePosts = scored.filter(
-        s => userProfile.unexploredCategories.includes(s.post.category || 'General')
-    );
-
-    const finalFeed: ScoredPost[] = [];
-    let surpriseIdx = 0;
-
-    for (let i = 0; i < scored.length; i++) {
-        // Skip surprise posts from the main ranking (we'll inject them)
-        if (userProfile.unexploredCategories.includes(scored[i].post.category || 'General')) {
-            continue;
-        }
-        finalFeed.push(scored[i]);
-
-        // Every 5th post, inject a surprise if available
-        if ((finalFeed.length % 5 === 0) && surpriseIdx < surprisePosts.length) {
-            const surprise = { ...surprisePosts[surpriseIdx], isSurprise: true };
-            finalFeed.push(surprise);
-            surpriseIdx++;
-        }
-    }
-
-    // Add remaining surprises to the end
-    while (surpriseIdx < surprisePosts.length) {
-        finalFeed.push({ ...surprisePosts[surpriseIdx], isSurprise: true });
-        surpriseIdx++;
-    }
+    // Apply Instagram-style feed blending (author anti-clustering, format mixing, category rotation)
+    const blended = blendFeed(scored, userProfile, currentUserId);
 
     // Paginate
     const start = page * pageSize;
-    return finalFeed.slice(start, start + pageSize);
+    return blended.slice(start, start + pageSize);
 }
 
 /**
  * Shuffle feed slightly for pull-to-refresh (variable reward schedule).
- * We don't fully randomize — we shuffle within "tiers" of similar scores
- * to maintain some relevance while creating unpredictability.
+ * We maintain author diversity and format mixing while creating fresh novelty.
  */
-export function shuffleFeedForRefresh(feed: ScoredPost[]): ScoredPost[] {
-    // Group into tiers of 5
-    const shuffled: ScoredPost[] = [];
-    for (let i = 0; i < feed.length; i += 5) {
-        const tier = feed.slice(i, i + 5);
-        // Fisher-Yates shuffle within the tier
+export function shuffleFeedForRefresh(
+    posts: any[],
+    userProfile?: UserInterestProfile,
+    currentUserId?: string
+): any[] {
+    if (!posts || posts.length <= 1) return posts;
+
+    // Extract raw post objects if ScoredPost[] was passed
+    const rawList = posts.map(p => (p && p.post ? p.post : p));
+
+    // Fisher-Yates shuffle within tiers of 5
+    const shuffled: any[] = [];
+    for (let i = 0; i < rawList.length; i += 5) {
+        const tier = rawList.slice(i, i + 5);
         for (let j = tier.length - 1; j > 0; j--) {
             const k = Math.floor(Math.random() * (j + 1));
             [tier[j], tier[k]] = [tier[k], tier[j]];
         }
         shuffled.push(...tier);
     }
+
     return shuffled;
 }
 

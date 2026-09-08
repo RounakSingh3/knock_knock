@@ -262,7 +262,7 @@ const Reels: React.FC = () => {
     const replayCountRef = useRef<Record<number, number>>({});
 
     useEffect(() => {
-        fetchVideoPosts().then(async (videoPosts) => {
+        fetchVideoPosts(user?.id).then(async (videoPosts) => {
             const validPosts = videoPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
             const resolvedPosts = await Promise.all(validPosts.map(async (rawP) => {
                 const p = normalizePost(rawP);
@@ -284,12 +284,41 @@ const Reels: React.FC = () => {
                 return p;
             }));
             const userReels = resolvedPosts.filter((p): p is PostData => Boolean(p)).map(postToReel);
-            const merged = [...userReels, ...REELS_DATA];
+            
+            // Interleave userReels and REELS_DATA with author anti-clustering
+            const merged: ReelData[] = [];
+            const pexelsPool = [...REELS_DATA];
+            const userPool = [...userReels];
+
+            // If user has recent reels, prioritize them first
+            if (user) {
+                const myReelIdx = userPool.findIndex(r => r.creator === user.username);
+                if (myReelIdx !== -1) {
+                    merged.push(userPool.splice(myReelIdx, 1)[0]);
+                }
+            }
+
+            while (userPool.length > 0 || pexelsPool.length > 0) {
+                const lastCreator = merged.length > 0 ? merged[merged.length - 1].creator : '';
+
+                // Try to pick from userPool if author is different from lastCreator
+                let chosenFromUserIdx = userPool.findIndex(r => r.creator !== lastCreator);
+                if (chosenFromUserIdx !== -1 && (merged.length % 2 === 0 || pexelsPool.length === 0)) {
+                    merged.push(userPool.splice(chosenFromUserIdx, 1)[0]);
+                } else if (pexelsPool.length > 0 && (pexelsPool[0].creator !== lastCreator || userPool.length === 0)) {
+                    merged.push(pexelsPool.shift()!);
+                } else if (userPool.length > 0) {
+                    merged.push(userPool.shift()!);
+                } else if (pexelsPool.length > 0) {
+                    merged.push(pexelsPool.shift()!);
+                }
+            }
+
             setReelsList(merged);
             setPlayStates(merged.map(() => true));
             setProgresses(merged.map(() => 0));
         });
-    }, [blockedIds]);
+    }, [user?.id, user?.username, blockedIds]);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const modalScrollRef = useRef<HTMLDivElement>(null);

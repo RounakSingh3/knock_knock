@@ -171,7 +171,7 @@ const Home = () => {
             });
             setAllRawPosts(uniquePosts);
             const profile = buildInterestProfile(engagements);
-            const firstPage = assembleFeed(uniquePosts, profile, 0, 10);
+            const firstPage = assembleFeed(uniquePosts, profile, 0, 10, user.id);
             
             setScoredFeed(firstPage);
             const freshPosts = firstPage.map(s => s.post);
@@ -226,7 +226,7 @@ const Home = () => {
             const shuffled = shuffleFeedForRefresh(allRawPosts);
             const engagements = await fetchUserEngagements(user.id);
             const profile = buildInterestProfile(engagements);
-            const freshFeed = assembleFeed(shuffled, profile, 0, 10);
+            const freshFeed = assembleFeed(shuffled, profile, 0, 10, user.id);
             setScoredFeed(freshFeed);
             setPosts(freshFeed.map(s => s.post));
             setFeedPage(0);
@@ -245,7 +245,7 @@ const Home = () => {
             const nextPage = feedPage + 1;
             const engagements = await fetchUserEngagements(user.id);
             const profile = buildInterestProfile(engagements);
-            const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10);
+            const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10, user.id);
             
             const currentIds = new Set(posts.map(p => p.id));
             const currentUrls = new Set(posts.map(p => p.image_url));
@@ -281,7 +281,7 @@ const Home = () => {
 
                 if (uniqueMoreDb.length > 0) {
                     setAllRawPosts(prev => [...prev, ...uniqueMoreDb]);
-                    const scoredMore = assembleFeed(uniqueMoreDb, profile, 0, 10);
+                    const scoredMore = assembleFeed(uniqueMoreDb, profile, 0, 10, user.id);
                     setScoredFeed(prev => [...prev, ...scoredMore]);
                     setPosts(prev => [...prev, ...scoredMore.map(s => s.post)]);
                     setFeedPage(nextPage);
@@ -381,7 +381,7 @@ const Home = () => {
         try {
             const engagements = await fetchUserEngagements(user.id);
             const profile = buildInterestProfile(engagements);
-            const newFeed = assembleFeed(allRawPosts, profile, 0, 10);
+            const newFeed = assembleFeed(allRawPosts, profile, 0, 10, user.id);
             const shuffled = shuffleFeedForRefresh(newFeed);
             setScoredFeed(shuffled);
             setPosts(shuffled.map(s => s.post));

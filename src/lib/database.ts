@@ -282,7 +282,7 @@ export async function uploadMedia(
     throw lastError || new Error('Failed to upload file to storage.');
 }
 
-export async function fetchVideoPosts(): Promise<PostData[]> {
+export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[]> {
     const { data, error } = await supabase
         .from('posts')
         .select('*')
@@ -293,7 +293,35 @@ export async function fetchVideoPosts(): Promise<PostData[]> {
         console.error('Error fetching video posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && isVideoPost(p));
+    const rawVideos = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && isVideoPost(p));
+    if (rawVideos.length <= 1) return rawVideos;
+
+    // Apply author anti-clustering so bulk uploads from a single account don't monopolize the top
+    const ownRecent: PostData[] = [];
+    const regular: PostData[] = [];
+
+    for (const v of rawVideos) {
+        const hoursOld = Math.max(0, (Date.now() - new Date(v.created_at).getTime()) / (1000 * 60 * 60));
+        if (currentUserId && v.user_id === currentUserId && hoursOld < 48) {
+            ownRecent.push(v);
+        } else {
+            regular.push(v);
+        }
+    }
+
+    const blended: PostData[] = [...ownRecent];
+    const pool = [...regular];
+    let lastAuthor = blended.length > 0 ? (blended[blended.length - 1].username || blended[blended.length - 1].user_id) : '';
+
+    while (pool.length > 0) {
+        let foundIdx = pool.findIndex(v => (v.username || v.user_id) !== lastAuthor);
+        if (foundIdx === -1) foundIdx = 0;
+        const [next] = pool.splice(foundIdx, 1);
+        blended.push(next);
+        lastAuthor = next.username || next.user_id;
+    }
+
+    return blended;
 }
 
 export function normalizePost(post: PostData): PostData {
@@ -1708,22 +1736,16 @@ export async function fetchUserEngagements(userId: string): Promise<EngagementDa
 }
 
 /** Fetch all posts (unpaginated) for scoring — used by algorithm.ts with fast cache */
-export async function fetchAllPostsForScoring(excludeUserId: string): Promise<PostData[]> {
-    const cached = getFromCache<PostData[]>(`all_scoring_posts_${excludeUserId}`, 25000);
+export async function fetchAllPostsForScoring(currentUserId?: string): Promise<PostData[]> {
+    const cacheKey = `all_scoring_posts_${currentUserId || 'all'}`;
+    const cached = getFromCache<PostData[]>(cacheKey, 25000);
     if (cached) return cached;
 
-    const connectionIds = await fetchConnectionUserIds(excludeUserId);
-    const excludeIds = [...connectionIds, excludeUserId];
-
-    let query = supabase
+    const query = supabase
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(200);
-
-    if (excludeIds.length > 0) {
-        query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
-    }
+        .limit(300);
 
     const { data, error } = await query;
 
@@ -1732,7 +1754,7 @@ export async function fetchAllPostsForScoring(excludeUserId: string): Promise<Po
         return [];
     }
     const result = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-    setInCache(`all_scoring_posts_${excludeUserId}`, result);
+    setInCache(cacheKey, result);
     return result;
 }
 
