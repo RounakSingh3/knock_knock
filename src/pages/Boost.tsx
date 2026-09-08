@@ -372,7 +372,7 @@ const Boost: React.FC = () => {
                     </div>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '800', letterSpacing: '-0.3px' }}>Boost Explore</h1>
+                            <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '800', letterSpacing: '-0.3px' }}>KnockUp Screen</h1>
                             <span style={{
                                 fontSize: '10px', fontWeight: '800', color: '#ff6b35',
                                 background: 'rgba(255,107,53,0.15)', padding: '2px 6px',
@@ -793,7 +793,7 @@ const Boost: React.FC = () => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Rocket size={20} color="#f5a524" />
                                 <div>
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>Post 24h Boost Knock</h3>
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>KnockUp a 24h Screen</h3>
                                     <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>Disappears in 24 hours</span>
                                 </div>
                             </div>
@@ -1092,7 +1092,7 @@ const Boost: React.FC = () => {
                                 ) : (
                                     <>
                                         <Rocket size={18} />
-                                        <span>Launch 24h Boost Knock ({totalGuaranteedReach} Screens)</span>
+                                        <span>KnockUp Screen ({totalGuaranteedReach} Screens)</span>
                                     </>
                                 )}
                             </button>
