@@ -77,6 +77,88 @@ function groupByUser(stories: StoryData[]): UserStoryGroup[] {
     return Object.values(groups);
 }
 
+interface ExploreGridCardProps {
+    post: PostData;
+    index: number;
+    isSurprise?: boolean;
+    onPostClick: (post: PostData, index: number) => void;
+    trackViewRef?: (node: HTMLDivElement | null) => void;
+}
+
+const ExploreGridCard = React.memo(function ExploreGridCard({
+    post,
+    index,
+    isSurprise = false,
+    onPostClick,
+    trackViewRef,
+}: ExploreGridCardProps) {
+    const isVideo = isVideoPost(post);
+    const hasMusic = Boolean(post.music_url || post.music_title);
+    const hasLikes = (post.likes_count || 0) >= 5 && !isSurprise;
+
+    const handleClick = useCallback(() => {
+        onPostClick(post, index);
+    }, [onPostClick, post, index]);
+
+    return (
+        <div
+            ref={trackViewRef}
+            data-postid={post.id}
+            className="explore-grid-item"
+            style={{
+                aspectRatio: '1',
+                position: 'relative',
+                cursor: 'pointer',
+                overflow: 'hidden',
+                borderRadius: '4px',
+                background: '#18181b',
+                contain: 'layout paint',
+            }}
+            onClick={handleClick}
+        >
+            <PostMedia
+                post={post}
+                className=""
+                muted
+                loop
+                playsInline
+                autoPlay={false}
+                thumbnail={true}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+            {isVideo && (
+                <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 4, pointerEvents: 'none' }}>
+                    <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
+                </div>
+            )}
+            {hasMusic && (
+                <div style={{
+                    position: 'absolute', top: '6px', left: '6px', zIndex: 5,
+                    display: 'flex', alignItems: 'center', gap: '4px',
+                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                    padding: '2px 6px', borderRadius: '10px', color: '#fff',
+                    fontSize: '9px', fontWeight: '600', pointerEvents: 'none',
+                }}>
+                    <Music size={9} color="#f5a524" />
+                    <span>{post.music_title || '♪'}</span>
+                </div>
+            )}
+            {hasLikes && (
+                <div style={{
+                    position: 'absolute', bottom: '6px', left: '6px', zIndex: 4,
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    padding: '2px 6px', borderRadius: '6px',
+                    fontSize: '9px', color: 'rgba(255,255,255,0.8)',
+                    display: 'flex', alignItems: 'center', gap: '3px',
+                    pointerEvents: 'none',
+                }}>
+                    <Flame size={9} color="#f5a524" /> {post.likes_count}
+                </div>
+            )}
+        </div>
+    );
+});
+
 const Explore = () => {
     const { user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
@@ -175,7 +257,11 @@ const Explore = () => {
     const rawPostsCacheRef = useRef<any[]>([]);
     const userProfileRef = useRef<any>(null);
 
-    const PAGE_SIZE = 12;
+    const PAGE_SIZE = 18;
+    const discoverPostsRef = useRef(discoverPosts);
+    useEffect(() => {
+        discoverPostsRef.current = discoverPosts;
+    }, [discoverPosts]);
 
     // Load Trending Posts (FOMO banner)
     useEffect(() => {
@@ -283,8 +369,9 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         const nextPage = feedPage + 1;
         
         try {
-            const seenIds = new Set(discoverPosts.map(p => p.id));
-            const seenUrls = new Set(discoverPosts.map(p => p.image_url));
+            const currentPosts = discoverPostsRef.current;
+            const seenIds = new Set(currentPosts.map(p => p.id));
+            const seenUrls = new Set(currentPosts.map(p => p.image_url));
 
             if (user && userProfileRef.current) {
                 const more = assembleFeed(rawPostsCacheRef.current, userProfileRef.current, nextPage, PAGE_SIZE);
@@ -357,7 +444,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [feedPage, isLoadingMore, hasMore, user, discoverPosts, selectedCategory, blockedIds]);
+    }, [feedPage, isLoadingMore, hasMore, user, selectedCategory, blockedIds]);
 
     // IntersectionObserver for infinite scroll sentinel
     useEffect(() => {
@@ -368,7 +455,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                     loadMore();
                 }
             },
-            { rootMargin: '200px' }
+            { rootMargin: '600px' }
         );
         observer.observe(sentinelRef.current);
         return () => observer.disconnect();
@@ -483,10 +570,37 @@ function interleaveCategories(posts: PostData[]): PostData[] {
 
     const isSearching = searchTerm.trim().length > 0;
 
-    // Check if a post is a surprise injection
-    const isSurprisePost = (postId: string): boolean => {
-        return allScoredPosts.some(s => s.post.id === postId && s.isSurprise);
-    };
+    // Memoized surprise injection lookup O(1)
+    const surprisePostIdSet = useMemo(() => {
+        const set = new Set<string>();
+        for (const s of allScoredPosts) {
+            if (s.isSurprise) {
+                set.add(s.post.id);
+            }
+        }
+        return set;
+    }, [allScoredPosts]);
+
+    const handleDiscoverPostClick = useCallback((post: PostData, index: number) => {
+        if (isNewsPost(post)) {
+            setSelectedNews(postToNewsItem(post));
+        } else {
+            setActiveFeedState({ posts: normalizedDiscoverPosts, index });
+        }
+    }, [normalizedDiscoverPosts]);
+
+    const normalizedSearchPosts = useMemo(
+        () => postResults.map(normalizePost).filter((p): p is PostData => Boolean(p)),
+        [postResults]
+    );
+
+    const handleSearchPostClick = useCallback((post: PostData, index: number) => {
+        if (isNewsPost(post)) {
+            setSelectedNews(postToNewsItem(post));
+        } else {
+            setActiveFeedState({ posts: normalizedSearchPosts, index });
+        }
+    }, [normalizedSearchPosts]);
 
     return (
         <div className="explore-page pb-20" style={{ background: 'var(--bg-color)', minHeight: '100vh' }}>
@@ -655,56 +769,16 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                 <>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                                         {discoverPosts.map((post, idx) => (
-                                        <div 
-                                            key={post.id} 
-                                            ref={trackViewRef}
-                                            data-postid={post.id}
-                                            className="explore-grid-item"
-                                            style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', overflow: 'hidden', borderRadius: '4px' }}
-                                            onClick={() => {
-                                                if (isNewsPost(post)) {
-                                                    setSelectedNews(postToNewsItem(post));
-                                                } else {
-                                                    setActiveFeedState({ posts: normalizedDiscoverPosts, index: idx });
-                                                }
-                                            }}
-                                        >
-                                            <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            {isVideoPost(post) && (
-                                                <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
-                                                    <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
-                                                </div>
-                                            )}
-
-                                            {(post.music_url || post.music_title) && (
-                                                <div style={{
-                                                    position: 'absolute', top: '6px', left: '6px', zIndex: 5,
-                                                    display: 'flex', alignItems: 'center', gap: '4px',
-                                                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
-                                                    padding: '2px 6px', borderRadius: '10px', color: '#fff',
-                                                    fontSize: '9px', fontWeight: '600',
-                                                }}>
-                                                    <Music size={9} color="#f5a524" />
-                                                    <span>{post.music_title || '♪'}</span>
-                                                </div>
-                                            )}
-
-                                            {/* 😰 FOMO — Engagement badge */}
-                                            {(post.likes_count || 0) >= 5 && !isSurprisePost(post.id) && (
-                                                <div style={{
-                                                    position: 'absolute', bottom: '6px', left: '6px',
-                                                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-                                                    padding: '2px 6px', borderRadius: '6px',
-                                                    fontSize: '9px', color: 'rgba(255,255,255,0.8)',
-                                                    display: 'flex', alignItems: 'center', gap: '3px',
-                                                }}>
-                                                    <Flame size={9} color="#f5a524" /> {post.likes_count}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
+                                            <ExploreGridCard
+                                                key={post.id}
+                                                post={post}
+                                                index={idx}
+                                                isSurprise={surprisePostIdSet.has(post.id)}
+                                                onPostClick={handleDiscoverPostClick}
+                                                trackViewRef={trackViewRef}
+                                            />
+                                        ))}
+                                    </div>
 
                                     {/* 📜 Infinite Scroll Sentinel */}
                                     <div ref={sentinelRef} style={{ height: '1px' }} />
@@ -767,27 +841,15 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                 ) : (
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
                                             {postResults.map((post, idx) => (
-                                                <div 
-                                                    key={post.id} 
-                                                    style={{ aspectRatio: '1', position: 'relative', cursor: 'pointer', overflow: 'hidden', borderRadius: '4px' }} 
-                                                    onClick={() => {
-                                                        if (isNewsPost(post)) {
-                                                            setSelectedNews(postToNewsItem(post));
-                                                        } else {
-                                                            setActiveFeedState({ posts: postResults.map(normalizePost).filter((p): p is PostData => Boolean(p)), index: idx });
-                                                        }
-                                                    }}
-                                                >
-                                                <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
-                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                                {isVideoPost(post) && (
-                                                    <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
-                                                        <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
+                                                <ExploreGridCard
+                                                    key={post.id}
+                                                    post={post}
+                                                    index={idx}
+                                                    isSurprise={false}
+                                                    onPostClick={handleSearchPostClick}
+                                                />
+                                            ))}
+                                        </div>
                                 )
                             )}
 

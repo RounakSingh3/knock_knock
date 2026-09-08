@@ -88,9 +88,13 @@ body::before {
 /* Masonry cards and explore grid items must NOT use content-visibility: auto
    because their small size + 2-column layout causes the browser to skip
    rendering near-viewport items, producing blank white/grey spots. */
-.masonry-card, .explore-grid-item, .story-rack-item {
+.masonry-card, .story-rack-item {
     transform: translateZ(0);
     backface-visibility: hidden;
+}
+
+.explore-grid-item {
+    contain: layout paint;
 }
 
 /* Reel cards are full-viewport height, safe for content-visibility */

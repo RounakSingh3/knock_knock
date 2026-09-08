@@ -46,9 +46,6 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
 
         // Only pull down when at the top of the viewport
         if (distance > 0 && window.scrollY <= 0) {
-            if (distance > 10 && e.cancelable) {
-                e.preventDefault();
-            }
             const resistance = distance * 0.4;
             const targetDistance = Math.min(resistance, MAX_PULL_DISTANCE);
             pullDistanceRef.current = targetDistance;
@@ -92,8 +89,9 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
     };
 
     useEffect(() => {
+        // Use passive: true to guarantee smooth 60fps compositor-driven scrolling
         document.addEventListener('touchstart', handleTouchStart, { passive: true });
-        document.addEventListener('touchmove', handleTouchMove, { passive: false });
+        document.addEventListener('touchmove', handleTouchMove, { passive: true });
         document.addEventListener('touchend', handleTouchEnd, { passive: true });
 
         return () => {
@@ -111,7 +109,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
     const spinnerRotation = pullProgress * 360;
 
     return (
-        <div style={{ position: 'relative', width: '100%' }}>
+        <div style={{ position: 'relative', width: '100%', overscrollBehaviorY: 'contain' }}>
             {/* Pull to Refresh Indicator */}
             <div 
                 style={{

@@ -18,10 +18,46 @@ interface PostMediaProps {
     soundOn?: boolean;
     /** Override object-fit ('contain' | 'cover' | etc.) */
     objectFit?: React.CSSProperties['objectFit'];
+    /** Render in optimized lightweight thumbnail mode (for feeds/grids) */
+    thumbnail?: boolean;
 }
 
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
 const itunesCache = new Map<string, string>();
+
+// High-performance shared IntersectionObserver singleton to prevent allocating dozens of observers
+type ViewportCallback = (isIntersecting: boolean) => void;
+const viewportCallbacks = new Map<Element, ViewportCallback>();
+let sharedViewportObserver: IntersectionObserver | null = null;
+
+function getSharedViewportObserver(): IntersectionObserver | null {
+    if (typeof IntersectionObserver === 'undefined') return null;
+    if (!sharedViewportObserver) {
+        sharedViewportObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const cb = viewportCallbacks.get(entry.target);
+                if (cb) {
+                    cb(entry.isIntersecting);
+                }
+            });
+        }, { rootMargin: '350px' });
+    }
+    return sharedViewportObserver;
+}
+
+function observeViewport(el: Element, cb: ViewportCallback) {
+    const obs = getSharedViewportObserver();
+    if (!obs) {
+        cb(true);
+        return () => {};
+    }
+    viewportCallbacks.set(el, cb);
+    obs.observe(el);
+    return () => {
+        viewportCallbacks.delete(el);
+        obs.unobserve(el);
+    };
+}
 
 const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
@@ -47,12 +83,14 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     alt = '',
     soundOn = false,
     objectFit,
+    thumbnail,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const isPlayingMode = autoPlay || soundOn || controls;
     const [isInViewport, setIsInViewport] = useState(isPlayingMode);
+    const [isLoaded, setIsLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
     const [isAudioBlocked, setIsAudioBlocked] = useState(false);
     const retryCountRef = useRef(0);
@@ -65,35 +103,32 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             return;
         }
         const el = containerRef.current;
-        if (!el || typeof IntersectionObserver === 'undefined') {
+        if (!el) {
             setIsInViewport(true);
             return;
         }
 
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0].isIntersecting) {
-                    setIsInViewport(true);
-                }
-            },
-            { rootMargin: '300px' }
-        );
+        const unobserve = observeViewport(el, (isIntersecting) => {
+            setIsInViewport(isIntersecting);
+        });
 
-        observer.observe(el);
-        return () => observer.disconnect();
+        return unobserve;
     }, [isPlayingMode]);
 
+    const targetWidth = thumbnail ? 350 : (isPlayingMode ? 650 : 350);
+
     const [currentImgSrc, setCurrentImgSrc] = useState<string>(() => {
-        return isVideo ? '' : getOptimizedImageUrl(post.image_url, 650);
+        return isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth);
     });
 
     useEffect(() => {
         setHasError(false);
         setIsAudioBlocked(false);
+        setIsLoaded(false);
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
-        setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, 650));
-    }, [post.image_url, isVideo]);
+        setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth));
+    }, [post.image_url, isVideo, targetWidth]);
 
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
     const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
@@ -376,7 +411,17 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     return (
-        <div ref={containerRef} style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: style?.minHeight || '0px' }}>
+        <div 
+            ref={containerRef} 
+            style={{ 
+                position: 'relative', 
+                width: '100%', 
+                height: style?.height || '100%', 
+                minHeight: style?.minHeight || '0px',
+                backgroundColor: '#18181b',
+                overflow: 'hidden'
+            }}
+        >
             {isVideo ? (
                 <>
                     <video
@@ -389,7 +434,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             width: '100%',
                             height: '100%',
                             objectFit: resolvedObjectFit,
-                            display: 'block'
+                            display: 'block',
+                            opacity: isLoaded || isPlayingMode ? 1 : 0,
+                            transition: 'opacity 0.25s ease-out'
                         }}
                         muted={effectiveMuted}
                         controls={controls}
@@ -401,7 +448,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         x5-playsinline="true"
                         preload={isPlayingMode ? "auto" : (isInViewport ? "metadata" : "none")}
                         onError={handleMediaError}
+                        onLoadedData={() => setIsLoaded(true)}
                         onLoadedMetadata={(e) => {
+                            setIsLoaded(true);
                             const v = e.currentTarget;
                             if (!isPlayingMode) {
                                 try {
@@ -477,11 +526,14 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         width: '100%',
                         height: '100%',
                         objectFit: resolvedObjectFit,
-                        display: 'block'
+                        display: 'block',
+                        opacity: isLoaded ? 1 : 0,
+                        transition: 'opacity 0.25s ease-out'
                     }}
                     loading="lazy"
                     decoding="async"
                     referrerPolicy="no-referrer"
+                    onLoad={() => setIsLoaded(true)}
                     onError={handleMediaError}
                 />
             )}
