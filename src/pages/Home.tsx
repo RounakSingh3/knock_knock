@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext, useCallback, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, type PostData, type StoryData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, type PostData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX } from 'lucide-react';
@@ -23,16 +23,7 @@ export interface UnifiedItem {
     username: string;
     avatarUrl: string;
     post?: PostData;
-    story?: StoryData;
     latestDate: Date;
-}
-
-// Group stories by user_id for the story rack
-interface StoryGroup {
-    userId: string;
-    username: string;
-    avatarUrl: string;
-    stories: StoryData[];
 }
 
 const Home = () => {
@@ -66,18 +57,7 @@ const Home = () => {
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
     const [impCounts, setImpCounts] = useState<Record<string, number>>({});
 
-    // Story rack state with instant cache rehydration
-    const [storyGroups, setStoryGroups] = useState<StoryGroup[]>(() => {
-        try {
-            const cached = localStorage.getItem('knock_home_stories_cache');
-            if (cached) return JSON.parse(cached);
-        } catch (e) {}
-        return [];
-    });
-    const [viewingGroup, setViewingGroup] = useState<StoryGroup | null>(null);
-    const [viewingIndex, setViewingIndex] = useState(0);
-    const [storyProgress, setStoryProgress] = useState(0);
-    const homeStoryAudioRef = useRef<HTMLAudioElement | null>(null);
+
 
     // Feed mode toggle
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
@@ -403,12 +383,8 @@ const Home = () => {
     useEffect(() => {
         if (feedMode === 'connections' && user && unifiedConnectionItems.length === 0) {
             setLoadingConnPosts(true);
-            Promise.all([
-                fetchConnectionPosts(user.id),
-                fetchConnectionStories(user.id),
-            ]).then(([posts, stories]) => {
+            fetchConnectionPosts(user.id).then((posts) => {
                 const validPosts = posts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
-                const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
                 const userMap = new Map<string, UnifiedItem>();
                 
                 validPosts.forEach(p => {
@@ -420,18 +396,6 @@ const Home = () => {
                     if (!u.post || new Date(p.created_at) > new Date(u.post.created_at)) {
                         u.post = p;
                         if (new Date(p.created_at) > u.latestDate) u.latestDate = new Date(p.created_at);
-                    }
-                });
-
-                validStories.forEach(s => {
-                    const uid = s.user_id || 'unknown';
-                    if (!userMap.has(uid)) {
-                        userMap.set(uid, { userId: uid, username: s.username || 'user', avatarUrl: s.image_url, latestDate: new Date(s.created_at) });
-                    }
-                    const u = userMap.get(uid)!;
-                    if (!u.story || new Date(s.created_at) > new Date(u.story.created_at)) {
-                        u.story = s;
-                        if (new Date(s.created_at) > u.latestDate) u.latestDate = new Date(s.created_at);
                     }
                 });
 
@@ -448,220 +412,12 @@ const Home = () => {
                 posts.forEach(p => { counts[p.id] = p.likes_count; });
                 setLikeCounts(prev => ({ ...prev, ...counts }));
             });
-            
-            // Also fetch connection profiles list (to show matching people)
-            // For simplicity, we just extract it from unified items for now if we don't import fetchConnections
         }
     }, [feedMode]);
 
-    // ── Story Viewer Logic ──
-    const openStoryViewer = (group: StoryGroup) => {
-        setViewingGroup(group);
-        setViewingIndex(0);
-        setStoryProgress(0);
-    };
-
-    const closeStoryViewer = () => {
-        setViewingGroup(null);
-        setViewingIndex(0);
-        setStoryProgress(0);
-    };
-
-    const nextStory = () => {
-        if (!viewingGroup) return;
-        if (viewingIndex < viewingGroup.stories.length - 1) {
-            setViewingIndex(prev => prev + 1);
-            setStoryProgress(0);
-        } else {
-            // Move to next group
-            const currentGroupIdx = storyGroups.findIndex(g => g.userId === viewingGroup.userId);
-            if (currentGroupIdx < storyGroups.length - 1) {
-                const nextGroup = storyGroups[currentGroupIdx + 1];
-                setViewingGroup(nextGroup);
-                setViewingIndex(0);
-                setStoryProgress(0);
-            } else {
-                closeStoryViewer();
-            }
-        }
-    };
-
-    const prevStory = () => {
-        if (!viewingGroup) return;
-        if (viewingIndex > 0) {
-            setViewingIndex(prev => prev - 1);
-            setStoryProgress(0);
-        }
-    };
-
-    // Auto-advance story progress
-    useEffect(() => {
-        if (!viewingGroup) return;
-        const duration = 5000; // 5 seconds per story
-        const interval = 100;
-        const step = (interval / duration) * 100;
-
-        const timer = setInterval(() => {
-            setStoryProgress(prev => {
-                if (prev >= 100) {
-                    return 100;
-                }
-                return prev + step;
-            });
-        }, interval);
-
-        return () => clearInterval(timer);
-    }, [viewingGroup, viewingIndex]);
-
-    useEffect(() => {
-        if (storyProgress >= 100) {
-            nextStory();
-        }
-    }, [storyProgress]);
-
-    // Handle background music playback for Home story viewer
-    useEffect(() => {
-        const currentStory = viewingGroup?.stories[viewingIndex];
-        const songUrl = currentStory ? getCleanSongUrl(currentStory.music_title, currentStory.music_url) || currentStory.music_url : undefined;
-        if (songUrl && !songUrl.includes('soundhelix')) {
-            audioPlayer.play(songUrl, true);
-        } else {
-            audioPlayer.stop();
-        }
-        return () => {
-            audioPlayer.stop();
-        };
-    }, [viewingGroup, viewingIndex]);
-
-    // ── Story Viewer Overlay ──
-    if (viewingGroup) {
-        const currentStory = viewingGroup.stories[viewingIndex];
-        return (
-            <div className="story-viewer-overlay">
-                {/* Progress Bars */}
-                <div className="story-progress-bar-container">
-                    {viewingGroup.stories.map((_, i) => (
-                        <div key={i} className="story-progress-track">
-                            <div
-                                className="story-progress-fill"
-                                style={{
-                                    width: i < viewingIndex ? '100%' :
-                                        i === viewingIndex ? `${storyProgress}%` : '0%'
-                                }}
-                            />
-                        </div>
-                    ))}
-                </div>
-
-                {/* Header */}
-                <div className="story-viewer-header">
-                    <div className="story-viewer-user">
-                        <img
-                            src={viewingGroup.avatarUrl}
-                            alt=""
-                            className="story-viewer-avatar"
-                        />
-                        <div>
-                            <span className="story-viewer-username">@{viewingGroup.username}</span>
-                            <span className="story-viewer-time">
-                                {currentStory ? getTimeAgo(currentStory.created_at) : ''}
-                            </span>
-                        </div>
-                    </div>
-                    <button className="story-viewer-close" onClick={closeStoryViewer}>
-                        <X size={24} />
-                    </button>
-                </div>
-
-                {/* Story Image / Video */}
-                {currentStory && (
-                    <>
-                        {/\.(mp4|webm|mov)(\?.*)?$/i.test(currentStory.image_url) || currentStory.image_url.startsWith('data:video') ? (
-                            <video
-                                src={currentStory.image_url}
-                                autoPlay
-                                loop
-                                playsInline
-                                muted={Boolean(currentStory.music_url || currentStory.music_title)}
-                                className="story-viewer-image"
-                                style={{ filter: currentStory.filter_name && currentStory.filter_name !== 'Normal' ? ({
-                                    'Vintage': 'sepia(0.5) contrast(1.2)',
-                                    'B&W': 'grayscale(1) contrast(1.1)',
-                                    'Neon': 'hue-rotate(90deg) saturate(2)',
-                                    'Cinematic': 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)',
-                                    'Cool': 'hue-rotate(-30deg) saturate(1.2)',
-                                    'Warm': 'sepia(0.3) saturate(1.4)',
-                                    'Alien': 'invert(0.8) hue-rotate(180deg)',
-                                } as Record<string, string>)[currentStory.filter_name] || 'none' : 'none', objectFit: 'contain' }}
-                            />
-                        ) : (
-                            <img
-                                src={currentStory.image_url}
-                                alt=""
-                                className="story-viewer-image"
-                                style={{ filter: currentStory.filter_name && currentStory.filter_name !== 'Normal' ? ({
-                                    'Vintage': 'sepia(0.5) contrast(1.2)',
-                                    'B&W': 'grayscale(1) contrast(1.1)',
-                                    'Neon': 'hue-rotate(90deg) saturate(2)',
-                                    'Cinematic': 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)',
-                                    'Cool': 'hue-rotate(-30deg) saturate(1.2)',
-                                    'Warm': 'sepia(0.3) saturate(1.4)',
-                                    'Alien': 'invert(0.8) hue-rotate(180deg)',
-                                } as Record<string, string>)[currentStory.filter_name] || 'none' : 'none' }}
-                            />
-                        )}
-                        {currentStory.caption && (
-                            <div style={{
-                                position: 'absolute', bottom: '80px', left: '16px', right: '16px',
-                                color: '#fff', fontSize: '15px', textShadow: '0 1px 4px rgba(0,0,0,0.8)',
-                                textAlign: 'center', padding: '8px 16px',
-                                background: 'rgba(0,0,0,0.3)', borderRadius: '12px', backdropFilter: 'blur(4px)',
-                            }}>
-                                {currentStory.caption}
-                            </div>
-                        )}
-                    </>
-                )}
-
-                {/* Tap Zones */}
-                <div className="story-tap-left" onClick={prevStory} />
-                <div className="story-tap-right" onClick={nextStory} />
-
-                {/* Filter Badge */}
-                {currentStory && currentStory.filter_name !== 'Normal' && (
-                    <div className="story-filter-badge">
-                        <Sparkles size={12} /> {currentStory.filter_name}
-                    </div>
-                )}
-
-                {/* Boosted Badge */}
-                {currentStory && currentStory.is_boosted && (
-                    <div className="story-boosted-badge">
-                        <Flame size={12} /> Boosted
-                    </div>
-                )}
-
-                {/* Music Badge */}
-                {currentStory && (currentStory.music_title || currentStory.music_artist) && (
-                    <div style={{
-                        position: 'absolute', bottom: '130px', left: '16px', right: '16px',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                        background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px',
-                        padding: '6px 14px', color: '#fff', fontSize: '13px', fontWeight: 'bold',
-                        width: 'fit-content', margin: '0 auto', zIndex: 10
-                    }}>
-                        <Music size={14} color="#f5a524" />
-                        <span>{currentStory.music_title} {currentStory.music_artist ? `• ${currentStory.music_artist}` : ''}</span>
-                    </div>
-                )}
-            </div>
-        );
-    }
-
     return (
         <div className="home-page-v2">
-            {/* Header + Stories */}
+            {/* Header */}
             <header className="home-header-v2" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 className="home-brand-title">Knock Knock</h1>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -721,103 +477,6 @@ const Home = () => {
                 </button>
             </div>
 
-            {(storyGroups.length > 0 || user) && (() => {
-                const myGroup = user ? storyGroups.find(g => g.userId === user.id) : null;
-                const otherGroups = storyGroups.filter(g => g.userId !== user?.id);
-
-                return (
-                    <div className="story-rack-v2 story-rack-top">
-                        {/* Your Story tile */}
-                        <div
-                            className="story-rack-item"
-                            onClick={() => {
-                                if (myGroup && myGroup.stories.length > 0) {
-                                    openStoryViewer(myGroup);
-                                } else {
-                                    navigate('/stories');
-                                }
-                            }}
-                        >
-                            <div className={`story-tile-rect ${myGroup && myGroup.stories.length > 0 ? 'story-tile-connection' : 'story-tile-add'}`}>
-                                {(() => {
-                                    const myStoryUrl = myGroup?.stories[0]?.image_url || '';
-                                    const isVideo = isVideoUrl(myStoryUrl);
-                                    if (myStoryUrl && isVideo) {
-                                        return <video src={`${myStoryUrl}#t=0.001`} preload="none" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
-                                    }
-                                    return (
-                                        <img
-                                            src={getOptimizedImageUrl(myStoryUrl || user?.avatar_url || 'https://i.pravatar.cc/150', 160)}
-                                            alt="Your Story"
-                                            loading="lazy"
-                                            decoding="async"
-                                        />
-                                    );
-                                })()}
-                                <div
-                                    className="story-add-icon-rect"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        navigate('/stories');
-                                    }}
-                                    title="Create new story"
-                                >
-                                    <Plus size={14} />
-                                </div>
-                            </div>
-                            <span className="story-rack-name">Your Story</span>
-                        </div>
-
-                        {/* Other Users' Stories */}
-                        {otherGroups.filter(g => g.stories && g.stories.length > 0).map(group => {
-                            const isConnection = connectionUserIds.has(group.userId);
-                            const storyUrl = group.stories[0]?.image_url?.split('#')[0] || '';
-                            if (!storyUrl) return null;
-                            const isVideo = isVideoUrl(storyUrl);
-                            return (
-                                <div
-                                    key={group.userId}
-                                    className="story-rack-item"
-                                    onClick={() => openStoryViewer(group)}
-                                >
-                                    <div className={`story-tile-rect ${isConnection ? 'story-tile-connection' : ''}`}>
-                                        {isVideo ? (
-                                            <video 
-                                                src={`${storyUrl}#t=0.001`} 
-                                                preload="none" 
-                                                muted 
-                                                playsInline 
-                                                onError={(e) => {
-                                                    const item = (e.target as HTMLElement).closest('.story-rack-item');
-                                                    if (item) (item as HTMLElement).style.display = 'none';
-                                                    if (group.stories[0]?.id) deleteStory(group.stories[0].id);
-                                                }}
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                                            />
-                                        ) : (
-                                            <img
-                                                src={getOptimizedImageUrl(storyUrl, 160)}
-                                                alt={group.username}
-                                                loading="lazy"
-                                                decoding="async"
-                                                onError={(e) => {
-                                                    const item = (e.target as HTMLElement).closest('.story-rack-item');
-                                                    if (item) (item as HTMLElement).style.display = 'none';
-                                                    if (group.stories[0]?.id) deleteStory(group.stories[0].id);
-                                                }}
-                                            />
-                                        )}
-                                    </div>
-                                    <span className="story-rack-name">
-                                        {isConnection && '🔥 '}{group.username}
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                );
-            })()}
-
             {/* Content */}
             <div className="masonry-feed-wrapper">
                 {feedMode === 'connections' ? (
@@ -829,7 +488,7 @@ const Home = () => {
                     ) : unifiedConnectionItems.length === 0 ? (
                         <div className="feed-state-msg">
                             <Users size={32} style={{ color: 'var(--text-inactive)', marginBottom: '8px' }} />
-                            <p style={{ color: 'var(--text-inactive)' }}>No posts or stories from connections yet.</p>
+                            <p style={{ color: 'var(--text-inactive)' }}>No posts from connections yet.</p>
                             <p style={{ color: '#6e6e73', fontSize: '0.8rem', marginTop: '4px' }}>Match via Voice Roulette & Connect to see their updates here!</p>
                         </div>
                     ) : (
@@ -847,7 +506,7 @@ const Home = () => {
                             <div className="masonry-grid">
                                 {unifiedConnectionItems.map((item, index) => (
                                     <ConnectionFeedItem 
-                                        key={`${item.userId}-${item.post?.id || item.story?.id || index}`}
+                                        key={`${item.userId}-${item.post?.id || index}`}
                                         item={item}
                                         isLiked={item.post ? !!likedPosts[item.post.id] : false}
                                         likeCount={item.post ? (likeCounts[item.post.id] || 0) : 0}
