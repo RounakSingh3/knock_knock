@@ -290,7 +290,8 @@ const VoiceCall = () => {
     useEffect(() => {
         if (!user || !user.id) return;
 
-        const channel = supabase.channel('room:voice_calls');
+        const channelRoom = isDirectCall && directRoom ? `room:${directRoom}` : 'room:voice_calls';
+        const channel = supabase.channel(channelRoom);
         channelRef.current = channel;
 
         channel
@@ -420,6 +421,25 @@ const VoiceCall = () => {
                     setVideoRequestStatus('accepted');
                 } else {
                     setVideoRequestStatus('none');
+                }
+            })
+            .on('broadcast', { event: 'video-ready' }, async ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (isCallerRef.current && peerConnectionRef.current) {
+                    const pc = peerConnectionRef.current;
+                    if (pc.signalingState === 'stable') {
+                        try {
+                            const offer = await pc.createOffer();
+                            await pc.setLocalDescription(offer);
+                            channel.send({
+                                type: 'broadcast',
+                                event: 'webrtc-offer',
+                                payload: { senderId: user.id, receiverId: payload.senderId, sdp: offer }
+                            });
+                        } catch (e) {
+                            console.error('Error creating offer on video-ready:', e);
+                        }
+                    }
                 }
             })
             .on('broadcast', { event: 'switch-to-voice' }, ({ payload }) => {
@@ -669,6 +689,7 @@ const VoiceCall = () => {
                     if (!remoteStream) return;
 
                     if (event.track.kind === 'audio' && remoteAudioRef.current) {
+                        setPeerConnected(true);
                         const audioStream = new MediaStream([event.track]);
                         remoteAudioRef.current.srcObject = audioStream;
                         remoteAudioRef.current.volume = 1.0;
@@ -681,6 +702,7 @@ const VoiceCall = () => {
                     }
 
                     if (event.track.kind === 'video') {
+                        setPeerConnected(true);
                         const videoStream = new MediaStream();
                         // Only add video tracks — adding audio tracks here would cause
                         // browser autoplay blocking since remoteVideoRef is not muted
@@ -688,7 +710,14 @@ const VoiceCall = () => {
                         remoteStreamRef.current = videoStream;
                         if (remoteVideoRef.current) {
                             remoteVideoRef.current.srcObject = videoStream;
+                            remoteVideoRef.current.play().catch(e => console.warn('Remote video play failed:', e));
                         }
+                    }
+                };
+
+                pc.oniceconnectionstatechange = () => {
+                    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                        setPeerConnected(true);
                     }
                 };
 
@@ -794,23 +823,38 @@ const VoiceCall = () => {
 
                     if (localVideoRef.current) {
                         localVideoRef.current.srcObject = localStreamRef.current;
+                        localVideoRef.current.play().catch(() => {});
                     }
 
-                    // Both caller and answerer need to renegotiate when adding video
-                    // The glare handling in webrtc-offer listener (rollback logic) handles
-                    // simultaneous offers gracefully
-                    if (channelRef.current && currentMatchRef.current) {
-                        const offer = await pc.createOffer();
-                        await pc.setLocalDescription(offer);
+                    // If answerer, signal video-ready to caller
+                    if (!isCallerRef.current && channelRef.current && currentMatchRef.current) {
                         channelRef.current.send({
                             type: 'broadcast',
-                            event: 'webrtc-offer',
+                            event: 'video-ready',
                             payload: {
                                 senderId: user.id,
                                 receiverId: currentMatchRef.current.profile.id,
-                                sdp: offer,
                             }
                         });
+                    }
+
+                    // Caller triggers the renegotiation offer once its video is attached
+                    if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
+                        setTimeout(async () => {
+                            if (pc.signalingState === 'stable') {
+                                const offer = await pc.createOffer();
+                                await pc.setLocalDescription(offer);
+                                channelRef.current?.send({
+                                    type: 'broadcast',
+                                    event: 'webrtc-offer',
+                                    payload: {
+                                        senderId: user.id,
+                                        receiverId: currentMatchRef.current!.profile.id,
+                                        sdp: offer,
+                                    }
+                                });
+                            }
+                        }, 250);
                     }
                 }
             } catch (e) {
@@ -824,9 +868,11 @@ const VoiceCall = () => {
         if (videoRequestStatus === 'accepted') {
             if (localVideoRef.current && localStreamRef.current) {
                 localVideoRef.current.srcObject = localStreamRef.current;
+                localVideoRef.current.play().catch(() => {});
             }
             if (remoteVideoRef.current && remoteStreamRef.current) {
                 remoteVideoRef.current.srcObject = remoteStreamRef.current;
+                remoteVideoRef.current.play().catch(() => {});
             }
         }
         // Re-attach remote audio when the <audio> element remounts during view transitions
@@ -1219,7 +1265,7 @@ const VoiceCall = () => {
                     ref={remoteAudioRef}
                     autoPlay
                     playsInline
-                    style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+                    style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}
                 />
 
                 {videoRequestStatus === 'accepted' ? (
@@ -1240,151 +1286,125 @@ const VoiceCall = () => {
                     }}
                     onClick={handleVideoAreaTap}
                 >
-                    {/* ── FULLSCREEN VIDEO / MAIN VIEW ── */}
-                    {/* If isVideoSwapped is FALSE: Remote peer's face is full screen */}
-                    {/* If isVideoSwapped is TRUE: Your face is full screen */}
-                    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#0b141a' }}>
-                        {isVideoSwapped ? (
-                            // OUR FACE FULL SCREEN
-                            <>
-                                <video
-                                    ref={localVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    muted
-                                    style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: 'cover',
-                                        display: isCameraOff ? 'none' : 'block',
-                                        transform: isFrontCamera ? 'scaleX(-1)' : 'none'
-                                    }}
-                                />
-                                {isCameraOff && (
-                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#111b21', gap: '16px' }}>
-                                        <img src={user?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'} alt="You" style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '3px solid rgba(255,255,255,0.2)' }} />
-                                        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <CameraOff size={20} color="#ff3b30" /> Camera is off
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        ) : (
-                            // THEIR FACE FULL SCREEN
-                            <>
-                                <video
-                                    ref={remoteVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: 'cover',
-                                        display: 'block'
-                                    }}
-                                />
-
-                            </>
-                        )}
-
-                        {/* Top & Bottom gradient scrims for contrast */}
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '140px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0) 100%)', pointerEvents: 'none', zIndex: 10 }} />
-                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '220px', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%)', pointerEvents: 'none', zIndex: 10 }} />
-                    </div>
-
-                    {/* ── WHATSAPP FLOATING PiP (Tap to Switch Faces) ── */}
-                    {/* If isVideoSwapped is FALSE: PiP displays OUR face */}
-                    {/* If isVideoSwapped is TRUE: PiP displays THEIR face */}
+                    {/* ── WHATSAPP PERSISTENT DUAL-STAGE VIDEO ── */}
+                    {/* Remote Video Container: Fullscreen when !isVideoSwapped, PiP when isVideoSwapped */}
                     <div
-                        onClick={handleSwapVideos}
-                        title="Tap to switch view"
-                        style={{
-                            position: 'absolute',
-                            top: 'max(env(safe-area-inset-top, 16px), 24px)',
-                            right: '16px',
-                            width: '115px',
-                            height: '165px',
-                            borderRadius: '16px',
-                            overflow: 'hidden',
-                            border: '2.5px solid rgba(255,255,255,0.35)',
-                            boxShadow: '0 12px 36px rgba(0,0,0,0.75)',
-                            zIndex: 60,
-                            cursor: 'pointer',
-                            background: '#111b21',
-                            transition: 'transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.25s ease'
-                        }}
+                        style={
+                            !isVideoSwapped
+                                ? { position: 'absolute', inset: 0, overflow: 'hidden', background: '#0b141a', zIndex: 1 }
+                                : {
+                                      position: 'absolute',
+                                      top: 'max(env(safe-area-inset-top, 16px), 24px)',
+                                      right: '16px',
+                                      width: '115px',
+                                      height: '165px',
+                                      borderRadius: '16px',
+                                      overflow: 'hidden',
+                                      border: '2.5px solid rgba(255,255,255,0.35)',
+                                      boxShadow: '0 12px 36px rgba(0,0,0,0.75)',
+                                      zIndex: 60,
+                                      cursor: 'pointer',
+                                      background: '#111b21',
+                                      transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                                  }
+                        }
+                        onClick={isVideoSwapped ? handleSwapVideos : undefined}
                     >
-                        {isVideoSwapped ? (
-                            // PiP shows THEIR face
-                            <div style={{ width: '100%', height: '100%', position: 'relative', background: '#111b21' }}>
-                                <video
-                                    ref={remoteVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                />
+                        <video
+                            ref={remoteVideoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                display: 'block'
+                            }}
+                        />
+                        {isVideoSwapped && (
+                            <>
                                 <div style={{
-                                    position: 'absolute',
-                                    bottom: 0,
-                                    left: 0,
-                                    right: 0,
-                                    padding: '4px 6px',
-                                    background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
-                                    color: '#fff',
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                    textAlign: 'center',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
+                                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                                    padding: '4px 6px', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
+                                    color: '#fff', fontSize: '0.7rem', fontWeight: 600, textAlign: 'center',
+                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
                                 }}>
                                     {displayName}
                                 </div>
-                            </div>
-                        ) : (
-                            // PiP shows OUR face
-                            <>
-                                <video
-                                    ref={localVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    muted
-                                    style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: 'cover',
-                                        display: isCameraOff ? 'none' : 'block',
-                                        transform: isFrontCamera ? 'scaleX(-1)' : 'none'
-                                    }}
-                                />
-                                {isCameraOff && (
-                                    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#111b21' }}>
-                                        <CameraOff size={24} color="#8696a0" />
-                                        <span style={{ color: '#8696a0', fontSize: '0.65rem', marginTop: '4px' }}>Off</span>
-                                    </div>
-                                )}
+                                <div style={{
+                                    position: 'absolute', bottom: '8px', right: '8px',
+                                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                                    border: '1px solid rgba(255,255,255,0.2)', borderRadius: '12px',
+                                    padding: '3px 6px', display: 'flex', alignItems: 'center', gap: '3px', zIndex: 10
+                                }}>
+                                    <RefreshCw size={10} color="#fff" />
+                                    <span style={{ color: '#fff', fontSize: '0.65rem', fontWeight: 600 }}>Swap</span>
+                                </div>
                             </>
                         )}
-
-                        {/* WhatsApp Tap-to-Swap Badge */}
-                        <div style={{
-                            position: 'absolute',
-                            bottom: '8px',
-                            right: '8px',
-                            background: 'rgba(0,0,0,0.65)',
-                            backdropFilter: 'blur(8px)',
-                            border: '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '12px',
-                            padding: '3px 6px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            zIndex: 10
-                        }}>
-                            <RefreshCw size={10} color="#fff" />
-                            <span style={{ color: '#fff', fontSize: '0.65rem', fontWeight: 600 }}>Swap</span>
-                        </div>
                     </div>
+
+                    {/* Local Video Container: PiP when !isVideoSwapped, Fullscreen when isVideoSwapped */}
+                    <div
+                        style={
+                            isVideoSwapped
+                                ? { position: 'absolute', inset: 0, overflow: 'hidden', background: '#0b141a', zIndex: 1 }
+                                : {
+                                      position: 'absolute',
+                                      top: 'max(env(safe-area-inset-top, 16px), 24px)',
+                                      right: '16px',
+                                      width: '115px',
+                                      height: '165px',
+                                      borderRadius: '16px',
+                                      overflow: 'hidden',
+                                      border: '2.5px solid rgba(255,255,255,0.35)',
+                                      boxShadow: '0 12px 36px rgba(0,0,0,0.75)',
+                                      zIndex: 60,
+                                      cursor: 'pointer',
+                                      background: '#111b21',
+                                      transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+                                  }
+                        }
+                        onClick={!isVideoSwapped ? handleSwapVideos : undefined}
+                    >
+                        <video
+                            ref={localVideoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                display: isCameraOff ? 'none' : 'block',
+                                transform: isFrontCamera ? 'scaleX(-1)' : 'none'
+                            }}
+                        />
+                        {isCameraOff && (
+                            <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#111b21', gap: isVideoSwapped ? '16px' : '4px' }}>
+                                <img src={user?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=user'} alt="You" style={{ width: isVideoSwapped ? '120px' : '48px', height: isVideoSwapped ? '120px' : '48px', borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(255,255,255,0.2)' }} />
+                                <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: isVideoSwapped ? '1rem' : '0.65rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <CameraOff size={isVideoSwapped ? 20 : 14} color="#ff3b30" /> Camera is off
+                                </div>
+                            </div>
+                        )}
+                        {!isVideoSwapped && (
+                            <div style={{
+                                position: 'absolute', bottom: '8px', right: '8px',
+                                background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(255,255,255,0.2)', borderRadius: '12px',
+                                padding: '3px 6px', display: 'flex', alignItems: 'center', gap: '3px', zIndex: 10
+                            }}>
+                                <RefreshCw size={10} color="#fff" />
+                                <span style={{ color: '#fff', fontSize: '0.65rem', fontWeight: 600 }}>Swap</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Top & Bottom gradient scrims for contrast */}
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '140px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0) 100%)', pointerEvents: 'none', zIndex: 10 }} />
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '220px', background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 100%)', pointerEvents: 'none', zIndex: 10 }} />
 
                     {/* ── TOP HEADER BAR (WhatsApp Style) ── */}
                     <div style={{
@@ -2334,8 +2354,6 @@ const VoiceCall = () => {
                 >
                     {isSearching ? (
                         <Loader2 size={36} style={{ animation: 'spin 1s linear infinite' }} />
-                    ) : !scheduleInfo.isActive ? (
-                        <Lock size={32} color="#facc15" />
                     ) : (
                         <Phone size={36} />
                     )}
