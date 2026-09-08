@@ -54,16 +54,6 @@ const playCallEndChime = () => {
     playTone([440, 349.23, 261.63], [0.1, 0.1, 0.2], 'sine', 0.1);
 };
 
-const COMMUNITY_COMPANIONS: ProfileData[] = [
-    { id: '11111111-1111-1111-1111-111111111101', username: 'priya_patel99', name: 'Priya Patel', avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300', gender: 'female', points: 450 } as any,
-    { id: '11111111-1111-1111-1111-111111111102', username: 'aditya_ps', name: 'Aditya Pratap', avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300', gender: 'male', points: 520 } as any,
-    { id: '11111111-1111-1111-1111-111111111103', username: 'neha_creates', name: 'Neha Sharma', avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300', gender: 'female', points: 380 } as any,
-    { id: '11111111-1111-1111-1111-111111111104', username: 'zack_kumar', name: 'Zack', avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300', gender: 'male', points: 610 } as any,
-    { id: '11111111-1111-1111-1111-111111111105', username: 'sophia_vibe', name: 'Sophia R.', avatar_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300', gender: 'female', points: 490 } as any,
-    { id: '11111111-1111-1111-1111-111111111106', username: 'alex_music', name: 'Alex Rivera', avatar_url: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=300', gender: 'male', points: 580 } as any,
-    { id: '11111111-1111-1111-1111-111111111107', username: 'maya_wanderer', name: 'Maya Sen', avatar_url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=300', gender: 'female', points: 530 } as any,
-];
-
 const VoiceCall = () => {
     const { user, blockedIds } = useContext(AppContext);
     const [searchParams] = useSearchParams();
@@ -85,7 +75,6 @@ const VoiceCall = () => {
     const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
     const [showMatchCard, setShowMatchCard] = useState(false);
     const [noMatchFound, setNoMatchFound] = useState(false);
-    const [isMockMode, setIsMockMode] = useState(false);
 
     // Call feature states
     const [requestStatus, setRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
@@ -142,7 +131,6 @@ const VoiceCall = () => {
     };
 
     const [scheduleInfo, setScheduleInfo] = useState(getTimeUntilNextWindow());
-    const [showScheduleToast, setShowScheduleToast] = useState(true);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -185,7 +173,6 @@ const VoiceCall = () => {
     const videoRequestStatusRef = useRef(videoRequestStatus);
     const inCallRef = useRef(inCall);
     const isCallerRef = useRef(isCaller);
-    const isMockModeRef = useRef(isMockMode);
 
     useEffect(() => { isSearchingRef.current = isSearching; }, [isSearching]);
     useEffect(() => { activePrefRef.current = activePref; }, [activePref]);
@@ -194,7 +181,6 @@ const VoiceCall = () => {
     useEffect(() => { inCallRef.current = inCall; }, [inCall]);
     useEffect(() => { isCallerRef.current = isCaller; }, [isCaller]);
     useEffect(() => { onlineUsersRef.current = onlineUsers; }, [onlineUsers]);
-    useEffect(() => { isMockModeRef.current = isMockMode; }, [isMockMode]);
 
     // Handle Direct Calls Initialization
     useEffect(() => {
@@ -209,7 +195,6 @@ const VoiceCall = () => {
             const partnerProfile = profiles[0];
 
             setIsCaller(directRole === 'caller');
-            setIsMockMode(false);
             setMatches([{
                 profile: { ...partnerProfile, username: partnerProfile.username || partnerProfile.name } as any,
                 similarityScore: 1.0,
@@ -321,16 +306,8 @@ const VoiceCall = () => {
                 onlineUsersRef.current = list;
 
                 // If currently searching, try matching with any newly synced searching peer
-                if (isSearchingRef.current) {
-                    const found = findAndInviteMatch();
-                    if (found && searchTimeoutRef.current) {
-                        clearTimeout(searchTimeoutRef.current);
-                        searchTimeoutRef.current = window.setTimeout(() => {
-                            if (isSearchingRef.current) {
-                                startCompanionCall();
-                            }
-                        }, 3500);
-                    }
+                if (isSearchingRef.current && !inCallRef.current) {
+                    findAndInviteMatch();
                 }
             })
             .on('broadcast', { event: 'call-invite' }, ({ payload }) => {
@@ -354,8 +331,7 @@ const VoiceCall = () => {
                     }
 
                     setIsCaller(false);
-                    setIsMockMode(false);
-                    setMatches([{
+                            setMatches([{
                         profile: callerProfile,
                         similarityScore: payload.compatibilityPercent / 100,
                         sharedLikes: payload.sharedLikes,
@@ -397,8 +373,7 @@ const VoiceCall = () => {
                     }
 
                     setIsCaller(true);
-                    setIsMockMode(false);
-                    setMatches([{
+                            setMatches([{
                         profile: payload.receiverProfile,
                         similarityScore: 0.85,
                         sharedLikes: 3,
@@ -619,16 +594,7 @@ const VoiceCall = () => {
             if (!inCall || !currentMatch) return;
             closeWebRTC();
 
-            if (isMockMode) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                    localStreamRef.current = stream;
-                } catch {
-                    // mic access denied or not required for companion
-                }
-                setPeerConnected(true);
-                return;
-            }
+
     
             try {
                 const isVideo = videoRequestStatus === 'accepted';
@@ -637,8 +603,6 @@ const VoiceCall = () => {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
-                        sampleRate: 48000,
-                        channelCount: 1,
                     },
                     video: isVideo
                 });
@@ -783,9 +747,8 @@ const VoiceCall = () => {
                 }
 
                 // Announce arrival to start WebRTC handshake
-                // Only send if channel is subscribed — if not, the subscribe callback
-                // will re-send peer-arrived once it's ready
-                if (channelSubscribedRef.current && channelRef.current) {
+                // ONLY the caller announces arrival to prevent double-offer glare and renegotiation drops
+                if (isCaller && channelSubscribedRef.current && channelRef.current && currentMatchRef.current) {
                     channelRef.current.send({
                         type: 'broadcast',
                         event: 'peer-arrived',
@@ -804,29 +767,13 @@ const VoiceCall = () => {
             webrtcReadyRef.current = false;
             closeWebRTC();
         };
-    }, [inCall, isCaller, currentMatch?.profile?.id, isMockMode]);
+    }, [inCall, isCaller, currentMatch?.profile?.id]);
 
     // Handle video upgrade separately — add video track to existing connection
     useEffect(() => {
         if (videoRequestStatus !== 'accepted') return;
 
-        if (isMockMode) {
-            // In companion/mock mode, capture camera so user sees their own face
-            (async () => {
-                try {
-                    const videoStream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: isFrontCamera ? 'user' : 'environment' } 
-                    });
-                    localStreamRef.current = videoStream;
-                    if (localVideoRef.current) {
-                        localVideoRef.current.srcObject = videoStream;
-                    }
-                } catch (e) {
-                    console.warn('Camera access denied in mock mode:', e);
-                }
-            })();
-            return;
-        }
+
 
         if (!peerConnectionRef.current || !localStreamRef.current || !user) return;
         const pc = peerConnectionRef.current;
@@ -870,7 +817,7 @@ const VoiceCall = () => {
                 console.error('Failed to add video track:', e);
             }
         })();
-    }, [videoRequestStatus, isMockMode, isFrontCamera]);
+    }, [videoRequestStatus, isFrontCamera]);
 
     // Ensure video and audio streams remain attached when switching views
     useEffect(() => {
@@ -903,12 +850,6 @@ const VoiceCall = () => {
 
     const handleTalkMore = () => {
         setRequestStatus('sent');
-        if (isMockMode) {
-            setTimeout(() => {
-                setRequestStatus('accepted');
-            }, 1200);
-            return;
-        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -923,12 +864,6 @@ const VoiceCall = () => {
 
     const handleRequestVideo = () => {
         setVideoRequestStatus('sent');
-        if (isMockMode) {
-            setTimeout(() => {
-                setVideoRequestStatus('accepted');
-            }, 1400);
-            return;
-        }
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -957,7 +892,7 @@ const VoiceCall = () => {
         setIsVideoSwapped(false);
         setIsCameraOff(false);
 
-        if (channelRef.current && currentMatchRef.current && !isMockMode) {
+        if (channelRef.current && currentMatchRef.current) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'switch-to-voice',
@@ -1117,94 +1052,51 @@ const VoiceCall = () => {
         return false;
     };
 
-    const startCompanionCall = async () => {
-        if (!isSearchingRef.current || !user) return;
-        try {
-            let candidates = [...COMMUNITY_COMPANIONS];
-            try {
-                const { data } = await supabase
-                    .from('profiles')
-                    .select('id, username, name, avatar_url, gender, points')
-                    .neq('id', user.id)
-                    .limit(10);
-                if (data && data.length > 0) {
-                    candidates = [...data.map(p => ({
-                        id: p.id,
-                        username: p.username || 'user',
-                        name: p.name || p.username || 'User',
-                        avatar_url: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300',
-                        gender: p.gender || 'female',
-                        points: p.points || 300,
-                    })), ...COMMUNITY_COMPANIONS];
-                }
-            } catch {
-                // fallback to static
-            }
-
-            if (activePrefRef.current === 'Boy to Girl 👦') {
-                const filtered = candidates.filter(c => c.gender === 'female');
-                if (filtered.length > 0) candidates = filtered;
-            } else if (activePrefRef.current === 'Girl to Boy 👧') {
-                const filtered = candidates.filter(c => c.gender === 'male');
-                if (filtered.length > 0) candidates = filtered;
-            }
-
-            const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-            const compat = Math.floor(Math.random() * 18) + 82; // 82 - 99%
-            const shared = Math.floor(Math.random() * 3) + 2;   // 2 - 4
-
-            setMatches([{
-                profile: chosen as any,
-                similarityScore: compat / 100,
-                sharedLikes: shared,
-                totalLikes: 5,
-                compatibilityPercent: compat,
-            }]);
-            setCurrentMatchIndex(0);
-            setIsSearching(false);
-            setIsMockMode(true);
-            setIsCaller(true);
-            setPeerConnected(true);
-            setShowMatchCard(false);
-            setInCall(true);
-            playCallConnectedChime();
-            updatePresence('in-call');
-        } catch (e) {
-            console.error('Error in companion match:', e);
-            setNoMatchFound(true);
-            setIsSearching(false);
+    const cancelSearch = async () => {
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+            searchTimeoutRef.current = null;
         }
+        setIsSearching(false);
+        setNoMatchFound(false);
+        await updatePresence('idle');
     };
 
     const startSearch = async () => {
         if (!user) return;
-        if (!scheduleInfo.isActive && !isDirectCall) {
-            setShowScheduleToast(true);
-            return;
-        }
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
-        setIsMockMode(false);
         setIsCaller(false);
 
         await updatePresence('searching');
 
         const onlineMatch = findAndInviteMatch();
-        if (onlineMatch) {
+        if (!onlineMatch) {
+            // Keep searching for real online users — set a 60-second status reminder
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
             searchTimeoutRef.current = window.setTimeout(() => {
                 if (isSearchingRef.current) {
-                    startCompanionCall();
+                    setIsSearching(false);
+                    setNoMatchFound(true);
+                    updatePresence('idle');
                 }
-            }, 3500);
-        } else {
-            searchTimeoutRef.current = window.setTimeout(() => {
-                if (isSearchingRef.current) {
-                    startCompanionCall();
-                }
-            }, 3500);
+            }, 60000);
         }
     };
+
+    // Periodically re-check for searching peers while radar is active
+    useEffect(() => {
+        if (!isSearching) return;
+        const interval = setInterval(() => {
+            if (isSearchingRef.current && !inCallRef.current) {
+                findAndInviteMatch();
+            }
+        }, 2500);
+        return () => clearInterval(interval);
+    }, [isSearching]);
 
     const connectToMatch = async () => {
         setShowMatchCard(false);
@@ -1214,7 +1106,7 @@ const VoiceCall = () => {
     };
 
     const skipToNext = () => {
-        if (currentMatchRef.current && channelRef.current && !isMockMode) {
+        if (currentMatchRef.current && channelRef.current) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -1231,7 +1123,7 @@ const VoiceCall = () => {
 
     const endCall = () => {
         playCallEndChime();
-        if (currentMatchRef.current && channelRef.current && !isMockMode) {
+        if (currentMatchRef.current && channelRef.current) {
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'call-end',
@@ -1259,7 +1151,6 @@ const VoiceCall = () => {
         setChatMessages([]);
         setIncomingExtensionRequest(false);
         setIncomingVideoRequest(false);
-        setIsMockMode(false);
         setIsCaller(false);
         setAudioBlocked(false);
         setPeerConnected(false);
@@ -1297,21 +1188,7 @@ const VoiceCall = () => {
         setChatMessages(prev => [...prev, { id: msgId, text: messageText, isMine: true }]);
         setChatInput('');
 
-        if (isMockMode) {
-            const replies = [
-                "Haha hey! Nice to meet you! 😊",
-                "Loving this voice vibe ✨",
-                "What music or movies do you like? 🎶",
-                "That's awesome! Let's connect on Knock Knock 🤝",
-                "Haha you seem really cool!",
-                "Are you enjoying the app so far? 🚀"
-            ];
-            setTimeout(() => {
-                const randomReply = replies[Math.floor(Math.random() * replies.length)];
-                setChatMessages(prev => [...prev, { id: Date.now(), text: randomReply, isMine: false }]);
-            }, 1400);
-            return;
-        }
+
 
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
@@ -1338,6 +1215,7 @@ const VoiceCall = () => {
             <>
                 {/* Persistent audio element for WebRTC audio - never unmounts between voice and video */}
                 <audio
+                    id="knock-call-audio"
                     ref={remoteAudioRef}
                     autoPlay
                     playsInline
@@ -1402,75 +1280,10 @@ const VoiceCall = () => {
                                         width: '100%',
                                         height: '100%',
                                         objectFit: 'cover',
-                                        display: isMockMode ? 'none' : 'block'
+                                        display: 'block'
                                     }}
                                 />
-                                {/* Simulated companion video / when peer stream has not loaded yet */}
-                                {isMockMode && (
-                                    <div style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        position: 'relative',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        background: '#111b21',
-                                        overflow: 'hidden'
-                                    }}>
-                                        {/* Blurred dynamic backdrop image */}
-                                        <div style={{
-                                            position: 'absolute',
-                                            inset: 0,
-                                            backgroundImage: `url(${displayAvatar})`,
-                                            backgroundSize: 'cover',
-                                            backgroundPosition: 'center',
-                                            filter: 'blur(45px) brightness(0.4)',
-                                            transform: 'scale(1.15)',
-                                            zIndex: 1
-                                        }} />
-                                        {/* Subtle breathing companion avatar */}
-                                        <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                            <div style={{ position: 'relative' }}>
-                                                <div style={{
-                                                    position: 'absolute',
-                                                    inset: -16,
-                                                    borderRadius: '50%',
-                                                    background: 'radial-gradient(circle, rgba(37,211,102,0.4) 0%, rgba(37,211,102,0) 70%)',
-                                                    animation: 'pulse 2.2s infinite ease-in-out'
-                                                }} />
-                                                <img
-                                                    src={displayAvatar}
-                                                    alt={displayName}
-                                                    style={{
-                                                        width: '140px',
-                                                        height: '140px',
-                                                        borderRadius: '50%',
-                                                        objectFit: 'cover',
-                                                        border: '4px solid rgba(255,255,255,0.4)',
-                                                        boxShadow: '0 12px 40px rgba(0,0,0,0.6)'
-                                                    }}
-                                                />
-                                            </div>
-                                            <h3 style={{ color: '#fff', fontSize: '1.4rem', fontWeight: 600, marginTop: '20px', marginBottom: '4px', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
-                                                {displayName}
-                                            </h3>
-                                            <div style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '6px',
-                                                background: 'rgba(37,211,102,0.2)',
-                                                border: '1px solid rgba(37,211,102,0.3)',
-                                                padding: '4px 12px',
-                                                borderRadius: '20px',
-                                                marginTop: '6px'
-                                            }}>
-                                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#25D366', boxShadow: '0 0 8px #25D366' }} />
-                                                <span style={{ color: '#25D366', fontSize: '0.8rem', fontWeight: 600 }}>Speaking • Live Audio</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+
                             </>
                         )}
 
@@ -1502,23 +1315,14 @@ const VoiceCall = () => {
                         }}
                     >
                         {isVideoSwapped ? (
-                            // PiP shows THEIR face — use video element for real peers, avatar for mock
+                            // PiP shows THEIR face
                             <div style={{ width: '100%', height: '100%', position: 'relative', background: '#111b21' }}>
-                                {!isMockMode && (
-                                    <video
-                                        ref={remoteVideoRef}
-                                        autoPlay
-                                        playsInline
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    />
-                                )}
-                                {isMockMode && (
-                                    <img
-                                        src={displayAvatar}
-                                        alt={displayName}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    />
-                                )}
+                                <video
+                                    ref={remoteVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
                                 <div style={{
                                     position: 'absolute',
                                     bottom: 0,
@@ -2525,8 +2329,7 @@ const VoiceCall = () => {
                 <div 
                     className="radar-center"
                     style={{
-                        background: !scheduleInfo.isActive ? 'rgba(250,204,21,0.12)' : undefined,
-                        border: !scheduleInfo.isActive ? '2px solid rgba(250,204,21,0.35)' : undefined
+                        
                     }}
                 >
                     {isSearching ? (
@@ -2546,10 +2349,10 @@ const VoiceCall = () => {
                         padding: '20px', border: '1px solid rgba(255,153,51,0.2)',
                     }}>
                         <p style={{ color: '#ff9933', fontSize: '1rem', fontWeight: 600, marginBottom: '8px' }}>
-                            😔 Searching for more matches...
+                            🔍 No other users are searching right now
                         </p>
                         <p style={{ color: '#8e8e93', fontSize: '0.85rem', marginBottom: '16px', lineHeight: '1.4' }}>
-                            Tap below to start matching with community companions!
+                            We only connect you with real people who are actively online. Tap below to search again or wait a moment!
                         </p>
                         <button
                             className="premium-btn"
@@ -2559,7 +2362,7 @@ const VoiceCall = () => {
                             }}
                             style={{ fontSize: '0.9rem', padding: '10px 24px' }}
                         >
-                            🔄 Try Again
+                            🔄 Search Again
                         </button>
                     </div>
                 </div>
@@ -2581,41 +2384,50 @@ const VoiceCall = () => {
                 ))}
             </div>
 
-            {/* Start Matching Action Button */}
-            <button
-                className="premium-btn"
-                onClick={startSearch}
-                disabled={isSearching}
-                style={{
-                    opacity: isSearching ? 0.7 : !scheduleInfo.isActive ? 0.75 : 1,
-                    width: '100%',
-                    maxWidth: '290px',
-                    justifyContent: 'center',
-                    fontSize: '1.05rem',
-                    padding: '14px 24px',
-                    marginTop: '1rem',
-                    background: !scheduleInfo.isActive ? 'linear-gradient(135deg, #2c2514, #1a150c)' : undefined,
-                    border: !scheduleInfo.isActive ? '1px solid rgba(250,204,21,0.4)' : undefined,
-                    color: !scheduleInfo.isActive ? '#facc15' : '#fff',
-                    animation: !isSearching && scheduleInfo.isActive && totalOnlineCount > 0 ? 'btnPulse 2s ease-in-out infinite' : 'none',
-                }}
-            >
-                {isSearching ? (
-                    <>
-                        <Loader2 size={20} style={{ animation: 'spin 1s linear infinite', marginRight: '8px' }} />
-                        Finding Matches...
-                    </>
-                ) : !scheduleInfo.isActive ? (
-                    <>
-                        <Lock size={18} style={{ marginRight: '8px' }} />
-                        Opens at 8:00 PM
-                    </>
-                ) : (
-                    'Start Matching'
-                )}
-            </button>
+            {/* Start / Cancel Matching Action Button */}
+            {isSearching ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%', maxWidth: '290px', margin: '1rem auto 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3366', fontWeight: 600, fontSize: '0.95rem' }}>
+                        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                        Searching for online users...
+                    </div>
+                    <button
+                        className="premium-btn"
+                        onClick={cancelSearch}
+                        style={{
+                            width: '100%',
+                            justifyContent: 'center',
+                            fontSize: '0.95rem',
+                            padding: '12px 24px',
+                            background: 'rgba(255,59,48,0.15)',
+                            border: '1px solid rgba(255,59,48,0.4)',
+                            color: '#ff3b30'
+                        }}
+                    >
+                        <X size={18} style={{ marginRight: '6px' }} />
+                        Stop Searching
+                    </button>
+                </div>
+            ) : (
+                <button
+                    className="premium-btn"
+                    onClick={startSearch}
+                    style={{
+                        width: '100%',
+                        maxWidth: '290px',
+                        justifyContent: 'center',
+                        fontSize: '1.05rem',
+                        padding: '14px 24px',
+                        marginTop: '1rem',
+                        animation: totalOnlineCount > 0 ? 'btnPulse 2s ease-in-out infinite' : 'none',
+                    }}
+                >
+                    <Phone size={18} style={{ marginRight: '8px' }} />
+                    Start Matching
+                </button>
+            )}
 
-            {/* ⏰ Notification / Schedule Reminder Card right below on the fourth page */}
+            {/* ⏰ Evening Peak Hours Card (Voice Space is 24/7) */}
             <div style={{
                 margin: '1.8rem auto 1.5rem',
                 padding: '0 20px',
@@ -2626,12 +2438,12 @@ const VoiceCall = () => {
                 <div style={{
                     background: scheduleInfo.isActive 
                         ? 'linear-gradient(135deg, rgba(37,211,102,0.12) 0%, rgba(37,211,102,0.04) 100%)' 
-                        : 'linear-gradient(135deg, rgba(250,204,21,0.12) 0%, rgba(255,51,102,0.06) 100%)',
+                        : 'linear-gradient(135deg, rgba(245,165,36,0.12) 0%, rgba(255,51,102,0.06) 100%)',
                     borderRadius: '20px',
                     padding: '18px 20px',
                     border: scheduleInfo.isActive 
                         ? '1px solid rgba(37,211,102,0.35)' 
-                        : '1px solid rgba(250,204,21,0.3)',
+                        : '1px solid rgba(245,165,36,0.3)',
                     backdropFilter: 'blur(16px)',
                     boxShadow: '0 8px 30px rgba(0,0,0,0.35)',
                     textAlign: 'center',
@@ -2641,33 +2453,25 @@ const VoiceCall = () => {
                     gap: '10px'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {scheduleInfo.isActive ? (
-                            <span style={{
-                                background: '#34C759', width: '10px', height: '10px', borderRadius: '50%',
-                                boxShadow: '0 0 10px #34C759', animation: 'pulse 1.8s infinite'
-                            }} />
-                        ) : (
-                            <Bell size={18} color="#facc15" />
-                        )}
+                        <span style={{
+                            background: '#34C759', width: '10px', height: '10px', borderRadius: '50%',
+                            boxShadow: '0 0 10px #34C759', animation: 'pulse 1.8s infinite'
+                        }} />
                         <span style={{
                             fontWeight: 700,
                             fontSize: '0.95rem',
-                            color: scheduleInfo.isActive ? '#34C759' : '#facc15',
+                            color: '#34C759',
                             letterSpacing: '0.3px'
                         }}>
-                            {scheduleInfo.isActive ? 'Voice Space is LIVE Now!' : 'Active Only 8:00 PM – 10:00 PM'}
+                            Voice Space is LIVE 24/7
                         </span>
                     </div>
 
                     <p style={{ color: 'rgba(255,255,255,0.78)', fontSize: '0.82rem', margin: 0, lineHeight: 1.45 }}>
-                        {scheduleInfo.isActive ? (
-                            <>The evening voice session is currently running! Connect and speak with users before 10:00 PM.</>
-                        ) : (
-                            <>The voice system only activates from <strong style={{ color: '#fff' }}>8:00 PM to 10:00 PM</strong> in the evening. Come back at 8:00 PM to connect!</>
-                        )}
+                        Connect and speak with real online users anytime! Peak hours are <strong style={{ color: '#f5a524' }}>8:00 PM – 10:00 PM</strong> when the most users are online.
                     </p>
 
-                    {/* Live Countdown Badge */}
+                    {/* Peak Hours Status Badge */}
                     <div style={{
                         marginTop: '4px',
                         background: 'rgba(0,0,0,0.45)',
@@ -2678,15 +2482,15 @@ const VoiceCall = () => {
                         alignItems: 'center',
                         gap: '8px'
                     }}>
-                        <Clock size={15} color={scheduleInfo.isActive ? '#34C759' : '#facc15'} />
-                        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.6)' }}>
-                            {scheduleInfo.isActive ? 'Closes in:' : 'Opens in:'}
+                        <Flame size={15} color="#f5a524" />
+                        <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' }}>
+                            {scheduleInfo.isActive ? '🔥 Peak Session Running!' : 'Next Peak Hour:'}
                         </span>
                         <span style={{
                             fontFamily: 'monospace',
                             fontWeight: 700,
                             fontSize: '0.95rem',
-                            color: scheduleInfo.isActive ? '#34C759' : '#facc15',
+                            color: '#f5a524',
                             letterSpacing: '1px'
                         }}>
                             {scheduleInfo.formatted}
@@ -2694,72 +2498,6 @@ const VoiceCall = () => {
                     </div>
                 </div>
             </div>
-
-            {/* 🔔 Floating Opening Reminder Toast (Shows when opening the fourth page) */}
-            {showScheduleToast && (
-                <div style={{
-                    position: 'fixed',
-                    bottom: '80px',
-                    left: '16px',
-                    right: '16px',
-                    maxWidth: '440px',
-                    margin: '0 auto',
-                    zIndex: 250,
-                    background: scheduleInfo.isActive 
-                        ? 'linear-gradient(135deg, rgba(17, 35, 24, 0.96), rgba(11, 24, 16, 0.96))' 
-                        : 'linear-gradient(135deg, rgba(38, 28, 12, 0.96), rgba(24, 16, 6, 0.96))',
-                    backdropFilter: 'blur(20px)',
-                    border: scheduleInfo.isActive ? '1px solid rgba(52,199,89,0.45)' : '1px solid rgba(250,204,21,0.45)',
-                    borderRadius: '18px',
-                    padding: '14px 18px',
-                    boxShadow: '0 16px 40px rgba(0,0,0,0.7)',
-                    animation: 'slideUp 0.3s ease-out',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                }}>
-                    <div style={{
-                        width: '38px',
-                        height: '38px',
-                        borderRadius: '50%',
-                        background: scheduleInfo.isActive ? 'rgba(52,199,89,0.2)' : 'rgba(250,204,21,0.2)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                    }}>
-                        {scheduleInfo.isActive ? <Flame size={20} color="#34C759" /> : <Clock size={20} color="#facc15" />}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {scheduleInfo.isActive ? '🟢 Voice Space is Live Now!' : '⏰ Voice System Reminder'}
-                        </div>
-                        <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.75)', marginTop: '2px', lineHeight: 1.35 }}>
-                            {scheduleInfo.isActive 
-                                ? `Active now until 10:00 PM! Closes in ${scheduleInfo.formatted}.`
-                                : `Voice system only activates 8:00 PM – 10:00 PM. Opens in ${scheduleInfo.formatted}.`}
-                        </div>
-                    </div>
-                    <button 
-                        onClick={() => setShowScheduleToast(false)}
-                        style={{
-                            background: 'rgba(255,255,255,0.1)',
-                            border: 'none',
-                            borderRadius: '50%',
-                            width: '28px',
-                            height: '28px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#fff',
-                            cursor: 'pointer',
-                            flexShrink: 0
-                        }}
-                    >
-                        <X size={14} />
-                    </button>
-                </div>
-            )}
 
             <style>{`
                 @keyframes btnPulse {
