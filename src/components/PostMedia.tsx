@@ -350,12 +350,17 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         );
     }
 
-    // Strip filter query params from video URLs to avoid CDN/range-request issues
+    // Clean video URLs and ensure fresh cache-busted playback for Supabase storage
     let cleanImageUrl = post.image_url;
     try {
-        const parsed = new URL(post.image_url);
-        if (parsed.searchParams.has('filter')) {
-            parsed.searchParams.delete('filter');
+        if (post.image_url) {
+            const parsed = new URL(post.image_url);
+            if (parsed.searchParams.has('filter')) {
+                parsed.searchParams.delete('filter');
+            }
+            if (isVideo && parsed.hostname.includes('supabase.co') && !parsed.searchParams.has('v')) {
+                parsed.searchParams.set('v', 'h264_v2');
+            }
             cleanImageUrl = parsed.toString();
         }
     } catch (_) {}
@@ -395,7 +400,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         webkit-playsinline="true"
                         x5-playsinline="true"
                         preload={isPlayingMode ? "auto" : (isInViewport ? "metadata" : "none")}
-                        crossOrigin="anonymous"
                         onError={handleMediaError}
                         onLoadedMetadata={(e) => {
                             const v = e.currentTarget;
