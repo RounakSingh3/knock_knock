@@ -575,7 +575,20 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
             .select('*')
             .eq('id', cleanUsername)
             .maybeSingle();
-        if (idData) return idData;
+        if (idData && !isRemovedUser(idData.id, idData.username)) return idData;
+    }
+
+    // 2.5. Prefix username match (e.g. 'tara' -> 'tara01') or display name match (e.g. 'Tara')
+    const { data: fuzzyUser } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`username.ilike.${cleanUsername}%,name.ilike.${cleanUsername},name.ilike.%${cleanUsername}%`)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+    if (fuzzyUser && !isRemovedUser(fuzzyUser.id, fuzzyUser.username)) {
+        return fuzzyUser;
     }
 
     // 3. Check if this user exists in the posts table (e.g. content creators / community pages)
@@ -1829,12 +1842,14 @@ export async function deleteComment(commentId: string): Promise<void> {
 
 // ── Search ─────────────────────────────────────────────────
 
-/** Search users by username */
+/** Search users by username or name */
 export async function searchUsers(query: string): Promise<ProfileData[]> {
+    const cleanQuery = query.replace(/^@+/, '').trim();
+    if (!cleanQuery) return [];
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .ilike('username', `%${query}%`)
+        .or(`username.ilike.%${cleanQuery}%,name.ilike.%${cleanQuery}%`)
         .limit(20);
 
     if (error) {

@@ -50,11 +50,38 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const isPlayingMode = autoPlay || soundOn || controls;
+    const [isInViewport, setIsInViewport] = useState(isPlayingMode);
     const [hasError, setHasError] = useState(false);
     const [isAudioBlocked, setIsAudioBlocked] = useState(false);
     const retryCountRef = useRef(0);
     const fallbackUsedRef = useRef(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
+
+    useEffect(() => {
+        if (isPlayingMode) {
+            setIsInViewport(true);
+            return;
+        }
+        const el = containerRef.current;
+        if (!el || typeof IntersectionObserver === 'undefined') {
+            setIsInViewport(true);
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting) {
+                    setIsInViewport(true);
+                }
+            },
+            { rootMargin: '300px' }
+        );
+
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [isPlayingMode]);
 
     const [currentImgSrc, setCurrentImgSrc] = useState<string>(() => {
         return isVideo ? '' : getOptimizedImageUrl(post.image_url, 650);
@@ -333,23 +360,23 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     } catch (_) {}
 
-    const isPlayingMode = autoPlay || soundOn || controls;
-    // When playing mode is active, do NOT append #t=0.001 as it disrupts progressive streaming, byte seeking, and looping
+    // When playing mode is active, do NOT append #t=... as it disrupts progressive streaming, byte seeking, and looping
+    // For thumbnails, use #t=0.1 so the video renders a visible frame instead of a black box
     const videoSrc = isVideo
         ? (isPlayingMode
             ? cleanImageUrl.replace(/#t=[\d.]+/, '')
-            : (cleanImageUrl.includes('#t=') ? cleanImageUrl : `${cleanImageUrl}#t=0.001`))
+            : (cleanImageUrl.includes('#t=') ? cleanImageUrl : `${cleanImageUrl}#t=0.1`))
         : '';
 
     const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     return (
-        <div style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: style?.minHeight || '0px' }}>
+        <div ref={containerRef} style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: style?.minHeight || '0px' }}>
             {isVideo ? (
                 <>
                     <video
                         ref={videoRef}
-                        src={videoSrc}
+                        src={isInViewport || isPlayingMode ? videoSrc : undefined}
                         className={className}
                         style={{
                             ...style,
@@ -367,9 +394,33 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         // @ts-ignore
                         webkit-playsinline="true"
                         x5-playsinline="true"
-                        preload={isPlayingMode ? "auto" : "metadata"}
+                        preload={isPlayingMode ? "auto" : (isInViewport ? "metadata" : "none")}
                         crossOrigin="anonymous"
                         onError={handleMediaError}
+                        onLoadedMetadata={(e) => {
+                            const v = e.currentTarget;
+                            if (!isPlayingMode) {
+                                try {
+                                    if (v.currentTime < 0.1) {
+                                        v.currentTime = 0.1;
+                                    }
+                                } catch (_) {}
+                            }
+                        }}
+                        onMouseEnter={() => {
+                            if (!isPlayingMode && videoRef.current) {
+                                videoRef.current.muted = true;
+                                videoRef.current.play().catch(() => {});
+                            }
+                        }}
+                        onMouseLeave={() => {
+                            if (!isPlayingMode && videoRef.current) {
+                                videoRef.current.pause();
+                                try {
+                                    videoRef.current.currentTime = 0.1;
+                                } catch (_) {}
+                            }
+                        }}
                         onClick={(e) => {
                             if (isAudioBlocked) {
                                 handleUnmute(e);

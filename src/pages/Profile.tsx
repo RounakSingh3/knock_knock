@@ -132,6 +132,11 @@ const Profile = () => {
                     return;
                 }
                 setProfile(profileData);
+
+                // Canonical URL update if accessed via alias like /profile/tara -> /profile/tara01
+                if (profileData.username && cleanUser.toLowerCase() !== profileData.username.toLowerCase()) {
+                    navigate(`/profile/${profileData.username}`, { replace: true });
+                }
                 
                 const [userPosts, stats] = await Promise.all([
                     fetchUserPosts(profileData.username || cleanUser, profileData.id),
@@ -303,8 +308,8 @@ const Profile = () => {
         );
     }
 
-    const displayUsername = username;
-    const isOwnProfile = currentUser && currentUser.username === username;
+    const displayUsername = profile?.username || username;
+    const isOwnProfile = currentUser && (currentUser.username === profile?.username || currentUser.id === profile?.id);
 
     const sendDirectCallsBroadcast = (event: string, payload: any) => {
         const channel = supabase.channel('direct-calls');
