@@ -7,7 +7,7 @@ import {
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX } from 'lucide-react';
 import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
@@ -33,6 +33,7 @@ const Profile = () => {
     const [touchStart, setTouchStart] = useState<number | null>(null);
     const [touchEnd, setTouchEnd] = useState<number | null>(null);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
+    const [isMuted, setIsMuted] = useState(false);
 
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
@@ -837,6 +838,10 @@ const Profile = () => {
                 const hasPrev = currentIndex > 0;
 
                 const handleTouchStart = (e: React.TouchEvent) => {
+                    const target = e.target as HTMLElement;
+                    if (target.closest('button') || target.closest('.modal-mute-btn') || target.closest('.modal-close-btn') || target.closest('video') || target.closest('.nav-btn')) {
+                        return;
+                    }
                     setTouchEnd(null);
                     setTouchStart(e.targetTouches[0].clientX);
                 };
@@ -863,11 +868,35 @@ const Profile = () => {
                         >
                             <div className="modal-top-bar">
                                 <span className="modal-username">{displayUsername}</span>
-                                <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
-                                    <X size={22} />
-                                </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', pointerEvents: 'auto' }}>
+                                    <button
+                                        className="modal-mute-btn"
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
+                                        aria-label={isMuted ? 'Unmute' : 'Mute'}
+                                        style={{
+                                            width: '34px',
+                                            height: '34px',
+                                            borderRadius: '50%',
+                                            background: 'rgba(0, 0, 0, 0.5)',
+                                            backdropFilter: 'blur(8px)',
+                                            WebkitBackdropFilter: 'blur(8px)',
+                                            border: 'none',
+                                            color: 'white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                                    </button>
+                                    <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
+                                        <X size={22} />
+                                    </button>
+                                </div>
                             </div>
-                            <div className="modal-media-stage" style={{ position: 'relative' }}>
+                            <div className="modal-media-stage" style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
                                 {hasPrev && (
                                     <button 
                                         className="nav-btn left"
@@ -883,8 +912,11 @@ const Profile = () => {
                                     className="modal-image"
                                     controls
                                     playsInline
-                                    soundOn
-                                    loop={false}
+                                    autoPlay={true}
+                                    soundOn={!isMuted}
+                                    muted={isMuted}
+                                    loop={true}
+                                    objectFit="contain"
                                 />
                                 {hasNext && (
                                     <button 

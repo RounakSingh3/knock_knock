@@ -98,6 +98,8 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     autoPlay={isActive}
                     soundOn={isActive && !isMuted}
                     muted={isMuted || !isActive}
+                    loop={true}
+                    objectFit="contain"
                 />
                 <button
                     className="modal-mute-btn"

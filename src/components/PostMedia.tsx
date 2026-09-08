@@ -1,4 +1,5 @@
-import React, { useRef, useEffect, useState, memo } from 'react';
+import React, { useRef, useEffect, useState, memo, useCallback } from 'react';
+import { VolumeX } from 'lucide-react';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
 import type { PostData } from '../lib/database';
 
@@ -15,6 +16,8 @@ interface PostMediaProps {
     alt?: string;
     /** After user tap — unmute and play with audio (modal / detail view) */
     soundOn?: boolean;
+    /** Override object-fit ('contain' | 'cover' | etc.) */
+    objectFit?: React.CSSProperties['objectFit'];
 }
 
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
@@ -43,10 +46,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     playsInline = true,
     alt = '',
     soundOn = false,
+    objectFit,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const [hasError, setHasError] = useState(false);
+    const [isAudioBlocked, setIsAudioBlocked] = useState(false);
     const retryCountRef = useRef(0);
     const fallbackUsedRef = useRef(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
@@ -57,6 +62,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
     useEffect(() => {
         setHasError(false);
+        setIsAudioBlocked(false);
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
         setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, 650));
@@ -74,14 +80,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     });
 
     const resolvedMusicUrl = staticCleanUrl || (isDirectCleanUrl ? post.music_url : asyncMusicUrl);
-
     const hasMusic = Boolean(resolvedMusicUrl);
 
     // If post has a music track, the video element should be muted so only the song plays!
     // If post does not have music, the video's own sound plays when soundOn / unmuted.
     const effectiveMuted = hasMusic 
         ? true 
-        : (muted !== undefined ? muted : soundOn ? false : true);
+        : (muted !== undefined ? muted : (soundOn ? false : true));
 
     const isAudioActive = soundOn || (autoPlay && !effectiveMuted);
 
@@ -117,35 +122,92 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         return () => { active = false; };
     }, [isAudioActive, queryKey, staticCleanUrl, isDirectCleanUrl]);
 
-    useEffect(() => {
-        setHasError(false);
-        retryCountRef.current = 0;
-    }, [post.image_url]);
+    // Unmute action: unmutes video and/or music track and plays if paused
+    const handleUnmute = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
+        if (e) {
+            e.stopPropagation();
+        }
+        const video = videoRef.current;
+        if (video) {
+            video.muted = false;
+            video.volume = 1;
+            if (video.paused) {
+                video.play().catch(() => {});
+            }
+        }
+        const audio = audioRef.current;
+        if (audio && hasMusic) {
+            audio.muted = false;
+            audio.volume = 1;
+            if (audio.paused) {
+                audio.play().catch(() => {});
+            }
+        }
+        setIsAudioBlocked(false);
+    }, [hasMusic]);
 
-    // Handle video play/pause & sound
+    // When audio is blocked by browser autoplay policy, listen for any user tap anywhere to seamlessly unmute
+    useEffect(() => {
+        if (!isAudioBlocked) return;
+        const onUserGesture = () => {
+            handleUnmute();
+        };
+        window.addEventListener('click', onUserGesture, { once: true, capture: true });
+        window.addEventListener('touchstart', onUserGesture, { once: true, capture: true });
+        return () => {
+            window.removeEventListener('click', onUserGesture, { capture: true });
+            window.removeEventListener('touchstart', onUserGesture, { capture: true });
+        };
+    }, [isAudioBlocked, handleUnmute]);
+
+    // Handle video play/pause & sound with resilient dual-stage autoplay
     useEffect(() => {
         if (!isVideo) return;
         const video = videoRef.current;
         if (!video) return;
 
+        let isCancelled = false;
+
         // If post has music attached, force video element to remain muted
         if (hasMusic) {
             video.muted = true;
-        } else if (soundOn && (muted === false || muted === undefined)) {
-            video.muted = false;
-            video.volume = 1;
         } else {
-            video.muted = true;
+            video.muted = effectiveMuted;
+            if (!effectiveMuted) {
+                video.volume = 1;
+            }
         }
 
         if (autoPlay || soundOn) {
-            video.play().catch(() => {});
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+                playPromise
+                    .then(() => {
+                        if (!isCancelled && !video.muted) {
+                            setIsAudioBlocked(false);
+                        }
+                    })
+                    .catch((err) => {
+                        if (isCancelled) return;
+                        console.warn('[PostMedia] Video autoplay rejected by browser policy:', err);
+                        // If unmuted autoplay failed due to browser policy, fallback to muted autoplay so video never freezes!
+                        if (!video.muted && !hasMusic) {
+                            video.muted = true;
+                            setIsAudioBlocked(true);
+                            video.play().catch(() => {});
+                        }
+                    });
+            }
         } else {
             video.pause();
         }
-    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, muted]);
 
-    // Handle background audio playback
+        return () => {
+            isCancelled = true;
+        };
+    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, effectiveMuted]);
+
+    // Handle background audio playback for posts with music
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio || !resolvedMusicUrl) return;
@@ -159,23 +221,27 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             audio.volume = 1;
             const playPromise = audio.play();
             if (playPromise !== undefined) {
-                playPromise.catch((e) => {
-                    // Interrupted by pause() or unmount — do NOT attach tap retry
-                    if (e.name === 'AbortError' || isCancelled) return;
-                    console.warn('[PostMedia] Audio autoplay deferred until tap:', e);
-                    const onUserTap = () => {
-                        if (isCancelled) return;
-                        audio.muted = false;
-                        audio.volume = 1;
-                        audio.play().catch(() => {});
-                    };
-                    window.addEventListener('click', onUserTap, { once: true, capture: true });
-                    window.addEventListener('touchstart', onUserTap, { once: true, capture: true });
-                    cleanupTap = () => {
-                        window.removeEventListener('click', onUserTap, { capture: true });
-                        window.removeEventListener('touchstart', onUserTap, { capture: true });
-                    };
-                });
+                playPromise
+                    .then(() => {
+                        if (!isCancelled) setIsAudioBlocked(false);
+                    })
+                    .catch((e) => {
+                        if (e.name === 'AbortError' || isCancelled) return;
+                        console.warn('[PostMedia] Audio autoplay deferred until tap:', e);
+                        setIsAudioBlocked(true);
+                        const onUserTap = () => {
+                            if (isCancelled) return;
+                            audio.muted = false;
+                            audio.volume = 1;
+                            audio.play().then(() => setIsAudioBlocked(false)).catch(() => {});
+                        };
+                        window.addEventListener('click', onUserTap, { once: true, capture: true });
+                        window.addEventListener('touchstart', onUserTap, { once: true, capture: true });
+                        cleanupTap = () => {
+                            window.removeEventListener('click', onUserTap, { capture: true });
+                            window.removeEventListener('touchstart', onUserTap, { capture: true });
+                        };
+                    });
             }
         } else {
             audio.pause();
@@ -218,7 +284,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     } catch(e) {}
 
     // Retry handler: automatically switches to high-quality fallback image on failure
-
     const handleMediaError = () => {
         if (!isVideo && !fallbackUsedRef.current) {
             fallbackUsedRef.current = true;
@@ -268,30 +333,97 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     } catch (_) {}
 
-    const videoSrc = isVideo && cleanImageUrl.includes('#t=') ? cleanImageUrl : (isVideo ? `${cleanImageUrl}#t=0.001` : '');
+    const isPlayingMode = autoPlay || soundOn || controls;
+    // When playing mode is active, do NOT append #t=0.001 as it disrupts progressive streaming, byte seeking, and looping
+    const videoSrc = isVideo
+        ? (isPlayingMode
+            ? cleanImageUrl.replace(/#t=[\d.]+/, '')
+            : (cleanImageUrl.includes('#t=') ? cleanImageUrl : `${cleanImageUrl}#t=0.001`))
+        : '';
+
+    const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     return (
         <div style={{ position: 'relative', width: '100%', height: style?.height || '100%', minHeight: style?.minHeight || '0px' }}>
             {isVideo ? (
-                <video
-                    ref={videoRef}
-                    src={videoSrc}
-                    className={className}
-                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                    muted={effectiveMuted}
-                    controls={controls}
-                    autoPlay={autoPlay || soundOn}
-                    loop={loop}
-                    playsInline={playsInline}
-                    preload="metadata"
-                    onError={handleMediaError}
-                />
+                <>
+                    <video
+                        ref={videoRef}
+                        src={videoSrc}
+                        className={className}
+                        style={{
+                            ...style,
+                            filter: extractedFilter,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: resolvedObjectFit,
+                            display: 'block'
+                        }}
+                        muted={effectiveMuted}
+                        controls={controls}
+                        autoPlay={autoPlay || soundOn}
+                        loop={loop}
+                        playsInline={playsInline}
+                        // @ts-ignore
+                        webkit-playsinline="true"
+                        x5-playsinline="true"
+                        preload={isPlayingMode ? "auto" : "metadata"}
+                        crossOrigin="anonymous"
+                        onError={handleMediaError}
+                        onClick={(e) => {
+                            if (isAudioBlocked) {
+                                handleUnmute(e);
+                            }
+                        }}
+                    />
+
+                    {/* Floating 'Tap for sound' pill when unmuted playback was blocked by browser policy */}
+                    {isAudioBlocked && isPlayingMode && (
+                        <button
+                            type="button"
+                            onClick={handleUnmute}
+                            className="post-media-unmute-pill"
+                            style={{
+                                position: 'absolute',
+                                bottom: controls ? '60px' : '24px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                zIndex: 35,
+                                background: 'rgba(0, 0, 0, 0.82)',
+                                backdropFilter: 'blur(12px)',
+                                WebkitBackdropFilter: 'blur(12px)',
+                                border: '1px solid rgba(245, 165, 36, 0.6)',
+                                color: '#fff',
+                                padding: '8px 18px',
+                                borderRadius: '24px',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+                                pointerEvents: 'auto',
+                            }}
+                        >
+                            <VolumeX size={16} color="#f5a524" />
+                            <span>Tap for sound</span>
+                        </button>
+                    )}
+                </>
             ) : (
                 <img
                     src={currentImgSrc}
                     alt={alt}
                     className={className}
-                    style={{ ...style, filter: extractedFilter, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                    style={{
+                        ...style,
+                        filter: extractedFilter,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: resolvedObjectFit,
+                        display: 'block'
+                    }}
                     loading="lazy"
                     decoding="async"
                     referrerPolicy="no-referrer"

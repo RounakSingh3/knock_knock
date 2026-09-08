@@ -4,7 +4,7 @@ import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchRecentStories, fetchConnectionPosts, fetchConnectionStories, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, deleteStory, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, type PostData, type StoryData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
@@ -60,6 +60,7 @@ const Home = () => {
     });
     const [error, setError] = useState('');
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
+    const [isModalMuted, setIsModalMuted] = useState(false);
     const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
@@ -1053,18 +1054,45 @@ const Home = () => {
                                     <span className="modal-time">{getTimeAgo(selectedPost.created_at)}</span>
                                 </div>
                             </div>
-                            <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
-                                <X size={22} />
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', pointerEvents: 'auto' }}>
+                                <button
+                                    className="modal-mute-btn"
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setIsModalMuted(!isModalMuted); }}
+                                    aria-label={isModalMuted ? 'Unmute' : 'Mute'}
+                                    style={{
+                                        width: '34px',
+                                        height: '34px',
+                                        borderRadius: '50%',
+                                        background: 'rgba(0, 0, 0, 0.5)',
+                                        backdropFilter: 'blur(8px)',
+                                        WebkitBackdropFilter: 'blur(8px)',
+                                        border: 'none',
+                                        color: 'white',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    {isModalMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                                </button>
+                                <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
+                                    <X size={22} />
+                                </button>
+                            </div>
                         </div>
-                        <div className="modal-media-stage">
+                        <div className="modal-media-stage" style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
                             <PostMedia
                                 post={selectedPost}
                                 className="modal-image"
                                 controls
                                 playsInline
-                                soundOn
-                                loop={false}
+                                autoPlay={true}
+                                soundOn={!isModalMuted}
+                                muted={isModalMuted}
+                                loop={true}
+                                objectFit="contain"
                             />
                         </div>
                         <div className="modal-details modal-details--sheet">
