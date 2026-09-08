@@ -291,45 +291,14 @@ const Home = () => {
         return () => observer.disconnect();
     }, [loadMorePosts, loading, isLoadingMore, hasMorePosts, feedMode]);
 
-    // Load recent stories & connections
+    // Load connections
     useEffect(() => {
-        fetchRecentStories().then(async stories => {
-            const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
-            const userIds = Array.from(new Set(validStories.map(s => s.user_id).filter(Boolean))) as string[];
-            const profilesMap = new Map<string, any>();
-
-            if (userIds.length > 0) {
-                const profiles = await fetchProfilesByIds(userIds);
-                profiles.forEach(p => profilesMap.set(p.id, p));
-            }
-
-            const groups: Record<string, StoryGroup> = {};
-            validStories.forEach(s => {
-                const uid = s.user_id || 'unknown';
-                const prof = profilesMap.get(uid);
-                if (!groups[uid]) {
-                    groups[uid] = {
-                        userId: uid,
-                        username: prof?.username || s.username || 'user',
-                        avatarUrl: prof?.avatar_url || (user && uid === user.id ? user.avatar_url : '') || `https://i.pravatar.cc/150?u=${s.username || uid}`,
-                        stories: [],
-                    };
-                }
-                groups[uid].stories.push(s);
-            });
-            const groupList = Object.values(groups);
-            setStoryGroups(groupList);
-            try {
-                localStorage.setItem('knock_home_stories_cache', JSON.stringify(groupList));
-            } catch (e) {}
-        });
-
         if (user) {
             fetchConnectionUserIds(user.id).then(ids => {
                 setConnectionUserIds(new Set(ids));
             });
         }
-    }, [user?.id, blockedIds]);
+    }, [user?.id]);
 
     const handleLikeToggle = useCallback(async (postId: string) => {
         if (!user) return;
