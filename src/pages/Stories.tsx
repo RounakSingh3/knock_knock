@@ -590,7 +590,7 @@ const Stories = () => {
                     <p className="streak-subtitle">
                         {streakCount > 0 && isStreakAlive()
                             ? `Post daily to keep it alive • Next reward: +${nextStreakReward()} pts`
-                            : 'Post a snap daily to earn escalating points 🚀'}
+                            : 'Post a Knock daily to earn escalating points 🚀'}
                     </p>
 
                     {/* Streak Stats Row */}
@@ -630,7 +630,7 @@ const Stories = () => {
                     </div>
                     <div className="snap-cta-text">
                         <h3 style={{ fontSize: '15px' }}>Camera</h3>
-                        <p style={{ fontSize: '11px' }}>Take a snap</p>
+                        <p style={{ fontSize: '11px' }}>Create a Knock</p>
                     </div>
                 </div>
 
@@ -850,7 +850,7 @@ const Stories = () => {
                         ))
                     ) : (
                         <p style={{ color: 'var(--text-inactive)', gridColumn: '1 / -1', padding: '1rem 0', fontSize: '14px' }}>
-                            No boosted stories yet — capture a snap above and tap Boost (10 pts).
+                            No boosted stories yet — post a Knock above and tap Boost (10 pts).
                         </p>
                     )}
                 </div>

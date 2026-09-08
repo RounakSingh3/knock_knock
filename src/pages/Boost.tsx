@@ -97,7 +97,7 @@ const Boost: React.FC = () => {
     const [activeViewerGroupIndex, setActiveViewerGroupIndex] = useState<number | null>(null);
     const [viewerStoryGroups, setViewerStoryGroups] = useState<UserStoryGroup[]>([]);
 
-    // Upload / Snap Creator Modal State
+    // Upload / Knock Creator Modal State
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isCameraActive, setIsCameraActive] = useState(false);
     const [capturedMediaUrl, setCapturedMediaUrl] = useState<string | null>(null);
@@ -169,7 +169,7 @@ const Boost: React.FC = () => {
     }, [user, stories]);
 
     // Derived lists
-    const myActiveSnaps = stories.filter(s => user && s.user_id === user.id);
+    const myActiveKnocks = stories.filter(s => user && s.user_id === user.id);
     
     const filteredStories = stories.filter(s => {
         if (filterTab === 'boosted') return s.is_boosted;
@@ -268,10 +268,10 @@ const Boost: React.FC = () => {
     const extraGuaranteedScreens = Math.max(pointsToSpend, 0);
     const totalGuaranteedReach = baseFriendsCount + extraGuaranteedScreens;
 
-    // Handle Snap Upload & Point Deduction
-    const handleLaunchBoostSnap = async () => {
+    // Handle Knock Upload & Point Deduction
+    const handleLaunchBoostKnock = async () => {
         if (!user) {
-            alert('Please log in to post a 24h boost snap.');
+            alert('Please log in to post a 24h boosted knock.');
             return;
         }
         if (!capturedMediaUrl && !selectedFile) {
@@ -335,15 +335,15 @@ const Boost: React.FC = () => {
                 updatePoints(user.id, newPoints).catch(() => {});
             }
 
-            // Step 4: Award streak points for posting a 24h snap
+            // Step 4: Award streak points for posting a 24h knock
             updateStreak(user.id, 1, null, points - pointsToSpend).catch(() => {});
 
             // Close modal and reload 24h feed
             closeCreateModal();
             await loadFeed();
         } catch (err: any) {
-            console.error('Failed to post 24h boost snap:', err);
-            setUploadError(err.message || 'Failed to post snap. Please try again.');
+            console.error('Failed to post 24h boost knock:', err);
+            setUploadError(err.message || 'Failed to post knock. Please try again.');
         } finally {
             setIsSubmitting(false);
         }
@@ -399,7 +399,7 @@ const Boost: React.FC = () => {
                         <span>{points} pts</span>
                     </div>
 
-                    {/* Post Snap Action */}
+                    {/* Post Knock Action */}
                     <button
                         onClick={() => {
                             setPointsToSpend(Math.min(10, points));
@@ -417,19 +417,19 @@ const Boost: React.FC = () => {
                         onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
                     >
                         <PlusCircle size={15} color="#000" />
-                        <span>Post Snap</span>
+                        <span>Post Knock</span>
                     </button>
                 </div>
             </div>
 
-            {/* ── Creator's Active 24h Snaps & Reach Guarantee Dashboard ── */}
-            {myActiveSnaps.length > 0 && (
+            {/* ── Creator's Active 24h Knocks & Reach Guarantee Dashboard ── */}
+            {myActiveKnocks.length > 0 && (
                 <div style={{ padding: '16px', background: 'linear-gradient(180deg, rgba(245, 165, 36, 0.08) 0%, transparent 100%)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <TrendingUp size={16} color="#f5a524" />
                             <h2 style={{ margin: 0, fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                My Active Snaps & Delivery Guarantee
+                                My Active Knocks & Delivery Guarantee
                             </h2>
                         </div>
                         <button 
@@ -442,18 +442,18 @@ const Boost: React.FC = () => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '6px' }}>
-                        {myActiveSnaps.map((snap) => {
-                            const timeInfo = getTimeRemaining(snap.created_at);
-                            const target = snap.target_screens || 24;
-                            const delivered = snap.screens_delivered || 0;
+                        {myActiveKnocks.map((knock) => {
+                            const timeInfo = getTimeRemaining(knock.created_at);
+                            const target = knock.target_screens || 24;
+                            const delivered = knock.screens_delivered || 0;
                             const pct = Math.min(100, Math.round((delivered / target) * 100));
-                            const friends = snap.boost_meta?.friendsCount || baseFriendsCount;
-                            const boosted = snap.boost_meta?.pointsSpent || 0;
+                            const friends = knock.boost_meta?.friendsCount || baseFriendsCount;
+                            const boosted = knock.boost_meta?.pointsSpent || 0;
 
                             return (
                                 <div
-                                    key={snap.id}
-                                    onClick={() => handleOpenStory(snap)}
+                                    key={knock.id}
+                                    onClick={() => handleOpenStory(knock)}
                                     style={{
                                         minWidth: '260px', maxWidth: '280px',
                                         background: 'var(--surface-color)',
@@ -470,15 +470,15 @@ const Boost: React.FC = () => {
                                 >
                                     {/* Thumbnail */}
                                     <div style={{ width: '64px', height: '90px', borderRadius: '10px', overflow: 'hidden', background: '#000', position: 'relative', flexShrink: 0 }}>
-                                        {isVideoUrl(snap.image_url) ? (
+                                        {isVideoUrl(knock.image_url) ? (
                                             <video 
-                                                src={`${snap.image_url.split('#')[0]}#t=0.001`}
+                                                src={`${knock.image_url.split('#')[0]}#t=0.001`}
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                 muted playsInline preload="metadata"
                                             />
                                         ) : (
                                             <img 
-                                                src={snap.image_url.split('#')[0]} 
+                                                src={knock.image_url.split('#')[0]} 
                                                 alt="" 
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                             />
@@ -537,7 +537,7 @@ const Boost: React.FC = () => {
                 overflowX: 'auto', borderBottom: '1px solid rgba(255,255,255,0.06)'
             }}>
                 {[
-                    { id: 'all', label: 'All Snaps', icon: Sparkles },
+                    { id: 'all', label: 'All Knocks', icon: Sparkles },
                     { id: 'boosted', label: 'Boosted 🔥', icon: Flame },
                     { id: 'friends', label: 'Friends 👥', icon: Users },
                     { id: 'videos', label: 'Videos 🎬', icon: Play },
@@ -571,7 +571,7 @@ const Boost: React.FC = () => {
                 {isLoading ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 0', gap: '12px' }}>
                         <Loader2 size={36} className="animate-spin" color="#f5a524" />
-                        <p style={{ color: 'var(--text-inactive)', fontSize: '13px' }}>Loading active 24-hour snaps...</p>
+                        <p style={{ color: 'var(--text-inactive)', fontSize: '13px' }}>Loading active 24-hour knocks...</p>
                     </div>
                 ) : filteredStories.length === 0 ? (
                     <div style={{
@@ -587,9 +587,9 @@ const Boost: React.FC = () => {
                             <Rocket size={28} color="#f5a524" />
                         </div>
                         <div>
-                            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700' }}>No active 24h snaps in this filter</h3>
+                            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700' }}>No active 24h knocks in this filter</h3>
                             <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-inactive)', maxWidth: '280px' }}>
-                                Be the first to post a 24-hour snap! Spend boost points to guarantee screen reach across the app.
+                                Be the first to post a 24-hour knock! Spend boost points to guarantee screen reach across the app.
                             </p>
                         </div>
                         <button
@@ -604,7 +604,7 @@ const Boost: React.FC = () => {
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                             }}
                         >
-                            <PlusCircle size={16} /> Post 24h Boost Snap
+                            <PlusCircle size={16} /> Post 24h Boost Knock
                         </button>
                     </div>
                 ) : (
@@ -769,7 +769,7 @@ const Boost: React.FC = () => {
                 )}
             </div>
 
-            {/* ── Direct 24h Snap Creator Modal ── */}
+            {/* ── Direct 24h Knock Creator Modal ── */}
             {isCreateModalOpen && (
                 <div style={{
                     position: 'fixed', inset: 0, zIndex: 9999,
@@ -793,7 +793,7 @@ const Boost: React.FC = () => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Rocket size={20} color="#f5a524" />
                                 <div>
-                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>Post 24h Boost Snap</h3>
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>Post 24h Boost Knock</h3>
                                     <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>Disappears in 24 hours</span>
                                 </div>
                             </div>
@@ -1053,7 +1053,7 @@ const Boost: React.FC = () => {
                                 </div>
 
                                 <p style={{ margin: 0, fontSize: '11px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.4' }}>
-                                    💡 <em>Our delivery engine guarantees your snap reaches all {baseFriendsCount} of your friends, plus {extraGuaranteedScreens} additional user screens across the app within 24 hours.</em>
+                                    💡 <em>Our delivery engine guarantees your knock reaches all {baseFriendsCount} of your friends, plus {extraGuaranteedScreens} additional user screens across the app within 24 hours.</em>
                                 </p>
                             </div>
 
@@ -1071,7 +1071,7 @@ const Boost: React.FC = () => {
 
                             {/* Launch Action */}
                             <button
-                                onClick={handleLaunchBoostSnap}
+                                onClick={handleLaunchBoostKnock}
                                 disabled={isSubmitting || (!capturedMediaUrl && !selectedFile)}
                                 style={{
                                     background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
@@ -1087,12 +1087,12 @@ const Boost: React.FC = () => {
                                 {isSubmitting ? (
                                     <>
                                         <Loader2 size={18} className="animate-spin" />
-                                        <span>Publishing 24h Snap...</span>
+                                        <span>Publishing 24h Knock...</span>
                                     </>
                                 ) : (
                                     <>
                                         <Rocket size={18} />
-                                        <span>Launch 24h Boost Snap ({totalGuaranteedReach} Screens)</span>
+                                        <span>Launch 24h Boost Knock ({totalGuaranteedReach} Screens)</span>
                                     </>
                                 )}
                             </button>
