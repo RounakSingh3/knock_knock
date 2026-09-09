@@ -151,6 +151,7 @@ const VoiceCall = () => {
     const [incomingVideoRequest, setIncomingVideoRequest] = useState(false);
     const [audioBlocked, setAudioBlocked] = useState(false);
     const [peerConnected, setPeerConnected] = useState(false);
+    const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
     const onlineUsersRef = useRef<any[]>([]);
 
     const channelRef = useRef<any>(null);
@@ -165,6 +166,10 @@ const VoiceCall = () => {
     const webrtcReadyRef = useRef(false);
     const videoControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const channelSubscribedRef = useRef(false);
+    const localVideoReadyRef = useRef(false);
+    const remoteVideoReadyRef = useRef(false);
+    const renegotiationPendingRef = useRef(false);
+    const triggerRenegotiationRef = useRef<() => void>(() => {});
 
     // State refs to give signaling callbacks the latest values
     const isSearchingRef = useRef(isSearching);
@@ -210,6 +215,10 @@ const VoiceCall = () => {
                 pendingInviteRef.current = directRoom;
             } else {
                 pendingInviteRef.current = `direct-${directRole === 'caller' ? user.id : directPartnerId}-${directRole === 'caller' ? directPartnerId : user.id}`;
+            }
+
+            if (searchParams.get('type') === 'video') {
+                setVideoRequestStatus('accepted');
             }
 
             setInCall(true);
@@ -425,26 +434,34 @@ const VoiceCall = () => {
             })
             .on('broadcast', { event: 'video-ready' }, async ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
-                if (isCallerRef.current && peerConnectionRef.current) {
-                    const pc = peerConnectionRef.current;
-                    if (pc.signalingState === 'stable') {
-                        try {
-                            const offer = await pc.createOffer();
-                            await pc.setLocalDescription(offer);
-                            channel.send({
+                console.log('[WebRTC] Received video-ready from peer', payload);
+                remoteVideoReadyRef.current = true;
+                if (isCallerRef.current) {
+                    triggerRenegotiationRef.current();
+                } else {
+                    // If answerer, ensure caller knows we are ready after small delay if needed
+                    setTimeout(() => {
+                        if (!remoteStreamRef.current?.getVideoTracks().length && channelRef.current && currentMatchRef.current) {
+                            channelRef.current.send({
                                 type: 'broadcast',
-                                event: 'webrtc-offer',
-                                payload: { senderId: user.id, receiverId: payload.senderId, sdp: offer }
+                                event: 'video-ready',
+                                payload: {
+                                    senderId: user.id,
+                                    receiverId: currentMatchRef.current.profile.id,
+                                    isCaller: false
+                                }
                             });
-                        } catch (e) {
-                            console.error('Error creating offer on video-ready:', e);
                         }
-                    }
+                    }, 2000);
                 }
             })
             .on('broadcast', { event: 'switch-to-voice' }, ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
                 setVideoRequestStatus('none');
+                setHasRemoteVideo(false);
+                localVideoReadyRef.current = false;
+                remoteVideoReadyRef.current = false;
+                renegotiationPendingRef.current = false;
                 setIsVideoSwapped(false);
                 setIsCameraOff(false);
                 if (localStreamRef.current) {
@@ -455,6 +472,16 @@ const VoiceCall = () => {
                 }
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = null;
+                }
+                if (remoteStreamRef.current) {
+                    remoteStreamRef.current.getVideoTracks().forEach(track => {
+                        track.stop();
+                        remoteStreamRef.current?.removeTrack(track);
+                    });
+                    remoteStreamRef.current = null;
+                }
+                if (remoteVideoRef.current) {
+                    remoteVideoRef.current.srcObject = null;
                 }
             })
             .on('broadcast', { event: 'peer-arrived' }, async ({ payload }) => {
@@ -513,6 +540,9 @@ const VoiceCall = () => {
                                 return;
                             }
                         }
+                        if (pc.signalingState === 'have-remote-offer') {
+                            await pc.setLocalDescription({ type: 'rollback' });
+                        }
                         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
                         const answer = await pc.createAnswer();
                         await pc.setLocalDescription(answer);
@@ -560,6 +590,11 @@ const VoiceCall = () => {
                             }
                         }
                         pendingIceCandidatesRef.current = [];
+
+                        // If renegotiation was queued while awaiting answer, fire it now that state is stable
+                        if (renegotiationPendingRef.current) {
+                            triggerRenegotiationRef.current();
+                        }
                     } catch (e) {
                         console.error('Error handling WebRTC answer:', e);
                     }
@@ -684,14 +719,26 @@ const VoiceCall = () => {
                     }
                 };
 
+                pc.onsignalingstatechange = () => {
+                    console.log('[WebRTC] Signaling state:', pc.signalingState);
+                    if (pc.signalingState === 'stable' && renegotiationPendingRef.current) {
+                        triggerRenegotiationRef.current();
+                    }
+                };
+
                 pc.ontrack = (event) => {
-                    const remoteStream = event.streams[0];
-                    if (!remoteStream) return;
+                    console.log('[WebRTC ontrack]', event.track.kind, event.track.id);
 
                     if (event.track.kind === 'audio' && remoteAudioRef.current) {
                         setPeerConnected(true);
-                        const audioStream = new MediaStream([event.track]);
-                        remoteAudioRef.current.srcObject = audioStream;
+                        let audioStream = remoteAudioRef.current.srcObject as MediaStream;
+                        if (!audioStream || !(audioStream instanceof MediaStream)) {
+                            audioStream = new MediaStream();
+                            remoteAudioRef.current.srcObject = audioStream;
+                        }
+                        if (!audioStream.getTracks().some(t => t.id === event.track.id)) {
+                            audioStream.addTrack(event.track);
+                        }
                         remoteAudioRef.current.volume = 1.0;
                         remoteAudioRef.current.play().then(() => {
                             setAudioBlocked(false);
@@ -703,15 +750,49 @@ const VoiceCall = () => {
 
                     if (event.track.kind === 'video') {
                         setPeerConnected(true);
-                        const videoStream = new MediaStream();
-                        // Only add video tracks — adding audio tracks here would cause
-                        // browser autoplay blocking since remoteVideoRef is not muted
-                        remoteStream.getVideoTracks().forEach(t => videoStream.addTrack(t));
-                        remoteStreamRef.current = videoStream;
+                        console.log('[WebRTC ontrack] Incoming remote video track received:', event.track.id);
+
+                        let videoStream = remoteStreamRef.current;
+                        if (!videoStream || !(videoStream instanceof MediaStream)) {
+                            videoStream = new MediaStream();
+                            remoteStreamRef.current = videoStream;
+                        }
+
+                        // Remove ended or duplicate tracks
+                        videoStream.getVideoTracks().forEach(t => {
+                            if (t.id !== event.track.id) {
+                                videoStream!.removeTrack(t);
+                            }
+                        });
+
+                        if (!videoStream.getVideoTracks().some(t => t.id === event.track.id)) {
+                            videoStream.addTrack(event.track);
+                        }
+
+                        setHasRemoteVideo(true);
+
                         if (remoteVideoRef.current) {
-                            remoteVideoRef.current.srcObject = videoStream;
+                            if (remoteVideoRef.current.srcObject !== videoStream) {
+                                remoteVideoRef.current.srcObject = videoStream;
+                            }
+                            remoteVideoRef.current.muted = true;
                             remoteVideoRef.current.play().catch(e => console.warn('Remote video play failed:', e));
                         }
+
+                        event.track.onended = () => {
+                            console.log('[WebRTC] Remote video track ended');
+                            setHasRemoteVideo(false);
+                        };
+                        event.track.onmute = () => {
+                            console.log('[WebRTC] Remote video track muted');
+                        };
+                        event.track.onunmute = () => {
+                            console.log('[WebRTC] Remote video track unmuted');
+                            setHasRemoteVideo(true);
+                            if (remoteVideoRef.current) {
+                                remoteVideoRef.current.play().catch(() => {});
+                            }
+                        };
                     }
                 };
 
@@ -798,63 +879,97 @@ const VoiceCall = () => {
         };
     }, [inCall, isCaller, currentMatch?.profile?.id]);
 
+    const triggerRenegotiation = async () => {
+        const pc = peerConnectionRef.current;
+        if (!pc || !channelRef.current || !currentMatchRef.current) return;
+        if (!isCallerRef.current) return;
+
+        if (pc.signalingState !== 'stable') {
+            console.log('[WebRTC] Signaling state is ' + pc.signalingState + ', queueing renegotiation...');
+            renegotiationPendingRef.current = true;
+            return;
+        }
+
+        renegotiationPendingRef.current = false;
+        try {
+            console.log('[WebRTC] Initiating renegotiation offer...');
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'webrtc-offer',
+                payload: {
+                    senderId: user!.id,
+                    receiverId: currentMatchRef.current.profile.id,
+                    sdp: offer,
+                }
+            });
+        } catch (err) {
+            console.error('[WebRTC] Renegotiation offer creation failed:', err);
+        }
+    };
+    triggerRenegotiationRef.current = triggerRenegotiation;
+
     // Handle video upgrade separately — add video track to existing connection
     useEffect(() => {
         if (videoRequestStatus !== 'accepted') return;
-
-
-
-        if (!peerConnectionRef.current || !localStreamRef.current || !user) return;
+        if (!peerConnectionRef.current || !localStreamRef.current || !user || !currentMatchRef.current) return;
         const pc = peerConnectionRef.current;
-
-        const senders = pc.getSenders();
-        const hasVideoSender = senders.some(s => s.track?.kind === 'video');
-        if (hasVideoSender) return;
 
         (async () => {
             try {
-                const videoStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: isFrontCamera ? 'user' : 'environment' } 
-                });
-                const videoTrack = videoStream.getVideoTracks()[0];
-                if (videoTrack) {
-                    pc.addTrack(videoTrack, localStreamRef.current!);
-                    localStreamRef.current!.addTrack(videoTrack);
+                let videoTrack = localStreamRef.current?.getVideoTracks().find(t => t.readyState === 'live');
+                if (!videoTrack) {
+                    console.log('[WebRTC] Acquiring local camera track...');
+                    const videoStream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: isFrontCamera ? 'user' : 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: false,
+                    });
+                    videoTrack = videoStream.getVideoTracks()[0];
+                    if (videoTrack) {
+                        localStreamRef.current?.addTrack(videoTrack);
+                    }
+                }
 
-                    if (localVideoRef.current) {
+                if (videoTrack) {
+                    if (localVideoRef.current && localStreamRef.current) {
                         localVideoRef.current.srcObject = localStreamRef.current;
+                        localVideoRef.current.muted = true;
                         localVideoRef.current.play().catch(() => {});
                     }
 
-                    // If answerer, signal video-ready to caller
-                    if (!isCallerRef.current && channelRef.current && currentMatchRef.current) {
-                        channelRef.current.send({
-                            type: 'broadcast',
-                            event: 'video-ready',
-                            payload: {
-                                senderId: user.id,
-                                receiverId: currentMatchRef.current.profile.id,
-                            }
-                        });
+                    const senders = pc.getSenders();
+                    const existingVideoSender = senders.find(s => s.track?.kind === 'video');
+                    if (existingVideoSender) {
+                        await existingVideoSender.replaceTrack(videoTrack);
+                    } else {
+                        pc.addTrack(videoTrack, localStreamRef.current!);
                     }
 
-                    // Caller triggers the renegotiation offer once its video is attached
-                    if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
-                        setTimeout(async () => {
-                            if (pc.signalingState === 'stable') {
-                                const offer = await pc.createOffer();
-                                await pc.setLocalDescription(offer);
-                                channelRef.current?.send({
-                                    type: 'broadcast',
-                                    event: 'webrtc-offer',
-                                    payload: {
-                                        senderId: user.id,
-                                        receiverId: currentMatchRef.current!.profile.id,
-                                        sdp: offer,
-                                    }
-                                });
-                            }
-                        }, 250);
+                    localVideoReadyRef.current = true;
+                    console.log('[WebRTC] Local video track attached, broadcasting video-ready...');
+
+                    channelRef.current?.send({
+                        type: 'broadcast',
+                        event: 'video-ready',
+                        payload: {
+                            senderId: user.id,
+                            receiverId: currentMatchRef.current.profile.id,
+                            isCaller: isCallerRef.current,
+                        }
+                    });
+
+                    if (isCallerRef.current) {
+                        setTimeout(() => {
+                            triggerRenegotiationRef.current();
+                        }, 300);
+                        setTimeout(() => {
+                            triggerRenegotiationRef.current();
+                        }, 1500);
                     }
                 }
             } catch (e) {
@@ -863,30 +978,71 @@ const VoiceCall = () => {
         })();
     }, [videoRequestStatus, isFrontCamera]);
 
-    // Ensure video and audio streams remain attached when switching views
+    // Continuous Watchdog & Stream Attachment across view flips and renegotiations
     useEffect(() => {
-        if (videoRequestStatus === 'accepted') {
-            if (localVideoRef.current && localStreamRef.current) {
-                localVideoRef.current.srcObject = localStreamRef.current;
-                localVideoRef.current.play().catch(() => {});
+        if (videoRequestStatus !== 'accepted') return;
+
+        const syncStreams = () => {
+            const pc = peerConnectionRef.current;
+
+            // 1. Recover any live remote video track directly from pc.getReceivers()
+            if (pc) {
+                const receivers = pc.getReceivers();
+                const remoteVideoTrack = receivers
+                    .map(r => r.track)
+                    .find(t => t && t.kind === 'video' && t.readyState === 'live');
+
+                if (remoteVideoTrack) {
+                    let rStream = remoteStreamRef.current;
+                    if (!rStream || !(rStream instanceof MediaStream)) {
+                        rStream = new MediaStream();
+                        remoteStreamRef.current = rStream;
+                    }
+                    if (!rStream.getVideoTracks().some(t => t.id === remoteVideoTrack.id)) {
+                        rStream.addTrack(remoteVideoTrack);
+                    }
+                    setHasRemoteVideo(true);
+                }
             }
-            if (remoteVideoRef.current && remoteStreamRef.current) {
-                remoteVideoRef.current.srcObject = remoteStreamRef.current;
+
+            // 2. Ensure remote video element has the remote video stream attached and playing
+            if (remoteVideoRef.current && remoteStreamRef.current && remoteStreamRef.current.getVideoTracks().length > 0) {
+                if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+                    remoteVideoRef.current.srcObject = remoteStreamRef.current;
+                }
+                remoteVideoRef.current.muted = true;
                 remoteVideoRef.current.play().catch(() => {});
             }
-        }
-        // Re-attach remote audio when the <audio> element remounts during view transitions
-        if (remoteAudioRef.current && peerConnectionRef.current) {
-            const receivers = peerConnectionRef.current.getReceivers();
-            const audioReceiver = receivers.find(r => r.track?.kind === 'audio');
-            if (audioReceiver?.track) {
-                const audioStream = new MediaStream([audioReceiver.track]);
-                remoteAudioRef.current.srcObject = audioStream;
-                remoteAudioRef.current.volume = 1.0;
-                remoteAudioRef.current.play().catch(() => {});
+
+            // 3. Ensure local video element has local video stream attached and playing
+            if (localVideoRef.current && localStreamRef.current && localStreamRef.current.getVideoTracks().length > 0) {
+                if (localVideoRef.current.srcObject !== localStreamRef.current) {
+                    localVideoRef.current.srcObject = localStreamRef.current;
+                }
+                localVideoRef.current.muted = true;
+                localVideoRef.current.play().catch(() => {});
             }
-        }
-    }, [isVideoSwapped, videoRequestStatus]);
+
+            // 4. Ensure remote audio is active
+            if (remoteAudioRef.current && pc) {
+                const receivers = pc.getReceivers();
+                const audioReceiver = receivers.find(r => r.track?.kind === 'audio');
+                if (audioReceiver?.track) {
+                    let aStream = remoteAudioRef.current.srcObject as MediaStream;
+                    if (!aStream || !(aStream instanceof MediaStream)) {
+                        aStream = new MediaStream([audioReceiver.track]);
+                        remoteAudioRef.current.srcObject = aStream;
+                        remoteAudioRef.current.volume = 1.0;
+                        remoteAudioRef.current.play().catch(() => {});
+                    }
+                }
+            }
+        };
+
+        syncStreams();
+        const interval = setInterval(syncStreams, 800);
+        return () => clearInterval(interval);
+    }, [videoRequestStatus, hasRemoteVideo, isVideoSwapped]);
 
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -934,7 +1090,21 @@ const VoiceCall = () => {
         if (localVideoRef.current) {
             localVideoRef.current.srcObject = null;
         }
+        if (remoteStreamRef.current) {
+            remoteStreamRef.current.getVideoTracks().forEach(track => {
+                track.stop();
+                remoteStreamRef.current?.removeTrack(track);
+            });
+            remoteStreamRef.current = null;
+        }
+        if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+        }
         setVideoRequestStatus('none');
+        setHasRemoteVideo(false);
+        localVideoReadyRef.current = false;
+        remoteVideoReadyRef.current = false;
+        renegotiationPendingRef.current = false;
         setIsVideoSwapped(false);
         setIsCameraOff(false);
 
@@ -1200,6 +1370,10 @@ const VoiceCall = () => {
         setIsCaller(false);
         setAudioBlocked(false);
         setPeerConnected(false);
+        setHasRemoteVideo(false);
+        localVideoReadyRef.current = false;
+        remoteVideoReadyRef.current = false;
+        renegotiationPendingRef.current = false;
         setIsVideoSwapped(false);
         setIsCameraOff(false);
         setIsFrontCamera(true);
@@ -1322,6 +1496,46 @@ const VoiceCall = () => {
                                 display: 'block'
                             }}
                         />
+                        {!hasRemoteVideo && (
+                            <div style={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                background: '#111b21',
+                                gap: isVideoSwapped ? '8px' : '16px',
+                                zIndex: 2,
+                            }}>
+                                <div style={{ position: 'relative' }}>
+                                    <div style={{
+                                        position: 'absolute',
+                                        inset: -6,
+                                        borderRadius: '50%',
+                                        background: 'rgba(37,211,102,0.3)',
+                                        animation: 'pulse 1.8s infinite',
+                                    }} />
+                                    <img
+                                        src={displayAvatar}
+                                        alt={displayName}
+                                        style={{
+                                            width: isVideoSwapped ? '48px' : '96px',
+                                            height: isVideoSwapped ? '48px' : '96px',
+                                            borderRadius: '50%',
+                                            objectFit: 'cover',
+                                            border: '2px solid rgba(255,255,255,0.3)',
+                                            position: 'relative',
+                                            zIndex: 2
+                                        }}
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.85)', fontSize: isVideoSwapped ? '0.65rem' : '0.9rem', textAlign: 'center', padding: '0 8px' }}>
+                                    <Loader2 size={isVideoSwapped ? 12 : 16} style={{ animation: 'spin 1.2s linear infinite' }} />
+                                    <span>Connecting {displayName}...</span>
+                                </div>
+                            </div>
+                        )}
                         {isVideoSwapped && (
                             <>
                                 <div style={{

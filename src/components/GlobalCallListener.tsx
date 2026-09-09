@@ -187,7 +187,7 @@ const GlobalCallListener: React.FC = () => {
             }
         });
 
-        const route = `/call?direct=true&partnerId=${incomingCall.callerId}&role=answerer&room=${incomingCall.room}`;
+        const route = `/call?direct=true&partnerId=${incomingCall.callerId}&role=answerer&room=${incomingCall.room}&type=${incomingCall.type}`;
         setIncomingCall(null);
         navigate(route);
     };
