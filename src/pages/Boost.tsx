@@ -31,7 +31,7 @@ import {
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
-import { isVideoUrl, compressImage } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
 import StoryViewer from '../components/StoryViewer';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 
@@ -43,7 +43,7 @@ const FILTERS = [
     { name: 'Cinematic', style: 'contrast(1.2) saturate(1.1) brightness(0.9) blur(0.5px)' },
     { name: 'Cool', style: 'hue-rotate(-30deg) saturate(1.2)' },
     { name: 'Warm', style: 'sepia(0.3) saturate(1.4)' },
-    { name: 'Alien', style: 'invert(0.8) hue-rotate(180deg)' },
+    { name: 'Alien', style: 'hue-rotate(180deg) invert(0.2)' },
 ];
 
 function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
@@ -64,9 +64,10 @@ function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
 }
 
 function getTimeRemaining(createdAt: string): { text: string; hoursLeft: number; percentElapsed: number } {
-    const createdTime = new Date(createdAt).getTime();
-    const expiryTime = createdTime + 24 * 60 * 60 * 1000;
-    const msLeft = expiryTime - Date.now();
+    const created = new Date(createdAt).getTime();
+    const expires = created + 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const msLeft = expires - now;
     
     if (msLeft <= 0) {
         return { text: 'Expired', hoursLeft: 0, percentElapsed: 100 };
@@ -105,7 +106,8 @@ const Boost: React.FC = () => {
     const [isVideo, setIsVideo] = useState(false);
     const [activeFilterIndex, setActiveFilterIndex] = useState(0);
     const [caption, setCaption] = useState('');
-    const [pointsToSpend, setPointsToSpend] = useState<number>(10);
+    const [pointsToSpend, setPointsToSpend] = useState<number>(0); // 100% free by default (0 points needed to post)
+    const [uploadProgress, setUploadProgress] = useState<number>(0);
     const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
     const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -243,7 +245,7 @@ const Boost: React.FC = () => {
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
-            const isVid = file.type.startsWith('video/');
+            const isVid = isVideoFile(file);
             setSelectedFile(file);
             setIsVideo(isVid);
             setCapturedMediaUrl(URL.createObjectURL(file));
@@ -254,6 +256,9 @@ const Boost: React.FC = () => {
     const closeCreateModal = () => {
         stopCamera();
         setIsCreateModalOpen(false);
+        if (capturedMediaUrl && capturedMediaUrl.startsWith('blob:')) {
+            try { URL.revokeObjectURL(capturedMediaUrl); } catch (_) {}
+        }
         setCapturedMediaUrl(null);
         setSelectedFile(null);
         setIsVideo(false);
@@ -261,11 +266,16 @@ const Boost: React.FC = () => {
         setSelectedTrack(null);
         setUploadError(null);
         setActiveFilterIndex(0);
+        setUploadProgress(0);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
 
-    // Guaranteed Reach Calculations
+    // Guaranteed Reach Calculations (Safe for 0 points balance)
+    const userPoints = typeof points === 'number' && !isNaN(points) ? Math.max(0, points) : 0;
     const baseFriendsCount = Math.max(userFriends.length, 1);
-    const extraGuaranteedScreens = Math.max(pointsToSpend, 0);
+    const extraGuaranteedScreens = Math.max(pointsToSpend || 0, 0);
     const totalGuaranteedReach = baseFriendsCount + extraGuaranteedScreens;
 
     // Handle Knock Upload & Point Deduction
@@ -278,29 +288,41 @@ const Boost: React.FC = () => {
             setUploadError('Please take a photo or select media to upload.');
             return;
         }
-        if (pointsToSpend > points) {
-            setUploadError(`You need ${pointsToSpend} points to launch this reach. You only have ${points} points.`);
-            return;
-        }
+
+        const safePointsToSpend = Math.max(0, Math.min(pointsToSpend || 0, userPoints));
 
         setIsSubmitting(true);
         setUploadError(null);
+        setUploadProgress(0);
 
         try {
             // Step 1: Upload media
             let uploadedUrl = '';
             if (selectedFile) {
                 let fileToUpload = selectedFile;
-                if (selectedFile.type.startsWith('image/')) {
+                const isVid = isVideoFile(selectedFile);
+
+                if (!isVid && (selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(selectedFile.name))) {
                     try {
                         fileToUpload = await compressImage(selectedFile, 1280, 1280, 0.8);
                     } catch (e) {
                         console.warn('Compression skipped:', e);
                     }
+                } else if (isVid) {
+                    if (selectedFile.size > 50 * 1024 * 1024) {
+                        throw new Error('Video size exceeds 50MB limit. Please select a shorter video clip.');
+                    }
                 }
-                const ext = fileToUpload.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
+
+                const rawExt = fileToUpload.name.split('.').pop() || (isVid ? 'mp4' : 'jpg');
+                const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
                 const path = `stories/${user.id}-${Date.now()}.${ext}`;
-                uploadedUrl = await uploadMedia(fileToUpload, path);
+                uploadedUrl = await uploadMedia(fileToUpload, path, (progress) => {
+                    if (progress.total > 0) {
+                        const pct = Math.round((progress.loaded / progress.total) * 100);
+                        setUploadProgress(pct);
+                    }
+                });
             } else if (capturedMediaUrl) {
                 uploadedUrl = await uploadStoryImage(capturedMediaUrl, user.id);
             }
@@ -315,7 +337,7 @@ const Boost: React.FC = () => {
                 user.id,
                 uploadedUrl,
                 filterName,
-                pointsToSpend,
+                safePointsToSpend,
                 baseFriendsCount,
                 user.username || user.name,
                 caption.trim() || undefined,
@@ -328,15 +350,15 @@ const Boost: React.FC = () => {
                 throw storyError;
             }
 
-            // Step 3: Deduct boost points
-            if (pointsToSpend > 0) {
-                const newPoints = Math.max(0, points - pointsToSpend);
+            // Step 3: Deduct boost points if user used any
+            if (safePointsToSpend > 0) {
+                const newPoints = Math.max(0, userPoints - safePointsToSpend);
                 setPoints(newPoints);
                 updatePoints(user.id, newPoints).catch(() => {});
             }
 
             // Step 4: Award streak points for posting a 24h knock
-            updateStreak(user.id, 1, null, points - pointsToSpend).catch(() => {});
+            updateStreak(user.id, 1, null, userPoints - safePointsToSpend).catch(() => {});
 
             // Close modal and reload 24h feed
             closeCreateModal();
@@ -402,7 +424,7 @@ const Boost: React.FC = () => {
                     {/* Post Knock Action */}
                     <button
                         onClick={() => {
-                            setPointsToSpend(Math.min(10, points));
+                            setPointsToSpend(0);
                             setIsCreateModalOpen(true);
                         }}
                         style={{
@@ -594,7 +616,7 @@ const Boost: React.FC = () => {
                         </div>
                         <button
                             onClick={() => {
-                                setPointsToSpend(Math.min(10, points));
+                                setPointsToSpend(0);
                                 setIsCreateModalOpen(true);
                             }}
                             style={{
@@ -1033,12 +1055,12 @@ const Boost: React.FC = () => {
                                         </span>
                                     </div>
 
-                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                     <div style={{ display: 'flex', gap: '8px' }}>
                                         {[0, 5, 10, 25, 50].map(amt => (
                                             <button
                                                 key={amt}
                                                 type="button"
-                                                onClick={() => setPointsToSpend(Math.min(amt, points))}
+                                                onClick={() => setPointsToSpend(Math.min(amt, userPoints))}
                                                 style={{
                                                     flex: 1, padding: '7px 0', borderRadius: '10px',
                                                     background: pointsToSpend === amt ? '#f5a524' : 'rgba(255,255,255,0.06)',
@@ -1087,7 +1109,7 @@ const Boost: React.FC = () => {
                                 {isSubmitting ? (
                                     <>
                                         <Loader2 size={18} className="animate-spin" />
-                                        <span>Publishing 24h Knock...</span>
+                                        <span>{uploadProgress > 0 ? `Uploading... ${uploadProgress}%` : 'Publishing 24h Knock...'}</span>
                                     </>
                                 ) : (
                                     <>

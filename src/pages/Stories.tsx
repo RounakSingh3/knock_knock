@@ -22,7 +22,7 @@ import {
     uploadMedia
 } from '../lib/database';
 import StoryViewer from '../components/StoryViewer';
-import { isVideoUrl, compressImage } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
 
 function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -246,14 +246,16 @@ const Stories = () => {
             let imageUrl = '';
             if (galleryFile) {
                 let fileToUpload = galleryFile;
-                if (galleryFile.type.startsWith('image/')) {
+                const isVid = isVideoFile(galleryFile);
+                if (!isVid && (galleryFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(galleryFile.name))) {
                     try {
                         fileToUpload = await compressImage(galleryFile, 1200, 1200, 0.75);
                     } catch (e) {
                         console.error('Compression failed, using original', e);
                     }
                 }
-                const fileExt = fileToUpload.name.split('.').pop() || 'jpg';
+                const rawExt = fileToUpload.name.split('.').pop() || (isVid ? 'mp4' : 'jpg');
+                const fileExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
                 const path = `stories/${user.id}-${Date.now()}.${fileExt}`;
                 imageUrl = await uploadMedia(fileToUpload, path);
             } else {
@@ -679,8 +681,7 @@ const Stories = () => {
                                         playsInline 
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.my-story-card');
-                                            if (card) (card as HTMLElement).style.display = 'none';
-                                            if (story.id) deleteStory(story.id);
+                                            if (card) (card as HTMLElement).style.opacity = '0.7';
                                         }}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                                     />
@@ -690,8 +691,7 @@ const Stories = () => {
                                         alt="" 
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.my-story-card');
-                                            if (card) (card as HTMLElement).style.display = 'none';
-                                            if (story.id) deleteStory(story.id);
+                                            if (card) (card as HTMLElement).style.opacity = '0.7';
                                         }}
                                     />
                                 )}
@@ -758,9 +758,7 @@ const Stories = () => {
                                 src={`${mysteryStory.image_url.split('#')[0]}#t=0.001`}
                                 preload="metadata" muted playsInline
                                 onError={(e) => {
-                                    const container = (e.target as HTMLElement).closest('.section-block');
-                                    if (container) (container as HTMLElement).style.display = 'none';
-                                    if (mysteryStory.id) deleteStory(mysteryStory.id);
+                                    console.warn('Mystery video preview failed to load');
                                 }}
                                 style={{
                                     width: '100%', height: '100%', objectFit: 'cover',
@@ -772,9 +770,7 @@ const Stories = () => {
                             <img
                                 src={mysteryStory.image_url?.split('#')[0] || ''} alt="Mystery"
                                 onError={(e) => {
-                                    const container = (e.target as HTMLElement).closest('.section-block');
-                                    if (container) (container as HTMLElement).style.display = 'none';
-                                    if (mysteryStory.id) deleteStory(mysteryStory.id);
+                                    console.warn('Mystery image preview failed to load');
                                 }}
                                 style={{
                                     width: '100%', height: '100%', objectFit: 'cover',
@@ -826,8 +822,7 @@ const Stories = () => {
                                         playsInline 
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.boosted-story');
-                                            if (card) (card as HTMLElement).style.display = 'none';
-                                            if (story.id) deleteStory(story.id);
+                                            if (card) (card as HTMLElement).style.opacity = '0.7';
                                         }}
                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                                     />
@@ -838,8 +833,7 @@ const Stories = () => {
                                         loading="lazy" 
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.boosted-story');
-                                            if (card) (card as HTMLElement).style.display = 'none';
-                                            if (story.id) deleteStory(story.id);
+                                            if (card) (card as HTMLElement).style.opacity = '0.7';
                                         }}
                                     />
                                 )}

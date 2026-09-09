@@ -193,6 +193,7 @@ export async function uploadMedia(
 ): Promise<string> {
     const MAX_RETRIES = 2;
     let lastError: Error | null = null;
+    const cleanPath = path.replace(/[^a-zA-Z0-9_\-\.\/]/g, '_');
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -200,7 +201,7 @@ export async function uploadMedia(
                 // Use XMLHttpRequest for real upload progress tracking
                 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
                 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-                const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`;
+                const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
 
                 // Get auth token for authenticated uploads
                 const { data: sessionData } = await supabase.auth.getSession();
@@ -211,7 +212,7 @@ export async function uploadMedia(
                     xhr.open('POST', uploadUrl, true);
                     xhr.setRequestHeader('Authorization', `Bearer ${token}`);
                     xhr.setRequestHeader('apikey', supabaseKey);
-                    xhr.setRequestHeader('x-upsert', 'false');
+                    xhr.setRequestHeader('x-upsert', 'true');
                     xhr.setRequestHeader('cache-control', '3600');
                     if (file.type) {
                         xhr.setRequestHeader('Content-Type', file.type);
@@ -246,9 +247,9 @@ export async function uploadMedia(
                 // Standard Supabase SDK upload (no progress needed)
                 const { error } = await supabase.storage
                     .from(STORAGE_BUCKET)
-                    .upload(path, file, {
+                    .upload(cleanPath, file, {
                         cacheControl: '3600',
-                        upsert: false,
+                        upsert: true,
                         contentType: file.type || undefined,
                     });
 
@@ -258,24 +259,29 @@ export async function uploadMedia(
             }
 
             // Upload succeeded — get public URL
-            const { data: publicUrlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+            const { data: publicUrlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(cleanPath);
             return publicUrlData.publicUrl;
 
         } catch (err: any) {
             lastError = err instanceof Error ? err : new Error(String(err));
             console.warn(`[uploadMedia] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, lastError.message);
 
-            // Don't retry if it's a duplicate or auth error
-            if (lastError.message.includes('Duplicate') || lastError.message.includes('already exists') ||
-                lastError.message.includes('unauthorized') || lastError.message.includes('Invalid')) {
-                break;
-            }
-
             if (attempt < MAX_RETRIES) {
                 // Wait before retrying (exponential backoff: 1s, 2s)
                 await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
             }
         }
+    }
+
+    // Fallback: If image upload to Supabase storage failed, convert to Base64 data URL so user post is not lost
+    if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)) {
+        console.warn('[uploadMedia] Storage upload failed, converting image to Base64 data URL fallback');
+        return new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => { throw lastError || new Error('Upload failed'); };
+            reader.readAsDataURL(file);
+        });
     }
 
     console.error('Error uploading media after retries:', lastError);
@@ -442,33 +448,43 @@ export async function createNewPost(post: {
 export async function uploadStoryImage(dataUrl: string, userId: string): Promise<string> {
     const isVideo = dataUrl.startsWith('data:video/');
     if (isVideo) {
-        const res = await fetch(dataUrl);
-        const blob = await res.blob();
-        const file = new File([blob], `story-${Date.now()}.mp4`, { type: blob.type || 'video/mp4' });
-        const path = `stories/${userId}-${Date.now()}.mp4`;
-        return uploadMedia(file, path);
+        try {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            const file = new File([blob], `story-${Date.now()}.mp4`, { type: blob.type || 'video/mp4' });
+            const path = `stories/${userId}-${Date.now()}.mp4`;
+            return await uploadMedia(file, path);
+        } catch (e) {
+            console.warn('Failed to upload video dataUrl to storage, returning direct dataUrl fallback:', e);
+            return dataUrl;
+        }
     }
     // For images: compress via canvas directly from the dataUrl
-    const compressedBlob = await new Promise<Blob>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-            let w = img.width, h = img.height;
-            const MAX = 1200;
-            if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
-            else { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
-            const c = document.createElement('canvas');
-            c.width = w; c.height = h;
-            const ctx = c.getContext('2d');
-            if (!ctx) return reject(new Error('no canvas ctx'));
-            ctx.drawImage(img, 0, 0, w, h);
-            c.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', 0.75);
-        };
-        img.onerror = reject;
-        img.src = dataUrl;
-    });
-    const file = new File([compressedBlob], `story-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    const path = `stories/${userId}-${Date.now()}.jpg`;
-    return uploadMedia(file, path);
+    try {
+        const compressedBlob = await new Promise<Blob>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                let w = img.width, h = img.height;
+                const MAX = 1200;
+                if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
+                else { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
+                const c = document.createElement('canvas');
+                c.width = w; c.height = h;
+                const ctx = c.getContext('2d');
+                if (!ctx) return reject(new Error('no canvas ctx'));
+                ctx.drawImage(img, 0, 0, w, h);
+                c.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', 0.75);
+            };
+            img.onerror = reject;
+            img.src = dataUrl;
+        });
+        const file = new File([compressedBlob], `story-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const path = `stories/${userId}-${Date.now()}.jpg`;
+        return await uploadMedia(file, path);
+    } catch (e) {
+        console.warn('Failed to upload compressed image to storage, returning direct dataUrl fallback:', e);
+        return dataUrl;
+    }
 }
 
 // ── Likes ──────────────────────────────────────────────
@@ -861,6 +877,61 @@ export async function fetchBoostedStories(): Promise<StoryData[]> {
     return (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
 }
 
+// ── Fallback 24h Story Local Storage ──────────────────────────────────────
+const FALLBACK_STORIES_KEY = 'knock_fallback_stories_v1';
+
+export function getFallbackStories(): StoryData[] {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    try {
+        const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
+        if (!raw) return [];
+        const parsed: any[] = JSON.parse(raw);
+        const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const valid = parsed.filter(s => s && s.created_at && new Date(s.created_at).getTime() > twentyFourHoursAgo);
+        if (valid.length !== parsed.length) {
+            localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(valid));
+        }
+        return valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+    } catch (e) {
+        return [];
+    }
+}
+
+export function saveFallbackStory(story: any) {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+        const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
+        const existing: any[] = raw ? JSON.parse(raw) : [];
+        existing.unshift(story);
+        localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(existing.slice(0, 30)));
+    } catch (e) {
+        console.warn('Could not save fallback story:', e);
+    }
+}
+
+export function deleteFallbackStory(storyId: string) {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+        const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
+        if (!raw) return;
+        const existing: any[] = JSON.parse(raw);
+        const filtered = existing.filter(s => s && s.id !== storyId);
+        localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(filtered));
+    } catch (e) {
+        console.warn('Could not delete fallback story:', e);
+    }
+}
+
+function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string): StoryData[] {
+    const fallback = getFallbackStories();
+    const filteredFallback = userIdFilter 
+        ? fallback.filter(s => s.user_id === userIdFilter)
+        : fallback;
+    const existingIds = new Set(dbStories.map(s => s.id));
+    const toAdd = filteredFallback.filter(s => !existingIds.has(s.id));
+    return [...toAdd, ...dbStories];
+}
+
 /** Fetch stories from the last 24 hours for the Home story rack */
 export async function fetchRecentStories(): Promise<StoryData[]> {
     const cached = getFromCache<StoryData[]>('recent_stories', 20000);
@@ -874,13 +945,15 @@ export async function fetchRecentStories(): Promise<StoryData[]> {
         .order('created_at', { ascending: false })
         .limit(100);
 
+    let result: StoryData[] = [];
     if (error) {
         console.error('Error fetching recent stories:', error);
-        return [];
+    } else {
+        result = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
     }
-    const result = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
-    setInCache('recent_stories', result);
-    return result;
+    const merged = mergeWithFallbackStories(result);
+    setInCache('recent_stories', merged);
+    return merged;
 }
 
 /** Fetch stories belonging to a specific user */
@@ -891,11 +964,13 @@ export async function fetchUserStories(userId: string): Promise<StoryData[]> {
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
+    let result: StoryData[] = [];
     if (error) {
         console.error('Error fetching user stories:', error);
-        return [];
+    } else {
+        result = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
     }
-    return (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+    return mergeWithFallbackStories(result, userId);
 }
 
 export async function createStory(
@@ -942,8 +1017,23 @@ export async function createStory(
     }
 
     if (error) {
-        console.error('Error creating story:', error);
-        return { error: new Error(error.message) };
+        console.warn('Error creating story in Supabase (possibly RLS or offline), saving to local fallback storage:', error.message);
+        saveFallbackStory({
+            id: `story-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            user_id: userId,
+            image_url: imageUrl,
+            filter_name: filterName,
+            is_boosted: isBoosted,
+            username: username || 'You',
+            caption: caption,
+            music_title: musicTitle,
+            music_artist: musicArtist,
+            music_url: musicUrl,
+            created_at: new Date().toISOString(),
+        });
+        invalidateCache('recent_stories');
+        invalidateCache('24h_boost_stories');
+        return { error: null };
     }
     return { error: null };
 }
@@ -1028,12 +1118,14 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
         .order('created_at', { ascending: false })
         .limit(150);
 
+    let rawStories: StoryData[] = [];
     if (error) {
-        console.error('Error fetching 24h boost stories:', error);
-        return [];
+        console.warn('Error fetching 24h boost stories from Supabase (using fallback store if available):', error.message);
+    } else {
+        rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
     }
 
-    const stories: StoryData[] = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+    const stories = mergeWithFallbackStories(rawStories);
 
     let friendIds: string[] = [];
     if (currentUserId) {
@@ -1121,6 +1213,10 @@ export async function updateStreak(userId: string, currentStreak: number, lastSt
 
 /** Delete a story by its ID */
 export async function deleteStory(storyId: string) {
+    deleteFallbackStory(storyId);
+    invalidateCache('recent_stories');
+    invalidateCache('24h_boost_stories');
+
     const { error } = await supabase
         .from('stories')
         .delete()

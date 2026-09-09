@@ -317,7 +317,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     muted={Boolean(currentStory.music_url || currentStory.music_title)}
                     className="story-image"
                     onError={() => {
-                        deleteStory(currentStory.id);
+                        console.warn('Video failed to load in StoryViewer:', currentStory.id);
                         handleNextStory();
                     }}
                     style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', objectFit: 'contain' }}
@@ -328,7 +328,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     alt="Story" 
                     className="story-image"
                     onError={() => {
-                        deleteStory(currentStory.id);
+                        console.warn('Image failed to load in StoryViewer:', currentStory.id);
                         handleNextStory();
                     }}
                     style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
