@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera } from 'lucide-react';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
+import { SnapModal, type SnapPayload } from './SnapModal';
 
 export interface GroupChatData {
     id: string;
@@ -55,13 +56,48 @@ function isShareReel(content: string) {
     return payload.media_type === 'video' || /\.(mp4|webm|mov)$/i.test(url);
 }
 
+function parseSnapPayload(content: string): SnapPayload | null {
+    if (!content.startsWith('[SNAP]')) return null;
+    const raw = content.replace('[SNAP]', '').trim();
+    if (raw.startsWith('{')) {
+        try {
+            return JSON.parse(raw);
+        } catch {
+            return {
+                media_url: raw,
+                media_type: /\.(mp4|webm|mov)(\?.*)?$/i.test(raw) ? 'video' : 'image'
+            };
+        }
+    }
+    return {
+        media_url: raw,
+        media_type: /\.(mp4|webm|mov)(\?.*)?$/i.test(raw) ? 'video' : 'image'
+    };
+}
+
 function getSharePreview(content: string, isMe: boolean, contactName: string) {
     if (content.startsWith('[VOICE_REACTION]') || content.startsWith('[VOICE]')) {
         return isMe ? 'You sent a voice mail 🎙️' : `🎙️ ${contactName} sent a voice mail`;
     }
-    const reel = isShareReel(content);
-    const label = reel ? 'reel' : 'post';
-    return isMe ? `You shared a ${label}` : `📷 ${contactName} shared a ${label}`;
+    if (content.startsWith('[SNAP]')) {
+        const snap = parseSnapPayload(content);
+        const hasAudio = Boolean(snap?.audio_url);
+        if (hasAudio) {
+            return isMe ? 'You sent a snap with voice note 📸🎙️' : `📸🎙️ ${contactName} sent a snap with voice note`;
+        }
+        return isMe ? 'You sent a snap 📸' : `📸 ${contactName} sent a snap`;
+    }
+    const payload = parseSharePayload(content);
+    if (payload) {
+        const reel = isShareReel(content);
+        const label = reel ? 'reel' : 'post';
+        const hasAudio = Boolean(payload.audio_url);
+        if (hasAudio) {
+            return isMe ? `You shared a ${label} with voice note 🎙️` : `🎙️ ${contactName} shared a ${label} with voice note`;
+        }
+        return isMe ? `You shared a ${label}` : `📷 ${contactName} shared a ${label}`;
+    }
+    return content;
 }
 
 // ── Multi-Key Local Storage Chat Recovery Helpers (Zero Data Loss) ──
@@ -201,7 +237,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [recordingTime, setRecordingTime] = useState(0);
     const [isUploadingVoice, setIsUploadingVoice] = useState(false);
     const [isUploadingImage, setIsUploadingImage] = useState(false);
-    const [viewingSnap, setViewingSnap] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+    const [isSnapModalOpen, setIsSnapModalOpen] = useState(false);
+    const [viewingSnap, setViewingSnap] = useState<(SnapPayload & { senderName?: string; createdAt?: string }) | null>(null);
+    const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
+    const activeAudioRef = useRef<HTMLAudioElement | null>(null);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
@@ -209,6 +248,27 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cameraInputRef = useRef<HTMLInputElement>(null);
+
+    const togglePlayVoice = (url: string) => {
+        if (playingAudioUrl === url) {
+            if (activeAudioRef.current) {
+                activeAudioRef.current.pause();
+                activeAudioRef.current = null;
+            }
+            setPlayingAudioUrl(null);
+        } else {
+            if (activeAudioRef.current) {
+                activeAudioRef.current.pause();
+            }
+            const audio = new Audio(url);
+            activeAudioRef.current = audio;
+            audio.onended = () => {
+                setPlayingAudioUrl(null);
+                activeAudioRef.current = null;
+            };
+            audio.play().then(() => setPlayingAudioUrl(url)).catch(() => setPlayingAudioUrl(null));
+        }
+    };
 
     // Hide bottom navigation when ChatPanel is open
     useEffect(() => {
@@ -653,6 +713,42 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         }).catch(() => {});
     };
 
+    // ── Send Snap to 1-on-1 or Group Chat ──
+    const handleSendSnap = async (snap: SnapPayload, targetId?: string, isGroup?: boolean) => {
+        const text = `[SNAP] ${JSON.stringify(snap)}`;
+        if (isGroup) {
+            await handleSendGroup(text);
+        } else {
+            const recipientId = targetId || selectedContact?.id;
+            if (!recipientId) return;
+
+            if (selectedContact && selectedContact.id === recipientId) {
+                await handleSendDirect(text);
+            } else {
+                const partner = allContacts.find(c => c.id === recipientId);
+                if (partner) {
+                    setSelectedContact(partner);
+                    setView('chat');
+                }
+                const cacheKey = `knock_chat_msgs_${currentUser.id}_${recipientId}`;
+                const optimisticMsg: MessageData = {
+                    id: `temp-${Date.now()}`,
+                    sender_id: currentUser.id,
+                    receiver_id: recipientId,
+                    content: text,
+                    created_at: new Date().toISOString(),
+                    is_read: false,
+                };
+                const existing = loadLocalChatMessages(currentUser.id, recipientId);
+                localStorage.setItem(cacheKey, JSON.stringify([...existing, optimisticMsg]));
+                await sendMessage(currentUser.id, recipientId, text);
+                const newPoints = (currentUser.points || 0) + 10;
+                await updatePoints(currentUser.id, newPoints);
+                refreshContacts();
+            }
+        }
+    };
+
     const handleSend = (e: React.FormEvent) => {
         e.preventDefault();
         if (!messageInput.trim()) return;
@@ -824,6 +920,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 <div style={{ fontSize: '12px', opacity: 0.8, padding: '0 4px', fontWeight: 'bold' }}>
                     {isMe ? 'You shared' : `${selectedContact?.username || 'Shared'}`}{' '}
                     {sharedPost.username ? `@${sharedPost.username}'s` : 'a'} {isReel ? 'reel' : 'post'}
+                    {sharedPost.audio_url && ' with voice 🎙️'}
                 </div>
                 <div style={{
                     position: 'relative',
@@ -837,10 +934,20 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         <video
                             src={mediaUrl}
                             style={{ width: '100%', height: '100%', objectFit: 'cover', filter: chatFilter }}
-                            muted
                             playsInline
                             controls
                             preload="metadata"
+                            onPlay={(e) => {
+                                if (sharedPost.audio_url) {
+                                    togglePlayVoice(sharedPost.audio_url);
+                                    e.currentTarget.volume = 0.15;
+                                }
+                            }}
+                            onPause={() => {
+                                if (sharedPost.audio_url && playingAudioUrl === sharedPost.audio_url) {
+                                    togglePlayVoice(sharedPost.audio_url);
+                                }
+                            }}
                         />
                     ) : (
                         <img
@@ -850,6 +957,52 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         />
                     )}
                 </div>
+
+                {/* Attached Voice Note Pill */}
+                {sharedPost.audio_url && (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        background: 'rgba(245, 165, 36, 0.15)',
+                        border: '1px solid #f5a524',
+                        borderRadius: '12px',
+                        padding: '8px 10px',
+                        marginTop: '2px'
+                    }}>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                togglePlayVoice(sharedPost.audio_url);
+                            }}
+                            style={{
+                                background: '#f5a524',
+                                border: 'none',
+                                borderRadius: '50%',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#000',
+                                cursor: 'pointer',
+                                flexShrink: 0
+                            }}
+                        >
+                            {playingAudioUrl === sharedPost.audio_url ? <Pause size={13} fill="#000" /> : <Play size={13} fill="#000" style={{ marginLeft: '1px' }} />}
+                        </button>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '11px', fontWeight: '800', color: '#f5a524' }}>
+                                🎙️ Attached Voice Note ({sharedPost.audio_duration || 30}s)
+                            </span>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.7)' }}>
+                                {playingAudioUrl === sharedPost.audio_url ? 'Playing voice note...' : 'Tap to listen'}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
                 {sharedPost.caption && (
                     <div style={{
                         fontSize: '13px',
@@ -918,7 +1071,27 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     LIVE
                                 </span>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <button
+                                    onClick={() => setIsSnapModalOpen(true)}
+                                    title="Send Snap with 30s Audio"
+                                    style={{
+                                        background: 'rgba(245, 165, 36, 0.15)',
+                                        border: '1px solid #f5a524',
+                                        color: '#f5a524',
+                                        borderRadius: '20px',
+                                        padding: '6px 12px',
+                                        fontWeight: '700',
+                                        fontSize: '12px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    <Camera size={15} />
+                                    <span>Snap 📸</span>
+                                </button>
                                 <button
                                     onClick={() => setShowCreateGroupModal(true)}
                                     title="Create Group"
@@ -1406,26 +1579,140 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                         />
                                                     </div>
                                                 ) : msg.content.startsWith('[SNAP]') ? (() => {
-                                                    const url = msg.content.replace('[SNAP] ', '');
-                                                    const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
+                                                    const snap = parseSnapPayload(msg.content);
+                                                    if (!snap) return msg.content;
+                                                    const isVideo = snap.media_type === 'video';
+                                                    const hasAudio = Boolean(snap.audio_url);
                                                     return (
-                                                        <button 
-                                                            onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
-                                                            style={{ 
-                                                                background: 'rgba(255,255,255,0.15)',
-                                                                border: 'none',
-                                                                borderRadius: '12px',
-                                                                padding: '12px 18px',
-                                                                color: '#fff',
-                                                                fontWeight: 'bold',
-                                                                cursor: 'pointer',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: '8px'
-                                                            }}
-                                                        >
-                                                            <ImageIcon size={18} /> Tap to View Photo / Video
-                                                        </button>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                            <div 
+                                                                onClick={() => setViewingSnap({
+                                                                    ...snap,
+                                                                    senderName: isMe ? 'You' : (selectedContact?.username || 'Friend'),
+                                                                    createdAt: msg.created_at,
+                                                                })}
+                                                                style={{
+                                                                    position: 'relative',
+                                                                    width: '200px',
+                                                                    height: '260px',
+                                                                    borderRadius: '16px',
+                                                                    overflow: 'hidden',
+                                                                    background: '#0a0a0a',
+                                                                    cursor: 'pointer',
+                                                                    boxShadow: '0 4px 14px rgba(0,0,0,0.3)',
+                                                                    border: '1px solid rgba(255,255,255,0.15)'
+                                                                }}
+                                                            >
+                                                                {isVideo ? (
+                                                                    <video
+                                                                        src={`${snap.media_url}#t=0.001`}
+                                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                                        muted
+                                                                        playsInline
+                                                                        preload="metadata"
+                                                                    />
+                                                                ) : (
+                                                                    <img
+                                                                        src={snap.media_url}
+                                                                        alt="Snap"
+                                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                                    />
+                                                                )}
+
+                                                                {/* Badge Overlay */}
+                                                                <div style={{
+                                                                    position: 'absolute', top: '8px', left: '8px',
+                                                                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+                                                                    borderRadius: '12px', padding: '3px 8px',
+                                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                                    fontSize: '11px', fontWeight: '800', color: hasAudio ? '#f5a524' : '#fff'
+                                                                }}>
+                                                                    {hasAudio ? '📸🎙️ SNAP + VOICE' : '📸 SNAP'}
+                                                                </div>
+
+                                                                {/* Center Play Icon for Video */}
+                                                                {isVideo && (
+                                                                    <div style={{
+                                                                        position: 'absolute', inset: 0,
+                                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                        pointerEvents: 'none'
+                                                                    }}>
+                                                                        <div style={{
+                                                                            background: 'rgba(0,0,0,0.6)',
+                                                                            borderRadius: '50%',
+                                                                            width: '40px',
+                                                                            height: '40px',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center'
+                                                                        }}>
+                                                                            <Play size={20} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Bottom Overlay Pill: Tap to View */}
+                                                                <div style={{
+                                                                    position: 'absolute', bottom: '8px', left: '8px', right: '8px',
+                                                                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+                                                                    borderRadius: '10px', padding: '5px',
+                                                                    textAlign: 'center', fontSize: '11px', fontWeight: '700', color: '#fff'
+                                                                }}>
+                                                                    Tap to open {isVideo ? 'video' : 'snap'}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Attached 30s Audio Player Chip (Listen in-chat!) */}
+                                                            {hasAudio && snap.audio_url && (
+                                                                <div style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'space-between',
+                                                                    background: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.08)',
+                                                                    borderRadius: '12px',
+                                                                    padding: '8px 12px',
+                                                                    gap: '8px',
+                                                                    border: '1px solid rgba(245, 165, 36, 0.4)'
+                                                                }}>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            togglePlayVoice(snap.audio_url!);
+                                                                        }}
+                                                                        style={{
+                                                                            background: '#f5a524',
+                                                                            border: 'none',
+                                                                            borderRadius: '50%',
+                                                                            width: '30px',
+                                                                            height: '30px',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            color: '#000',
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                    >
+                                                                        {playingAudioUrl === snap.audio_url ? <Pause size={14} fill="#000" /> : <Play size={14} fill="#000" style={{ marginLeft: '1px' }} />}
+                                                                    </button>
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                                                        <span style={{ fontSize: '12px', fontWeight: '800', color: '#f5a524' }}>
+                                                                            🎙️ Attached Voice Note ({snap.audio_duration || 30}s)
+                                                                        </span>
+                                                                        <span style={{ fontSize: '10px', opacity: 0.7 }}>
+                                                                            {playingAudioUrl === snap.audio_url ? 'Playing...' : 'Tap to listen'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Caption */}
+                                                            {snap.caption && (
+                                                                <div style={{ fontSize: '13px', padding: '2px 4px', fontWeight: '500' }}>
+                                                                    {snap.caption}
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     );
                                                 })() : msg.content
                                             )}
@@ -1500,8 +1787,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             <>
                                 <button
                                     type="button"
-                                    onClick={() => cameraInputRef.current?.click()}
-                                    title="Take Camera Snap"
+                                    onClick={() => setIsSnapModalOpen(true)}
+                                    title="Take Snap with 30s Audio"
                                     style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
@@ -1509,8 +1796,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    title="Attach Photo / Video"
+                                    onClick={() => setIsSnapModalOpen(true)}
+                                    title="Attach Photo / Video Snap"
                                     style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px 6px', cursor: 'pointer' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
@@ -1639,28 +1926,142 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     />
                                                 </div>
                                             ) : msg.content.startsWith('[SNAP]') ? (() => {
-                                                const url = msg.content.replace('[SNAP] ', '');
-                                                const isVideo = url.match(/\.(mp4|webm|mov)(\?.*)?$/i);
-                                                return (
-                                                    <button 
-                                                        onClick={() => setViewingSnap({ url, type: isVideo ? 'video' : 'image' })}
-                                                        style={{ 
-                                                            background: 'rgba(255,255,255,0.15)',
-                                                            border: 'none',
-                                                            borderRadius: '12px',
-                                                            padding: '12px 18px',
-                                                            color: '#fff',
-                                                            fontWeight: 'bold',
-                                                            cursor: 'pointer',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '8px'
-                                                        }}
-                                                    >
-                                                        <ImageIcon size={18} /> Tap to View Photo / Video
-                                                    </button>
-                                                );
-                                            })() : msg.content}
+                                                    const snap = parseSnapPayload(msg.content);
+                                                    if (!snap) return msg.content;
+                                                    const isVideo = snap.media_type === 'video';
+                                                    const hasAudio = Boolean(snap.audio_url);
+                                                    return (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                            <div 
+                                                                onClick={() => setViewingSnap({
+                                                                    ...snap,
+                                                                    senderName: msg.sender_name || 'Member',
+                                                                    createdAt: msg.created_at,
+                                                                })}
+                                                                style={{
+                                                                    position: 'relative',
+                                                                    width: '200px',
+                                                                    height: '260px',
+                                                                    borderRadius: '16px',
+                                                                    overflow: 'hidden',
+                                                                    background: '#0a0a0a',
+                                                                    cursor: 'pointer',
+                                                                    boxShadow: '0 4px 14px rgba(0,0,0,0.3)',
+                                                                    border: '1px solid rgba(255,255,255,0.15)'
+                                                                }}
+                                                            >
+                                                                {isVideo ? (
+                                                                    <video
+                                                                        src={`${snap.media_url}#t=0.001`}
+                                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                                        muted
+                                                                        playsInline
+                                                                        preload="metadata"
+                                                                    />
+                                                                ) : (
+                                                                    <img
+                                                                        src={snap.media_url}
+                                                                        alt="Snap"
+                                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                                    />
+                                                                )}
+
+                                                                {/* Badge Overlay */}
+                                                                <div style={{
+                                                                    position: 'absolute', top: '8px', left: '8px',
+                                                                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+                                                                    borderRadius: '12px', padding: '3px 8px',
+                                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                                    fontSize: '11px', fontWeight: '800', color: hasAudio ? '#f5a524' : '#fff'
+                                                                }}>
+                                                                    {hasAudio ? '📸🎙️ SNAP + VOICE' : '📸 SNAP'}
+                                                                </div>
+
+                                                                {/* Center Play Icon for Video */}
+                                                                {isVideo && (
+                                                                    <div style={{
+                                                                        position: 'absolute', inset: 0,
+                                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                        pointerEvents: 'none'
+                                                                    }}>
+                                                                        <div style={{
+                                                                            background: 'rgba(0,0,0,0.6)',
+                                                                            borderRadius: '50%',
+                                                                            width: '40px',
+                                                                            height: '40px',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center'
+                                                                        }}>
+                                                                            <Play size={20} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Bottom Overlay Pill: Tap to View */}
+                                                                <div style={{
+                                                                    position: 'absolute', bottom: '8px', left: '8px', right: '8px',
+                                                                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+                                                                    borderRadius: '10px', padding: '5px',
+                                                                    textAlign: 'center', fontSize: '11px', fontWeight: '700', color: '#fff'
+                                                                }}>
+                                                                    Tap to open {isVideo ? 'video' : 'snap'}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Attached 30s Audio Player Chip (Listen in-chat!) */}
+                                                            {hasAudio && snap.audio_url && (
+                                                                <div style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'space-between',
+                                                                    background: isMe ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.08)',
+                                                                    borderRadius: '12px',
+                                                                    padding: '8px 12px',
+                                                                    gap: '8px',
+                                                                    border: '1px solid rgba(245, 165, 36, 0.4)'
+                                                                }}>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            togglePlayVoice(snap.audio_url!);
+                                                                        }}
+                                                                        style={{
+                                                                            background: '#f5a524',
+                                                                            border: 'none',
+                                                                            borderRadius: '50%',
+                                                                            width: '30px',
+                                                                            height: '30px',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            color: '#000',
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                    >
+                                                                        {playingAudioUrl === snap.audio_url ? <Pause size={14} fill="#000" /> : <Play size={14} fill="#000" style={{ marginLeft: '1px' }} />}
+                                                                    </button>
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                                                        <span style={{ fontSize: '12px', fontWeight: '800', color: '#f5a524' }}>
+                                                                            🎙️ Attached Voice Note ({snap.audio_duration || 30}s)
+                                                                        </span>
+                                                                        <span style={{ fontSize: '10px', opacity: 0.7 }}>
+                                                                            {playingAudioUrl === snap.audio_url ? 'Playing...' : 'Tap to listen'}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Caption */}
+                                                            {snap.caption && (
+                                                                <div style={{ fontSize: '13px', padding: '2px 4px', fontWeight: '500' }}>
+                                                                    {snap.caption}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })() : msg.content}
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
                                             <span style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>
@@ -1718,8 +2119,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             <>
                                 <button
                                     type="button"
-                                    onClick={() => cameraInputRef.current?.click()}
-                                    title="Take Camera Snap"
+                                    onClick={() => setIsSnapModalOpen(true)}
+                                    title="Take Snap with 30s Audio"
                                     style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
@@ -1727,8 +2128,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    title="Attach Photo / Video"
+                                    onClick={() => setIsSnapModalOpen(true)}
+                                    title="Attach Photo / Video Snap"
                                     style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px 6px', cursor: 'pointer' }}
                                     disabled={isUploadingImage || isUploadingVoice}
                                 >
@@ -1945,26 +2346,151 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 </div>
             )}
 
-            {/* Full-screen Snap Viewer */}
+            {/* Enhanced Full-screen Snap Viewer */}
             {viewingSnap && (
                 <div style={{
                     position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
                     backgroundColor: '#000', zIndex: 100000, display: 'flex',
                     flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
                 }}>
-                    <button 
-                        onClick={() => setViewingSnap(null)}
-                        style={{ position: 'absolute', top: '40px', right: '20px', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', padding: '8px', color: '#fff', cursor: 'pointer', zIndex: 2 }}
-                    >
-                        <X size={24} />
-                    </button>
-                    {viewingSnap.type === 'video' ? (
-                        <video src={viewingSnap.url} autoPlay controls style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                    {/* Top bar with sender info, audio badge, and close button */}
+                    <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0,
+                        padding: '24px 20px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        zIndex: 10,
+                        background: 'linear-gradient(180deg, rgba(0,0,0,0.85) 0%, transparent 100%)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '15px', fontWeight: '800', color: '#fff' }}>
+                                {viewingSnap.senderName ? `Snap from ${viewingSnap.senderName}` : 'Snap'}
+                            </span>
+                            {viewingSnap.audio_url && (
+                                <span style={{
+                                    background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                                    color: '#000', fontSize: '10px', fontWeight: '900',
+                                    borderRadius: '10px', padding: '2px 8px'
+                                }}>
+                                    🎙️ 30s VOICE
+                                </span>
+                            )}
+                        </div>
+                        <button 
+                            onClick={() => setViewingSnap(null)}
+                            style={{
+                                background: 'rgba(255,255,255,0.2)', border: 'none',
+                                borderRadius: '50%', width: '40px', height: '40px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: '#fff', cursor: 'pointer', backdropFilter: 'blur(8px)'
+                            }}
+                        >
+                            <X size={22} />
+                        </button>
+                    </div>
+
+                    {/* Media Content */}
+                    {viewingSnap.media_type === 'video' ? (
+                        <video
+                            ref={(el) => {
+                                if (el && viewingSnap.audio_url) {
+                                    el.volume = 0.15;
+                                }
+                            }}
+                            src={viewingSnap.media_url}
+                            autoPlay
+                            loop
+                            playsInline
+                            controls
+                            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                        />
                     ) : (
-                        <img src={viewingSnap.url} alt="Snap" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                        <img
+                            src={viewingSnap.media_url}
+                            alt="Snap"
+                            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                        />
                     )}
+
+                    {/* Auto-playing attached 30s audio */}
+                    {viewingSnap.audio_url && (
+                        <audio
+                            src={viewingSnap.audio_url}
+                            autoPlay
+                            playsInline
+                            style={{ display: 'none' }}
+                            ref={(audioEl) => {
+                                if (audioEl) {
+                                    audioEl.play().catch(err => {
+                                        console.warn('Autoplay waiting for touch:', err);
+                                    });
+                                }
+                            }}
+                        />
+                    )}
+
+                    {/* Bottom Floating Bar: Caption & Audio Player Pill */}
+                    <div style={{
+                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                        padding: '24px 20px env(safe-area-inset-bottom, 24px) 20px',
+                        display: 'flex', flexDirection: 'column', gap: '10px',
+                        alignItems: 'center', zIndex: 10,
+                        background: 'linear-gradient(0deg, rgba(0,0,0,0.85) 0%, transparent 100%)'
+                    }}>
+                        {viewingSnap.caption && (
+                            <div style={{
+                                background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(10px)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: '20px', padding: '8px 18px',
+                                color: '#fff', fontSize: '14px', fontWeight: '600',
+                                maxWidth: '85%', textAlign: 'center'
+                            }}>
+                                {viewingSnap.caption}
+                            </div>
+                        )}
+
+                        {viewingSnap.audio_url && (
+                            <div style={{
+                                background: 'rgba(245, 165, 36, 0.2)',
+                                border: '1px solid #f5a524', backdropFilter: 'blur(12px)',
+                                borderRadius: '30px', padding: '8px 18px',
+                                display: 'flex', alignItems: 'center', gap: '10px',
+                                color: '#f5a524', fontWeight: '800', fontSize: '13px'
+                            }}>
+                                <Mic size={16} />
+                                <span>Voice Note Playing 🎙️</span>
+                                <button
+                                    onClick={() => {
+                                        const audio = document.querySelector('audio[src="' + viewingSnap.audio_url + '"]') as HTMLAudioElement;
+                                        if (audio) {
+                                            if (audio.paused) audio.play();
+                                            else audio.pause();
+                                        }
+                                    }}
+                                    style={{
+                                        background: '#f5a524', border: 'none', borderRadius: '50%',
+                                        width: '26px', height: '26px', display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center', color: '#000', cursor: 'pointer'
+                                    }}
+                                >
+                                    <Play size={12} fill="#000" style={{ marginLeft: '1px' }} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
+
+            {/* Snap Studio Modal */}
+            <SnapModal
+                isOpen={isSnapModalOpen}
+                onClose={() => setIsSnapModalOpen(false)}
+                currentUser={currentUser}
+                targetContact={view === 'chat' ? selectedContact : null}
+                targetGroupId={view === 'group_chat' ? selectedGroup?.id : null}
+                targetGroupName={view === 'group_chat' ? selectedGroup?.name : null}
+                allContacts={allContacts}
+                onSendSnap={handleSendSnap}
+            />
 
             <style>{`
                 @keyframes slideInRight {

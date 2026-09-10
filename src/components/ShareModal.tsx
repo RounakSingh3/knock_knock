@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { X, Send, Loader2, Link as LinkIcon, Share, PlusCircle, Download } from 'lucide-react';
-import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchChattedUserIds, sendMessage, type ProfileData, type PostData, type MessageData } from '../lib/database';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Send, Loader2, Link as LinkIcon, Share, PlusCircle, Download, Mic, Square, Trash2, Play, Pause } from 'lucide-react';
+import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchChattedUserIds, sendMessage, uploadMedia, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 interface ShareModalProps {
@@ -17,6 +17,19 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
     const [loading, setLoading] = useState(true);
     const [sendingTo, setSendingTo] = useState<Record<string, boolean>>({});
     const [sentTo, setSentTo] = useState<Record<string, boolean>>({});
+
+    // ── 30-Second Voice Attachment States ──
+    const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+    const [voiceDuration, setVoiceDuration] = useState(0);
+    const [recordedVoiceBlob, setRecordedVoiceBlob] = useState<Blob | null>(null);
+    const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
+    const [isPlayingVoicePreview, setIsPlayingVoicePreview] = useState(false);
+
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const timerRef = useRef<any>(null);
+    const hardStopTimerRef = useRef<any>(null);
+    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
         if (isOpen && currentUser) {
@@ -44,6 +57,17 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
 
     useEffect(() => {
         if (!isOpen) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            if (hardStopTimerRef.current) clearTimeout(hardStopTimerRef.current);
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                mediaRecorderRef.current.stop();
+            }
+            if (audioPlayerRef.current) audioPlayerRef.current.pause();
+            setIsRecordingVoice(false);
+            setRecordedVoiceBlob(null);
+            setVoicePreviewUrl(null);
+            setVoiceDuration(0);
+            setIsPlayingVoicePreview(false);
             setTimeout(() => {
                 setSendingTo({});
                 setSentTo({});
@@ -51,12 +75,120 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
         }
     }, [isOpen]);
 
+    // ── 30-Second Voice Recording Engine ──
+    const startVoiceRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            let mimeType = 'audio/webm';
+            if (typeof MediaRecorder !== 'undefined') {
+                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                    mimeType = 'audio/webm;codecs=opus';
+                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                    mimeType = 'audio/webm';
+                } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                    mimeType = 'audio/mp4';
+                } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+                    mimeType = 'audio/aac';
+                }
+            }
+
+            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            mediaRecorderRef.current = recorder;
+            audioChunksRef.current = [];
+            setVoiceDuration(0);
+
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+
+            const startTime = Date.now();
+
+            recorder.onstop = () => {
+                stream.getTracks().forEach(t => t.stop());
+                if (timerRef.current) clearInterval(timerRef.current);
+                if (hardStopTimerRef.current) clearTimeout(hardStopTimerRef.current);
+
+                const recordedBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
+                const actualSecs = Math.max(1, Math.min(30, Math.round((Date.now() - startTime) / 1000)));
+                setRecordedVoiceBlob(recordedBlob);
+                setVoiceDuration(actualSecs);
+                setVoicePreviewUrl(URL.createObjectURL(recordedBlob));
+                setIsRecordingVoice(false);
+            };
+
+            recorder.start(100);
+            setIsRecordingVoice(true);
+
+            timerRef.current = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                setVoiceDuration(Math.min(30, elapsed));
+                if (elapsed >= 30) {
+                    stopVoiceRecording();
+                }
+            }, 500);
+
+            hardStopTimerRef.current = setTimeout(() => {
+                stopVoiceRecording();
+            }, 30000);
+        } catch (err) {
+            console.error('Mic access denied:', err);
+            alert('Microphone access is needed to record a voice note.');
+        }
+    };
+
+    const stopVoiceRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+        if (timerRef.current) clearInterval(timerRef.current);
+        if (hardStopTimerRef.current) clearTimeout(hardStopTimerRef.current);
+    };
+
+    const discardVoiceRecording = () => {
+        if (audioPlayerRef.current) {
+            audioPlayerRef.current.pause();
+            audioPlayerRef.current = null;
+        }
+        setIsPlayingVoicePreview(false);
+        setRecordedVoiceBlob(null);
+        setVoicePreviewUrl(null);
+        setVoiceDuration(0);
+    };
+
+    const togglePlayVoicePreview = () => {
+        if (!voicePreviewUrl) return;
+        if (isPlayingVoicePreview && audioPlayerRef.current) {
+            audioPlayerRef.current.pause();
+            setIsPlayingVoicePreview(false);
+        } else {
+            const audio = new Audio(voicePreviewUrl);
+            audioPlayerRef.current = audio;
+            audio.onended = () => setIsPlayingVoicePreview(false);
+            audio.play().then(() => setIsPlayingVoicePreview(true)).catch(() => setIsPlayingVoicePreview(false));
+        }
+    };
+
     if (!isOpen || !post) return null;
 
     const handleSend = async (receiverId: string) => {
         if (sendingTo[receiverId] || sentTo[receiverId]) return;
 
         setSendingTo(prev => ({ ...prev, [receiverId]: true }));
+
+        let attachedAudioUrl: string | undefined = undefined;
+        let attachedAudioDuration: number | undefined = undefined;
+
+        if (recordedVoiceBlob && recordedVoiceBlob.size > 0) {
+            try {
+                const audioExt = recordedVoiceBlob.type.includes('mp4') ? 'm4a' : 'webm';
+                const audioPath = `chat_voice/share_${currentUser.id}_${Date.now()}.${audioExt}`;
+                const audioFile = new File([recordedVoiceBlob], `voice_${Date.now()}.${audioExt}`, { type: recordedVoiceBlob.type });
+                attachedAudioUrl = await uploadMedia(audioFile, audioPath);
+                attachedAudioDuration = voiceDuration;
+            } catch (e) {
+                console.warn('Failed to upload share voice note:', e);
+            }
+        }
 
         const sharePayload = {
             id: post.id,
@@ -66,6 +198,8 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
             caption: post.caption,
             username: post.username,
             avatar_url: post.avatar_url,
+            audio_url: attachedAudioUrl,
+            audio_duration: attachedAudioDuration,
         };
 
         const content = `[SHARE_POST] ${JSON.stringify(sharePayload)}`;
@@ -155,6 +289,96 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                         <X size={24} />
                     </button>
                 </header>
+
+                {/* 🎙️ 30s Voice Note Attachment Bar */}
+                <div style={{
+                    margin: '16px 20px 0',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '16px',
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px'
+                }}>
+                    {isRecordingVoice ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff3b30', animation: 'pulse 1s infinite' }} />
+                                <span style={{ fontSize: '13px', color: '#ff3b30', fontWeight: '800' }}>
+                                    Recording... 0:{String(voiceDuration).padStart(2, '0')} / 0:30
+                                </span>
+                            </div>
+                            <button
+                                onClick={stopVoiceRecording}
+                                style={{
+                                    background: '#ff3b30', color: '#fff', border: 'none',
+                                    borderRadius: '16px', padding: '6px 14px', fontSize: '12px',
+                                    fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+                                }}
+                            >
+                                <Square size={12} fill="#fff" />
+                                <span>Stop</span>
+                            </button>
+                        </div>
+                    ) : recordedVoiceBlob ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <button
+                                    onClick={togglePlayVoicePreview}
+                                    style={{
+                                        background: '#f5a524', border: 'none', borderRadius: '50%',
+                                        width: '32px', height: '32px', display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center', color: '#000', cursor: 'pointer'
+                                    }}
+                                >
+                                    {isPlayingVoicePreview ? <Pause size={14} fill="#000" /> : <Play size={14} fill="#000" style={{ marginLeft: '1px' }} />}
+                                </button>
+                                <div>
+                                    <div style={{ fontSize: '12px', fontWeight: '800', color: '#f5a524' }}>
+                                        🎙️ Voice Note Attached ({voiceDuration}s)
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)' }}>
+                                        Will play with this {post.media_type === 'video' ? 'reel' : 'post'}
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                onClick={discardVoiceRecording}
+                                style={{
+                                    background: 'rgba(255,255,255,0.1)', border: 'none',
+                                    borderRadius: '50%', width: '28px', height: '28px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#ff453a', cursor: 'pointer'
+                                }}
+                            >
+                                <Trash2 size={14} />
+                            </button>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-active)' }}>
+                                <Mic size={16} color="#f5a524" />
+                                <span style={{ fontSize: '12px', fontWeight: '600' }}>
+                                    Attach Voice Note (max 30s)
+                                </span>
+                            </div>
+                            <button
+                                onClick={startVoiceRecording}
+                                style={{
+                                    background: 'rgba(245, 165, 36, 0.15)', border: '1px solid #f5a524',
+                                    borderRadius: '14px', padding: '5px 12px', color: '#f5a524',
+                                    fontSize: '11px', fontWeight: '800', cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '4px'
+                                }}
+                            >
+                                <Mic size={12} />
+                                <span>Record</span>
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 {/* Direct Message List (Horizontal Scroll) */}
                 <div style={{ padding: '20px 24px', borderBottom: '1px solid #2c2c2e' }}>
