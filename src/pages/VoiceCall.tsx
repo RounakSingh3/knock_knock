@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useContext } from 'react';
 import { 
     Phone, Mic, MicOff, PhoneOff, Settings2, Clock, Video, VideoOff, 
     Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, 
-    Link2, Flame, RefreshCw, CameraOff, ChevronLeft, Lock, Bell
+    Link2, Flame, RefreshCw, CameraOff, ChevronLeft, Lock, Bell,
+    Headphones
 } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { useSearchParams } from 'react-router-dom';
@@ -158,6 +159,16 @@ const VoiceCall = () => {
     const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
     const remoteStreamRef = useRef<MediaStream | null>(null);
+    const remoteAudioStreamRef = useRef<MediaStream | null>(null);
+
+    // Mic & Audio Test states for first page
+    const [isMicTesting, setIsMicTesting] = useState(false);
+    const [micTestVolume, setMicTestVolume] = useState(0);
+    const [micLoopback, setMicLoopback] = useState(false);
+    const micTestStreamRef = useRef<MediaStream | null>(null);
+    const micTestAudioCtxRef = useRef<AudioContext | null>(null);
+    const micTestGainNodeRef = useRef<GainNode | null>(null);
+    const micTestAnimFrameRef = useRef<number | null>(null);
 
     const pendingInviteRef = useRef<string | null>(null);
     const searchTimeoutRef = useRef<number | null>(null);
@@ -192,6 +203,7 @@ const VoiceCall = () => {
         if (!user || !user.id || !isDirectCall || !directPartnerId) return;
 
         const initializeDirectCall = async () => {
+            stopMicTest();
             const profiles = await fetchProfilesByIds([directPartnerId]);
             if (profiles.length === 0) {
                 alert("User not found.");
@@ -250,8 +262,100 @@ const VoiceCall = () => {
         }
     }, [callDuration, inCall, requestStatus]);
 
+    // Mic test helper functions
+    const stopMicTest = () => {
+        if (micTestAnimFrameRef.current) {
+            cancelAnimationFrame(micTestAnimFrameRef.current);
+            micTestAnimFrameRef.current = null;
+        }
+        if (micTestStreamRef.current) {
+            micTestStreamRef.current.getTracks().forEach(t => t.stop());
+            micTestStreamRef.current = null;
+        }
+        if (micTestAudioCtxRef.current) {
+            micTestAudioCtxRef.current.close().catch(() => {});
+            micTestAudioCtxRef.current = null;
+        }
+        micTestGainNodeRef.current = null;
+        setIsMicTesting(false);
+        setMicTestVolume(0);
+    };
+
+    const startMicTest = async () => {
+        if (isMicTesting) {
+            stopMicTest();
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                }
+            });
+            micTestStreamRef.current = stream;
+
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            const ctx = new AudioCtx();
+            micTestAudioCtxRef.current = ctx;
+            if (ctx.state === 'suspended') {
+                await ctx.resume();
+            }
+
+            const source = ctx.createMediaStreamSource(stream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 128;
+            analyser.smoothingTimeConstant = 0.5;
+            source.connect(analyser);
+
+            const gain = ctx.createGain();
+            gain.gain.value = micLoopback ? 0.9 : 0.0;
+            micTestGainNodeRef.current = gain;
+            source.connect(gain);
+            gain.connect(ctx.destination);
+
+            setIsMicTesting(true);
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            const updateVolume = () => {
+                if (!micTestStreamRef.current) return;
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                const avg = sum / dataArray.length;
+                const level = Math.min(100, Math.round((avg / 100) * 100));
+                setMicTestVolume(level);
+                micTestAnimFrameRef.current = requestAnimationFrame(updateVolume);
+            };
+            updateVolume();
+        } catch (err) {
+            console.error('[MicTest] Access failed:', err);
+            alert('Microphone access was denied or not found. Please ensure microphone permissions are granted in your browser settings.');
+            stopMicTest();
+        }
+    };
+
+    const toggleMicLoopback = () => {
+        const next = !micLoopback;
+        setMicLoopback(next);
+        if (micTestGainNodeRef.current) {
+            micTestGainNodeRef.current.gain.value = next ? 0.9 : 0.0;
+        }
+    };
+
+    // Cleanup mic test on unmount
+    useEffect(() => {
+        return () => {
+            stopMicTest();
+        };
+    }, []);
+
     // WebRTC connection and cleanup functions
     const closeWebRTC = () => {
+        stopMicTest();
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
@@ -264,6 +368,10 @@ const VoiceCall = () => {
             remoteStreamRef.current.getTracks().forEach(track => track.stop());
             remoteStreamRef.current = null;
         }
+        if (remoteAudioStreamRef.current) {
+            remoteAudioStreamRef.current.getTracks().forEach(track => track.stop());
+            remoteAudioStreamRef.current = null;
+        }
         if (localVideoRef.current) {
             localVideoRef.current.srcObject = null;
         }
@@ -272,6 +380,10 @@ const VoiceCall = () => {
         }
         if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = null;
+        }
+        const callAudioEl = document.getElementById('knock-call-audio') as HTMLAudioElement;
+        if (callAudioEl) {
+            callAudioEl.srcObject = null;
         }
         pendingOfferRef.current = null;
         pendingIceCandidatesRef.current = [];
@@ -641,7 +753,7 @@ const VoiceCall = () => {
             channelSubscribedRef.current = false;
             channel.unsubscribe();
         };
-    }, [user?.id]);
+    }, [user?.id, isDirectCall, directRoom]);
 
     // ── WebRTC Connection Management ──
     useEffect(() => {
@@ -653,15 +765,29 @@ const VoiceCall = () => {
     
             try {
                 const isVideo = videoRequestStatus === 'accepted';
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                    },
-                    video: isVideo
-                });
+                let stream: MediaStream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                        },
+                        video: isVideo
+                    });
+                } catch (audioConstraintErr) {
+                    console.warn('[WebRTC] Complex audio constraints failed, trying basic audio:', audioConstraintErr);
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        audio: true,
+                        video: isVideo
+                    });
+                }
                 localStreamRef.current = stream;
+
+                // Ensure local audio tracks are active
+                stream.getAudioTracks().forEach(track => {
+                    track.enabled = !isMuted;
+                });
 
                 if (isVideo && localVideoRef.current) {
                     localVideoRef.current.srcObject = stream;
@@ -729,23 +855,28 @@ const VoiceCall = () => {
                 pc.ontrack = (event) => {
                     console.log('[WebRTC ontrack]', event.track.kind, event.track.id);
 
-                    if (event.track.kind === 'audio' && remoteAudioRef.current) {
+                    if (event.track.kind === 'audio') {
                         setPeerConnected(true);
-                        let audioStream = remoteAudioRef.current.srcObject as MediaStream;
-                        if (!audioStream || !(audioStream instanceof MediaStream)) {
-                            audioStream = new MediaStream();
-                            remoteAudioRef.current.srcObject = audioStream;
+                        console.log('[WebRTC ontrack] Remote audio track received:', event.track.id, 'readyState:', event.track.readyState);
+
+                        const stream = (event.streams && event.streams[0]) 
+                            ? event.streams[0] 
+                            : new MediaStream([event.track]);
+
+                        remoteAudioStreamRef.current = stream;
+
+                        const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+                        if (audioEl) {
+                            audioEl.srcObject = stream;
+                            audioEl.volume = 1.0;
+                            audioEl.muted = false;
+                            audioEl.play().then(() => {
+                                setAudioBlocked(false);
+                            }).catch(err => {
+                                console.warn('Audio autoplay blocked, showing tap-to-unmute:', err);
+                                setAudioBlocked(true);
+                            });
                         }
-                        if (!audioStream.getTracks().some(t => t.id === event.track.id)) {
-                            audioStream.addTrack(event.track);
-                        }
-                        remoteAudioRef.current.volume = 1.0;
-                        remoteAudioRef.current.play().then(() => {
-                            setAudioBlocked(false);
-                        }).catch(err => {
-                            console.warn('Audio autoplay blocked, showing tap-to-unmute:', err);
-                            setAudioBlocked(true);
-                        });
                     }
 
                     if (event.track.kind === 'video') {
@@ -857,14 +988,49 @@ const VoiceCall = () => {
                 }
 
                 // Announce arrival to start WebRTC handshake
-                // ONLY the caller announces arrival to prevent double-offer glare and renegotiation drops
-                if (isCaller && channelSubscribedRef.current && channelRef.current && currentMatchRef.current) {
-                    channelRef.current.send({
-                        type: 'broadcast',
-                        event: 'peer-arrived',
-                        payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
-                    });
+                if (channelSubscribedRef.current && channelRef.current && currentMatchRef.current) {
+                    if (isCaller) {
+                        console.log('[WebRTC] Caller announcing peer-arrived...');
+                        channelRef.current.send({
+                            type: 'broadcast',
+                            event: 'peer-arrived',
+                            payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
+                        });
+                    } else {
+                        console.log('[WebRTC] Answerer announcing peer-ready...');
+                        channelRef.current.send({
+                            type: 'broadcast',
+                            event: 'peer-ready',
+                            payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
+                        });
+                    }
                 }
+
+                // Retry handshake up to 6 times if connection has not yet transitioned to connected
+                let handshakeTries = 0;
+                const handshakeInterval = setInterval(() => {
+                    if (
+                        peerConnectionRef.current?.iceConnectionState === 'connected' ||
+                        peerConnectionRef.current?.connectionState === 'connected' ||
+                        handshakeTries >= 6
+                    ) {
+                        clearInterval(handshakeInterval);
+                        return;
+                    }
+                    handshakeTries++;
+                    if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
+                        console.log('[WebRTC] Retrying peer-arrived handshake announcement...');
+                        channelRef.current.send({
+                            type: 'broadcast',
+                            event: 'peer-arrived',
+                            payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
+                        });
+                    }
+                }, 1500);
+
+                return () => {
+                    clearInterval(handshakeInterval);
+                };
             } catch (e) {
                 console.error('Failed to capture stream or create RTCPeerConnection:', e);
                 alert('Could not access your microphone. Please allow microphone permission and try again.');
@@ -978,7 +1144,82 @@ const VoiceCall = () => {
         })();
     }, [videoRequestStatus, isFrontCamera]);
 
-    // Continuous Watchdog & Stream Attachment across view flips and renegotiations
+    // ── Dedicated Continuous Audio Watchdog (Voice & Video) ──
+    useEffect(() => {
+        if (!inCall) return;
+
+        const syncAudio = () => {
+            const pc = peerConnectionRef.current;
+            const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+            if (!audioEl) return;
+
+            // 1. Recover remote audio track from remoteAudioStreamRef or pc.getReceivers()
+            let aStream = remoteAudioStreamRef.current;
+            const hasLiveAudioTrack = aStream && aStream.getAudioTracks().some(t => t.readyState === 'live');
+
+            if (!hasLiveAudioTrack && pc) {
+                const receivers = pc.getReceivers();
+                const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio' && r.track.readyState === 'live');
+                if (audioReceiver?.track) {
+                    aStream = new MediaStream([audioReceiver.track]);
+                    remoteAudioStreamRef.current = aStream;
+                    console.log('[AudioWatchdog] Re-attached live audio track from receiver:', audioReceiver.track.id);
+                }
+            }
+
+            // 2. Attach stream if not attached
+            if (aStream && audioEl.srcObject !== aStream) {
+                console.log('[AudioWatchdog] Attaching audio stream to element');
+                audioEl.srcObject = aStream;
+            }
+
+            // 3. Ensure volume is 100% and unmuted
+            if (audioEl.srcObject) {
+                audioEl.volume = 1.0;
+                audioEl.muted = false;
+                if (audioEl.paused) {
+                    audioEl.play().then(() => {
+                        setAudioBlocked(false);
+                    }).catch(err => {
+                        console.warn('[AudioWatchdog] Autoplay blocked, tap required:', err);
+                        setAudioBlocked(true);
+                    });
+                }
+            }
+        };
+
+        syncAudio();
+        const interval = setInterval(syncAudio, 500);
+        return () => clearInterval(interval);
+    }, [inCall]);
+
+    // ── Global User Gesture Listener to Unmute Autoplay on Touch/Click ──
+    useEffect(() => {
+        if (!inCall) return;
+
+        const handleUserGesture = () => {
+            const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+            if (audioEl && audioEl.srcObject && audioEl.paused) {
+                audioEl.volume = 1.0;
+                audioEl.muted = false;
+                audioEl.play().then(() => {
+                    setAudioBlocked(false);
+                }).catch(() => {});
+            }
+        };
+
+        window.addEventListener('click', handleUserGesture, { passive: true });
+        window.addEventListener('touchstart', handleUserGesture, { passive: true });
+        window.addEventListener('keydown', handleUserGesture, { passive: true });
+
+        return () => {
+            window.removeEventListener('click', handleUserGesture);
+            window.removeEventListener('touchstart', handleUserGesture);
+            window.removeEventListener('keydown', handleUserGesture);
+        };
+    }, [inCall]);
+
+    // Continuous Watchdog & Stream Attachment for video
     useEffect(() => {
         if (videoRequestStatus !== 'accepted') return;
 
@@ -1021,21 +1262,6 @@ const VoiceCall = () => {
                 }
                 localVideoRef.current.muted = true;
                 localVideoRef.current.play().catch(() => {});
-            }
-
-            // 4. Ensure remote audio is active
-            if (remoteAudioRef.current && pc) {
-                const receivers = pc.getReceivers();
-                const audioReceiver = receivers.find(r => r.track?.kind === 'audio');
-                if (audioReceiver?.track) {
-                    let aStream = remoteAudioRef.current.srcObject as MediaStream;
-                    if (!aStream || !(aStream instanceof MediaStream)) {
-                        aStream = new MediaStream([audioReceiver.track]);
-                        remoteAudioRef.current.srcObject = aStream;
-                        remoteAudioRef.current.volume = 1.0;
-                        remoteAudioRef.current.play().catch(() => {});
-                    }
-                }
             }
         };
 
@@ -1280,6 +1506,7 @@ const VoiceCall = () => {
 
     const startSearch = async () => {
         if (!user) return;
+        stopMicTest();
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
@@ -1315,6 +1542,7 @@ const VoiceCall = () => {
     }, [isSearching]);
 
     const connectToMatch = async () => {
+        stopMicTest();
         setShowMatchCard(false);
         setInCall(true);
         playCallConnectedChime();
@@ -1358,6 +1586,7 @@ const VoiceCall = () => {
     };
 
     const resetCallStates = () => {
+        setIsMuted(false);
         setCallDuration(0);
         setRequestStatus('none');
         setVideoRequestStatus('none');
@@ -1772,8 +2001,11 @@ const VoiceCall = () => {
                         <div
                             onClick={(e) => {
                                 e.stopPropagation();
-                                if (remoteAudioRef.current) {
-                                    remoteAudioRef.current.play().then(() => setAudioBlocked(false)).catch(() => {});
+                                const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+                                if (audioEl) {
+                                    audioEl.volume = 1.0;
+                                    audioEl.muted = false;
+                                    audioEl.play().then(() => setAudioBlocked(false)).catch(() => {});
                                 }
                             }}
                             style={{
@@ -2348,8 +2580,11 @@ const VoiceCall = () => {
                     {audioBlocked && (
                         <div
                             onClick={() => {
-                                if (remoteAudioRef.current) {
-                                    remoteAudioRef.current.play().then(() => setAudioBlocked(false)).catch(() => {});
+                                const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+                                if (audioEl) {
+                                    audioEl.volume = 1.0;
+                                    audioEl.muted = false;
+                                    audioEl.play().then(() => setAudioBlocked(false)).catch(() => {});
                                 }
                             }}
                             style={{
@@ -2432,7 +2667,15 @@ const VoiceCall = () => {
     // ── Match Card Screen ──
     if (showMatchCard && currentMatch) {
         return (
-            <div className="call-hub-bg pb-20">
+            <>
+                <audio
+                    id="knock-call-audio"
+                    ref={remoteAudioRef}
+                    autoPlay
+                    playsInline
+                    style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}
+                />
+                <div className="call-hub-bg pb-20">
                 <div className="match-card-wrapper">
                     <div className="match-card">
                         <div className="match-card-avatar-ring">
@@ -2503,6 +2746,7 @@ const VoiceCall = () => {
                     </div>
                 </div>
             </div>
+            </>
         );
     }
 
@@ -2514,7 +2758,15 @@ const VoiceCall = () => {
 
     // ── Main Search Screen ──
     return (
-        <div className="call-hub-bg pb-20">
+        <>
+            <audio
+                id="knock-call-audio"
+                ref={remoteAudioRef}
+                autoPlay
+                playsInline
+                style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}
+            />
+            <div className="call-hub-bg pb-20">
             <div className="text-center mb-8">
                 <h2 className="title mb-2">Voice Roulette</h2>
                 <p className="text-gray-400">Connect with similar minds securely.</p>
@@ -2659,6 +2911,166 @@ const VoiceCall = () => {
                 </button>
             )}
 
+            {/* 🎙️ Interactive Microphone & Audio Tester */}
+            <div style={{
+                margin: '1.2rem auto 0',
+                padding: '0 20px',
+                maxWidth: '380px',
+                width: '100%',
+                boxSizing: 'border-box'
+            }}>
+                <div style={{
+                    background: isMicTesting 
+                        ? 'linear-gradient(135deg, rgba(0, 122, 255, 0.18) 0%, rgba(52, 199, 89, 0.12) 100%)' 
+                        : 'rgba(255, 255, 255, 0.04)',
+                    borderRadius: '20px',
+                    padding: '16px 20px',
+                    border: isMicTesting ? '1px solid rgba(0, 122, 255, 0.45)' : '1px solid rgba(255, 255, 255, 0.1)',
+                    backdropFilter: 'blur(16px)',
+                    boxShadow: isMicTesting ? '0 8px 30px rgba(0, 122, 255, 0.25)' : '0 4px 20px rgba(0, 0, 0, 0.2)',
+                    textAlign: 'center',
+                    transition: 'all 0.3s ease'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMicTesting ? '14px' : '0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                                width: '34px', height: '34px', borderRadius: '50%',
+                                background: isMicTesting ? 'rgba(52, 199, 89, 0.25)' : 'rgba(255, 255, 255, 0.1)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: isMicTesting ? '#34C759' : '#fff'
+                            }}>
+                                <Mic size={18} />
+                            </div>
+                            <div style={{ textAlign: 'left' }}>
+                                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#fff' }}>
+                                    {isMicTesting ? 'Testing Microphone...' : 'Mic & Audio Test'}
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
+                                    {isMicTesting ? (micTestVolume > 8 ? '🎙️ Voice detected clearly!' : 'Speak into mic to test volume') : 'Check your voice before calling'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={startMicTest}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '16px',
+                                border: 'none',
+                                background: isMicTesting ? 'rgba(255, 59, 48, 0.88)' : 'linear-gradient(135deg, #007aff, #00c6ff)',
+                                color: '#fff',
+                                fontWeight: 600,
+                                fontSize: '0.8rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s ease',
+                                boxShadow: isMicTesting ? '0 2px 10px rgba(255,59,48,0.3)' : '0 2px 10px rgba(0,122,255,0.3)'
+                            }}
+                        >
+                            {isMicTesting ? (
+                                <>
+                                    <X size={14} /> Stop
+                                </>
+                            ) : (
+                                <>
+                                    <Mic size={14} /> Test Mic
+                                </>
+                            )}
+                        </button>
+                    </div>
+
+                    {isMicTesting && (
+                        <div style={{ marginTop: '12px' }}>
+                            {/* Live Audio Level Meter */}
+                            <div style={{ marginBottom: '10px' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    fontSize: '0.75rem',
+                                    color: 'rgba(255,255,255,0.7)',
+                                    marginBottom: '6px'
+                                }}>
+                                    <span>Input Level: <strong>{micTestVolume}%</strong></span>
+                                    <span style={{ color: micTestVolume > 15 ? '#34C759' : '#ff9500', fontWeight: 600 }}>
+                                        {micTestVolume > 15 ? '🟢 Voice Detected' : '🟡 Quiet / Speak Up'}
+                                    </span>
+                                </div>
+                                <div style={{
+                                    height: '8px',
+                                    background: 'rgba(255,255,255,0.1)',
+                                    borderRadius: '4px',
+                                    overflow: 'hidden',
+                                    position: 'relative'
+                                }}>
+                                    <div style={{
+                                        width: `${micTestVolume}%`,
+                                        height: '100%',
+                                        background: micTestVolume > 60 
+                                            ? 'linear-gradient(90deg, #34C759, #ffcc00, #ff3b30)' 
+                                            : 'linear-gradient(90deg, #007aff, #34C759)',
+                                        borderRadius: '4px',
+                                        transition: 'width 0.08s ease-out'
+                                    }} />
+                                </div>
+                            </div>
+
+                            {/* Equalizer Visualizer Bars */}
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'flex-end',
+                                gap: '5px',
+                                height: '34px',
+                                margin: '8px 0 14px'
+                            }}>
+                                {[0.5, 0.8, 1.2, 0.7, 1.4, 1.0, 1.5, 0.9, 1.3, 0.6].map((factor, idx) => {
+                                    const barHeight = Math.max(4, Math.min(34, Math.round((micTestVolume * factor * 0.34))));
+                                    return (
+                                        <div
+                                            key={idx}
+                                            style={{
+                                                width: '5px',
+                                                height: `${barHeight}px`,
+                                                borderRadius: '3px',
+                                                background: micTestVolume > 8 ? '#34C759' : 'rgba(255,255,255,0.2)',
+                                                transition: 'height 0.06s ease, background 0.15s ease',
+                                                boxShadow: micTestVolume > 15 ? '0 0 6px rgba(52,199,89,0.6)' : 'none'
+                                            }}
+                                        />
+                                    );
+                                })}
+                            </div>
+
+                            {/* Hear Myself Loopback Toggle */}
+                            <button
+                                onClick={toggleMicLoopback}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    borderRadius: '12px',
+                                    border: '1px solid rgba(255,255,255,0.15)',
+                                    background: micLoopback ? 'rgba(52, 199, 89, 0.25)' : 'rgba(255,255,255,0.06)',
+                                    color: micLoopback ? '#34C759' : 'rgba(255,255,255,0.85)',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                <Headphones size={15} />
+                                {micLoopback ? '🔊 Loopback ON (You can hear your voice)' : '🔈 Test Sound (Hear Myself)'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+
             {/* ⏰ Evening Peak Hours Card (Voice Space is 24/7) */}
             <div style={{
                 margin: '1.8rem auto 1.5rem',
@@ -2742,6 +3154,7 @@ const VoiceCall = () => {
                 }
             `}</style>
         </div>
+    </>
     );
 };
 
