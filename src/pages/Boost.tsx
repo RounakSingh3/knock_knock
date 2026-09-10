@@ -16,7 +16,8 @@ import {
     AlertCircle, 
     ShieldCheck, 
     TrendingUp,
-    RefreshCw
+    RefreshCw,
+    Video
 } from 'lucide-react';
 import PullToRefresh from '../components/PullToRefresh';
 import { AppContext } from '../context/AppContext';
@@ -132,9 +133,18 @@ const Boost: React.FC = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
 
+    // 30-second camera video recording state
+    const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
+    const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+    const [recordingSeconds, setRecordingSeconds] = useState(0);
+
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const videoChunksRef = useRef<Blob[]>([]);
+    const recordingIntervalRef = useRef<any>(null);
+    const recordingHardStopRef = useRef<any>(null);
     const cardRefs = useRef<Record<string, HTMLElement | null>>({});
     const trackedImpressionsRef = useRef<Set<string>>(new Set());
 
@@ -243,17 +253,28 @@ const Boost: React.FC = () => {
         setActiveViewerGroupIndex(groupIdx);
     };
 
-    // Camera Controls
-    const startCamera = async () => {
+    // Camera Controls & 30-Second Video Recording
+    const startCamera = async (mode: 'photo' | 'video' = cameraMode) => {
         setIsCameraActive(true);
         setCapturedMediaUrl(null);
         setSelectedFile(null);
         setIsVideo(false);
+        setIsRecordingVideo(false);
+        setRecordingSeconds(0);
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: 'user' },
-                audio: false 
-            });
+            let stream: MediaStream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user' },
+                    audio: mode === 'video'
+                });
+            } catch (mediaErr) {
+                // Fallback to video only if microphone access is blocked
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'user' },
+                    audio: false 
+                });
+            }
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
             }
@@ -265,12 +286,19 @@ const Boost: React.FC = () => {
     };
 
     const stopCamera = () => {
+        if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+        if (recordingHardStopRef.current) clearTimeout(recordingHardStopRef.current);
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            try { mediaRecorderRef.current.stop(); } catch (_) {}
+        }
         if (videoRef.current && videoRef.current.srcObject) {
             const stream = videoRef.current.srcObject as MediaStream;
             stream.getTracks().forEach(t => t.stop());
             videoRef.current.srcObject = null;
         }
         setIsCameraActive(false);
+        setIsRecordingVideo(false);
+        setRecordingSeconds(0);
     };
 
     const capturePhoto = () => {
@@ -290,12 +318,118 @@ const Boost: React.FC = () => {
         }
     };
 
+    const startVideoRecording = () => {
+        if (!videoRef.current || !videoRef.current.srcObject) return;
+        const stream = videoRef.current.srcObject as MediaStream;
+
+        let mimeType = 'video/webm';
+        if (typeof MediaRecorder !== 'undefined') {
+            if (MediaRecorder.isTypeSupported('video/mp4')) {
+                mimeType = 'video/mp4';
+            } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+                mimeType = 'video/webm;codecs=vp9,opus';
+            } else if (MediaRecorder.isTypeSupported('video/webm')) {
+                mimeType = 'video/webm';
+            }
+        }
+
+        try {
+            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            mediaRecorderRef.current = recorder;
+            videoChunksRef.current = [];
+            setRecordingSeconds(0);
+
+            recorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) {
+                    videoChunksRef.current.push(e.data);
+                }
+            };
+
+            recorder.onstop = () => {
+                if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+                if (recordingHardStopRef.current) clearTimeout(recordingHardStopRef.current);
+                const recordedBlob = new Blob(videoChunksRef.current, { type: mimeType });
+                const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                const file = new File([recordedBlob], `knock-boost-video-${Date.now()}.${ext}`, { type: mimeType });
+                setSelectedFile(file);
+                setIsVideo(true);
+                setCapturedMediaUrl(URL.createObjectURL(recordedBlob));
+                stopCamera();
+            };
+
+            recorder.start(100);
+            setIsRecordingVideo(true);
+
+            // Real-time counter up to 30 seconds
+            const start = Date.now();
+            recordingIntervalRef.current = setInterval(() => {
+                const secs = Math.floor((Date.now() - start) / 1000);
+                setRecordingSeconds(Math.min(30, secs));
+                if (secs >= 30) {
+                    stopVideoRecording();
+                }
+            }, 250);
+
+            // Hard stop at 30 seconds
+            recordingHardStopRef.current = setTimeout(() => {
+                stopVideoRecording();
+            }, 30000);
+
+        } catch (err) {
+            console.error('Failed to start video recording:', err);
+            alert('Failed to start video recording. Your browser might not support recording.');
+        }
+    };
+
+    const stopVideoRecording = () => {
+        if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+        if (recordingHardStopRef.current) clearTimeout(recordingHardStopRef.current);
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+        setIsRecordingVideo(false);
+    };
+
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const isVid = isVideoFile(file);
+
+            if (isVid) {
+                // Validate video duration: maximum 30 seconds
+                const tempVideo = document.createElement('video');
+                tempVideo.preload = 'metadata';
+                const objectUrl = URL.createObjectURL(file);
+                tempVideo.src = objectUrl;
+
+                tempVideo.onloadedmetadata = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    if (tempVideo.duration > 30.5) {
+                        alert(`Video duration is ${Math.round(tempVideo.duration)}s. Videos on KnockUp screen must be 30 seconds or less. Please select or trim a shorter video.`);
+                        if (fileInputRef.current) {
+                            fileInputRef.current.value = '';
+                        }
+                        return;
+                    }
+                    setSelectedFile(file);
+                    setIsVideo(true);
+                    setCapturedMediaUrl(URL.createObjectURL(file));
+                    stopCamera();
+                };
+
+                tempVideo.onerror = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    // If metadata fails to load, allow file
+                    setSelectedFile(file);
+                    setIsVideo(true);
+                    setCapturedMediaUrl(URL.createObjectURL(file));
+                    stopCamera();
+                };
+                return;
+            }
+
             setSelectedFile(file);
-            setIsVideo(isVid);
+            setIsVideo(false);
             setCapturedMediaUrl(URL.createObjectURL(file));
             stopCamera();
         }
@@ -310,6 +444,9 @@ const Boost: React.FC = () => {
         setCapturedMediaUrl(null);
         setSelectedFile(null);
         setIsVideo(false);
+        setCameraMode('photo');
+        setIsRecordingVideo(false);
+        setRecordingSeconds(0);
         setCaption('');
         setSelectedTrack(null);
         setUploadError(null);
@@ -570,6 +707,16 @@ const Boost: React.FC = () => {
                                             }}>
                                                 24h
                                             </div>
+                                            {isVideoUrl(knock.image_url) && (
+                                                <div style={{
+                                                    position: 'absolute', bottom: '4px', right: '4px',
+                                                    background: 'rgba(239, 68, 68, 0.8)', borderRadius: '4px',
+                                                    padding: '1px 4px', fontSize: '8px', color: '#fff', fontWeight: 'bold',
+                                                    display: 'flex', alignItems: 'center', gap: '2px'
+                                                }}>
+                                                    30s
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Reach Guarantee Details */}
@@ -770,6 +917,15 @@ const Boost: React.FC = () => {
                                                         <Play size={15} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
                                                     </div>
                                                 </div>
+                                                <div style={{
+                                                    position: 'absolute', bottom: '8px', right: '8px',
+                                                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+                                                    padding: '2px 6px', borderRadius: '6px',
+                                                    fontSize: '9px', fontWeight: 'bold', color: '#fff',
+                                                    display: 'flex', alignItems: 'center', gap: '3px'
+                                                }}>
+                                                    <Play size={8} fill="#fff" /> 30s
+                                                </div>
                                             </div>
                                         ) : (
                                             <img
@@ -941,30 +1097,139 @@ const Boost: React.FC = () => {
                                                 filter: FILTERS[activeFilterIndex].style
                                             }}
                                         />
+
+                                        {/* Camera Close Button */}
                                         <button
-                                            onClick={capturePhoto}
+                                            type="button"
+                                            onClick={stopCamera}
                                             style={{
-                                                position: 'absolute', bottom: '16px',
-                                                width: '64px', height: '64px', borderRadius: '50%',
-                                                background: '#fff', border: '4px solid #f5a524',
-                                                cursor: 'pointer', boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+                                                position: 'absolute', top: '10px', right: '10px',
+                                                background: 'rgba(0,0,0,0.65)', border: 'none',
+                                                borderRadius: '50%', width: '32px', height: '32px',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                color: '#fff', cursor: 'pointer', zIndex: 14
                                             }}
-                                        />
+                                        >
+                                            <X size={18} />
+                                        </button>
+
+                                        {/* Camera Mode Switcher: Photo vs Video (30s) */}
+                                        <div style={{
+                                            position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
+                                            display: 'flex', background: 'rgba(0,0,0,0.7)', borderRadius: '20px', padding: '3px',
+                                            backdropFilter: 'blur(8px)', zIndex: 14, border: '1px solid rgba(255,255,255,0.15)'
+                                        }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (isRecordingVideo) return;
+                                                    setCameraMode('photo');
+                                                    startCamera('photo');
+                                                }}
+                                                style={{
+                                                    padding: '4px 12px', borderRadius: '16px', border: 'none',
+                                                    background: cameraMode === 'photo' ? '#f5a524' : 'transparent',
+                                                    color: cameraMode === 'photo' ? '#000' : 'rgba(255,255,255,0.7)',
+                                                    fontSize: '11px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s ease'
+                                                }}
+                                            >
+                                                Photo
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (isRecordingVideo) return;
+                                                    setCameraMode('video');
+                                                    startCamera('video');
+                                                }}
+                                                style={{
+                                                    padding: '4px 12px', borderRadius: '16px', border: 'none',
+                                                    background: cameraMode === 'video' ? '#ef4444' : 'transparent',
+                                                    color: '#fff',
+                                                    fontSize: '11px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s ease'
+                                                }}
+                                            >
+                                                Video (30s)
+                                            </button>
+                                        </div>
+
+                                        {/* 30s Recording Timer Badge */}
+                                        {cameraMode === 'video' && (
+                                            <div style={{
+                                                position: 'absolute', top: '48px', left: '50%', transform: 'translateX(-50%)',
+                                                background: isRecordingVideo ? 'rgba(239, 68, 68, 0.95)' : 'rgba(0,0,0,0.75)',
+                                                borderRadius: '12px', padding: '3px 12px', display: 'flex', alignItems: 'center',
+                                                gap: '6px', fontSize: '11px', fontWeight: 'bold', color: '#fff',
+                                                zIndex: 14, backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.2)',
+                                                boxShadow: isRecordingVideo ? '0 0 12px rgba(239, 68, 68, 0.6)' : 'none'
+                                            }}>
+                                                {isRecordingVideo && (
+                                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }} />
+                                                )}
+                                                <span>{`0:${recordingSeconds.toString().padStart(2, '0')} / 0:30`}</span>
+                                            </div>
+                                        )}
+
+                                        {/* Shutter / Record Button */}
+                                        {cameraMode === 'photo' ? (
+                                            <button
+                                                type="button"
+                                                onClick={capturePhoto}
+                                                style={{
+                                                    position: 'absolute', bottom: '16px',
+                                                    width: '64px', height: '64px', borderRadius: '50%',
+                                                    background: '#fff', border: '4px solid #f5a524',
+                                                    cursor: 'pointer', boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+                                                    zIndex: 14
+                                                }}
+                                            />
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={isRecordingVideo ? stopVideoRecording : startVideoRecording}
+                                                style={{
+                                                    position: 'absolute', bottom: '16px',
+                                                    width: '66px', height: '66px', borderRadius: '50%',
+                                                    background: 'rgba(239, 68, 68, 0.2)',
+                                                    border: '4px solid #ef4444',
+                                                    cursor: 'pointer', boxShadow: '0 4px 15px rgba(239, 68, 68, 0.5)',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    zIndex: 14
+                                                }}
+                                            >
+                                                {isRecordingVideo ? (
+                                                    <div style={{ width: '22px', height: '22px', background: '#ef4444', borderRadius: '4px' }} />
+                                                ) : (
+                                                    <div style={{ width: '46px', height: '46px', background: '#ef4444', borderRadius: '50%' }} />
+                                                )}
+                                            </button>
+                                        )}
                                     </>
                                 ) : capturedMediaUrl ? (
                                     <>
                                         {isVideo ? (
-                                            <video
-                                                src={capturedMediaUrl}
-                                                autoPlay
-                                                loop
-                                                muted
-                                                playsInline
-                                                style={{
-                                                    width: '100%', height: '100%', objectFit: 'cover',
-                                                    filter: FILTERS[activeFilterIndex].style
-                                                }}
-                                            />
+                                            <>
+                                                <video
+                                                    src={capturedMediaUrl}
+                                                    autoPlay
+                                                    loop
+                                                    muted
+                                                    playsInline
+                                                    style={{
+                                                        width: '100%', height: '100%', objectFit: 'cover',
+                                                        filter: FILTERS[activeFilterIndex].style
+                                                    }}
+                                                />
+                                                <div style={{
+                                                    position: 'absolute', top: '10px', left: '10px',
+                                                    background: 'rgba(239, 68, 68, 0.85)', backdropFilter: 'blur(6px)',
+                                                    borderRadius: '12px', padding: '3px 8px', fontSize: '11px',
+                                                    fontWeight: '700', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px',
+                                                    zIndex: 10
+                                                }}>
+                                                    <Play size={10} fill="#fff" /> 30s Video
+                                                </div>
+                                            </>
                                         ) : (
                                             <img
                                                 src={capturedMediaUrl}
@@ -996,7 +1261,7 @@ const Boost: React.FC = () => {
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
                                         <div style={{ display: 'flex', gap: '12px' }}>
                                             <button
-                                                onClick={startCamera}
+                                                onClick={() => startCamera('photo')}
                                                 style={{
                                                     background: 'rgba(245,165,36,0.15)', border: '1px solid #f5a524',
                                                     borderRadius: '16px', padding: '14px 18px', color: '#f5a524',
@@ -1021,7 +1286,7 @@ const Boost: React.FC = () => {
                                                 <span>Upload File</span>
                                             </button>
                                         </div>
-                                        <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>Supports photos and video clips</span>
+                                        <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>Supports photos and videos (up to 30s)</span>
                                     </div>
                                 )}
                                 <canvas ref={canvasRef} style={{ display: 'none' }} />

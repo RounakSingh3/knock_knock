@@ -37,10 +37,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const [progress, setProgress] = useState(0);
     const [isPaused, setIsPaused] = useState(false);
     const bgAudioRef = useRef<HTMLAudioElement | null>(null);
+    const storyVideoRef = useRef<HTMLVideoElement | null>(null);
     const navigate = useNavigate();
 
     const currentGroup = storyGroups[groupIndex];
     const currentStory = currentGroup?.stories[storyIndex];
+    const isVideo = isVideoUrl(currentStory?.image_url);
 
     const [audioPlaying, setAudioPlaying] = useState(true);
     const [musicMuted, setMusicMuted] = useState(false);
@@ -95,11 +97,27 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         }
     }, [isPaused, audioPlaying, musicMuted, currentStory]);
 
-    // Reset audio state when story changes
+    // Reset state when story changes
     useEffect(() => {
+        setProgress(0);
         setAudioPlaying(true);
         setIsPaused(false);
+        if (storyVideoRef.current) {
+            storyVideoRef.current.currentTime = 0;
+            storyVideoRef.current.play().catch(() => {});
+        }
     }, [currentStory]);
+
+    // Sync pause state with video element
+    useEffect(() => {
+        if (storyVideoRef.current) {
+            if (isPaused) {
+                storyVideoRef.current.pause();
+            } else {
+                storyVideoRef.current.play().catch(() => {});
+            }
+        }
+    }, [isPaused]);
 
     const toggleAudioPlay = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -125,21 +143,48 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         return () => window.removeEventListener('popstate', handlePopState);
     }, [onClose]);
 
-    // Auto-advance story timer
+    // Auto-advance story timer for photos (5 seconds)
     useEffect(() => {
-        if (isPaused || !currentStory) return;
+        if (isPaused || !currentStory || isVideo) return;
 
         const interval = setInterval(() => {
             setProgress(prev => {
                 if (prev >= 100) {
                     return 100;
                 }
-                return prev + 2;
+                return prev + 2; // 50 * 100ms = 5s
             });
         }, 100);
 
         return () => clearInterval(interval);
-    }, [currentStory, isPaused]);
+    }, [currentStory, isPaused, isVideo]);
+
+    // Video playback progress handler (capped at 30 seconds max)
+    const handleVideoTimeUpdate = () => {
+        if (!storyVideoRef.current || isPaused) return;
+        const video = storyVideoRef.current;
+        // Enforce 30-second cap on video stories
+        const effectiveDuration = Math.min(video.duration && !isNaN(video.duration) && video.duration > 0 ? video.duration : 30, 30);
+        const currentTime = Math.min(video.currentTime || 0, effectiveDuration);
+        const pct = (currentTime / effectiveDuration) * 100;
+        setProgress(pct);
+        if (currentTime >= effectiveDuration) {
+            handleNextStory();
+        }
+    };
+
+    const handleVideoEnded = () => {
+        handleNextStory();
+    };
+
+    // Watchdog timer for videos: ensures transitions if video stalls (max 30.5s)
+    useEffect(() => {
+        if (!isVideo || isPaused || !currentStory) return;
+        const watchdog = setTimeout(() => {
+            handleNextStory();
+        }, 30500);
+        return () => clearTimeout(watchdog);
+    }, [currentStory, isVideo, isPaused, handleNextStory]);
 
     useEffect(() => {
         if (progress >= 100) {
@@ -274,6 +319,23 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                                     <Rocket size={10} /> {currentStory.screens_delivered || 0}/{currentStory.target_screens || 24} Screens
                                 </span>
                             )}
+                            {isVideo && (
+                                <span style={{
+                                    fontSize: '10px',
+                                    padding: '1px 6px',
+                                    borderRadius: '10px',
+                                    background: 'rgba(239, 68, 68, 0.25)',
+                                    color: '#f87171',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    fontWeight: 'bold',
+                                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                                    backdropFilter: 'blur(4px)'
+                                }}>
+                                    <Play size={9} fill="#f87171" /> 30s Video
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -310,12 +372,14 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             {/* Story Image / Video */}
             {isVideoUrl(currentStory.image_url) ? (
                 <video
+                    ref={storyVideoRef}
                     src={currentStory.image_url}
                     autoPlay
-                    loop
                     playsInline
                     muted={Boolean(currentStory.music_url || currentStory.music_title)}
                     className="story-image"
+                    onTimeUpdate={handleVideoTimeUpdate}
+                    onEnded={handleVideoEnded}
                     onError={() => {
                         console.warn('Video failed to load in StoryViewer:', currentStory.id);
                         handleNextStory();
