@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
     Rocket, 
@@ -18,6 +18,7 @@ import {
     TrendingUp,
     RefreshCw
 } from 'lucide-react';
+import PullToRefresh from '../components/PullToRefresh';
 import { AppContext } from '../context/AppContext';
 import { 
     fetch24HourBoostStories, 
@@ -87,9 +88,27 @@ const Boost: React.FC = () => {
     const { user, points, setPoints, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
 
-    // Explore Feed State
-    const [stories, setStories] = useState<StoryData[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    // Explore Feed State with Instant Cache Rehydration
+    const [stories, setStories] = useState<StoryData[]>(() => {
+        try {
+            const cached = localStorage.getItem('knock_boost_stories_cache_v2');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return parsed;
+                }
+            }
+        } catch (e) {}
+        return [];
+    });
+    const [isLoading, setIsLoading] = useState<boolean>(() => {
+        try {
+            const cached = localStorage.getItem('knock_boost_stories_cache_v2');
+            return !cached || JSON.parse(cached).length === 0;
+        } catch (e) {
+            return true;
+        }
+    });
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [filterTab, setFilterTab] = useState<'all' | 'boosted' | 'friends' | 'videos'>('all');
     const [userFriends, setUserFriends] = useState<string[]>([]);
@@ -117,6 +136,7 @@ const Boost: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+    const trackedImpressionsRef = useRef<Set<string>>(new Set());
 
     // Load user's connections (friends)
     useEffect(() => {
@@ -129,26 +149,36 @@ const Boost: React.FC = () => {
     // Load 24-hour Boost Explore Feed
     const loadFeed = useCallback(async (showRefreshing = false) => {
         if (showRefreshing) setIsRefreshing(true);
-        else setIsLoading(true);
+        else if (stories.length === 0) setIsLoading(true);
 
         try {
             const data = await fetch24HourBoostStories(user?.id);
             // Filter out blocked users
             const valid = data.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
             setStories(valid);
+            try {
+                localStorage.setItem('knock_boost_stories_cache_v2', JSON.stringify(valid));
+            } catch (_) {}
         } catch (e) {
             console.error('Error loading boost feed:', e);
         } finally {
             setIsLoading(false);
             setIsRefreshing(false);
         }
-    }, [user?.id, blockedIds]);
+    }, [user?.id, blockedIds, stories.length]);
 
     useEffect(() => {
         loadFeed();
-    }, [loadFeed]);
+    }, [user?.id]);
 
-    // Screen impression delivery tracker (IntersectionObserver)
+    // Cleanup camera stream on unmount
+    useEffect(() => {
+        return () => {
+            stopCamera();
+        };
+    }, []);
+
+    // Screen impression delivery tracker (Deduplicated IntersectionObserver)
     useEffect(() => {
         if (!user || stories.length === 0) return;
 
@@ -156,12 +186,13 @@ const Boost: React.FC = () => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const storyId = entry.target.getAttribute('data-story-id');
-                    if (storyId) {
+                    if (storyId && !trackedImpressionsRef.current.has(storyId)) {
+                        trackedImpressionsRef.current.add(storyId);
                         recordScreenDelivery(storyId, user.id);
                     }
                 }
             });
-        }, { threshold: 0.5 });
+        }, { threshold: 0.25 });
 
         Object.values(cardRefs.current).forEach(el => {
             if (el) observer.observe(el);
@@ -170,29 +201,46 @@ const Boost: React.FC = () => {
         return () => observer.disconnect();
     }, [user, stories]);
 
-    // Derived lists
-    const myActiveKnocks = stories.filter(s => user && s.user_id === user.id);
+    // Derived lists (memoized for optimal 60fps performance)
+    const myActiveKnocks = useMemo(
+        () => stories.filter(s => user && s.user_id === user.id),
+        [stories, user]
+    );
     
-    const filteredStories = stories.filter(s => {
-        if (filterTab === 'boosted') return s.is_boosted;
-        if (filterTab === 'friends') return s.user_id && userFriends.includes(s.user_id);
-        if (filterTab === 'videos') return isVideoUrl(s.image_url);
-        return true;
-    });
+    const filteredStories = useMemo(() => {
+        return stories.filter(s => {
+            if (filterTab === 'boosted') return s.is_boosted;
+            if (filterTab === 'friends') return s.user_id && userFriends.includes(s.user_id);
+            if (filterTab === 'videos') return isVideoUrl(s.image_url);
+            return true;
+        });
+    }, [stories, filterTab, userFriends]);
 
-    // Open Story Viewer
+    // Open Story Viewer (bulletproof fallback resolution)
     const handleOpenStory = (story: StoryData) => {
-        // Record screen delivery immediately upon full view
         if (user && story.id) {
             recordScreenDelivery(story.id, user.id);
         }
 
-        const groups = groupStoriesByUser(filteredStories);
-        const groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
-        if (groupIdx >= 0) {
-            setViewerStoryGroups(groups);
-            setActiveViewerGroupIndex(groupIdx);
+        let groups = groupStoriesByUser(filteredStories);
+        let groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
+        if (groupIdx === -1) {
+            groups = groupStoriesByUser(stories);
+            groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
         }
+        if (groupIdx === -1) {
+            const singleGroup: UserStoryGroup = {
+                userId: story.user_id || 'unknown',
+                username: story.username || 'You',
+                avatarUrl: `https://i.pravatar.cc/150?u=${story.username || story.user_id}`,
+                stories: [story],
+            };
+            groups = [singleGroup];
+            groupIdx = 0;
+        }
+
+        setViewerStoryGroups(groups);
+        setActiveViewerGroupIndex(groupIdx);
     };
 
     // Camera Controls
@@ -444,352 +492,399 @@ const Boost: React.FC = () => {
                 </div>
             </div>
 
-            {/* ── Creator's Active 24h Knocks & Reach Guarantee Dashboard ── */}
-            {myActiveKnocks.length > 0 && (
-                <div style={{ padding: '16px', background: 'linear-gradient(180deg, rgba(245, 165, 36, 0.08) 0%, transparent 100%)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <TrendingUp size={16} color="#f5a524" />
-                            <h2 style={{ margin: 0, fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                My Active Knocks & Delivery Guarantee
-                            </h2>
+            {/* ── Main Content Area with Native Pull-To-Refresh ── */}
+            <PullToRefresh onRefresh={() => loadFeed(true)}>
+                {/* ── Creator's Active 24h Knocks & Reach Guarantee Dashboard ── */}
+                {myActiveKnocks.length > 0 && (
+                    <div style={{ padding: '16px', background: 'linear-gradient(180deg, rgba(245, 165, 36, 0.08) 0%, transparent 100%)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <TrendingUp size={16} color="#f5a524" />
+                                <h2 style={{ margin: 0, fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    My Active Knocks & Delivery Guarantee
+                                </h2>
+                            </div>
+                            <button 
+                                onClick={() => loadFeed(true)} 
+                                style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
+                            >
+                                <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+                                Refresh
+                            </button>
                         </div>
-                        <button 
-                            onClick={() => loadFeed(true)} 
-                            style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
-                        >
-                            <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
-                            Refresh
-                        </button>
-                    </div>
 
-                    <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '6px' }}>
-                        {myActiveKnocks.map((knock) => {
-                            const timeInfo = getTimeRemaining(knock.created_at);
-                            const target = knock.target_screens || 24;
-                            const delivered = knock.screens_delivered || 0;
-                            const pct = Math.min(100, Math.round((delivered / target) * 100));
-                            const friends = knock.boost_meta?.friendsCount || baseFriendsCount;
-                            const boosted = knock.boost_meta?.pointsSpent || 0;
+                        <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '6px', WebkitOverflowScrolling: 'touch' }}>
+                            {myActiveKnocks.map((knock) => {
+                                const timeInfo = getTimeRemaining(knock.created_at);
+                                const target = knock.target_screens || 24;
+                                const delivered = knock.screens_delivered || 0;
+                                const pct = Math.min(100, Math.round((delivered / target) * 100));
+                                const friends = knock.boost_meta?.friendsCount || baseFriendsCount;
+                                const boosted = knock.boost_meta?.pointsSpent || 0;
 
-                            return (
-                                <div
-                                    key={knock.id}
-                                    onClick={() => handleOpenStory(knock)}
-                                    style={{
-                                        minWidth: '260px', maxWidth: '280px',
-                                        background: 'var(--surface-color)',
-                                        border: '1px solid rgba(245, 165, 36, 0.35)',
-                                        borderRadius: '16px',
-                                        padding: '12px',
-                                        cursor: 'pointer',
-                                        boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-                                        flexShrink: 0,
-                                        display: 'flex',
-                                        gap: '12px',
-                                        position: 'relative'
-                                    }}
-                                >
-                                    {/* Thumbnail */}
-                                    <div style={{ width: '64px', height: '90px', borderRadius: '10px', overflow: 'hidden', background: '#000', position: 'relative', flexShrink: 0 }}>
-                                        {isVideoUrl(knock.image_url) ? (
-                                            <video 
-                                                src={`${knock.image_url.split('#')[0]}#t=0.001`}
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                                muted playsInline preload="metadata"
-                                            />
-                                        ) : (
-                                            <img 
-                                                src={knock.image_url.split('#')[0]} 
-                                                alt="" 
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                            />
-                                        )}
-                                        <div style={{
-                                            position: 'absolute', bottom: '4px', left: '4px',
-                                            background: 'rgba(0,0,0,0.7)', borderRadius: '4px',
-                                            padding: '1px 4px', fontSize: '9px', color: '#fff', fontWeight: 'bold'
-                                        }}>
-                                            24h
+                                return (
+                                    <div
+                                        key={knock.id}
+                                        onClick={() => handleOpenStory(knock)}
+                                        style={{
+                                            minWidth: '260px', maxWidth: '280px',
+                                            background: 'var(--surface-color)',
+                                            border: '1px solid rgba(245, 165, 36, 0.35)',
+                                            borderRadius: '16px',
+                                            padding: '12px',
+                                            cursor: 'pointer',
+                                            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                                            flexShrink: 0,
+                                            display: 'flex',
+                                            gap: '12px',
+                                            position: 'relative',
+                                            transition: 'transform 0.15s ease'
+                                        }}
+                                    >
+                                        {/* Thumbnail */}
+                                        <div style={{ width: '64px', height: '90px', borderRadius: '10px', overflow: 'hidden', background: '#121212', position: 'relative', flexShrink: 0 }}>
+                                            {isVideoUrl(knock.image_url) ? (
+                                                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                                                    <video 
+                                                        src={`${knock.image_url.split('#')[0]}#t=0.001`}
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                        muted playsInline preload="metadata"
+                                                    />
+                                                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                                                        <div style={{ background: 'rgba(0,0,0,0.5)', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <Play size={11} fill="#fff" color="#fff" style={{ marginLeft: '1px' }} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <img 
+                                                    src={knock.image_url.split('#')[0]} 
+                                                    alt="" 
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                />
+                                            )}
+                                            <div style={{
+                                                position: 'absolute', bottom: '4px', left: '4px',
+                                                background: 'rgba(0,0,0,0.7)', borderRadius: '4px',
+                                                padding: '1px 4px', fontSize: '9px', color: '#fff', fontWeight: 'bold'
+                                            }}>
+                                                24h
+                                            </div>
+                                        </div>
+
+                                        {/* Reach Guarantee Details */}
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                                    <span style={{ fontSize: '11px', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '600' }}>
+                                                        <Clock size={11} /> {timeInfo.text}
+                                                    </span>
+                                                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#f5a524' }}>
+                                                        {pct}%
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-active)', marginBottom: '4px' }}>
+                                                    Delivered to {delivered} / {target} Screens
+                                                </div>
+                                            </div>
+
+                                            {/* Progress Bar */}
+                                            <div>
+                                                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginBottom: '6px' }}>
+                                                    <div style={{
+                                                        width: `${pct}%`, height: '100%',
+                                                        background: 'linear-gradient(90deg, #f5a524, #ff6b35)',
+                                                        borderRadius: '4px',
+                                                        transition: 'width 0.4s ease'
+                                                    }} />
+                                                </div>
+                                                <div style={{ fontSize: '10px', color: 'var(--text-inactive)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <span>👥 {friends} Friends</span>
+                                                    <span>⚡ +{boosted} Boosted</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-
-                                    {/* Reach Guarantee Details */}
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                                        <div>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                                <span style={{ fontSize: '11px', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '600' }}>
-                                                    <Clock size={11} /> {timeInfo.text}
-                                                </span>
-                                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#f5a524' }}>
-                                                    {pct}%
-                                                </span>
-                                            </div>
-                                            <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-active)', marginBottom: '4px' }}>
-                                                Delivered to {delivered} / {target} Screens
-                                            </div>
-                                        </div>
-
-                                        {/* Progress Bar */}
-                                        <div>
-                                            <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginBottom: '6px' }}>
-                                                <div style={{
-                                                    width: `${pct}%`, height: '100%',
-                                                    background: 'linear-gradient(90deg, #f5a524, #ff6b35)',
-                                                    borderRadius: '4px',
-                                                    transition: 'width 0.4s ease'
-                                                }} />
-                                            </div>
-                                            <div style={{ fontSize: '10px', color: 'var(--text-inactive)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                <span>👥 {friends} Friends</span>
-                                                <span>⚡ +{boosted} Boosted</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
                     </div>
+                )}
+
+                {/* ── Exploration Filter Tabs ── */}
+                <div style={{
+                    display: 'flex', gap: '8px', padding: '12px 16px',
+                    overflowX: 'auto', borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    WebkitOverflowScrolling: 'touch'
+                }}>
+                    {[
+                        { id: 'all', label: 'All Knocks', icon: Sparkles },
+                        { id: 'boosted', label: 'Boosted 🔥', icon: Flame },
+                        { id: 'friends', label: 'Friends 👥', icon: Users },
+                        { id: 'videos', label: 'Videos 🎬', icon: Play },
+                    ].map(tab => {
+                        const active = filterTab === tab.id;
+                        const Icon = tab.icon;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setFilterTab(tab.id as any)}
+                                style={{
+                                    background: active ? 'linear-gradient(135deg, rgba(245,165,36,0.2), rgba(255,107,53,0.2))' : 'var(--surface-color)',
+                                    border: active ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.08)',
+                                    color: active ? '#f5a524' : 'var(--text-inactive)',
+                                    padding: '6px 14px', borderRadius: '20px',
+                                    fontSize: '12px', fontWeight: active ? '700' : '500',
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    cursor: 'pointer', whiteSpace: 'nowrap',
+                                    transition: 'all 0.15s ease'
+                                }}
+                            >
+                                <Icon size={13} />
+                                {tab.label}
+                            </button>
+                        );
+                    })}
                 </div>
-            )}
 
-            {/* ── Exploration Filter Tabs ── */}
-            <div style={{
-                display: 'flex', gap: '8px', padding: '12px 16px',
-                overflowX: 'auto', borderBottom: '1px solid rgba(255,255,255,0.06)'
-            }}>
-                {[
-                    { id: 'all', label: 'All Knocks', icon: Sparkles },
-                    { id: 'boosted', label: 'Boosted 🔥', icon: Flame },
-                    { id: 'friends', label: 'Friends 👥', icon: Users },
-                    { id: 'videos', label: 'Videos 🎬', icon: Play },
-                ].map(tab => {
-                    const active = filterTab === tab.id;
-                    const Icon = tab.icon;
-                    return (
-                        <button
-                            key={tab.id}
-                            onClick={() => setFilterTab(tab.id as any)}
-                            style={{
-                                background: active ? 'linear-gradient(135deg, rgba(245,165,36,0.2), rgba(255,107,53,0.2))' : 'var(--surface-color)',
-                                border: active ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.08)',
-                                color: active ? '#f5a524' : 'var(--text-inactive)',
-                                padding: '6px 14px', borderRadius: '20px',
-                                fontSize: '12px', fontWeight: active ? '700' : '500',
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                cursor: 'pointer', whiteSpace: 'nowrap',
-                                transition: 'all 0.2s ease'
-                            }}
-                        >
-                            <Icon size={13} />
-                            {tab.label}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {/* ── 24-Hour Ephemeral Discovery Feed (Grid) ── */}
-            <div style={{ padding: '16px' }}>
-                {isLoading ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '64px 0', gap: '12px' }}>
-                        <Loader2 size={36} className="animate-spin" color="#f5a524" />
-                        <p style={{ color: 'var(--text-inactive)', fontSize: '13px' }}>Loading active 24-hour knocks...</p>
-                    </div>
-                ) : filteredStories.length === 0 ? (
-                    <div style={{
-                        textAlign: 'center', padding: '64px 20px',
-                        background: 'var(--surface-color)', borderRadius: '20px',
-                        border: '1px dashed rgba(255,255,255,0.15)',
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px'
-                    }}>
+                {/* ── 24-Hour Ephemeral Discovery Feed (Grid) ── */}
+                <div style={{ padding: '16px' }}>
+                    {isLoading && stories.length === 0 ? (
                         <div style={{
-                            width: '56px', height: '56px', borderRadius: '50%',
-                            background: 'rgba(245,165,36,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                            gap: '12px'
                         }}>
-                            <Rocket size={28} color="#f5a524" />
-                        </div>
-                        <div>
-                            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700' }}>No active 24h knocks in this filter</h3>
-                            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-inactive)', maxWidth: '280px' }}>
-                                Be the first to post a 24-hour knock! Spend boost points to guarantee screen reach across the app.
-                            </p>
-                        </div>
-                        <button
-                            onClick={() => {
-                                setPointsToSpend(0);
-                                setIsCreateModalOpen(true);
-                            }}
-                            style={{
-                                background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
-                                border: 'none', borderRadius: '24px', padding: '10px 20px',
-                                color: '#000', fontSize: '13px', fontWeight: '800',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                            }}
-                        >
-                            <PlusCircle size={16} /> Post 24h Boost Knock
-                        </button>
-                    </div>
-                ) : (
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                        gap: '12px'
-                    }}>
-                        {filteredStories.map((story) => {
-                            const timeInfo = getTimeRemaining(story.created_at);
-                            const isUserOwn = user && story.user_id === user.id;
-                            const targetScreens = story.target_screens || 24;
-                            const deliveredScreens = story.screens_delivered || 0;
-                            const isBoosted = story.is_boosted;
-
-                            return (
+                            {[1, 2, 3, 4, 5, 6].map(i => (
                                 <div
-                                    key={story.id}
-                                    ref={el => { cardRefs.current[story.id] = el; }}
-                                    data-story-id={story.id}
-                                    onClick={() => handleOpenStory(story)}
+                                    key={i}
                                     style={{
                                         aspectRatio: '9 / 16',
                                         borderRadius: '16px',
-                                        overflow: 'hidden',
-                                        position: 'relative',
-                                        background: '#181818',
-                                        cursor: 'pointer',
-                                        boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
-                                        border: isBoosted ? '1.5px solid rgba(245, 165, 36, 0.45)' : '1px solid rgba(255,255,255,0.06)',
-                                        transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-                                    }}
-                                    onMouseEnter={e => {
-                                        e.currentTarget.style.transform = 'translateY(-3px)';
-                                        e.currentTarget.style.boxShadow = '0 8px 24px rgba(245, 165, 36, 0.25)';
-                                    }}
-                                    onMouseLeave={e => {
-                                        e.currentTarget.style.transform = 'translateY(0)';
-                                        e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+                                        background: 'rgba(255,255,255,0.04)',
+                                        border: '1px solid rgba(255,255,255,0.06)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        opacity: 0.7
                                     }}
                                 >
-                                    {/* Media */}
-                                    {isVideoUrl(story.image_url) ? (
-                                        <video
-                                            src={`${story.image_url.split('#')[0]}#t=0.001`}
-                                            muted
-                                            playsInline
-                                            preload="metadata"
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
-                                    ) : (
-                                        <img
-                                            src={story.image_url.split('#')[0]}
-                                            alt=""
-                                            loading="lazy"
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
-                                    )}
-
-                                    {/* Top Overlay Badges */}
-                                    <div style={{
-                                        position: 'absolute', top: '8px', left: '8px', right: '8px',
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        zIndex: 5
-                                    }}>
-                                        {/* 24h Countdown Badge */}
-                                        <div style={{
-                                            background: 'rgba(0,0,0,0.7)',
-                                            backdropFilter: 'blur(8px)',
-                                            borderRadius: '12px',
-                                            padding: '3px 8px',
-                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                            fontSize: '10px', fontWeight: '700',
-                                            color: '#60a5fa',
-                                            border: '1px solid rgba(96,165,250,0.3)'
-                                        }}>
-                                            <Clock size={10} />
-                                            <span>{timeInfo.text}</span>
-                                        </div>
-
-                                        {/* Boost Screen Guarantee Badge */}
-                                        {isBoosted && (
-                                            <div style={{
-                                                background: 'linear-gradient(135deg, rgba(245,165,36,0.9), rgba(255,107,53,0.9))',
-                                                borderRadius: '12px',
-                                                padding: '3px 7px',
-                                                display: 'flex', alignItems: 'center', gap: '3px',
-                                                fontSize: '10px', fontWeight: '800',
-                                                color: '#000',
-                                                boxShadow: '0 2px 8px rgba(245, 165, 36, 0.4)'
-                                            }}>
-                                                <Flame size={10} />
-                                                <span>+{story.points_spent || 10}</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Bottom Gradient Overlay & Details */}
-                                    <div style={{
-                                        position: 'absolute', bottom: 0, left: 0, right: 0,
-                                        background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 40%, rgba(0,0,0,0.95) 100%)',
-                                        padding: '24px 10px 10px 10px',
-                                        zIndex: 5,
-                                        display: 'flex', flexDirection: 'column', gap: '6px'
-                                    }}>
-                                        {/* Creator info */}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <img
-                                                src={`https://i.pravatar.cc/150?u=${story.username || story.user_id}`}
-                                                alt=""
-                                                style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #fff' }}
-                                            />
-                                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {isUserOwn ? 'You' : `@${story.username || 'user'}`}
-                                            </span>
-                                        </div>
-
-                                        {/* Caption snippet */}
-                                        {story.caption && (
-                                            <p style={{
-                                                margin: 0, fontSize: '11px', color: 'rgba(255,255,255,0.85)',
-                                                display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical',
-                                                overflow: 'hidden', textOverflow: 'ellipsis'
-                                            }}>
-                                                {story.caption}
-                                            </p>
-                                        )}
-
-                                        {/* Music Badge */}
-                                        {story.music_title && (
-                                            <div style={{
-                                                display: 'flex', alignItems: 'center', gap: '4px',
-                                                fontSize: '10px', color: '#f5a524',
-                                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                                            }}>
-                                                <Music size={10} />
-                                                <span>{story.music_title}</span>
-                                            </div>
-                                        )}
-
-                                        {/* Reach Delivery Indicator */}
-                                        {isBoosted && (
-                                            <div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#ffcc00', fontWeight: '700', marginBottom: '2px' }}>
-                                                    <span>{deliveredScreens} / {targetScreens} screens</span>
-                                                    <span>{Math.round((deliveredScreens / targetScreens) * 100)}%</span>
-                                                </div>
-                                                <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
-                                                    <div style={{
-                                                        width: `${Math.min(100, Math.round((deliveredScreens / targetScreens) * 100))}%`,
-                                                        height: '100%',
-                                                        background: 'linear-gradient(90deg, #f5a524, #ff6b35)'
-                                                    }} />
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
+                                    <Rocket size={24} color="rgba(245, 165, 36, 0.4)" />
                                 </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+                            ))}
+                        </div>
+                    ) : filteredStories.length === 0 ? (
+                        <div style={{
+                            textAlign: 'center', padding: '64px 20px',
+                            background: 'var(--surface-color)', borderRadius: '20px',
+                            border: '1px dashed rgba(255,255,255,0.15)',
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px'
+                        }}>
+                            <div style={{
+                                width: '56px', height: '56px', borderRadius: '50%',
+                                background: 'rgba(245,165,36,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                                <Rocket size={28} color="#f5a524" />
+                            </div>
+                            <div>
+                                <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '700' }}>No active 24h knocks in this filter</h3>
+                                <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-inactive)', maxWidth: '280px' }}>
+                                    Be the first to post a 24-hour knock! Spend boost points to guarantee screen reach across the app.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setPointsToSpend(0);
+                                    setIsCreateModalOpen(true);
+                                }}
+                                style={{
+                                    background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                                    border: 'none', borderRadius: '24px', padding: '10px 20px',
+                                    color: '#000', fontSize: '13px', fontWeight: '800',
+                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}
+                            >
+                                <PlusCircle size={16} /> Post 24h Boost Knock
+                            </button>
+                        </div>
+                    ) : (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                            gap: '12px'
+                        }}>
+                            {filteredStories.map((story) => {
+                                const timeInfo = getTimeRemaining(story.created_at);
+                                const isUserOwn = user && story.user_id === user.id;
+                                const targetScreens = story.target_screens || 24;
+                                const deliveredScreens = story.screens_delivered || 0;
+                                const isBoosted = story.is_boosted;
+
+                                return (
+                                    <div
+                                        key={story.id}
+                                        ref={el => { cardRefs.current[story.id] = el; }}
+                                        data-story-id={story.id}
+                                        onClick={() => handleOpenStory(story)}
+                                        style={{
+                                            aspectRatio: '9 / 16',
+                                            borderRadius: '16px',
+                                            overflow: 'hidden',
+                                            position: 'relative',
+                                            background: '#181818',
+                                            cursor: 'pointer',
+                                            boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                                            border: isBoosted ? '1.5px solid rgba(245, 165, 36, 0.45)' : '1px solid rgba(255,255,255,0.06)',
+                                            transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                                        }}
+                                        onMouseEnter={e => {
+                                            e.currentTarget.style.transform = 'translateY(-3px)';
+                                            e.currentTarget.style.boxShadow = '0 8px 24px rgba(245, 165, 36, 0.25)';
+                                        }}
+                                        onMouseLeave={e => {
+                                            e.currentTarget.style.transform = 'translateY(0)';
+                                            e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+                                        }}
+                                    >
+                                        {/* Media */}
+                                        {isVideoUrl(story.image_url) ? (
+                                            <div style={{ width: '100%', height: '100%', position: 'relative', background: '#111' }}>
+                                                <video
+                                                    src={`${story.image_url.split('#')[0]}#t=0.001`}
+                                                    muted
+                                                    playsInline
+                                                    preload="metadata"
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                />
+                                                <div style={{
+                                                    position: 'absolute', inset: 0,
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    pointerEvents: 'none'
+                                                }}>
+                                                    <div style={{
+                                                        background: 'rgba(0,0,0,0.45)',
+                                                        backdropFilter: 'blur(4px)',
+                                                        borderRadius: '50%',
+                                                        width: '32px', height: '32px',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+                                                    }}>
+                                                        <Play size={15} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <img
+                                                src={story.image_url.split('#')[0]}
+                                                alt=""
+                                                loading="lazy"
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            />
+                                        )}
+
+                                        {/* Top Overlay Badges */}
+                                        <div style={{
+                                            position: 'absolute', top: '8px', left: '8px', right: '8px',
+                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                            zIndex: 5
+                                        }}>
+                                            {/* 24h Countdown Badge */}
+                                            <div style={{
+                                                background: 'rgba(0,0,0,0.7)',
+                                                backdropFilter: 'blur(8px)',
+                                                borderRadius: '12px',
+                                                padding: '3px 8px',
+                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                fontSize: '10px', fontWeight: '700',
+                                                color: '#60a5fa',
+                                                border: '1px solid rgba(96,165,250,0.3)'
+                                            }}>
+                                                <Clock size={10} />
+                                                <span>{timeInfo.text}</span>
+                                            </div>
+
+                                            {/* Boost Screen Guarantee Badge */}
+                                            {isBoosted && (
+                                                <div style={{
+                                                    background: 'linear-gradient(135deg, rgba(245,165,36,0.9), rgba(255,107,53,0.9))',
+                                                    borderRadius: '12px',
+                                                    padding: '3px 7px',
+                                                    display: 'flex', alignItems: 'center', gap: '3px',
+                                                    fontSize: '10px', fontWeight: '800',
+                                                    color: '#000',
+                                                    boxShadow: '0 2px 8px rgba(245, 165, 36, 0.4)'
+                                                }}>
+                                                    <Flame size={10} />
+                                                    <span>+{story.points_spent || 10}</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Bottom Gradient Overlay & Details */}
+                                        <div style={{
+                                            position: 'absolute', bottom: 0, left: 0, right: 0,
+                                            background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 40%, rgba(0,0,0,0.95) 100%)',
+                                            padding: '24px 10px 10px 10px',
+                                            zIndex: 5,
+                                            display: 'flex', flexDirection: 'column', gap: '6px'
+                                        }}>
+                                            {/* Creator info */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <img
+                                                    src={`https://i.pravatar.cc/150?u=${story.username || story.user_id}`}
+                                                    alt=""
+                                                    style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #fff' }}
+                                                />
+                                                <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {isUserOwn ? 'You' : `@${story.username || 'user'}`}
+                                                </span>
+                                            </div>
+
+                                            {/* Caption snippet */}
+                                            {story.caption && (
+                                                <p style={{
+                                                    margin: 0, fontSize: '11px', color: 'rgba(255,255,255,0.85)',
+                                                    display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical',
+                                                    overflow: 'hidden', textOverflow: 'ellipsis'
+                                                }}>
+                                                    {story.caption}
+                                                </p>
+                                            )}
+
+                                            {/* Music Badge */}
+                                            {story.music_title && (
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                                    fontSize: '10px', color: '#f5a524',
+                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                                }}>
+                                                    <Music size={10} />
+                                                    <span>{story.music_title}</span>
+                                                </div>
+                                            )}
+
+                                            {/* Reach Delivery Indicator */}
+                                            {isBoosted && (
+                                                <div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#ffcc00', fontWeight: '700', marginBottom: '2px' }}>
+                                                        <span>{deliveredScreens} / {targetScreens} screens</span>
+                                                        <span>{Math.round((deliveredScreens / targetScreens) * 100)}%</span>
+                                                    </div>
+                                                    <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
+                                                        <div style={{
+                                                            width: `${Math.min(100, Math.round((deliveredScreens / targetScreens) * 100))}%`,
+                                                            height: '100%',
+                                                            background: 'linear-gradient(90deg, #f5a524, #ff6b35)'
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </PullToRefresh>
 
             {/* ── Direct 24h Knock Creator Modal ── */}
             {isCreateModalOpen && (
