@@ -3,8 +3,15 @@ import {
     Phone, Mic, MicOff, PhoneOff, Settings2, Clock, Video, VideoOff, 
     Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, 
     Link2, Flame, RefreshCw, CameraOff, ChevronLeft, Lock, Bell,
-    Headphones
+    Headphones, Globe, ArrowLeftRight, Languages
 } from 'lucide-react';
+import { 
+    SUPPORTED_LANGUAGES, 
+    getUserLanguage, 
+    setUserLanguage, 
+    translateText, 
+    getLanguage 
+} from '../lib/translation';
 import { AppContext } from '../context/AppContext';
 import { useSearchParams } from 'react-router-dom';
 import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData, type ProfileData } from '../lib/database';
@@ -84,7 +91,34 @@ const VoiceCall = () => {
     const [showConnectionToast, setShowConnectionToast] = useState(false);
     const [showChat, setShowChat] = useState(false);
     const [chatInput, setChatInput] = useState('');
-    const [chatMessages, setChatMessages] = useState<{ id: number; text: string; isMine: boolean }[]>([]);
+
+    interface CallChatMessage {
+        id: number;
+        text: string;
+        isMine: boolean;
+        originalText?: string;
+        translatedText?: string;
+        senderLang?: string;
+        targetLang?: string;
+        isTranslated?: boolean;
+    }
+
+    const [chatMessages, setChatMessages] = useState<CallChatMessage[]>([]);
+    const [myChatLanguage, setMyChatLanguage] = useState<string>(() => getUserLanguage());
+    const [targetChatLanguage, setTargetChatLanguage] = useState<string>('en');
+    const [autoTranslateChat, setAutoTranslateChat] = useState<boolean>(true);
+    const [liveTranslationPreview, setLiveTranslationPreview] = useState<string>('');
+    const [showOriginalMap, setShowOriginalMap] = useState<Record<number, boolean>>({});
+    const [translatingMsgIds, setTranslatingMsgIds] = useState<Record<number, boolean>>({});
+    const [floatingSubtitle, setFloatingSubtitle] = useState<{
+        text: string;
+        original: string;
+        senderName: string;
+        senderLang?: string;
+        targetLang?: string;
+        isTranslated?: boolean;
+        time: number;
+    } | null>(null);
 
     // WhatsApp-Style Video Call States
     const [isVideoSwapped, setIsVideoSwapped] = useState(false);
@@ -516,9 +550,53 @@ const VoiceCall = () => {
                 if (payload.receiverId !== user.id) return;
                 endCall();
             })
-            .on('broadcast', { event: 'chat-message' }, ({ payload }) => {
+            .on('broadcast', { event: 'chat-message' }, async ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
-                setChatMessages(prev => [...prev, { id: payload.id, text: payload.text, isMine: false }]);
+
+                let displayText = payload.text;
+                let translated = payload.translatedText;
+                let isTranslated = false;
+
+                // 1. If sender already translated to my language
+                if (payload.targetLang === myChatLanguage && payload.translatedText) {
+                    displayText = payload.translatedText;
+                    translated = payload.translatedText;
+                    isTranslated = true;
+                } else if (autoTranslateChat && payload.senderLang !== myChatLanguage) {
+                    // 2. Auto-translate into my language if not already translated for me
+                    try {
+                        const res = await translateText(payload.text, myChatLanguage, payload.senderLang || 'auto');
+                        if (res.translatedText && res.translatedText.toLowerCase() !== payload.text.toLowerCase()) {
+                            displayText = res.translatedText;
+                            translated = res.translatedText;
+                            isTranslated = true;
+                        }
+                    } catch (e) {
+                        console.warn('Auto translation failed on receive:', e);
+                    }
+                }
+
+                setChatMessages(prev => [...prev, {
+                    id: payload.id,
+                    text: displayText,
+                    originalText: payload.originalText || payload.text,
+                    translatedText: translated || undefined,
+                    senderLang: payload.senderLang || 'auto',
+                    targetLang: myChatLanguage,
+                    isTranslated: isTranslated,
+                    isMine: false,
+                }]);
+
+                // Trigger floating subtitle on screen
+                setFloatingSubtitle({
+                    text: displayText,
+                    original: payload.originalText || payload.text,
+                    senderName: currentMatchRef.current?.profile?.name || 'Match',
+                    senderLang: payload.senderLang,
+                    targetLang: myChatLanguage,
+                    isTranslated: isTranslated,
+                    time: Date.now(),
+                });
             })
             .on('broadcast', { event: 'extend-request' }, ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
@@ -1628,16 +1706,76 @@ const VoiceCall = () => {
         setNoMatchFound(false);
     };
 
-    const sendChatMessage = (e: React.FormEvent) => {
-        e.preventDefault();
+    // Automatically adapt target language to partner or default pair (en <-> es)
+    useEffect(() => {
+        const partnerLang = (currentMatch?.profile as any)?.preferred_language;
+        if (partnerLang && partnerLang !== myChatLanguage) {
+            setTargetChatLanguage(partnerLang);
+        } else if (myChatLanguage === 'en') {
+            setTargetChatLanguage('es');
+        } else {
+            setTargetChatLanguage('en');
+        }
+    }, [currentMatch?.profile, myChatLanguage]);
+
+    // Debounced live translation preview as user types
+    useEffect(() => {
+        if (!chatInput.trim() || !autoTranslateChat || myChatLanguage === targetChatLanguage) {
+            setLiveTranslationPreview('');
+            return;
+        }
+        const timer = setTimeout(async () => {
+            try {
+                const res = await translateText(chatInput, targetChatLanguage, myChatLanguage);
+                if (res.translatedText && res.translatedText.toLowerCase() !== chatInput.toLowerCase()) {
+                    setLiveTranslationPreview(res.translatedText);
+                } else {
+                    setLiveTranslationPreview('');
+                }
+            } catch {
+                setLiveTranslationPreview('');
+            }
+        }, 350);
+
+        return () => clearTimeout(timer);
+    }, [chatInput, autoTranslateChat, myChatLanguage, targetChatLanguage]);
+
+    const sendChatMessage = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         if (!chatInput.trim()) return;
 
         const msgId = Date.now();
-        const messageText = chatInput;
-        setChatMessages(prev => [...prev, { id: msgId, text: messageText, isMine: true }]);
+        const rawText = chatInput.trim();
         setChatInput('');
+        setLiveTranslationPreview('');
 
+        let translated = '';
+        let isTranslated = false;
 
+        if (autoTranslateChat && myChatLanguage !== targetChatLanguage) {
+            try {
+                const res = await translateText(rawText, targetChatLanguage, myChatLanguage);
+                if (res.translatedText && res.translatedText.toLowerCase() !== rawText.toLowerCase()) {
+                    translated = res.translatedText;
+                    isTranslated = true;
+                }
+            } catch (err) {
+                console.warn('[Translate] Send-time translation failed:', err);
+            }
+        }
+
+        const newMsg: CallChatMessage = {
+            id: msgId,
+            text: rawText,
+            isMine: true,
+            originalText: rawText,
+            translatedText: translated || undefined,
+            senderLang: myChatLanguage,
+            targetLang: targetChatLanguage,
+            isTranslated: isTranslated,
+        };
+
+        setChatMessages(prev => [...prev, newMsg]);
 
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
@@ -1647,10 +1785,48 @@ const VoiceCall = () => {
                     id: msgId,
                     senderId: user!.id,
                     receiverId: currentMatch.profile.id,
-                    text: messageText,
+                    text: rawText,
+                    originalText: rawText,
+                    translatedText: translated,
+                    senderLang: myChatLanguage,
+                    targetLang: targetChatLanguage,
+                    isTranslated: isTranslated,
                 }
             });
         }
+    };
+
+    const handleTranslateMessage = async (msgId: number, textToTranslate: string) => {
+        setTranslatingMsgIds(prev => ({ ...prev, [msgId]: true }));
+        try {
+            const res = await translateText(textToTranslate, myChatLanguage, 'auto');
+            setChatMessages(prev => prev.map(m => {
+                if (m.id === msgId) {
+                    return {
+                        ...m,
+                        translatedText: res.translatedText,
+                        isTranslated: true,
+                        text: res.translatedText,
+                    };
+                }
+                return m;
+            }));
+        } catch (e) {
+            console.error('On-demand message translation failed:', e);
+        } finally {
+            setTranslatingMsgIds(prev => ({ ...prev, [msgId]: false }));
+        }
+    };
+
+    const toggleShowOriginal = (msgId: number) => {
+        setShowOriginalMap(prev => ({ ...prev, [msgId]: !prev[msgId] }));
+    };
+
+    const handleSwapLanguages = () => {
+        const temp = myChatLanguage;
+        setMyChatLanguage(targetChatLanguage);
+        setTargetChatLanguage(temp);
+        setUserLanguage(targetChatLanguage);
     };
 
     const isRevealed = isDirectCall || requestStatus === 'accepted';
@@ -2267,6 +2443,60 @@ const VoiceCall = () => {
                         </div>
                     </div>
 
+                    {/* Floating In-Call Subtitle Toast (Translated incoming messages) */}
+                    {floatingSubtitle && (Date.now() - floatingSubtitle.time < 5500) && (
+                        <div
+                            onClick={() => setShowChat(true)}
+                            style={{
+                                position: 'absolute',
+                                top: '80px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                background: 'rgba(20, 20, 28, 0.94)',
+                                backdropFilter: 'blur(20px)',
+                                border: '1px solid rgba(255, 255, 255, 0.22)',
+                                padding: '10px 18px',
+                                borderRadius: '24px',
+                                color: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                zIndex: 350,
+                                boxShadow: '0 12px 36px rgba(0,0,0,0.6)',
+                                maxWidth: '90%',
+                                cursor: 'pointer',
+                                animation: 'slideDown 0.3s ease',
+                            }}
+                        >
+                            <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: 'linear-gradient(135deg, #007aff, #34C759)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                fontSize: '1rem'
+                            }}>
+                                💬
+                            </div>
+                            <div style={{ textAlign: 'left', overflow: 'hidden' }}>
+                                <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ fontWeight: 600, color: '#fff' }}>{floatingSubtitle.senderName}</span>
+                                    {floatingSubtitle.isTranslated && (
+                                        <span style={{ color: '#34C759', fontWeight: 600 }}>
+                                            • 🌐 {getLanguage(floatingSubtitle.senderLang || 'auto').flag} → {getLanguage(floatingSubtitle.targetLang || 'en').flag}
+                                        </span>
+                                    )}
+                                </div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    "{floatingSubtitle.text}"
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Chat Drawer Overlay */}
                     {showChat && (
                         <div
@@ -2276,55 +2506,229 @@ const VoiceCall = () => {
                                 bottom: '160px',
                                 left: '16px',
                                 right: '16px',
-                                height: '380px',
-                                backgroundColor: 'rgba(17, 27, 33, 0.94)',
+                                height: '420px',
+                                backgroundColor: 'rgba(17, 27, 33, 0.96)',
                                 backdropFilter: 'blur(20px)',
                                 borderRadius: '20px',
-                                border: '1px solid rgba(255,255,255,0.12)',
+                                border: '1px solid rgba(255,255,255,0.14)',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 zIndex: 100,
                                 boxShadow: '0 24px 60px rgba(0,0,0,0.7)'
                             }}
                         >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                            {/* Chat Header */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                                 <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#fff' }}>Chat with {displayName}</span>
                                 <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '6px', color: '#fff', cursor: 'pointer' }}>
                                     <X size={16} />
                                 </button>
                             </div>
+
+                            {/* Language Translation Toolbar */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '8px 12px',
+                                background: 'rgba(255, 255, 255, 0.04)',
+                                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                                fontSize: '0.78rem',
+                                flexWrap: 'wrap',
+                                gap: '6px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.4)', borderRadius: '14px', padding: '3px 8px' }}>
+                                        <span style={{ color: 'rgba(255,255,255,0.6)', marginRight: '4px' }}>Me:</span>
+                                        <select
+                                            value={myChatLanguage}
+                                            onChange={(e) => {
+                                                setMyChatLanguage(e.target.value);
+                                                setUserLanguage(e.target.value);
+                                            }}
+                                            style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.78rem', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+                                        >
+                                            {SUPPORTED_LANGUAGES.map(l => (
+                                                <option key={l.code} value={l.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                                                    {l.flag} {l.nativeName}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleSwapLanguages}
+                                        title="Swap Languages"
+                                        style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer' }}
+                                    >
+                                        <ArrowLeftRight size={12} />
+                                    </button>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.4)', borderRadius: '14px', padding: '3px 8px' }}>
+                                        <span style={{ color: 'rgba(255,255,255,0.6)', marginRight: '4px' }}>To:</span>
+                                        <select
+                                            value={targetChatLanguage}
+                                            onChange={(e) => setTargetChatLanguage(e.target.value)}
+                                            style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.78rem', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+                                        >
+                                            {SUPPORTED_LANGUAGES.map(l => (
+                                                <option key={l.code} value={l.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                                                    {l.flag} {l.nativeName}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setAutoTranslateChat(!autoTranslateChat)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        padding: '4px 10px',
+                                        borderRadius: '14px',
+                                        border: autoTranslateChat ? '1px solid #34C759' : '1px solid rgba(255,255,255,0.2)',
+                                        background: autoTranslateChat ? 'rgba(52, 199, 89, 0.2)' : 'rgba(255,255,255,0.06)',
+                                        color: autoTranslateChat ? '#34C759' : 'rgba(255,255,255,0.6)',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    <Globe size={13} />
+                                    <span>{autoTranslateChat ? 'Auto-Translate ON' : 'Translate OFF'}</span>
+                                </button>
+                            </div>
+
+                            {/* Message List */}
                             <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 {chatMessages.length === 0 && (
                                     <p style={{ textAlign: 'center', color: '#8696a0', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.85rem' }}>
-                                        Say hi! 👋
+                                        Say hi! 👋 Messages are translated in real-time.
                                     </p>
                                 )}
-                                {chatMessages.map(msg => (
-                                    <div
-                                        key={msg.id}
-                                        style={{
-                                            alignSelf: msg.isMine ? 'flex-end' : 'flex-start',
-                                            background: msg.isMine ? '#005c4b' : '#202c33',
-                                            color: '#e9edef',
-                                            padding: '8px 14px',
-                                            borderRadius: '12px',
-                                            maxWidth: '80%',
-                                            fontSize: '0.9rem'
-                                        }}
-                                    >
-                                        {msg.text}
-                                    </div>
-                                ))}
+                                {chatMessages.map(msg => {
+                                    const showOriginal = Boolean(showOriginalMap[msg.id]);
+                                    const isTranslating = Boolean(translatingMsgIds[msg.id]);
+                                    const textToDisplay = (msg.isTranslated && showOriginal)
+                                        ? (msg.originalText || msg.text)
+                                        : (msg.translatedText || msg.text);
+
+                                    return (
+                                        <div
+                                            key={msg.id}
+                                            style={{
+                                                alignSelf: msg.isMine ? 'flex-end' : 'flex-start',
+                                                background: msg.isMine ? '#005c4b' : '#202c33',
+                                                color: '#e9edef',
+                                                padding: '8px 14px',
+                                                borderRadius: '14px',
+                                                maxWidth: '82%',
+                                                fontSize: '0.9rem',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            <div style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>
+                                                {textToDisplay}
+                                            </div>
+
+                                            {msg.isTranslated ? (
+                                                <div
+                                                    onClick={() => toggleShowOriginal(msg.id)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        fontSize: '0.68rem',
+                                                        color: '#8696a0',
+                                                        cursor: 'pointer',
+                                                        marginTop: '2px',
+                                                        userSelect: 'none',
+                                                    }}
+                                                >
+                                                    <span>🌐</span>
+                                                    <span>{showOriginal ? 'Showing original (Tap for translation)' : `Translated (Tap for original ${msg.senderLang?.toUpperCase() || ''})`}</span>
+                                                </div>
+                                            ) : !msg.isMine && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleTranslateMessage(msg.id, msg.text)}
+                                                    disabled={isTranslating}
+                                                    style={{
+                                                        alignSelf: 'flex-start',
+                                                        background: 'rgba(255,255,255,0.12)',
+                                                        border: 'none',
+                                                        borderRadius: '10px',
+                                                        padding: '2px 8px',
+                                                        color: '#fff',
+                                                        fontSize: '0.68rem',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        marginTop: '2px'
+                                                    }}
+                                                >
+                                                    <Globe size={10} />
+                                                    {isTranslating ? 'Translating...' : `Translate to ${getLanguage(myChatLanguage).name}`}
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
-                            <form onSubmit={sendChatMessage} style={{ display: 'flex', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+
+                            {/* Live Translation Preview */}
+                            {liveTranslationPreview && (
+                                <div style={{
+                                    padding: '6px 14px',
+                                    background: 'rgba(52, 199, 89, 0.15)',
+                                    borderTop: '1px solid rgba(52, 199, 89, 0.3)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    fontSize: '0.78rem',
+                                    color: '#34C759',
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        <span>🌐 {getLanguage(targetChatLanguage).flag}:</span>
+                                        <span style={{ fontStyle: 'italic', color: '#e8f5e9' }}>"{liveTranslationPreview}"</span>
+                                    </div>
+                                    <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>Auto-Translating</span>
+                                </div>
+                            )}
+
+                            {/* Input Form */}
+                            <form onSubmit={sendChatMessage} style={{ display: 'flex', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)', gap: '8px' }}>
                                 <input
                                     type="text"
                                     value={chatInput}
                                     onChange={(e) => setChatInput(e.target.value)}
-                                    placeholder="Type a message..."
-                                    style={{ flex: 1, background: '#2a3942', border: 'none', padding: '10px 16px', borderRadius: '20px', color: '#fff', marginRight: '8px', fontSize: '0.9rem' }}
+                                    placeholder={autoTranslateChat ? `Type in ${getLanguage(myChatLanguage).nativeName}...` : "Type a message..."}
+                                    style={{ flex: 1, background: '#2a3942', border: 'none', padding: '10px 16px', borderRadius: '20px', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
                                 />
-                                <button type="submit" style={{ background: '#00a884', border: 'none', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                <button
+                                    type="submit"
+                                    style={{
+                                        background: autoTranslateChat ? 'linear-gradient(135deg, #00a884, #007aff)' : '#00a884',
+                                        border: 'none',
+                                        width: '40px',
+                                        height: '40px',
+                                        borderRadius: '50%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#fff',
+                                        cursor: 'pointer',
+                                        flexShrink: 0
+                                    }}
+                                    title={autoTranslateChat ? "Translate & Send" : "Send"}
+                                >
                                     <Send size={18} />
                                 </button>
                             </form>
@@ -2622,30 +3026,271 @@ const VoiceCall = () => {
                     </div>
                 </div>
 
+                {/* Floating In-Call Subtitle Toast (Translated incoming messages) */}
+                {floatingSubtitle && (Date.now() - floatingSubtitle.time < 5500) && (
+                    <div
+                        onClick={() => setShowChat(true)}
+                        style={{
+                            position: 'absolute',
+                            top: '80px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            background: 'rgba(20, 20, 28, 0.94)',
+                            backdropFilter: 'blur(20px)',
+                            border: '1px solid rgba(255, 255, 255, 0.22)',
+                            padding: '10px 18px',
+                            borderRadius: '24px',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            zIndex: 350,
+                            boxShadow: '0 12px 36px rgba(0,0,0,0.6)',
+                            maxWidth: '90%',
+                            cursor: 'pointer',
+                            animation: 'slideDown 0.3s ease',
+                        }}
+                    >
+                        <div style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #ff3366, #ff9933)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            fontSize: '1rem'
+                        }}>
+                            💬
+                        </div>
+                        <div style={{ textAlign: 'left', overflow: 'hidden' }}>
+                            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: 600, color: '#fff' }}>{floatingSubtitle.senderName}</span>
+                                {floatingSubtitle.isTranslated && (
+                                    <span style={{ color: '#34C759', fontWeight: 600 }}>
+                                        • 🌐 {getLanguage(floatingSubtitle.senderLang || 'auto').flag} → {getLanguage(floatingSubtitle.targetLang || 'en').flag}
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ fontSize: '0.88rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                "{floatingSubtitle.text}"
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Chat Drawer */}
                 {showChat && (
-                    <div style={{ position: 'absolute', bottom: '120px', left: '16px', right: '16px', height: '400px', backgroundColor: 'rgba(25, 25, 25, 0.95)', backdropFilter: 'blur(10px)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', zIndex: 100, boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                            <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>Chat with {displayName}</span>
-                            <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '6px', color: '#fff', cursor: 'pointer' }}><X size={18} /></button>
+                    <div style={{ position: 'absolute', bottom: '120px', left: '16px', right: '16px', height: '420px', backgroundColor: 'rgba(22, 22, 26, 0.96)', backdropFilter: 'blur(20px)', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.14)', display: 'flex', flexDirection: 'column', zIndex: 100, boxShadow: '0 24px 60px rgba(0,0,0,0.7)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                            <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#fff' }}>Chat with {displayName}</span>
+                            <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '6px', color: '#fff', cursor: 'pointer' }}><X size={16} /></button>
                         </div>
-                        <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {chatMessages.length === 0 && <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.9rem' }}>Say hi! 👋</p>}
-                            {chatMessages.map(msg => (
-                                <div key={msg.id} style={{ alignSelf: msg.isMine ? 'flex-end' : 'flex-start', background: msg.isMine ? 'var(--primary-color)' : '#333', padding: '8px 12px', borderRadius: '12px', maxWidth: '80%', fontSize: '0.9rem' }}>
-                                    {msg.text}
+
+                        {/* Language Translation Toolbar */}
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '8px 12px',
+                            background: 'rgba(255, 255, 255, 0.04)',
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                            fontSize: '0.78rem',
+                            flexWrap: 'wrap',
+                            gap: '6px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.4)', borderRadius: '14px', padding: '3px 8px' }}>
+                                    <span style={{ color: 'rgba(255,255,255,0.6)', marginRight: '4px' }}>Me:</span>
+                                    <select
+                                        value={myChatLanguage}
+                                        onChange={(e) => {
+                                            setMyChatLanguage(e.target.value);
+                                            setUserLanguage(e.target.value);
+                                        }}
+                                        style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.78rem', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+                                    >
+                                        {SUPPORTED_LANGUAGES.map(l => (
+                                            <option key={l.code} value={l.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                                                {l.flag} {l.nativeName}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
-                            ))}
+
+                                <button
+                                    type="button"
+                                    onClick={handleSwapLanguages}
+                                    title="Swap Languages"
+                                    style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer' }}
+                                >
+                                    <ArrowLeftRight size={12} />
+                                </button>
+
+                                <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.4)', borderRadius: '14px', padding: '3px 8px' }}>
+                                    <span style={{ color: 'rgba(255,255,255,0.6)', marginRight: '4px' }}>To:</span>
+                                    <select
+                                        value={targetChatLanguage}
+                                        onChange={(e) => setTargetChatLanguage(e.target.value)}
+                                        style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.78rem', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+                                    >
+                                        {SUPPORTED_LANGUAGES.map(l => (
+                                            <option key={l.code} value={l.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                                                {l.flag} {l.nativeName}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setAutoTranslateChat(!autoTranslateChat)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '4px 10px',
+                                    borderRadius: '14px',
+                                    border: autoTranslateChat ? '1px solid #34C759' : '1px solid rgba(255,255,255,0.2)',
+                                    background: autoTranslateChat ? 'rgba(52, 199, 89, 0.2)' : 'rgba(255,255,255,0.06)',
+                                    color: autoTranslateChat ? '#34C759' : 'rgba(255,255,255,0.6)',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <Globe size={13} />
+                                <span>{autoTranslateChat ? 'Auto-Translate ON' : 'Translate OFF'}</span>
+                            </button>
                         </div>
-                        <form onSubmit={sendChatMessage} style={{ display: 'flex', padding: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+
+                        {/* Messages */}
+                        <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {chatMessages.length === 0 && (
+                                <p style={{ textAlign: 'center', color: '#8e8e93', marginTop: 'auto', marginBottom: 'auto', fontSize: '0.85rem' }}>
+                                    Say hi! 👋 Messages are translated in real-time.
+                                </p>
+                            )}
+                            {chatMessages.map(msg => {
+                                const showOriginal = Boolean(showOriginalMap[msg.id]);
+                                const isTranslating = Boolean(translatingMsgIds[msg.id]);
+                                const textToDisplay = (msg.isTranslated && showOriginal)
+                                    ? (msg.originalText || msg.text)
+                                    : (msg.translatedText || msg.text);
+
+                                return (
+                                    <div
+                                        key={msg.id}
+                                        style={{
+                                            alignSelf: msg.isMine ? 'flex-end' : 'flex-start',
+                                            background: msg.isMine ? 'linear-gradient(135deg, #ff3366, #ff5577)' : '#333',
+                                            color: '#fff',
+                                            padding: '8px 14px',
+                                            borderRadius: '14px',
+                                            maxWidth: '82%',
+                                            fontSize: '0.9rem',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '4px'
+                                        }}
+                                    >
+                                        <div style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>
+                                            {textToDisplay}
+                                        </div>
+
+                                        {msg.isTranslated ? (
+                                            <div
+                                                onClick={() => toggleShowOriginal(msg.id)}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    fontSize: '0.68rem',
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    cursor: 'pointer',
+                                                    marginTop: '2px',
+                                                    userSelect: 'none',
+                                                }}
+                                            >
+                                                <span>🌐</span>
+                                                <span>{showOriginal ? 'Showing original (Tap for translation)' : `Translated (Tap for original ${msg.senderLang?.toUpperCase() || ''})`}</span>
+                                            </div>
+                                        ) : !msg.isMine && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleTranslateMessage(msg.id, msg.text)}
+                                                disabled={isTranslating}
+                                                style={{
+                                                    alignSelf: 'flex-start',
+                                                    background: 'rgba(255,255,255,0.12)',
+                                                    border: 'none',
+                                                    borderRadius: '10px',
+                                                    padding: '2px 8px',
+                                                    color: '#fff',
+                                                    fontSize: '0.68rem',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    marginTop: '2px'
+                                                }}
+                                            >
+                                                <Globe size={10} />
+                                                {isTranslating ? 'Translating...' : `Translate to ${getLanguage(myChatLanguage).name}`}
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Live Translation Preview */}
+                        {liveTranslationPreview && (
+                            <div style={{
+                                padding: '6px 14px',
+                                background: 'rgba(52, 199, 89, 0.15)',
+                                borderTop: '1px solid rgba(52, 199, 89, 0.3)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                fontSize: '0.78rem',
+                                color: '#34C759',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <span>🌐 {getLanguage(targetChatLanguage).flag}:</span>
+                                    <span style={{ fontStyle: 'italic', color: '#e8f5e9' }}>"{liveTranslationPreview}"</span>
+                                </div>
+                                <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>Auto-Translating</span>
+                            </div>
+                        )}
+
+                        <form onSubmit={sendChatMessage} style={{ display: 'flex', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.1)', gap: '8px' }}>
                             <input
                                 type="text"
                                 value={chatInput}
                                 onChange={(e) => setChatInput(e.target.value)}
-                                placeholder="Type a message..."
-                                style={{ flex: 1, background: '#111', border: 'none', padding: '10px 16px', borderRadius: '20px', color: '#fff', marginRight: '8px', fontSize: '0.9rem' }}
+                                placeholder={autoTranslateChat ? `Type in ${getLanguage(myChatLanguage).nativeName}...` : "Type a message..."}
+                                style={{ flex: 1, background: '#111', border: 'none', padding: '10px 16px', borderRadius: '20px', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
                             />
-                            <button type="submit" style={{ background: 'var(--primary-color)', border: 'none', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                            <button
+                                type="submit"
+                                style={{
+                                    background: autoTranslateChat ? 'linear-gradient(135deg, #ff3366, #34C759)' : 'var(--primary-color)',
+                                    border: 'none',
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                    flexShrink: 0
+                                }}
+                                title={autoTranslateChat ? "Translate & Send" : "Send"}
+                            >
                                 <Send size={18} />
                             </button>
                         </form>
@@ -2770,6 +3415,49 @@ const VoiceCall = () => {
             <div className="text-center mb-8">
                 <h2 className="title mb-2">Voice Roulette</h2>
                 <p className="text-gray-400">Connect with similar minds securely.</p>
+            </div>
+
+            {/* Language Selector Pill on Main Voice Screen */}
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem', padding: '0 16px' }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    backdropFilter: 'blur(10px)',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+                }}>
+                    <Globe size={15} color="#34C759" />
+                    <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                        My Language:
+                    </span>
+                    <select
+                        value={myChatLanguage}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setMyChatLanguage(val);
+                            setUserLanguage(val);
+                        }}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#fff',
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            outline: 'none',
+                        }}
+                    >
+                        {SUPPORTED_LANGUAGES.map(lang => (
+                            <option key={lang.code} value={lang.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                                {lang.flag} {lang.nativeName}
+                            </option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             {/* Live Online Counter */}

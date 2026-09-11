@@ -2,7 +2,8 @@ import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { signUp, signIn, checkUsernameAvailable, fetchCurrentProfile } from '../lib/auth';
-import { Sparkles, ArrowRight, Loader2, Check, X } from 'lucide-react';
+import { Sparkles, ArrowRight, Loader2, Check, X, Globe } from 'lucide-react';
+import { SUPPORTED_LANGUAGES, getUserLanguage, setUserLanguage, getLoginStrings } from '../lib/translation';
 
 const Login = () => {
     const navigate = useNavigate();
@@ -10,6 +11,8 @@ const Login = () => {
 
     const [isSignUp, setIsSignUp] = useState(true);
     const [loading, setLoading] = useState(false);
+    const [language, setLanguage] = useState(getUserLanguage());
+    const strings = getLoginStrings(language);
     const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
     const [formData, setFormData] = useState({
         name: '',
@@ -100,7 +103,9 @@ const Login = () => {
                 return;
             }
 
+            (profile as any).preferred_language = language;
             localStorage.setItem('knock_user_session', JSON.stringify(profile));
+            localStorage.setItem('knock_user_lang', language);
             setUser(profile);
             navigate('/call');
         } catch (err: any) {
@@ -125,12 +130,52 @@ const Login = () => {
     return (
         <div className="login-page">
             <div className="login-container">
+                {/* Language Switcher Pill */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        backdropFilter: 'blur(10px)',
+                    }}>
+                        <Globe size={14} color="#f5a524" />
+                        <select
+                            value={language}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                setLanguage(val);
+                                setUserLanguage(val);
+                            }}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#fff',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                outline: 'none',
+                            }}
+                            aria-label="Select Language"
+                        >
+                            {SUPPORTED_LANGUAGES.map(lang => (
+                                <option key={lang.code} value={lang.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                                    {lang.flag} {lang.nativeName}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
                 <div className="login-header">
                     <h1 className="app-title text-4xl mb-2 text-center" style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, letterSpacing: '-1.5px', background: 'var(--primary-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                         Knock Knock
                     </h1>
                     <p className="text-gray-400 text-center mb-8 flex justify-center items-center gap-2">
-                        {isSignUp ? 'Create your account' : 'Welcome back'} <Sparkles size={16} className="text-yellow-400" />
+                        {isSignUp ? strings.createAccount : strings.welcomeBack} <Sparkles size={16} className="text-yellow-400" />
                     </p>
                 </div>
 
@@ -152,12 +197,12 @@ const Login = () => {
                 <form onSubmit={handleSubmit} className="login-form">
                     {/* Username field - shared between Sign In and Sign Up */}
                     <div className="form-group">
-                        <label>Username *</label>
+                        <label>{strings.username} *</label>
                         <div style={{ position: 'relative' }}>
                             <input
                                 type="text"
                                 name="username"
-                                placeholder="cool_username"
+                                placeholder={strings.usernamePlaceholder}
                                 value={formData.username}
                                 onChange={handleChange}
                                 className={errors.username ? 'error-input' : ''}
@@ -201,11 +246,11 @@ const Login = () => {
                     {isSignUp && (
                         <>
                             <div className="form-group">
-                                <label>Full Name *</label>
+                                <label>{strings.fullName} *</label>
                                 <input
                                     type="text"
                                     name="name"
-                                    placeholder="John Doe"
+                                    placeholder={strings.fullNamePlaceholder}
                                     value={formData.name}
                                     onChange={handleChange}
                                     className={errors.name ? 'error-input' : ''}
@@ -215,7 +260,7 @@ const Login = () => {
                             </div>
 
                             <div className="form-group">
-                                <label>Date of Birth *</label>
+                                <label>{strings.dob} *</label>
                                 <input
                                     type="date"
                                     name="dob"
@@ -229,7 +274,7 @@ const Login = () => {
                             </div>
 
                             <div className="form-group">
-                                <label>Gender *</label>
+                                <label>{strings.gender} *</label>
                                 <select
                                     name="gender"
                                     value={formData.gender}
@@ -237,20 +282,40 @@ const Login = () => {
                                     className={errors.gender ? 'error-input' : ''}
                                     disabled={loading}
                                 >
-                                    <option value="" disabled>Select gender</option>
-                                    <option value="male">Male</option>
-                                    <option value="female">Female</option>
-                                    <option value="other">Other</option>
-                                    <option value="prefer_not_to_say">Prefer not to say</option>
+                                    <option value="" disabled>{strings.selectGender}</option>
+                                    <option value="male">{strings.male}</option>
+                                    <option value="female">{strings.female}</option>
+                                    <option value="other">{strings.other}</option>
+                                    <option value="prefer_not_to_say">{strings.preferNotToSay}</option>
                                 </select>
                                 {errors.gender && <span className="error-text">{errors.gender}</span>}
+                            </div>
+
+                            <div className="form-group">
+                                <label>{strings.preferredLanguage}</label>
+                                <select
+                                    value={language}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setLanguage(val);
+                                        setUserLanguage(val);
+                                    }}
+                                    disabled={loading}
+                                    style={{ colorScheme: 'dark' }}
+                                >
+                                    {SUPPORTED_LANGUAGES.map(lang => (
+                                        <option key={lang.code} value={lang.code}>
+                                            {lang.flag} {lang.name} ({lang.nativeName})
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                         </>
                     )}
 
                     {/* Password Field - shared */}
                     <div className="form-group mb-8">
-                        <label>Password *</label>
+                        <label>{strings.password} *</label>
                         <input
                             type="password"
                             name="password"
@@ -272,11 +337,11 @@ const Login = () => {
                         {loading ? (
                             <>
                                 <Loader2 size={20} className="mr-2" style={{ animation: 'spin 1s linear infinite' }} />
-                                {isSignUp ? 'Creating Account...' : 'Signing In...'}
+                                {isSignUp ? `${strings.submitCreate}...` : `${strings.submitSignIn}...`}
                             </>
                         ) : (
                             <>
-                                {isSignUp ? 'Create Account' : 'Sign In'} <ArrowRight size={20} className="ml-2" />
+                                {isSignUp ? strings.submitCreate : strings.submitSignIn} <ArrowRight size={20} className="ml-2" />
                             </>
                         )}
                     </button>
@@ -294,9 +359,9 @@ const Login = () => {
                         }}
                     >
                         {isSignUp ? (
-                            <>Already have an account? <span style={{ color: '#f5a524', fontWeight: 'bold' }}>Sign In</span></>
+                            <>{strings.alreadyHaveAccount} <span style={{ color: '#f5a524', fontWeight: 'bold' }}>{strings.signInLink}</span></>
                         ) : (
-                            <>Don't have an account? <span style={{ color: '#f5a524', fontWeight: 'bold' }}>Sign Up</span></>
+                            <>{strings.dontHaveAccount} <span style={{ color: '#f5a524', fontWeight: 'bold' }}>{strings.signUpLink}</span></>
                         )}
                     </button>
                 </div>
