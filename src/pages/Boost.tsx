@@ -24,6 +24,7 @@ import {
     Hash,
     Globe,
     Eye,
+    Zap,
     Link as LinkIcon
 } from 'lucide-react';
 import PullToRefresh from '../components/PullToRefresh';
