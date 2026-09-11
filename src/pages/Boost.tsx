@@ -258,6 +258,10 @@ const Boost: React.FC = () => {
     const cardRefs = useRef<Record<string, HTMLElement | null>>({});
     const trackedImpressionsRef = useRef<Set<string>>(new Set());
 
+    useEffect(() => {
+        document.title = 'Knockup';
+    }, []);
+
     // Load user's connections (friends)
     useEffect(() => {
         if (!user?.id) return;
