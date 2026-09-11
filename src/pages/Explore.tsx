@@ -632,12 +632,12 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                         <span style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-active)' }}>Trending Now</span>
                                         <span style={{ fontSize: '12px', color: 'var(--text-inactive)', marginLeft: 'auto' }}>Last 24h</span>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                                         {trendingPosts.slice(0, 4).map((post, idx) => (
                                             <div
                                                 key={post.id}
                                                 style={{
-                                                    flexShrink: 0, width: '140px', height: '180px', borderRadius: '16px',
+                                                    width: '100%', height: '180px', borderRadius: '16px',
                                                     overflow: 'hidden', position: 'relative', cursor: 'pointer',
                                                     border: '2px solid rgba(245, 165, 36,0.3)',
                                                 }}

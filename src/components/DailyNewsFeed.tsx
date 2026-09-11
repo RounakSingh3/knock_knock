@@ -34,7 +34,7 @@ const CATEGORY_EMOJIS: Record<string, string> = {
 export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, externalActiveNews, onCloseNews }) => {
     const [selectedCategory, setSelectedCategory] = useState<'All' | NewsCategory>('All');
     const [newsList, setNewsList] = useState<NewsItem[]>([]);
-    const [visibleCount, setVisibleCount] = useState(6);
+    const [visibleCount, setVisibleCount] = useState(10);
     const [isLoading, setIsLoading] = useState(true);
     const [activeNewsModal, setActiveNewsModal] = useState<NewsItem | null>(null);
     const [likedNews, setLikedNews] = useState<Set<string>>(new Set());
@@ -58,7 +58,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
     useEffect(() => {
         let isMounted = true;
         setIsLoading(true);
-        setVisibleCount(6);
+        setVisibleCount(10);
 
         fetchGoogleNews(selectedCategory).then(items => {
             if (!isMounted) return;
@@ -155,14 +155,12 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 </div>
             </div>
 
-            {/* Category Pills */}
+            {/* Category Filter Pills (100% Vertical Flow, Wrapped) */}
             <div style={{
                 display: 'flex',
-                gap: '8px',
-                overflowX: 'auto',
-                paddingBottom: '8px',
-                scrollbarWidth: 'none',
-                WebkitOverflowScrolling: 'touch',
+                flexWrap: 'wrap',
+                gap: '6px',
+                paddingBottom: '10px',
                 width: '100%',
                 boxSizing: 'border-box'
             }}>
@@ -171,22 +169,21 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                     return (
                         <button
                             key={cat}
+                            type="button"
                             onClick={() => setSelectedCategory(cat)}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '5px',
+                                gap: '4px',
                                 padding: '6px 12px',
-                                borderRadius: '18px',
+                                borderRadius: '16px',
                                 border: isSelected ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.08)',
                                 background: isSelected ? 'rgba(245, 165, 36, 0.2)' : 'rgba(255,255,255,0.04)',
                                 color: isSelected ? '#f5a524' : 'var(--text-active)',
-                                fontSize: '12px',
+                                fontSize: '11.5px',
                                 fontWeight: isSelected ? '700' : '500',
                                 cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                                transition: 'all 0.2s ease',
-                                flexShrink: 0
+                                transition: 'all 0.2s ease'
                             }}
                         >
                             <span>{CATEGORY_EMOJIS[cat]}</span>
@@ -196,16 +193,16 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 })}
             </div>
 
-            {/* Pure Vertical News Feed (Zero Horizontal Expansion) */}
+            {/* Pure Vertical News Feed — ALL News Cards Stacked Vertically */}
             {isLoading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '6px' }}>
                     {[1, 2, 3].map(i => (
                         <div
                             key={i}
                             style={{
                                 width: '100%',
-                                height: '90px',
-                                borderRadius: '16px',
+                                height: '240px',
+                                borderRadius: '18px',
                                 background: 'rgba(255,255,255,0.04)',
                                 animation: 'pulse 1.5s infinite ease-in-out'
                             }}
@@ -214,7 +211,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 </div>
             ) : newsList.length === 0 ? (
                 <div style={{
-                    padding: '24px',
+                    padding: '28px 16px',
                     textAlign: 'center',
                     color: 'var(--text-inactive)',
                     fontSize: '13px',
@@ -225,215 +222,34 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                     No news articles available for {selectedCategory} at the moment.
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '6px', width: '100%', boxSizing: 'border-box' }}>
-                    {/* Featured Lead Story (Vertical Hero Card) */}
-                    {newsList[0] && (() => {
-                        const heroNews = newsList[0];
-                        const isLiked = likedNews.has(heroNews.id);
-                        return (
-                            <div
-                                key={heroNews.id}
-                                onClick={() => setActiveNewsModal(heroNews)}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '200px',
-                                    borderRadius: '18px',
-                                    overflow: 'hidden',
-                                    position: 'relative',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-                                    border: '1px solid rgba(245, 165, 36, 0.25)',
-                                    background: '#1c1c1e',
-                                    transition: 'transform 0.15s ease',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    justifyContent: 'flex-end',
-                                    padding: '14px',
-                                    boxSizing: 'border-box'
-                                }}
-                            >
-                                {/* Background Cover Image */}
-                                <img
-                                    src={heroNews.imageUrl}
-                                    alt={heroNews.title}
-                                    loading="lazy"
-                                    referrerPolicy="no-referrer"
-                                    onError={(e) => {
-                                        e.currentTarget.onerror = null;
-                                        e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
-                                    }}
-                                    style={{
-                                        position: 'absolute',
-                                        inset: 0,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: 'cover',
-                                        filter: 'brightness(0.6)'
-                                    }}
-                                />
-
-                                {/* Rich Gradient Overlay */}
-                                <div style={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 55%, rgba(0,0,0,0.2) 100%)'
-                                }} />
-
-                                {/* Top Badges & Actions */}
-                                <div style={{
-                                    position: 'relative',
-                                    zIndex: 2,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    marginBottom: 'auto',
-                                    paddingBottom: '20px'
-                                }}>
-                                    <div style={{
-                                        background: 'rgba(0,0,0,0.7)',
-                                        backdropFilter: 'blur(8px)',
-                                        padding: '4px 10px',
-                                        borderRadius: '12px',
-                                        fontSize: '10.5px',
-                                        fontWeight: '800',
-                                        color: '#f5a524',
-                                        border: '1px solid rgba(245,165,36,0.4)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '5px'
-                                    }}>
-                                        <span>🔥 TOP STORY</span>
-                                        <span>•</span>
-                                        <span>{CATEGORY_EMOJIS[heroNews.category] || '📰'} {heroNews.category}</span>
-                                    </div>
-
-                                    <div style={{ display: 'flex', gap: '6px' }}>
-                                        <button
-                                            onClick={(e) => toggleLike(heroNews.id, e)}
-                                            aria-label="Like story"
-                                            style={{
-                                                background: 'rgba(0,0,0,0.65)',
-                                                border: 'none',
-                                                borderRadius: '50%',
-                                                width: '30px',
-                                                height: '30px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                cursor: 'pointer',
-                                                backdropFilter: 'blur(8px)'
-                                            }}
-                                        >
-                                            <Heart
-                                                size={15}
-                                                fill={isLiked ? '#ff4500' : 'none'}
-                                                color={isLiked ? '#ff4500' : '#fff'}
-                                            />
-                                        </button>
-                                        <button
-                                            onClick={(e) => handleShare(heroNews, e)}
-                                            aria-label="Share story"
-                                            style={{
-                                                background: 'rgba(0,0,0,0.65)',
-                                                border: 'none',
-                                                borderRadius: '50%',
-                                                width: '30px',
-                                                height: '30px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                cursor: 'pointer',
-                                                backdropFilter: 'blur(8px)'
-                                            }}
-                                        >
-                                            <Share2 size={14} color="#fff" />
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Headline & Details */}
-                                <div style={{ position: 'relative', zIndex: 2 }}>
-                                    <div style={{
-                                        fontSize: '11px',
-                                        color: '#cbd5e1',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        marginBottom: '4px'
-                                    }}>
-                                        <span style={{ color: '#f5a524', fontWeight: '800' }}>{heroNews.source}</span>
-                                        <span>•</span>
-                                        <span>{heroNews.publishedAt}</span>
-                                    </div>
-                                    <h3 style={{
-                                        margin: '0 0 6px 0',
-                                        fontSize: '15px',
-                                        fontWeight: '800',
-                                        color: '#ffffff',
-                                        lineHeight: 1.35,
-                                        letterSpacing: '-0.2px',
-                                        display: '-webkit-box',
-                                        WebkitLineClamp: 2,
-                                        WebkitBoxOrient: 'vertical',
-                                        overflow: 'hidden'
-                                    }}>
-                                        {heroNews.title}
-                                    </h3>
-                                    <p style={{
-                                        margin: '0 0 6px 0',
-                                        fontSize: '12px',
-                                        color: 'rgba(255,255,255,0.8)',
-                                        lineHeight: 1.4,
-                                        display: '-webkit-box',
-                                        WebkitLineClamp: 2,
-                                        WebkitBoxOrient: 'vertical',
-                                        overflow: 'hidden'
-                                    }}>
-                                        {heroNews.summary}
-                                    </p>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                            <Heart size={11} fill={isLiked ? '#ff4500' : 'none'} color={isLiked ? '#ff4500' : '#aaa'} />
-                                            {heroNews.likesCount + (isLiked ? 1 : 0)} likes
-                                        </span>
-                                        <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                            Tap to read full story <ChevronRight size={13} />
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
-
-                    {/* Vertical Feed Stories (Rest of the items) */}
-                    {newsList.slice(1, visibleCount).map((news) => {
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '6px', width: '100%', boxSizing: 'border-box' }}>
+                    {newsList.slice(0, visibleCount).map((news, idx) => {
                         const isLiked = likedNews.has(news.id);
                         return (
                             <div
                                 key={news.id}
                                 onClick={() => setActiveNewsModal(news)}
                                 style={{
-                                    display: 'flex',
-                                    gap: '12px',
-                                    padding: '12px',
-                                    borderRadius: '16px',
+                                    width: '100%',
+                                    borderRadius: '18px',
+                                    overflow: 'hidden',
                                     background: 'rgba(255,255,255,0.04)',
                                     border: '1px solid rgba(255,255,255,0.08)',
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
                                     cursor: 'pointer',
-                                    transition: 'background 0.2s ease, transform 0.15s ease',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-                                    width: '100%',
+                                    transition: 'transform 0.15s ease, background 0.2s ease',
+                                    display: 'flex',
+                                    flexDirection: 'column',
                                     boxSizing: 'border-box'
                                 }}
                             >
-                                {/* Thumbnail */}
+                                {/* 1. Full-Width Cover Image (Top of Vertical Card) */}
                                 <div style={{
-                                    width: '88px',
-                                    height: '88px',
-                                    borderRadius: '12px',
+                                    width: '100%',
+                                    height: idx === 0 ? '195px' : '170px',
+                                    position: 'relative',
                                     overflow: 'hidden',
-                                    flexShrink: 0,
-                                    position: 'relative'
+                                    background: '#111'
                                 }}>
                                     <img
                                         src={news.imageUrl}
@@ -444,93 +260,131 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                                             e.currentTarget.onerror = null;
                                             e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
                                         }}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'cover',
+                                            filter: 'brightness(0.75)'
+                                        }}
                                     />
-                                    <span style={{
-                                        position: 'absolute', bottom: '4px', left: '4px',
-                                        fontSize: '8.5px', fontWeight: '800', background: 'rgba(0,0,0,0.75)',
-                                        backdropFilter: 'blur(4px)',
-                                        color: '#f5a524', padding: '1px 5px', borderRadius: '6px'
-                                    }}>
-                                        {news.category}
-                                    </span>
-                                </div>
+                                    <div style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)'
+                                    }} />
 
-                                {/* Info */}
-                                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, justifyContent: 'space-between' }}>
-                                    <div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10.5px', color: 'var(--text-inactive)', marginBottom: '3px' }}>
-                                            <span style={{ color: '#f5a524', fontWeight: '700' }}>{news.source}</span>
-                                            <span>•</span>
-                                            <span>{news.publishedAt}</span>
-                                        </div>
-                                        <h4 style={{
-                                            margin: '0 0 4px 0',
-                                            fontSize: '13px',
-                                            fontWeight: '700',
-                                            color: 'var(--text-active)',
-                                            lineHeight: '1.35',
-                                            display: '-webkit-box',
-                                            WebkitLineClamp: 2,
-                                            WebkitBoxOrient: 'vertical',
-                                            overflow: 'hidden'
-                                        }}>
-                                            {news.title}
-                                        </h4>
-                                        <p style={{
-                                            margin: 0,
-                                            fontSize: '11.5px',
-                                            color: 'rgba(255,255,255,0.6)',
-                                            lineHeight: '1.35',
-                                            display: '-webkit-box',
-                                            WebkitLineClamp: 1,
-                                            WebkitBoxOrient: 'vertical',
-                                            overflow: 'hidden'
-                                        }}>
-                                            {news.summary}
-                                        </p>
+                                    {/* Category Pill (Top-Left) */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '10px',
+                                        left: '10px',
+                                        background: 'rgba(0,0,0,0.7)',
+                                        backdropFilter: 'blur(8px)',
+                                        padding: '3px 9px',
+                                        borderRadius: '12px',
+                                        fontSize: '10.5px',
+                                        fontWeight: '800',
+                                        color: '#f5a524',
+                                        border: '1px solid rgba(245,165,36,0.3)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}>
+                                        <span>{CATEGORY_EMOJIS[news.category] || '📰'}</span>
+                                        <span>{news.category}</span>
                                     </div>
 
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <button
-                                                type="button"
-                                                onClick={(e) => toggleLike(news.id, e)}
-                                                style={{
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    padding: 0,
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px',
-                                                    fontSize: '11px',
-                                                    color: isLiked ? '#ff4500' : 'rgba(255,255,255,0.5)',
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                <Heart size={12} fill={isLiked ? '#ff4500' : 'none'} color={isLiked ? '#ff4500' : '#888'} />
-                                                <span>{news.likesCount + (isLiked ? 1 : 0)}</span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleShare(news, e)}
-                                                style={{
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    padding: 0,
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '3px',
-                                                    fontSize: '11px',
-                                                    color: 'rgba(255,255,255,0.5)',
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                <Share2 size={11} color="#888" />
-                                            </button>
-                                        </div>
-                                        <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                            Read Story <ChevronRight size={12} />
+                                    {/* Like & Share (Top-Right) */}
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '10px',
+                                        right: '10px',
+                                        display: 'flex',
+                                        gap: '6px'
+                                    }}>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => toggleLike(news.id, e)}
+                                            style={{
+                                                background: 'rgba(0,0,0,0.65)',
+                                                border: 'none',
+                                                borderRadius: '50%',
+                                                width: '30px',
+                                                height: '30px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                backdropFilter: 'blur(8px)'
+                                            }}
+                                        >
+                                            <Heart size={14} fill={isLiked ? '#ff4500' : 'none'} color={isLiked ? '#ff4500' : '#fff'} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleShare(news, e)}
+                                            style={{
+                                                background: 'rgba(0,0,0,0.65)',
+                                                border: 'none',
+                                                borderRadius: '50%',
+                                                width: '30px',
+                                                height: '30px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                backdropFilter: 'blur(8px)'
+                                            }}
+                                        >
+                                            <Share2 size={13} color="#fff" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* 2. Vertical Text & Actions Body (Bottom of Vertical Card) */}
+                                <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-inactive)' }}>
+                                        <span style={{ color: '#f5a524', fontWeight: '800' }}>{news.source}</span>
+                                        <span>•</span>
+                                        <span>{news.publishedAt}</span>
+                                    </div>
+                                    <h3 style={{
+                                        margin: 0,
+                                        fontSize: idx === 0 ? '15.5px' : '14.5px',
+                                        fontWeight: '800',
+                                        color: '#ffffff',
+                                        lineHeight: 1.35,
+                                        letterSpacing: '-0.2px'
+                                    }}>
+                                        {news.title}
+                                    </h3>
+                                    <p style={{
+                                        margin: 0,
+                                        fontSize: '12.5px',
+                                        color: 'rgba(255,255,255,0.75)',
+                                        lineHeight: 1.45,
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 3,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {news.summary}
+                                    </p>
+
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        paddingTop: '8px',
+                                        marginTop: '4px',
+                                        borderTop: '1px solid rgba(255,255,255,0.06)'
+                                    }}>
+                                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <Heart size={12} fill={isLiked ? '#ff4500' : 'none'} color={isLiked ? '#ff4500' : '#888'} />
+                                            {news.likesCount + (isLiked ? 1 : 0)} likes
+                                        </span>
+                                        <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                            Read Full Story <ChevronRight size={13} />
                                         </span>
                                     </div>
                                 </div>
@@ -542,16 +396,16 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                     {visibleCount < newsList.length && (
                         <button
                             type="button"
-                            onClick={() => setVisibleCount(prev => Math.min(newsList.length, prev + 6))}
+                            onClick={() => setVisibleCount(prev => Math.min(newsList.length, prev + 8))}
                             style={{
                                 width: '100%',
                                 marginTop: '4px',
-                                padding: '12px 0',
+                                padding: '13px 0',
                                 borderRadius: '14px',
                                 border: '1px solid rgba(245, 165, 36, 0.35)',
                                 background: 'rgba(245, 165, 36, 0.1)',
                                 color: '#f5a524',
-                                fontSize: '12.5px',
+                                fontSize: '13px',
                                 fontWeight: '700',
                                 cursor: 'pointer',
                                 display: 'flex',
