@@ -3,7 +3,7 @@ import {
     Phone, Mic, MicOff, PhoneOff, Settings2, Clock, Video, VideoOff, 
     Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, 
     Link2, Flame, RefreshCw, CameraOff, ChevronLeft, Lock, Bell,
-    Headphones, Globe, ArrowLeftRight, Languages, Trash2
+    Headphones, Globe, ArrowLeftRight, Languages, Trash2, Moon, Sparkles
 } from 'lucide-react';
 import { 
     SUPPORTED_LANGUAGES, 
@@ -13,7 +13,7 @@ import {
     getLanguage 
 } from '../lib/translation';
 import { AppContext } from '../context/AppContext';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult, type ConnectionData, type ProfileData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
@@ -156,6 +156,7 @@ const playCallEndChime = () => {
 const VoiceCall = () => {
     const { user, blockedIds } = useContext(AppContext);
     const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
     
     // Direct call params
     const isDirectCall = searchParams.get('direct') === 'true';
@@ -264,6 +265,28 @@ const VoiceCall = () => {
         }, 1000);
         return () => clearInterval(interval);
     }, []);
+
+    // Developer / Tester Mode Bypass state (allows testing calls anytime)
+    const [devBypass, setDevBypass] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('knock_call_dev_bypass') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const toggleDevBypass = () => {
+        setDevBypass(prev => {
+            const next = !prev;
+            try {
+                localStorage.setItem('knock_call_dev_bypass', next.toString());
+            } catch {}
+            return next;
+        });
+    };
+
+    // Calling allowed ONLY between 8:00 PM and 10:00 PM (or if dev bypass is active or direct incoming call)
+    const isCallingAllowed = scheduleInfo.isActive || devBypass || isDirectCall;
 
     const currentMatch = matches[currentMatchIndex] || null;
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -1691,6 +1714,10 @@ const VoiceCall = () => {
 
     const startSearch = async () => {
         if (!user) return;
+        if (!isCallingAllowed && !isDirectCall) {
+            alert("Voice calling is only open between 8:00 PM and 10:00 PM daily. Enable Dev Mode to test.");
+            return;
+        }
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
@@ -3659,10 +3686,319 @@ const VoiceCall = () => {
     const searchingUserCount = onlineUsers.filter((u: any) => u.status === 'searching' && u.user_id !== user?.id).length;
     const totalOnlineCount = onlineUsers.filter((u: any) => u.user_id !== user?.id).length;
 
-    const currentHour = new Date().getHours();
-    const isPeakHour = currentHour >= 20 || currentHour <= 22;
+    // ── 8:00 PM to 10:00 PM Calling Window: Closed Screen ──
+    if (!isCallingAllowed && !isDirectCall) {
+        return (
+            <>
+                <audio
+                    id="knock-call-audio"
+                    ref={remoteAudioRef}
+                    autoPlay
+                    playsInline
+                    style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}
+                />
+                <div className="call-hub-bg pb-20" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem 1.25rem 6rem' }}>
+                    {/* Schedule Badge */}
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        background: 'rgba(245, 165, 36, 0.12)',
+                        border: '1px solid rgba(245, 165, 36, 0.35)',
+                        padding: '8px 18px',
+                        borderRadius: '30px',
+                        marginBottom: '1.75rem',
+                        boxShadow: '0 4px 20px rgba(245, 165, 36, 0.15)'
+                    }}>
+                        <Clock size={16} color="#f5a524" />
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f5a524', letterSpacing: '0.3px' }}>
+                            Daily Calling Window • 8:00 PM – 10:00 PM
+                        </span>
+                    </div>
 
-    // ── Main Search Screen ──
+                    {/* Glowing Moon / Call Closed Icon */}
+                    <div style={{
+                        position: 'relative',
+                        width: '100px',
+                        height: '100px',
+                        borderRadius: '50%',
+                        background: 'radial-gradient(circle, rgba(255,51,102,0.25) 0%, rgba(20,20,30,0.85) 70%)',
+                        border: '2px solid rgba(255,51,102,0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: '1.5rem',
+                        boxShadow: '0 0 35px rgba(255,51,102,0.25)'
+                    }}>
+                        <Moon size={46} color="#ff3366" style={{ filter: 'drop-shadow(0 0 12px rgba(255,51,102,0.5))' }} />
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '-4px',
+                            right: '-4px',
+                            background: '#1a1a24',
+                            border: '2px solid #ff3366',
+                            borderRadius: '50%',
+                            width: '32px',
+                            height: '32px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <Lock size={15} color="#f5a524" />
+                        </div>
+                    </div>
+
+                    {/* Headline */}
+                    <h1 style={{
+                        fontSize: '1.65rem',
+                        fontWeight: 800,
+                        color: '#fff',
+                        margin: '0 0 0.6rem',
+                        textAlign: 'center',
+                        letterSpacing: '-0.5px'
+                    }}>
+                        Voice Calls Closed Now
+                    </h1>
+                    <p style={{
+                        color: 'rgba(255, 255, 255, 0.72)',
+                        fontSize: '0.9rem',
+                        textAlign: 'center',
+                        maxWidth: '340px',
+                        lineHeight: 1.5,
+                        margin: '0 0 1.75rem'
+                    }}>
+                        Live matchmaking is open exclusively between <strong style={{ color: '#f5a524' }}>8:00 PM and 10:00 PM</strong> daily. No calls are permitted in-between.
+                    </p>
+
+                    {/* ⏰ Live Digital Countdown Grid */}
+                    <div style={{
+                        background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        borderRadius: '24px',
+                        padding: '1.5rem 1.25rem',
+                        width: '100%',
+                        maxWidth: '340px',
+                        backdropFilter: 'blur(20px)',
+                        boxShadow: '0 12px 35px rgba(0,0,0,0.5)',
+                        textAlign: 'center',
+                        marginBottom: '1.5rem'
+                    }}>
+                        <div style={{
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            letterSpacing: '1px',
+                            textTransform: 'uppercase',
+                            color: 'rgba(255,255,255,0.5)',
+                            marginBottom: '1rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px'
+                        }}>
+                            <Flame size={14} color="#f5a524" /> Next Session Opens In
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                            {/* Hours */}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <div style={{
+                                    background: 'rgba(0,0,0,0.55)',
+                                    border: '1px solid rgba(245,165,36,0.3)',
+                                    borderRadius: '14px',
+                                    width: '100%',
+                                    padding: '10px 0',
+                                    fontFamily: "'SF Mono', Monaco, monospace",
+                                    fontSize: '1.8rem',
+                                    fontWeight: 800,
+                                    color: '#f5a524',
+                                    boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)'
+                                }}>
+                                    {scheduleInfo.hours.toString().padStart(2, '0')}
+                                </div>
+                                <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    Hours
+                                </span>
+                            </div>
+
+                            <span style={{ fontSize: '1.6rem', fontWeight: 800, color: 'rgba(255,255,255,0.3)', marginBottom: '16px' }}>:</span>
+
+                            {/* Minutes */}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <div style={{
+                                    background: 'rgba(0,0,0,0.55)',
+                                    border: '1px solid rgba(245,165,36,0.3)',
+                                    borderRadius: '14px',
+                                    width: '100%',
+                                    padding: '10px 0',
+                                    fontFamily: "'SF Mono', Monaco, monospace",
+                                    fontSize: '1.8rem',
+                                    fontWeight: 800,
+                                    color: '#f5a524',
+                                    boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)'
+                                }}>
+                                    {scheduleInfo.minutes.toString().padStart(2, '0')}
+                                </div>
+                                <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    Mins
+                                </span>
+                            </div>
+
+                            <span style={{ fontSize: '1.6rem', fontWeight: 800, color: 'rgba(255,255,255,0.3)', marginBottom: '16px' }}>:</span>
+
+                            {/* Seconds */}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <div style={{
+                                    background: 'rgba(0,0,0,0.55)',
+                                    border: '1px solid rgba(255,51,102,0.4)',
+                                    borderRadius: '14px',
+                                    width: '100%',
+                                    padding: '10px 0',
+                                    fontFamily: "'SF Mono', Monaco, monospace",
+                                    fontSize: '1.8rem',
+                                    fontWeight: 800,
+                                    color: '#ff3366',
+                                    boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)'
+                                }}>
+                                    {scheduleInfo.seconds.toString().padStart(2, '0')}
+                                </div>
+                                <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    Secs
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style={{
+                            marginTop: '1.1rem',
+                            paddingTop: '0.9rem',
+                            borderTop: '1px solid rgba(255,255,255,0.08)',
+                            fontSize: '0.78rem',
+                            color: 'rgba(255,255,255,0.65)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px'
+                        }}>
+                            <span>📅 Session Time:</span>
+                            <strong style={{ color: '#fff' }}>8:00 PM – 10:00 PM Local Time</strong>
+                        </div>
+                    </div>
+
+                    {/* Quick navigation while waiting */}
+                    <div style={{
+                        display: 'flex',
+                        gap: '10px',
+                        width: '100%',
+                        maxWidth: '340px',
+                        marginBottom: '1.5rem'
+                    }}>
+                        <button
+                            onClick={() => navigate('/boost')}
+                            style={{
+                                flex: 1,
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                                borderRadius: '16px',
+                                padding: '12px 10px',
+                                color: '#fff',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            <Flame size={20} color="#ff3366" />
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Watch Reels</span>
+                        </button>
+
+                        <button
+                            onClick={() => navigate('/explore')}
+                            style={{
+                                flex: 1,
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                                borderRadius: '16px',
+                                padding: '12px 10px',
+                                color: '#fff',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            <Globe size={20} color="#34C759" />
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Read News</span>
+                        </button>
+
+                        <button
+                            onClick={() => navigate('/home')}
+                            style={{
+                                flex: 1,
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                border: '1px solid rgba(255, 255, 255, 0.15)',
+                                borderRadius: '16px',
+                                padding: '12px 10px',
+                                color: '#fff',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            <MessageSquare size={20} color="#60a5fa" />
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Chat</span>
+                        </button>
+                    </div>
+
+                    {/* ⚡ Developer / Tester Mode Bypass Card */}
+                    <div style={{
+                        width: '100%',
+                        maxWidth: '340px',
+                        background: 'rgba(245, 165, 36, 0.08)',
+                        border: '1px dashed rgba(245, 165, 36, 0.45)',
+                        borderRadius: '20px',
+                        padding: '16px',
+                        textAlign: 'center',
+                        boxSizing: 'border-box'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#f5a524', fontWeight: 700, fontSize: '0.85rem', marginBottom: '6px' }}>
+                            <Zap size={16} /> Dev / Tester Mode
+                        </div>
+                        <p style={{ color: 'rgba(255, 255, 255, 0.65)', fontSize: '0.78rem', margin: '0 0 12px', lineHeight: 1.4 }}>
+                            Test voice calls, microphone, and Tara AI companion outside 8:00 PM – 10:00 PM.
+                        </p>
+                        <button
+                            onClick={toggleDevBypass}
+                            style={{
+                                background: 'linear-gradient(135deg, #f5a524 0%, #ff3366 100%)',
+                                border: 'none',
+                                color: '#fff',
+                                fontWeight: 700,
+                                fontSize: '0.85rem',
+                                padding: '10px 20px',
+                                borderRadius: '24px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                boxShadow: '0 4px 16px rgba(245, 165, 36, 0.35)',
+                                transition: 'transform 0.15s ease'
+                            }}
+                        >
+                            <Zap size={16} /> Enter Call Hub Now (Dev Bypass)
+                        </button>
+                    </div>
+                </div>
+            </>
+        );
+    }
+
+    // ── Main Calling Screen (When Window is Open or Dev Bypassed) ──
     return (
         <>
             <audio
@@ -3673,7 +4009,67 @@ const VoiceCall = () => {
                 style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}
             />
             <div className="call-hub-bg pb-20">
-            <div className="text-center mb-8">
+            {/* Top Status Banner */}
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '0.5rem', marginBottom: '0.75rem', padding: '0 16px' }}>
+                {scheduleInfo.isActive ? (
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        background: 'rgba(52, 199, 89, 0.14)',
+                        border: '1px solid rgba(52, 199, 89, 0.4)',
+                        padding: '7px 18px',
+                        borderRadius: '30px',
+                        boxShadow: '0 0 20px rgba(52, 199, 89, 0.2)'
+                    }}>
+                        <span style={{
+                            background: '#34C759', width: '9px', height: '9px', borderRadius: '50%',
+                            boxShadow: '0 0 10px #34C759', animation: 'pulse 1.6s infinite'
+                        }} />
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#34C759' }}>
+                            🟢 CALLING OPEN (8:00 PM – 10:00 PM) • {scheduleInfo.formatted} remaining
+                        </span>
+                    </div>
+                ) : devBypass ? (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        background: 'rgba(245, 165, 36, 0.14)',
+                        border: '1px solid rgba(245, 165, 36, 0.4)',
+                        padding: '8px 16px',
+                        borderRadius: '24px',
+                        maxWidth: '380px',
+                        width: '100%',
+                        boxSizing: 'border-box'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Zap size={16} color="#f5a524" />
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f5a524' }}>
+                                ⚡ Dev Bypass Active (Calls unlocked)
+                            </span>
+                        </div>
+                        <button
+                            onClick={toggleDevBypass}
+                            style={{
+                                background: 'rgba(255,255,255,0.12)',
+                                border: '1px solid rgba(255,255,255,0.25)',
+                                color: '#fff',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                padding: '4px 10px',
+                                borderRadius: '12px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Exit Dev Mode
+                        </button>
+                    </div>
+                ) : null}
+            </div>
+
+            <div className="text-center mb-6">
                 <h2 className="title mb-2">Voice Roulette</h2>
                 <p className="text-gray-400">Connect with similar minds securely.</p>
             </div>
@@ -3886,22 +4282,19 @@ const VoiceCall = () => {
                     gap: '10px'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{
-                            background: '#34C759', width: '10px', height: '10px', borderRadius: '50%',
-                            boxShadow: '0 0 10px #34C759', animation: 'pulse 1.8s infinite'
-                        }} />
+                        <Clock size={16} color={scheduleInfo.isActive ? '#34C759' : '#f5a524'} />
                         <span style={{
                             fontWeight: 700,
                             fontSize: '0.95rem',
-                            color: '#34C759',
+                            color: scheduleInfo.isActive ? '#34C759' : '#f5a524',
                             letterSpacing: '0.3px'
                         }}>
-                            Voice Space is LIVE 24/7
+                            {scheduleInfo.isActive ? '🟢 Calling Window Active' : 'Calling Window: 8:00 PM – 10:00 PM'}
                         </span>
                     </div>
 
                     <p style={{ color: 'rgba(255,255,255,0.78)', fontSize: '0.82rem', margin: 0, lineHeight: 1.45 }}>
-                        Connect and speak with real online users anytime! Peak hours are <strong style={{ color: '#f5a524' }}>8:00 PM – 10:00 PM</strong> when the most users are online.
+                        Voice calls operate exclusively from <strong style={{ color: '#f5a524' }}>8:00 PM to 10:00 PM daily</strong>. No calls in-between.
                     </p>
 
                     {/* Peak Hours Status Badge */}
