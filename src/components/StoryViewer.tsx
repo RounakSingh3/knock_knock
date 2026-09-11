@@ -51,7 +51,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const handleConvertToSnap = async (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!currentUserId || !currentStory) {
-            alert('Please log in to convert this video into your Snap.');
+            alert('Please log in to convert this video into your Knockup.');
             return;
         }
         try {
@@ -60,8 +60,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             setSnapConvertedToast(true);
             setTimeout(() => setSnapConvertedToast(false), 3000);
         } catch (err: any) {
-            console.error('Failed to convert to snap:', err);
-            alert('Could not convert video to snap. Please try again.');
+            console.error('Failed to convert to knockup:', err);
+            alert('Could not convert video to Knockup. Please try again.');
         }
     };
 
@@ -361,7 +361,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     {currentUserId && currentStory.user_id !== currentUserId && (
                         <button
                             onClick={handleConvertToSnap}
-                            title="Convert video to your own 24h Snap"
+                            title="Convert video to your own 24h Knockup"
                             style={{
                                 background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
                                 border: 'none',
@@ -382,7 +382,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
                         >
                             <Zap size={13} fill="#000" />
-                            <span>Convert Snap</span>
+                            <span>Convert Knockup</span>
                         </button>
                     )}
                     {currentStory.user_id === currentUserId && (
@@ -464,7 +464,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     alignItems: 'center',
                     gap: '6px'
                 }}>
-                    <Check size={14} /> Converted to your 24h Snap!
+                    <Check size={14} /> Converted to your 24h Knockup!
                 </div>
             )}
 

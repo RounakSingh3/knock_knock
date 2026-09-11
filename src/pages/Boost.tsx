@@ -367,23 +367,23 @@ const Boost: React.FC = () => {
         });
     }, [combinedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
 
-    // Convert to Snap handler
+    // Convert to Knockup handler
     const handleConvertToSnap = async (story: StoryData, e: React.MouseEvent) => {
         e.stopPropagation();
         if (!user) {
-            alert('Please log in to convert this video into your Snap.');
+            alert('Please log in to convert this video into your Knockup.');
             return;
         }
 
         try {
             const { error } = await convertToPersonalSnap(user.id, story, user.username || user.name);
             if (error) throw error;
-            setSnapToast('🎉 Video converted to your 24h Snap!');
+            setSnapToast('🎉 Video converted to your 24h Knockup!');
             setTimeout(() => setSnapToast(null), 3500);
             await loadFeed(true);
         } catch (err: any) {
-            console.error('Convert to snap error:', err);
-            alert('Failed to convert video to snap. Please try again.');
+            console.error('Convert to knockup error:', err);
+            alert('Failed to convert video to Knockup. Please try again.');
         }
     };
 
@@ -754,22 +754,9 @@ const Boost: React.FC = () => {
                         <Rocket size={20} color="#000" />
                     </div>
                     <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '800', letterSpacing: '-0.3px', background: 'linear-gradient(135deg, #f5a524, #ff3366)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                                Explore & Ads
-                            </h1>
-                            <span style={{
-                                fontSize: '10px', fontWeight: '800', color: '#ff6b35',
-                                background: 'rgba(255,107,53,0.15)', padding: '2px 6px',
-                                borderRadius: '6px', border: '1px solid rgba(255,107,53,0.3)',
-                                textTransform: 'uppercase', letterSpacing: '0.5px'
-                            }}>
-                                Instagram Vibe
-                            </span>
-                        </div>
-                        <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)' }}>
-                            Trending #Hashtags • Video Ads • Convert to Snap
-                        </p>
+                        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '900', letterSpacing: '-0.3px', background: 'linear-gradient(135deg, #f5a524, #ff3366)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                            Knockup
+                        </h1>
                     </div>
                 </div>
 
@@ -1090,27 +1077,27 @@ const Boost: React.FC = () => {
                     })}
                 </div>
 
-                {/* ── 24-Hour Ephemeral Discovery Feed (Grid) ── */}
-                <div style={{ padding: '16px' }}>
+                {/* ── 24-Hour Ephemeral Discovery Feed (Grid - 3 Columns like Third Page) ── */}
+                <div style={{ padding: '0 12px 24px 12px' }}>
                     {isLoading && stories.length === 0 ? (
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                            gap: '12px'
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: '2px'
                         }}>
-                            {[1, 2, 3, 4, 5, 6].map(i => (
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => (
                                 <div
                                     key={i}
                                     style={{
-                                        aspectRatio: '9 / 16',
-                                        borderRadius: '16px',
+                                        aspectRatio: '1',
+                                        borderRadius: '4px',
                                         background: 'rgba(255,255,255,0.04)',
                                         border: '1px solid rgba(255,255,255,0.06)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         opacity: 0.7
                                     }}
                                 >
-                                    <Rocket size={24} color="rgba(245, 165, 36, 0.4)" />
+                                    <Rocket size={20} color="rgba(245, 165, 36, 0.4)" />
                                 </div>
                             ))}
                         </div>
@@ -1151,14 +1138,11 @@ const Boost: React.FC = () => {
                     ) : (
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                            gap: '12px'
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: '2px'
                         }}>
                             {filteredStories.map((story) => {
-                                const timeInfo = getTimeRemaining(story.created_at);
-                                const isUserOwn = user && story.user_id === user.id;
-                                const targetScreens = story.target_screens || 24;
-                                const deliveredScreens = story.screens_delivered || 0;
+                                const isVideo = isVideoUrl(story.image_url);
                                 const isBoosted = story.is_boosted;
 
                                 return (
@@ -1168,28 +1152,25 @@ const Boost: React.FC = () => {
                                         data-story-id={story.id}
                                         onClick={() => handleOpenStory(story)}
                                         style={{
-                                            aspectRatio: '9 / 16',
-                                            borderRadius: '16px',
-                                            overflow: 'hidden',
+                                            aspectRatio: '1',
                                             position: 'relative',
-                                            background: '#181818',
                                             cursor: 'pointer',
-                                            boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
-                                            border: isBoosted ? '1.5px solid rgba(245, 165, 36, 0.45)' : '1px solid rgba(255,255,255,0.06)',
-                                            transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                                            overflow: 'hidden',
+                                            borderRadius: '4px',
+                                            background: '#18181b',
+                                            contain: 'layout paint',
+                                            transition: 'transform 0.15s ease'
                                         }}
                                         onMouseEnter={e => {
-                                            e.currentTarget.style.transform = 'translateY(-3px)';
-                                            e.currentTarget.style.boxShadow = '0 8px 24px rgba(245, 165, 36, 0.25)';
+                                            e.currentTarget.style.transform = 'scale(0.98)';
                                         }}
                                         onMouseLeave={e => {
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                            e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+                                            e.currentTarget.style.transform = 'scale(1)';
                                         }}
                                     >
                                         {/* Media */}
-                                        {isVideoUrl(story.image_url) ? (
-                                            <div style={{ width: '100%', height: '100%', position: 'relative', background: '#111' }}>
+                                        {isVideo ? (
+                                            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                                                 <video
                                                     src={`${story.image_url.split('#')[0]}#t=0.001`}
                                                     muted
@@ -1197,30 +1178,8 @@ const Boost: React.FC = () => {
                                                     preload="metadata"
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                 />
-                                                <div style={{
-                                                    position: 'absolute', inset: 0,
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    pointerEvents: 'none'
-                                                }}>
-                                                    <div style={{
-                                                        background: 'rgba(0,0,0,0.45)',
-                                                        backdropFilter: 'blur(4px)',
-                                                        borderRadius: '50%',
-                                                        width: '32px', height: '32px',
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
-                                                    }}>
-                                                        <Play size={15} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
-                                                    </div>
-                                                </div>
-                                                <div style={{
-                                                    position: 'absolute', bottom: '8px', right: '8px',
-                                                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-                                                    padding: '2px 6px', borderRadius: '6px',
-                                                    fontSize: '9px', fontWeight: 'bold', color: '#fff',
-                                                    display: 'flex', alignItems: 'center', gap: '3px'
-                                                }}>
-                                                    <Play size={8} fill="#fff" /> 30s
+                                                <div style={{ position: 'absolute', top: '6px', right: '6px', zIndex: 4, pointerEvents: 'none' }}>
+                                                    <Play size={14} color="#fff" fill="#fff" />
                                                 </div>
                                             </div>
                                         ) : (
@@ -1232,170 +1191,37 @@ const Boost: React.FC = () => {
                                             />
                                         )}
 
-                                        {/* Top Overlay Badges */}
-                                        <div style={{
-                                            position: 'absolute', top: '8px', left: '8px', right: '8px',
-                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                            zIndex: 5
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                {story.is_sponsored ? (
-                                                    <div style={{
-                                                        background: 'linear-gradient(135deg, #ff3366, #f5a524)',
-                                                        borderRadius: '10px',
-                                                        padding: '3px 7px',
-                                                        fontSize: '9px',
-                                                        fontWeight: '800',
-                                                        color: '#fff',
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: '0.4px',
-                                                        boxShadow: '0 2px 8px rgba(255,51,102,0.4)'
-                                                    }}>
-                                                        Sponsored
-                                                    </div>
-                                                ) : isBoosted ? (
-                                                    <div style={{
-                                                        background: 'linear-gradient(135deg, rgba(245,165,36,0.9), rgba(255,107,53,0.9))',
-                                                        borderRadius: '10px',
-                                                        padding: '3px 7px',
-                                                        display: 'flex', alignItems: 'center', gap: '3px',
-                                                        fontSize: '9px', fontWeight: '800',
-                                                        color: '#000',
-                                                        boxShadow: '0 2px 8px rgba(245, 165, 36, 0.4)'
-                                                    }}>
-                                                        <Flame size={10} />
-                                                        <span>+{story.points_spent || 10}</span>
-                                                    </div>
-                                                ) : (
-                                                    <div style={{
-                                                        background: 'rgba(0,0,0,0.7)',
-                                                        backdropFilter: 'blur(8px)',
-                                                        borderRadius: '10px',
-                                                        padding: '3px 6px',
-                                                        display: 'flex', alignItems: 'center', gap: '3px',
-                                                        fontSize: '9px', fontWeight: '700',
-                                                        color: '#60a5fa',
-                                                        border: '1px solid rgba(96,165,250,0.3)'
-                                                    }}>
-                                                        <Clock size={9} />
-                                                        <span>{timeInfo.text}</span>
-                                                    </div>
-                                                )}
+                                        {/* Sponsored / Ad Badge */}
+                                        {story.is_sponsored && (
+                                            <div style={{
+                                                position: 'absolute', top: '6px', left: '6px', zIndex: 4,
+                                                background: 'linear-gradient(135deg, #ff3366, #f5a524)',
+                                                borderRadius: '6px', padding: '1px 5px',
+                                                fontSize: '9px', fontWeight: '800', color: '#fff',
+                                                textTransform: 'uppercase', letterSpacing: '0.3px',
+                                                boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                                                pointerEvents: 'none'
+                                            }}>
+                                                Ad
                                             </div>
+                                        )}
 
-                                            {/* Convert to Snap Action Button on Card */}
-                                            {user && story.user_id !== user.id && (
-                                                <button
-                                                    onClick={(e) => handleConvertToSnap(story, e)}
-                                                    title="Convert this video into your 24h Snap"
-                                                    style={{
-                                                        background: 'rgba(0,0,0,0.75)',
-                                                        backdropFilter: 'blur(8px)',
-                                                        border: '1px solid rgba(245,165,36,0.45)',
-                                                        borderRadius: '12px',
-                                                        padding: '3px 8px',
-                                                        color: '#f5a524',
-                                                        fontSize: '10px',
-                                                        fontWeight: '800',
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
-                                                    }}
-                                                >
-                                                    <Zap size={11} fill="#f5a524" /> Snap
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        {/* Bottom Gradient Overlay & Details */}
+                                        {/* Bottom Details Overlay (Instagram Explore style) */}
                                         <div style={{
                                             position: 'absolute', bottom: 0, left: 0, right: 0,
-                                            background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 40%, rgba(0,0,0,0.95) 100%)',
-                                            padding: '24px 10px 10px 10px',
-                                            zIndex: 5,
-                                            display: 'flex', flexDirection: 'column', gap: '6px'
+                                            background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
+                                            padding: '12px 6px 4px 6px',
+                                            zIndex: 3,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            pointerEvents: 'none'
                                         }}>
-                                            {/* Creator info */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <img
-                                                    src={`https://i.pravatar.cc/150?u=${story.username || story.user_id}`}
-                                                    alt=""
-                                                    style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #fff' }}
-                                                />
-                                                <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {isUserOwn ? 'You' : `@${story.username || 'user'}`}
-                                                </span>
-                                            </div>
-
-                                            {/* Caption snippet */}
-                                            {story.caption && (
-                                                <p style={{
-                                                    margin: 0, fontSize: '11px', color: 'rgba(255,255,255,0.85)',
-                                                    display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical',
-                                                    overflow: 'hidden', textOverflow: 'ellipsis'
-                                                }}>
-                                                    {story.caption}
-                                                </p>
-                                            )}
-
-                                            {/* Music Badge */}
-                                            {story.music_title && (
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: '4px',
-                                                    fontSize: '10px', color: '#f5a524',
-                                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                                                }}>
-                                                    <Music size={10} />
-                                                    <span>{story.music_title}</span>
-                                                </div>
-                                            )}
-
-                                            {/* 🔗 Advertisement Call-To-Action Button on Card */}
-                                            {story.link_url && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        window.open(story.link_url, '_blank', 'noopener,noreferrer');
-                                                    }}
-                                                    style={{
-                                                        background: 'linear-gradient(135deg, #ff3366, #f5a524)',
-                                                        color: '#fff',
-                                                        border: 'none',
-                                                        borderRadius: '12px',
-                                                        padding: '4px 8px',
-                                                        fontSize: '10px',
-                                                        fontWeight: 800,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        gap: '4px',
-                                                        cursor: 'pointer',
-                                                        boxShadow: '0 2px 10px rgba(255,51,102,0.4)',
-                                                        marginTop: '2px'
-                                                    }}
-                                                >
-                                                    <ExternalLink size={10} />
-                                                    <span>{story.link_cta || 'Shop Now'} ↗</span>
-                                                </button>
-                                            )}
-
-                                            {/* Reach Delivery Indicator */}
+                                            <span style={{ fontSize: '10px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                @{story.username || 'user'}
+                                            </span>
                                             {isBoosted && (
-                                                <div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#ffcc00', fontWeight: '700', marginBottom: '2px' }}>
-                                                        <span>{deliveredScreens} / {targetScreens} screens</span>
-                                                        <span>{Math.round((deliveredScreens / targetScreens) * 100)}%</span>
-                                                    </div>
-                                                    <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
-                                                        <div style={{
-                                                            width: `${Math.min(100, Math.round((deliveredScreens / targetScreens) * 100))}%`,
-                                                            height: '100%',
-                                                            background: 'linear-gradient(90deg, #f5a524, #ff6b35)'
-                                                        }} />
-                                                    </div>
-                                                </div>
+                                                <span style={{ fontSize: '9px', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                                    <Flame size={10} fill="#f5a524" />
+                                                </span>
                                             )}
                                         </div>
                                     </div>
@@ -1732,7 +1558,7 @@ const Boost: React.FC = () => {
                                 </button>
                             </div>
 
-                            {/* Post Type Selector (Explore Video/Ad vs 24h Snap) */}
+                            {/* Post Type Selector (Explore Video/Ad vs 24h Knockup) */}
                             <div style={{
                                 display: 'flex',
                                 background: 'rgba(0,0,0,0.4)',
@@ -1772,7 +1598,7 @@ const Boost: React.FC = () => {
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    ⚡ 24h Ephemeral Snap
+                                    ⚡ 24h Knockup
                                 </button>
                             </div>
 
