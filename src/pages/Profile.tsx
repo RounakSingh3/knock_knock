@@ -1,18 +1,23 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { 
     fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
     uploadMedia, updateProfile, blockUser, unblockUser,
-    getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData
+    getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData,
+    checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost
 } from '../lib/database';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2 } from 'lucide-react';
 import { isVideoPost, compressImage } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
 import { supabase } from '../lib/supabase';
 import { audioPlayer } from '../lib/audioPlayer';
+
+const ChatPanel = lazy(() => import('../components/ChatPanel'));
+const ShareModal = lazy(() => import('../components/ShareModal'));
+const CommentsSheet = lazy(() => import('../components/CommentsSheet'));
 
 const Profile = () => {
     const { username } = useParams<{ username: string }>();
@@ -35,6 +40,23 @@ const Profile = () => {
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
     const [isMuted, setIsMuted] = useState(false);
 
+    // ── Share, Chat, and Comments States ──
+    const [isShareOpen, setIsShareOpen] = useState(false);
+    const [postToShare, setPostToShare] = useState<PostData | null>(null);
+    const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+    const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatUserId, setChatUserId] = useState<string | null>(null);
+    const [chatRefreshKey, setChatRefreshKey] = useState(0);
+    const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: any } | null>(null);
+    const [postFilter, setPostFilter] = useState<'all' | 'reels'>('all');
+
+    // Selected post interaction states
+    const [selectedPostLiked, setSelectedPostLiked] = useState(false);
+    const [selectedPostLikesCount, setSelectedPostLikesCount] = useState(0);
+    const [selectedPostImped, setSelectedPostImped] = useState(false);
+    const [selectedPostImpsCount, setSelectedPostImpsCount] = useState(0);
+
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
     const [updatingAvatar, setUpdatingAvatar] = useState(false);
@@ -45,6 +67,53 @@ const Profile = () => {
     const [isConnected, setIsConnected] = useState(false);
     const [isOnline, setIsOnline] = useState(false);
     const [loadingCallAction, setLoadingCallAction] = useState(false);
+
+    // Sync like & imp status when selectedPost changes
+    useEffect(() => {
+        if (selectedPost && currentUser) {
+            checkIfLiked(currentUser.id, selectedPost.id).then(setSelectedPostLiked);
+            setSelectedPostLikesCount(selectedPost.likes_count || 0);
+            fetchUserImps(currentUser.id).then(imps => setSelectedPostImped(imps.includes(selectedPost.id)));
+            setSelectedPostImpsCount(selectedPost.imps_count || 0);
+        }
+    }, [selectedPost?.id, currentUser?.id]);
+
+    const handleSharePost = (post: PostData) => {
+        const enrichedPost: PostData = {
+            ...post,
+            username: post.username || profile?.username || displayUsername,
+            avatar_url: post.avatar_url || profile?.avatar_url || ''
+        };
+        setPostToShare(enrichedPost);
+        setIsShareOpen(true);
+    };
+
+    const handleToggleSelectedLike = async () => {
+        if (!currentUser || !selectedPost) return;
+        const newLiked = !selectedPostLiked;
+        setSelectedPostLiked(newLiked);
+        setSelectedPostLikesCount(prev => newLiked ? prev + 1 : Math.max(0, prev - 1));
+        await toggleLike(currentUser.id, selectedPost.id, selectedPostLiked);
+    };
+
+    const handleToggleSelectedImp = async () => {
+        if (!currentUser || !selectedPost) return;
+        const newImped = !selectedPostImped;
+        setSelectedPostImped(newImped);
+        setSelectedPostImpsCount(prev => newImped ? prev + 1 : Math.max(0, prev - 1));
+        await toggleImp(currentUser.id, selectedPost.id, selectedPostImped);
+    };
+
+    const handleDeleteSelectedPost = async () => {
+        if (!currentUser || !selectedPost) return;
+        if (window.confirm('Delete this post?')) {
+            const ok = await deletePost(selectedPost.id);
+            if (ok) {
+                setPosts(prev => prev.filter(p => p.id !== selectedPost.id));
+                setSelectedPost(null);
+            }
+        }
+    };
 
     const isBlocked = profile ? blockedIds.includes(profile.id) : false;
 
@@ -655,6 +724,19 @@ const Profile = () => {
                                         </button>
                                     )}
 
+                                    {/* Message Button to direct message account owner */}
+                                    <button 
+                                        className="profile-action-btn" 
+                                        style={{ background: 'linear-gradient(135deg, #f5a524, #ff4500)', color: '#000', fontWeight: 'bold' }}
+                                        onClick={() => {
+                                            setChatUserId(profile.id);
+                                            setIsChatOpen(true);
+                                        }}
+                                        title="Message User"
+                                    >
+                                        <MessageCircle size={16} /> Message
+                                    </button>
+
                                     <button 
                                         className="profile-action-btn" 
                                         style={{ background: 'var(--border-color)', color: '#ff3b30', flex: '0 0 auto', padding: '0 12px' }}
@@ -668,7 +750,28 @@ const Profile = () => {
                             )}
                         </>
                     )}
-                    {!isBlocked && <button className="profile-action-btn" style={{ flex: isOwnProfile ? 1 : '0 0 auto', padding: isOwnProfile ? undefined : '0 12px' }}>Share</button>}
+                    {!isBlocked && (
+                        <button 
+                            className="profile-action-btn" 
+                            style={{ flex: isOwnProfile ? 1 : '0 0 auto', padding: isOwnProfile ? undefined : '0 12px' }}
+                            onClick={() => {
+                                const shareUrl = window.location.href;
+                                if (navigator.share) {
+                                    navigator.share({
+                                        title: `${profile?.name || displayUsername} (@${displayUsername}) on Knock Knock`,
+                                        text: `Check out ${profile?.name || displayUsername}'s profile on Knock Knock!`,
+                                        url: shareUrl,
+                                    }).catch(() => {});
+                                } else {
+                                    navigator.clipboard.writeText(shareUrl);
+                                    alert('Profile link copied to clipboard!');
+                                }
+                            }}
+                            title="Share Profile"
+                        >
+                            <Share2 size={16} /> Share
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -684,17 +787,29 @@ const Profile = () => {
                     {/* ── Content Upload Summary ── */}
             <div style={{ padding: '0 1rem 0.5rem' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    <div className="upload-summary-card">
+                    <div 
+                        className="upload-summary-card" 
+                        style={{ cursor: 'pointer', border: postFilter === 'all' && activeTab === 'posts' ? '1px solid rgba(255,51,102,0.4)' : undefined }}
+                        onClick={() => { setActiveTab('posts'); setPostFilter('all'); }}
+                    >
                         <Grid size={20} color="#ff3366" />
                         <span className="font-bold">{photoPosts.length}</span>
                         <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Photos</span>
                     </div>
-                    <div className="upload-summary-card">
+                    <div 
+                        className="upload-summary-card" 
+                        style={{ cursor: 'pointer', border: postFilter === 'reels' && activeTab === 'posts' ? '1px solid rgba(175,82,222,0.6)' : undefined }}
+                        onClick={() => { setActiveTab('posts'); setPostFilter('reels'); }}
+                    >
                         <Film size={20} color="#af52de" />
                         <span className="font-bold">{videoPosts.length}</span>
-                        <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Videos</span>
+                        <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Videos / Reels</span>
                     </div>
-                    <div className="upload-summary-card">
+                    <div 
+                        className="upload-summary-card" 
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => { setActiveTab('posts'); setPostFilter('all'); }}
+                    >
                         <TrendingUp size={20} color="#facc15" />
                         <span className="font-bold">{posts.length}</span>
                         <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Total</span>
@@ -729,65 +844,154 @@ const Profile = () => {
                 {/* Posts Tab */}
                 {activeTab === 'posts' && (
                     <>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-                            {posts.map(post => (
-                                <div
-                                    key={post.id}
+                        {/* Sub-filter chips: All Posts vs Reels */}
+                        {posts.length > 0 && (
+                            <div style={{ display: 'flex', gap: '8px', padding: '8px 12px 10px', alignItems: 'center' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setPostFilter('all')}
                                     style={{
-                                        position: 'relative',
-                                        aspectRatio: '1/1',
-                                        background: 'var(--border-color)',
-                                        overflow: 'hidden',
-                                        cursor: 'pointer',
+                                        padding: '5px 12px',
+                                        borderRadius: '16px',
+                                        border: postFilter === 'all' ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                        background: postFilter === 'all' ? 'rgba(245,165,36,0.15)' : 'rgba(255,255,255,0.04)',
+                                        color: postFilter === 'all' ? '#f5a524' : 'var(--text-inactive)',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer'
                                     }}
-                                    onClick={() => setSelectedPost(post)}
                                 >
-                                    <PostMedia
-                                        post={post}
-                                        alt="Post"
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        muted
-                                        loop
-                                        playsInline
-                                        autoPlay={false}
-                                    />
-                                    {isVideoPost(post) && (
-                                        <div
+                                    All Posts ({posts.length})
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPostFilter('reels')}
+                                    style={{
+                                        padding: '5px 12px',
+                                        borderRadius: '16px',
+                                        border: postFilter === 'reels' ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                        background: postFilter === 'reels' ? 'rgba(245,165,36,0.15)' : 'rgba(255,255,255,0.04)',
+                                        color: postFilter === 'reels' ? '#f5a524' : 'var(--text-inactive)',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}
+                                >
+                                    <Film size={12} />
+                                    <span>Reels ({videoPosts.length})</span>
+                                </button>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                            {(postFilter === 'reels' ? videoPosts : posts).map(post => {
+                                const isVideo = isVideoPost(post);
+                                return (
+                                    <div
+                                        key={post.id}
+                                        style={{
+                                            position: 'relative',
+                                            aspectRatio: '1/1',
+                                            background: 'var(--border-color)',
+                                            overflow: 'hidden',
+                                            cursor: 'pointer',
+                                        }}
+                                        onClick={() => setSelectedPost(post)}
+                                    >
+                                        <PostMedia
+                                            post={post}
+                                            alt="Post"
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            muted
+                                            loop
+                                            playsInline
+                                            autoPlay={false}
+                                        />
+
+                                        {/* Quick Send Reel / Post Button directly on card */}
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSharePost(post);
+                                            }}
+                                            title={isVideo ? "Send Reel" : "Send Post"}
                                             style={{
                                                 position: 'absolute',
-                                                bottom: 6,
-                                                right: 6,
-                                                background: 'rgba(0,0,0,0.6)',
-                                                borderRadius: 4,
-                                                padding: '2px 6px',
-                                                fontSize: 10,
-                                                color: 'var(--text-active)',
-                                                pointerEvents: 'none',
+                                                top: '6px',
+                                                right: '6px',
+                                                zIndex: 6,
+                                                background: 'rgba(0,0,0,0.65)',
+                                                backdropFilter: 'blur(8px)',
+                                                border: '1px solid rgba(255,255,255,0.15)',
+                                                borderRadius: '50%',
+                                                width: '28px',
+                                                height: '28px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                color: '#fff',
+                                                cursor: 'pointer',
+                                                boxShadow: '0 2px 6px rgba(0,0,0,0.4)'
                                             }}
                                         >
-                                            ▶ Tap for sound
-                                        </div>
-                                    )}
-                                    {(post.music_url || post.music_title) && (
-                                        <div style={{
-                                            position: 'absolute', top: '6px', left: '6px', zIndex: 5,
-                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
-                                            padding: '2px 6px', borderRadius: '10px', color: '#fff',
-                                            fontSize: '9px', fontWeight: '600',
-                                        }}>
-                                            <Music size={9} color="#f5a524" />
-                                            <span>{post.music_title || '♪'}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                                            <Send size={13} />
+                                        </button>
+
+                                        {isVideo && (
+                                            <div
+                                                style={{
+                                                    position: 'absolute',
+                                                    bottom: 6,
+                                                    left: 6,
+                                                    background: 'rgba(0,0,0,0.65)',
+                                                    backdropFilter: 'blur(6px)',
+                                                    borderRadius: 6,
+                                                    padding: '2px 6px',
+                                                    fontSize: 10,
+                                                    color: '#f5a524',
+                                                    fontWeight: '700',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '3px',
+                                                    pointerEvents: 'none',
+                                                }}
+                                            >
+                                                <Film size={10} /> Reel
+                                            </div>
+                                        )}
+
+                                        {(post.music_url || post.music_title) && (
+                                            <div style={{
+                                                position: 'absolute', top: '6px', left: '6px', zIndex: 5,
+                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                                                padding: '2px 6px', borderRadius: '10px', color: '#fff',
+                                                fontSize: '9px', fontWeight: '600',
+                                            }}>
+                                                <Music size={9} color="#f5a524" />
+                                                <span>{post.music_title || '♪'}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
-                        {posts.length === 0 && (
+                        {(postFilter === 'reels' ? videoPosts : posts).length === 0 && (
                             <div style={{ textAlign: 'center', padding: '3rem 2rem', color: 'var(--text-inactive)' }}>
                                 <Grid size={40} color="#2c2c2e" style={{ margin: '0 auto 1rem' }} />
-                                <div className="font-bold" style={{ color: 'var(--text-active)', marginBottom: '4px' }}>No Posts Yet</div>
-                                <p>When {isOwnProfile ? 'you share' : `${displayUsername} shares`} photos and videos, they will appear here.</p>
+                                <div className="font-bold" style={{ color: 'var(--text-active)', marginBottom: '4px' }}>
+                                    {postFilter === 'reels' ? 'No Reels Found' : 'No Posts Yet'}
+                                </div>
+                                <p>
+                                    {postFilter === 'reels' 
+                                        ? `This account has not uploaded any video reels yet.`
+                                        : `When ${isOwnProfile ? 'you share' : `${displayUsername} shares`} photos and videos, they will appear here.`
+                                    }
+                                </p>
                             </div>
                         )}
                     </>
@@ -872,8 +1076,45 @@ const Profile = () => {
                             onTouchEnd={handleTouchEnd}
                         >
                             <div className="modal-top-bar">
-                                <span className="modal-username">{displayUsername}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    {profile?.avatar_url && (
+                                        <img
+                                            src={profile.avatar_url}
+                                            alt=""
+                                            style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }}
+                                        />
+                                    )}
+                                    <span className="modal-username">{displayUsername}</span>
+                                </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', pointerEvents: 'auto' }}>
+                                    {/* Prominent Send Reel Button in Top Bar */}
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSharePost(selectedPost);
+                                        }}
+                                        title={isVideoPost(selectedPost) ? "Send Reel to friends" : "Send Post to friends"}
+                                        style={{
+                                            height: '32px',
+                                            padding: '0 12px',
+                                            borderRadius: '16px',
+                                            background: 'linear-gradient(135deg, #f5a524, #ff4500)',
+                                            border: 'none',
+                                            color: '#000',
+                                            fontWeight: '700',
+                                            fontSize: '12px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            cursor: 'pointer',
+                                            boxShadow: '0 2px 8px rgba(245,165,36,0.35)'
+                                        }}
+                                    >
+                                        <Send size={13} />
+                                        <span>Send</span>
+                                    </button>
+
                                     <button
                                         className="modal-mute-btn"
                                         type="button"
@@ -948,11 +1189,72 @@ const Profile = () => {
                                     <span style={{ fontSize: '11px', color: '#f5a524' }}>🔊 Playing</span>
                                 </div>
                             )}
-                            {selectedPost.caption && (
-                                <div className="modal-details modal-details--sheet">
+
+                            {/* Full Bottom Action Bar with Send Reel, Like, Comments, and Imp */}
+                            <div className="modal-details modal-details--sheet">
+                                {selectedPost.caption && (
                                     <p className="modal-caption">{selectedPost.caption}</p>
+                                )}
+                                {selectedPost.attached_link && (
+                                    <a
+                                        href={selectedPost.attached_link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="modal-link"
+                                        style={{ color: '#f5a524', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '8px' }}
+                                    >
+                                        🔗 {selectedPost.attached_link}
+                                    </a>
+                                )}
+                                <div className="modal-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                    <button
+                                        className={`modal-action-btn ${selectedPostLiked ? 'liked' : ''}`}
+                                        onClick={handleToggleSelectedLike}
+                                        style={{ color: selectedPostLiked ? '#ff4500' : 'var(--text-active)' }}
+                                    >
+                                        <Heart size={20} fill={selectedPostLiked ? '#ff4500' : 'none'} color={selectedPostLiked ? '#ff4500' : 'var(--text-active)'} />
+                                        <span>{selectedPostLikesCount}</span>
+                                    </button>
+                                    <button
+                                        className="modal-action-btn"
+                                        onClick={() => {
+                                            setCommentsPostId(selectedPost.id);
+                                            setIsCommentsOpen(true);
+                                        }}
+                                    >
+                                        <MessageCircle size={20} />
+                                        <span>{selectedPost.comments_count || 0}</span>
+                                    </button>
+                                    <button
+                                        className="modal-action-btn"
+                                        onClick={() => handleSharePost(selectedPost)}
+                                        style={{ color: '#f5a524', fontWeight: '700' }}
+                                        title={isVideoPost(selectedPost) ? "Send Reel to friends" : "Send Post to friends"}
+                                    >
+                                        <Send size={20} />
+                                        <span>{isVideoPost(selectedPost) ? 'Send Reel' : 'Send'}</span>
+                                    </button>
+                                    <button
+                                        className={`modal-action-btn ${selectedPostImped ? 'imped' : ''}`}
+                                        onClick={handleToggleSelectedImp}
+                                        title="Imp / Boost post"
+                                        style={{ color: selectedPostImped ? '#ff4500' : 'var(--text-active)' }}
+                                    >
+                                        <Flame size={20} fill={selectedPostImped ? '#ff4500' : 'none'} color={selectedPostImped ? '#ff4500' : 'var(--text-active)'} />
+                                        <span>{selectedPostImpsCount}</span>
+                                    </button>
+                                    {isOwnProfile && (
+                                        <button
+                                            className="modal-action-btn"
+                                            style={{ color: '#ff3b30', marginLeft: 'auto' }}
+                                            onClick={handleDeleteSelectedPost}
+                                            title="Delete Post"
+                                        >
+                                            <Trash2 size={20} />
+                                        </button>
+                                    )}
                                 </div>
-                            )}
+                            </div>
                         </div>
                     </div>
                 );
@@ -973,6 +1275,63 @@ const Profile = () => {
                         }
                     }}
                 />
+            )}
+
+            {/* Comments Sheet Modal */}
+            {isCommentsOpen && commentsPostId && currentUser && (
+                <Suspense fallback={null}>
+                    <CommentsSheet
+                        postId={commentsPostId}
+                        isOpen={isCommentsOpen}
+                        currentUser={{ id: currentUser.id, username: currentUser.username || 'user', avatar_url: currentUser.avatar_url }}
+                        onClose={() => {
+                            setIsCommentsOpen(false);
+                            setCommentsPostId(null);
+                        }}
+                    />
+                </Suspense>
+            )}
+
+            {/* Direct Chat Panel */}
+            {isChatOpen && currentUser && (
+                <Suspense fallback={null}>
+                    <ChatPanel
+                        isOpen={isChatOpen}
+                        onClose={() => {
+                            setIsChatOpen(false);
+                            setChatUserId(null);
+                        }}
+                        currentUser={{ ...currentUser, username: currentUser.username || 'user' }}
+                        initialOpenUserId={chatUserId}
+                        refreshKey={chatRefreshKey}
+                        pendingShare={pendingShare}
+                    />
+                </Suspense>
+            )}
+
+            {/* Send Reel / Share Modal */}
+            {isShareOpen && postToShare && currentUser && (
+                <Suspense fallback={null}>
+                    <ShareModal
+                        isOpen={isShareOpen}
+                        onClose={() => {
+                            setIsShareOpen(false);
+                            setPostToShare(null);
+                        }}
+                        post={postToShare}
+                        currentUser={{ ...currentUser, username: currentUser.username || 'user' }}
+                        onMessageSent={(receiverId, message) => {
+                            setPendingShare({ receiverId, message });
+                            setChatRefreshKey(k => k + 1);
+                        }}
+                        onViewChat={(userId) => {
+                            setIsShareOpen(false);
+                            setPostToShare(null);
+                            setChatUserId(userId);
+                            setIsChatOpen(true);
+                        }}
+                    />
+                </Suspense>
             )}
         </div>
     );
