@@ -446,16 +446,17 @@ export async function createNewPost(post: {
 /** Upload a canvas/data-URL story image or video to storage.
  *  For images, compresses to max 1200x1200 JPEG at 0.75 quality for fast upload. */
 export async function uploadStoryImage(dataUrl: string, userId: string): Promise<string> {
-    const isVideo = dataUrl.startsWith('data:video/');
-    if (isVideo) {
+    if (dataUrl.startsWith('blob:') || dataUrl.startsWith('data:video/')) {
         try {
             const res = await fetch(dataUrl);
             const blob = await res.blob();
-            const file = new File([blob], `story-${Date.now()}.mp4`, { type: blob.type || 'video/mp4' });
-            const path = `stories/${userId}-${Date.now()}.mp4`;
+            const isVid = blob.type.startsWith('video/') || dataUrl.startsWith('data:video/');
+            const ext = isVid ? (blob.type.includes('webm') ? 'webm' : 'mp4') : 'jpg';
+            const file = new File([blob], `story-${Date.now()}.${ext}`, { type: blob.type || (isVid ? 'video/mp4' : 'image/jpeg') });
+            const path = `stories/${userId}-${Date.now()}.${ext}`;
             return await uploadMedia(file, path);
         } catch (e) {
-            console.warn('Failed to upload video dataUrl to storage, returning direct dataUrl fallback:', e);
+            console.warn('Failed to upload video/blob to storage, returning direct fallback:', e);
             return dataUrl;
         }
     }

@@ -255,6 +255,7 @@ const Boost: React.FC = () => {
 
     // Camera Controls & 30-Second Video Recording
     const startCamera = async (mode: 'photo' | 'video' = cameraMode) => {
+        setCameraMode(mode);
         setIsCameraActive(true);
         setCapturedMediaUrl(null);
         setSelectedFile(null);
@@ -396,35 +397,41 @@ const Boost: React.FC = () => {
             const isVid = isVideoFile(file);
 
             if (isVid) {
-                // Validate video duration: maximum 30 seconds
+                const objectUrl = URL.createObjectURL(file);
                 const tempVideo = document.createElement('video');
                 tempVideo.preload = 'metadata';
-                const objectUrl = URL.createObjectURL(file);
                 tempVideo.src = objectUrl;
 
-                tempVideo.onloadedmetadata = () => {
-                    URL.revokeObjectURL(objectUrl);
-                    if (tempVideo.duration > 30.5) {
-                        alert(`Video duration is ${Math.round(tempVideo.duration)}s. Videos on KnockUp screen must be 30 seconds or less. Please select or trim a shorter video.`);
-                        if (fileInputRef.current) {
-                            fileInputRef.current.value = '';
-                        }
-                        return;
-                    }
+                let hasProcessed = false;
+                const acceptVideo = () => {
+                    if (hasProcessed) return;
+                    hasProcessed = true;
                     setSelectedFile(file);
                     setIsVideo(true);
-                    setCapturedMediaUrl(URL.createObjectURL(file));
+                    setCapturedMediaUrl(objectUrl);
                     stopCamera();
+                };
+
+                tempVideo.onloadedmetadata = () => {
+                    const dur = tempVideo.duration;
+                    if (!isFinite(dur) || isNaN(dur) || dur <= 0) {
+                        tempVideo.currentTime = 1e101;
+                        tempVideo.ontimeupdate = () => {
+                            tempVideo.ontimeupdate = null;
+                            acceptVideo();
+                        };
+                        setTimeout(acceptVideo, 500);
+                        return;
+                    }
+                    acceptVideo();
                 };
 
                 tempVideo.onerror = () => {
-                    URL.revokeObjectURL(objectUrl);
-                    // If metadata fails to load, allow file
-                    setSelectedFile(file);
-                    setIsVideo(true);
-                    setCapturedMediaUrl(URL.createObjectURL(file));
-                    stopCamera();
+                    acceptVideo();
                 };
+
+                // Fallback timeout in case metadata event stalls on some mobile devices
+                setTimeout(acceptVideo, 1000);
                 return;
             }
 
@@ -1258,35 +1265,57 @@ const Boost: React.FC = () => {
                                         </button>
                                     </>
                                 ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', width: '100%', padding: '8px 4px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', width: '100%' }}>
                                             <button
+                                                type="button"
                                                 onClick={() => startCamera('photo')}
                                                 style={{
-                                                    background: 'rgba(245,165,36,0.15)', border: '1px solid #f5a524',
-                                                    borderRadius: '16px', padding: '14px 18px', color: '#f5a524',
+                                                    background: 'rgba(245,165,36,0.12)', border: '1px solid #f5a524',
+                                                    borderRadius: '16px', padding: '14px 8px', color: '#f5a524',
                                                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
-                                                    cursor: 'pointer', fontWeight: '700', fontSize: '12px'
+                                                    cursor: 'pointer', fontWeight: '700', fontSize: '11px', textAlign: 'center'
                                                 }}
                                             >
-                                                <Camera size={26} />
-                                                <span>Open Camera</span>
+                                                <Camera size={24} />
+                                                <span>Photo</span>
                                             </button>
 
                                             <button
+                                                type="button"
+                                                onClick={() => {
+                                                    startCamera('video');
+                                                }}
+                                                style={{
+                                                    background: 'rgba(239, 68, 68, 0.15)', border: '1.5px solid #ef4444',
+                                                    borderRadius: '16px', padding: '14px 8px', color: '#ef4444',
+                                                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
+                                                    cursor: 'pointer', fontWeight: '700', fontSize: '11px', textAlign: 'center',
+                                                    boxShadow: '0 2px 10px rgba(239, 68, 68, 0.2)'
+                                                }}
+                                            >
+                                                <Video size={24} />
+                                                <span>Record 30s</span>
+                                            </button>
+
+                                            <button
+                                                type="button"
                                                 onClick={() => fileInputRef.current?.click()}
                                                 style={{
                                                     background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
-                                                    borderRadius: '16px', padding: '14px 18px', color: 'var(--text-active)',
+                                                    borderRadius: '16px', padding: '14px 8px', color: 'var(--text-active)',
                                                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
-                                                    cursor: 'pointer', fontWeight: '700', fontSize: '12px'
+                                                    cursor: 'pointer', fontWeight: '700', fontSize: '11px', textAlign: 'center'
                                                 }}
                                             >
-                                                <ImageIcon size={26} />
-                                                <span>Upload File</span>
+                                                <ImageIcon size={24} />
+                                                <span>Upload 30s</span>
                                             </button>
                                         </div>
-                                        <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>Supports photos and videos (up to 30s)</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f5a524', fontSize: '11px', fontWeight: '600' }}>
+                                            <Play size={12} fill="#f5a524" />
+                                            <span>Videos on KnockUp play for 30 seconds with sound</span>
+                                        </div>
                                     </div>
                                 )}
                                 <canvas ref={canvasRef} style={{ display: 'none' }} />
