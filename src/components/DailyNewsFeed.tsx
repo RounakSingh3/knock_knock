@@ -142,118 +142,53 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             }}>
                                 LIVE
                             </span>
-                            {newsList.length > 0 && (
-                                <span style={{
-                                    fontSize: '10px',
-                                    fontWeight: '700',
-                                    background: 'rgba(245,165,36,0.15)',
-                                    color: '#f5a524',
-                                    border: '1px solid rgba(245,165,36,0.3)',
-                                    padding: '1px 7px',
-                                    borderRadius: '8px'
-                                }}>
-                                    {newsList.length} articles
-                                </span>
-                            )}
                         </div>
                         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)', marginTop: '2px' }}>
-                            {layoutMode === 'horizontal' 
-                                ? 'Swipe horizontally • All news in a horizontal line' 
-                                : 'Top breaking headlines & in-depth coverage • Vertical feed'
-                            }
+                            Swipe horizontally • Live breaking headlines & in-depth coverage
                         </p>
                     </div>
                 </div>
 
-                {/* Right controls: Scroll arrows & View Toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {layoutMode === 'horizontal' && (
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                            <button
-                                type="button"
-                                onClick={() => scrollHorizontal(-280)}
-                                aria-label="Scroll Left"
-                                style={{
-                                    width: '28px',
-                                    height: '28px',
-                                    borderRadius: '50%',
-                                    background: 'rgba(255,255,255,0.06)',
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                    color: '#fff',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <ChevronRight size={15} style={{ transform: 'rotate(180deg)' }} />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => scrollHorizontal(280)}
-                                aria-label="Scroll Right"
-                                style={{
-                                    width: '28px',
-                                    height: '28px',
-                                    borderRadius: '50%',
-                                    background: 'rgba(255,255,255,0.06)',
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                    color: '#fff',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <ChevronRight size={15} />
-                            </button>
-                        </div>
-                    )}
-
-                    <div style={{
-                        display: 'flex',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '2px'
-                    }}>
-                        <button
-                            type="button"
-                            onClick={() => setLayoutMode('horizontal')}
-                            title="Horizontal Line View"
-                            style={{
-                                background: layoutMode === 'horizontal' ? '#f5a524' : 'transparent',
-                                color: layoutMode === 'horizontal' ? '#000' : 'var(--text-inactive)',
-                                border: 'none',
-                                borderRadius: '10px',
-                                padding: '4px 8px',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease'
-                            }}
-                        >
-                            ↔ Line
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setLayoutMode('vertical')}
-                            title="Vertical List View"
-                            style={{
-                                background: layoutMode === 'vertical' ? '#f5a524' : 'transparent',
-                                color: layoutMode === 'vertical' ? '#000' : 'var(--text-inactive)',
-                                border: 'none',
-                                borderRadius: '10px',
-                                padding: '4px 8px',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease'
-                            }}
-                        >
-                            ↕ List
-                        </button>
-                    </div>
+                {/* Right controls: Scroll arrows for horizontal line navigation */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <button
+                        type="button"
+                        onClick={() => scrollHorizontal(-280)}
+                        aria-label="Scroll Left"
+                        style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.06)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <ChevronRight size={15} style={{ transform: 'rotate(180deg)' }} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => scrollHorizontal(280)}
+                        aria-label="Scroll Right"
+                        style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.06)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <ChevronRight size={15} />
+                    </button>
                 </div>
             </div>
 
