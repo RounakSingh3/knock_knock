@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { Home, Search, Film, Phone, Settings, Rocket } from 'lucide-react';
 
-const BottomNav = () => {
+const BottomNav = React.memo(() => {
     return (
         <nav className="bottom-nav">
             <NavLink to="/call" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
@@ -22,6 +22,6 @@ const BottomNav = () => {
             </NavLink>
         </nav>
     );
-};
+});
 
 export default BottomNav;

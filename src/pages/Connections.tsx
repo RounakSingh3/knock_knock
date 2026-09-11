@@ -14,7 +14,7 @@ const Connections = () => {
     useEffect(() => {
         if (!user) return;
         loadConnections();
-    }, [user]);
+    }, [user?.id]);
 
     const loadConnections = async () => {
         if (!user) return;

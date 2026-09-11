@@ -150,11 +150,11 @@ const Boost: React.FC = () => {
 
     // Load user's connections (friends)
     useEffect(() => {
-        if (!user) return;
+        if (!user?.id) return;
         fetchConnectionUserIds(user.id).then(ids => {
             setUserFriends(ids);
         }).catch(() => {});
-    }, [user]);
+    }, [user?.id]);
 
     // Load 24-hour Boost Explore Feed
     const loadFeed = useCallback(async (showRefreshing = false) => {
@@ -209,12 +209,12 @@ const Boost: React.FC = () => {
         });
 
         return () => observer.disconnect();
-    }, [user, stories]);
+    }, [user?.id, stories]);
 
     // Derived lists (memoized for optimal 60fps performance)
     const myActiveKnocks = useMemo(
         () => stories.filter(s => user && s.user_id === user.id),
-        [stories, user]
+        [stories, user?.id]
     );
     
     const filteredStories = useMemo(() => {

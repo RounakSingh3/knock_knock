@@ -577,7 +577,7 @@ const Reels: React.FC = () => {
             const currentlyImped = impedReels.has(reelId);
             await toggleImp(user.id, reelId, currentlyImped);
         }
-    }, [user, impedReels]);
+    }, [user?.id, impedReels]);
 
     const [touchStartPos, setTouchStartPos] = useState<{x: number, y: number} | null>(null);
 

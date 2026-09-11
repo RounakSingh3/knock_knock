@@ -110,7 +110,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                 });
             }
         };
-    }, [user, posts]);
+    }, [user?.id, posts]);
 
     // Unconditionally silence any playing audios when closing or leaving feed viewer
     useEffect(() => {

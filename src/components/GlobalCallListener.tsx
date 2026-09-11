@@ -25,11 +25,13 @@ const GlobalCallListener: React.FC = () => {
     const [incomingCallRequest, setIncomingCallRequest] = useState<IncomingCallRequest | null>(null);
     const channelRef = React.useRef<any>(null);
 
+    const userId = user?.id;
+
     useEffect(() => {
-        if (!user) return;
+        if (!userId) return;
 
         // 1. Initial check for existing pending call request on load
-        getPendingCallRequestForUser(user.id).then(async (pendingReq) => {
+        getPendingCallRequestForUser(userId).then(async (pendingReq) => {
             if (pendingReq && pendingReq.status === 'pending') {
                 const profiles = await fetchProfilesByIds([pendingReq.sender_id]);
                 setIncomingCallRequest({
@@ -46,7 +48,7 @@ const GlobalCallListener: React.FC = () => {
 
         channel.on('broadcast', { event: 'call-invite' }, async (payload) => {
             const { callerId, receiverId, type, room } = payload.payload;
-            if (receiverId === user.id) {
+            if (receiverId === userId) {
                 const profiles = await fetchProfilesByIds([callerId]);
                 const callerProfile = profiles.length > 0 ? profiles[0] : null;
                 
@@ -63,14 +65,14 @@ const GlobalCallListener: React.FC = () => {
 
         channel.on('broadcast', { event: 'call-cancel' }, (payload) => {
             const { callerId, receiverId } = payload.payload;
-            if (receiverId === user.id) {
+            if (receiverId === userId) {
                 setIncomingCall(null);
             }
         });
 
         channel.on('broadcast', { event: 'call-request' }, async (payload) => {
             const { requestId, senderId, receiverId } = payload.payload;
-            if (receiverId === user.id) {
+            if (receiverId === userId) {
                 const profiles = await fetchProfilesByIds([senderId]);
                 const senderProfile = profiles.length > 0 ? profiles[0] : null;
 
@@ -87,14 +89,14 @@ const GlobalCallListener: React.FC = () => {
 
         channel.on('broadcast', { event: 'call-request-accepted' }, (payload) => {
             const { receiverId } = payload.payload;
-            if (receiverId === user.id) {
+            if (receiverId === userId) {
                 setIncomingCallRequest(null);
             }
         });
 
         channel.on('broadcast', { event: 'call-request-declined' }, (payload) => {
             const { receiverId } = payload.payload;
-            if (receiverId === user.id) {
+            if (receiverId === userId) {
                 setIncomingCallRequest(null);
             }
         });
@@ -102,14 +104,14 @@ const GlobalCallListener: React.FC = () => {
         channel.subscribe();
 
         // 3. Database Postgres Changes listener for call_requests table
-        const callReqChannel = supabase.channel(`global-call-requests-${user.id}`)
+        const callReqChannel = supabase.channel(`global-call-requests-${userId}`)
             .on(
                 'postgres_changes',
                 {
                     event: '*',
                     schema: 'public',
                     table: 'call_requests',
-                    filter: `receiver_id=eq.${user.id}`
+                    filter: `receiver_id=eq.${userId}`
                 },
                 async (payload) => {
                     const newReq = payload.new as any;
@@ -137,14 +139,14 @@ const GlobalCallListener: React.FC = () => {
             .subscribe();
 
         // 4. Listen for new messages globally for native notifications
-        const messageChannel = supabase.channel(`global-messages-${user.id}`)
+        const messageChannel = supabase.channel(`global-messages-${userId}`)
             .on(
                 'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'messages',
-                    filter: `receiver_id=eq.${user.id}`
+                    filter: `receiver_id=eq.${userId}`
                 },
                 async (payload) => {
                     const newMsg = payload.new as any;
@@ -171,7 +173,7 @@ const GlobalCallListener: React.FC = () => {
             supabase.removeChannel(callReqChannel);
             supabase.removeChannel(messageChannel);
         };
-    }, [user]);
+    }, [userId]);
 
     const handleAccept = () => {
         if (!incomingCall || !channelRef.current) return;

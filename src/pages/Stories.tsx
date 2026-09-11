@@ -116,7 +116,7 @@ const Stories = () => {
                 }
             });
         }
-    }, [user, blockedIds]);
+    }, [user?.id, blockedIds]);
 
     // Infinite scroll observer for boosted stories
     useEffect(() => {

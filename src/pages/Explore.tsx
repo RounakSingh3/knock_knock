@@ -352,7 +352,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
     useEffect(() => {
         if (searchTerm.trim().length > 0) return;
         loadDiscoverFeed();
-    }, [selectedCategory, searchTerm, user]);
+    }, [selectedCategory, searchTerm, user?.id]);
 
     // Infinite Scroll — Load More (Guarantees NO duplicate photos)
     const loadMore = useCallback(async () => {
@@ -404,7 +404,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [feedPage, isLoadingMore, hasMore, user, selectedCategory, blockedIds]);
+    }, [feedPage, isLoadingMore, hasMore, user?.id, selectedCategory, blockedIds]);
 
     // IntersectionObserver for infinite scroll sentinel
     useEffect(() => {
@@ -424,19 +424,19 @@ function interleaveCategories(posts: PostData[]): PostData[] {
     // High-performance shared IntersectionObserver for viewport engagement tracking
     const viewObserverRef = useRef<IntersectionObserver | null>(null);
 
+    // IntersectionObserver for view delivery tracking
     useEffect(() => {
-        if (!user) return;
+        if (!user || discoverPosts.length === 0) return;
+
         viewObserverRef.current = new IntersectionObserver(
             (entries) => {
-                entries.forEach(entry => {
+                entries.forEach((entry) => {
                     if (entry.isIntersecting) {
-                        const pid = (entry.target as HTMLElement).dataset.postid;
-                        if (pid && !observedPostsRef.current.has(pid)) {
-                            observedPostsRef.current.add(pid);
-                            const post = rawPostsCacheRef.current.find((p: any) => p.id === pid) || discoverPosts.find(p => p.id === pid);
-                            trackEngagement(user.id, pid, 'view', 1, post?.category || 'General').catch(() => {});
+                        const postId = (entry.target as HTMLElement).dataset.postid;
+                        if (postId && !observedPostsRef.current.has(postId)) {
+                            observedPostsRef.current.add(postId);
+                            trackEngagement(user.id, postId, 'view', 1, selectedCategory || 'General').catch(() => {});
                         }
-                        viewObserverRef.current?.unobserve(entry.target);
                     }
                 });
             },
@@ -447,14 +447,14 @@ function interleaveCategories(posts: PostData[]): PostData[] {
             viewObserverRef.current?.disconnect();
             viewObserverRef.current = null;
         };
-    }, [user, discoverPosts]);
+    }, [user?.id, discoverPosts]);
 
     const trackViewRef = useCallback((node: HTMLDivElement | null) => {
         if (!node || !user || !viewObserverRef.current) return;
         const postId = node.dataset.postid;
         if (!postId || observedPostsRef.current.has(postId)) return;
         viewObserverRef.current.observe(node);
-    }, [user]);
+    }, [user?.id]);
 
     const handleRefresh = async () => {
         setIsRefreshing(true);

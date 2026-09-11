@@ -48,7 +48,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
             checkIfLiked(user.id, post.id).then(setIsLiked);
             fetchUserImps(user.id).then(imps => setIsImped(imps.includes(post.id)));
         }
-    }, [user, post.id]);
+    }, [user?.id, post.id]);
 
     const handleImpToggle = async () => {
         if (!user) return;

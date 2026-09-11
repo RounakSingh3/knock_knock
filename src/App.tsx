@@ -284,19 +284,20 @@ function App() {
 
     // Track time spent in app & award points
     useEffect(() => {
-        if (!user) return;
+        if (!user?.id) return;
+        const uid = user.id;
 
         const interval = setInterval(() => {
             setPoints(prev => {
                 const newPoints = prev + 10;
                 // Persist to database
-                updatePoints(user.id, newPoints);
+                updatePoints(uid, newPoints);
                 return newPoints;
             });
         }, POINTS_INTERVAL_MS);
 
         return () => clearInterval(interval);
-    }, [user]);
+    }, [user?.id]);
 
     // Track Online Status
     useEffect(() => {
@@ -336,7 +337,7 @@ function App() {
         localStorage.removeItem('knock_user_session');
         setUser(null);
         setPoints(0);
-    }, [user]);
+    }, []);
 
     const contextValue = useMemo(() => ({
         points,

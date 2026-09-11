@@ -28,6 +28,7 @@ export interface UnifiedItem {
 
 const Home = () => {
     const { signOut, user, blockedIds } = useContext(AppContext);
+    const userId = user?.id;
     const navigate = useNavigate();
 
     // ⚡ Instant Cache Rehydration: Show cached posts instantly on frame 1
@@ -88,35 +89,36 @@ const Home = () => {
 
     // Real-time unread chat message badge tracking
     useEffect(() => {
-        if (!user) return;
+        if (!userId) return;
 
         const updateUnreadCount = async () => {
             try {
                 const { count, error } = await supabase
                     .from('messages')
                     .select('*', { count: 'exact', head: true })
-                    .eq('receiver_id', user.id)
+                    .eq('receiver_id', userId)
                     .eq('is_read', false);
                 
-                if (!error) {
-                    setUnreadCount(count || 0);
+                if (!error && count !== null) {
+                    setUnreadCount(count);
                 }
             } catch (err) {
-                console.error('Failed to update unread count:', err);
+                console.error('Error fetching unread count:', err);
             }
         };
 
         updateUnreadCount();
 
+        // Subscribe to incoming messages
         const channel = supabase
-            .channel(`unread-count-${user.id}`)
+            .channel(`unread-messages-${userId}`)
             .on(
                 'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'messages',
-                    filter: `receiver_id=eq.${user.id}`
+                    filter: `receiver_id=eq.${userId}`
                 },
                 () => {
                     updateUnreadCount();
@@ -127,18 +129,18 @@ const Home = () => {
         return () => {
             channel.unsubscribe();
         };
-    }, [user?.id]);
+    }, [userId]);
 
-    const loadForYouFeed = () => {
-        if (!user) return;
+    const loadForYouFeed = useCallback(() => {
+        if (!userId) return;
         if (posts.length === 0) {
             setLoading(true);
         }
         setError('');
         // Fetch all raw posts and user engagements, then build scored feed
         Promise.all([
-            fetchAllPostsForScoring(user.id),
-            fetchUserEngagements(user.id)
+            fetchAllPostsForScoring(userId),
+            fetchUserEngagements(userId)
         ]).then(([rawPosts, engagements]) => {
             const validPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
             const seenUrls = new Set<string>();
@@ -151,7 +153,7 @@ const Home = () => {
             });
             setAllRawPosts(uniquePosts);
             const profile = buildInterestProfile(engagements);
-            const firstPage = assembleFeed(uniquePosts, profile, 0, 10, user.id);
+            const firstPage = assembleFeed(uniquePosts, profile, 0, 10, userId);
             
             setScoredFeed(firstPage);
             const freshPosts = firstPage.map(s => s.post);
@@ -172,10 +174,10 @@ const Home = () => {
             
             // Batch check all likes in one query instead of N individual queries
             const postIds = firstPage.map(s => s.post.id);
-            checkIfLikedBatch(user.id, postIds).then(likedMap => {
+            checkIfLikedBatch(userId, postIds).then(likedMap => {
                 setLikedPosts(prev => ({ ...prev, ...likedMap }));
             });
-            fetchUserImps(user.id).then(imps => {
+            fetchUserImps(userId).then(imps => {
                 const impMap: Record<string, boolean> = {};
                 imps.forEach(id => { impMap[id] = true; });
                 setImpedPosts(prev => ({ ...prev, ...impMap }));
@@ -183,7 +185,7 @@ const Home = () => {
             
             // Track view engagements
             firstPage.forEach(s => {
-                trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
+                trackEngagement(userId, s.post.id, 'view', 1, s.post.category || 'General');
             });
             
             setHasMorePosts(firstPage.length >= 10);
@@ -192,21 +194,21 @@ const Home = () => {
             setError('Failed to load posts. Please check your connection and try again.');
             setLoading(false);
         });
-    };
+    }, [userId, blockedIds]);
 
     useEffect(() => {
         loadForYouFeed();
-    }, [user, feedMode]);
+    }, [loadForYouFeed, feedMode]);
 
     // Pull-to-refresh handler (For You Feed)
     const handleRefreshForYou = useCallback(async () => {
-        if (!user || isRefreshing) return;
+        if (!userId || isRefreshing) return;
         setIsRefreshing(true);
         try {
             const shuffled = shuffleFeedForRefresh(allRawPosts);
-            const engagements = await fetchUserEngagements(user.id);
+            const engagements = await fetchUserEngagements(userId);
             const profile = buildInterestProfile(engagements);
-            const freshFeed = assembleFeed(shuffled, profile, 0, 10, user.id);
+            const freshFeed = assembleFeed(shuffled, profile, 0, 10, userId);
             setScoredFeed(freshFeed);
             setPosts(freshFeed.map(s => s.post));
             setFeedPage(0);
@@ -215,17 +217,17 @@ const Home = () => {
             console.error('Refresh failed:', err);
         }
         setIsRefreshing(false);
-    }, [user, isRefreshing, allRawPosts]);
+    }, [userId, isRefreshing, allRawPosts]);
 
     // Infinite scroll — load more posts automatically (Guarantees NO duplicate photos)
     const loadMorePosts = useCallback(async () => {
-        if (!user || !hasMorePosts || isLoadingMore || loading) return;
+        if (!userId || !hasMorePosts || isLoadingMore || loading) return;
         setIsLoadingMore(true);
         try {
             const nextPage = feedPage + 1;
-            const engagements = await fetchUserEngagements(user.id);
+            const engagements = await fetchUserEngagements(userId);
             const profile = buildInterestProfile(engagements);
-            const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10, user.id);
+            const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10, userId);
             
             const currentIds = new Set(posts.map(p => p.id));
             const currentUrls = new Set(posts.map(p => p.image_url));
@@ -242,11 +244,11 @@ const Home = () => {
                 setFeedPage(nextPage);
                 // Batch check likes for new posts
                 const newPostIds = freshBatch.map(s => s.post.id);
-                checkIfLikedBatch(user.id, newPostIds).then(likedMap => {
+                checkIfLikedBatch(userId, newPostIds).then(likedMap => {
                     setLikedPosts(prev => ({ ...prev, ...likedMap }));
                 });
                 freshBatch.forEach(s => {
-                    trackEngagement(user.id, s.post.id, 'view', 1, s.post.category || 'General');
+                    trackEngagement(userId, s.post.id, 'view', 1, s.post.category || 'General');
                     setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
                 });
             } else {
@@ -261,7 +263,7 @@ const Home = () => {
 
                 if (uniqueMoreDb.length > 0) {
                     setAllRawPosts(prev => [...prev, ...uniqueMoreDb]);
-                    const scoredMore = assembleFeed(uniqueMoreDb, profile, 0, 10, user.id);
+                    const scoredMore = assembleFeed(uniqueMoreDb, profile, 0, 10, userId);
                     setScoredFeed(prev => [...prev, ...scoredMore]);
                     setPosts(prev => [...prev, ...scoredMore.map(s => s.post)]);
                     setFeedPage(nextPage);
@@ -274,7 +276,7 @@ const Home = () => {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [user, hasMorePosts, isLoadingMore, loading, feedPage, allRawPosts, posts, blockedIds]);
+    }, [userId, hasMorePosts, isLoadingMore, loading, feedPage, allRawPosts, posts, blockedIds]);
 
     // IntersectionObserver for automatic infinite scrolling as user scrolls
     useEffect(() => {
@@ -293,44 +295,44 @@ const Home = () => {
 
     // Load connections
     useEffect(() => {
-        if (user) {
-            fetchConnectionUserIds(user.id).then(ids => {
+        if (userId) {
+            fetchConnectionUserIds(userId).then(ids => {
                 setConnectionUserIds(new Set(ids));
             });
         }
-    }, [user?.id]);
+    }, [userId]);
 
     const handleLikeToggle = useCallback(async (postId: string) => {
-        if (!user) return;
+        if (!userId) return;
         const currentlyLiked = likedPosts[postId] || false;
         const newLiked = !currentlyLiked;
         setLikedPosts(prev => ({ ...prev, [postId]: newLiked }));
         setLikeCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newLiked ? 1 : -1) }));
-        await toggleLike(user.id, postId, currentlyLiked);
+        await toggleLike(userId, postId, currentlyLiked);
         // Track like engagement
         if (newLiked) {
             const post = posts.find(p => p.id === postId);
-            trackEngagement(user.id, postId, 'like', 1, post?.category || 'General');
+            trackEngagement(userId, postId, 'like', 1, post?.category || 'General');
         }
-    }, [user, likedPosts, posts]);
+    }, [userId, likedPosts, posts]);
 
     const handleImpToggle = useCallback(async (postId: string) => {
-        if (!user) return;
+        if (!userId) return;
         const currentlyImped = impedPosts[postId] || false;
         const newImped = !currentlyImped;
         setImpedPosts(prev => ({ ...prev, [postId]: newImped }));
         setImpCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newImped ? 1 : -1) }));
-        await toggleImp(user.id, postId, currentlyImped);
-    }, [user, impedPosts]);
+        await toggleImp(userId, postId, currentlyImped);
+    }, [userId, impedPosts]);
 
     // Pull-to-refresh handler
     const handleRefresh = useCallback(async () => {
-        if (!user || isRefreshing) return;
+        if (!userId || isRefreshing) return;
         setIsRefreshing(true);
         try {
-            const engagements = await fetchUserEngagements(user.id);
+            const engagements = await fetchUserEngagements(userId);
             const profile = buildInterestProfile(engagements);
-            const newFeed = assembleFeed(allRawPosts, profile, 0, 10, user.id);
+            const newFeed = assembleFeed(allRawPosts, profile, 0, 10, userId);
             const shuffled = shuffleFeedForRefresh(newFeed);
             setScoredFeed(shuffled);
             setPosts(shuffled.map(s => s.post));
@@ -340,7 +342,7 @@ const Home = () => {
             console.error('Refresh failed:', err);
         }
         setIsRefreshing(false);
-    }, [user, isRefreshing, allRawPosts]);
+    }, [userId, isRefreshing, allRawPosts]);
 
     const handleDoubleTap = (post: PostData) => {
         if (!likedPosts[post.id]) {
@@ -350,9 +352,9 @@ const Home = () => {
 
     // Load connection posts when mode switches
     useEffect(() => {
-        if (feedMode === 'connections' && user && unifiedConnectionItems.length === 0) {
+        if (feedMode === 'connections' && userId && unifiedConnectionItems.length === 0) {
             setLoadingConnPosts(true);
-            fetchConnectionPosts(user.id).then((posts) => {
+            fetchConnectionPosts(userId).then((posts) => {
                 const validPosts = posts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
                 const userMap = new Map<string, UnifiedItem>();
                 
@@ -374,7 +376,7 @@ const Home = () => {
 
                 // Check likes for connection posts
                 const connPostIds = posts.map(p => p.id);
-                checkIfLikedBatch(user.id, connPostIds).then(likedMap => {
+                checkIfLikedBatch(userId, connPostIds).then(likedMap => {
                     setLikedPosts(prev => ({ ...prev, ...likedMap }));
                 });
                 const counts: Record<string, number> = {};
@@ -382,7 +384,7 @@ const Home = () => {
                 setLikeCounts(prev => ({ ...prev, ...counts }));
             });
         }
-    }, [feedMode]);
+    }, [feedMode, userId, unifiedConnectionItems.length, blockedIds]);
 
     return (
         <div className="home-page-v2">

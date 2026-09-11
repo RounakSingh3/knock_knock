@@ -59,7 +59,7 @@ const Settings = () => {
                     setLoadingStats(false);
                 });
         }
-    }, [user]);
+    }, [user?.id]);
 
     if (!user) return null;
 
