@@ -1,10 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX, Globe, ArrowLeftRight, Languages } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/media';
 import { SnapModal, type SnapPayload } from './SnapModal';
+import { 
+    SUPPORTED_LANGUAGES, 
+    getUserLanguage, 
+    setUserLanguage, 
+    translateText, 
+    getLanguage 
+} from '../lib/translation';
 
 export interface GroupChatData {
     id: string;
@@ -239,6 +246,317 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [isUploadingImage, setIsUploadingImage] = useState(false);
     const [isSnapModalOpen, setIsSnapModalOpen] = useState(false);
     const [viewingSnap, setViewingSnap] = useState<(SnapPayload & { senderName?: string; createdAt?: string }) | null>(null);
+
+    // 🌐 Real-Time Multi-Language Translation States (38+ Languages)
+    const [myLanguage, setMyLanguage] = useState<string>(() => getUserLanguage());
+    const [targetLanguage, setTargetLanguage] = useState<string>('en');
+    const [autoTranslateChat, setAutoTranslateChat] = useState<boolean>(true);
+    const [liveTranslationPreview, setLiveTranslationPreview] = useState<string>('');
+    const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+    const [showOriginalMap, setShowOriginalMap] = useState<Record<string, boolean>>({});
+    const [translatingIds, setTranslatingIds] = useState<Record<string, boolean>>({});
+    const translationDebounceRef = useRef<any>(null);
+
+    // Swap Language pair
+    const handleSwapLanguages = () => {
+        const prevMy = myLanguage;
+        const prevTarget = targetLanguage;
+        setMyLanguage(prevTarget);
+        setTargetLanguage(prevMy);
+        setUserLanguage(prevTarget);
+        setTranslatedMessages({});
+        setShowOriginalMap({});
+    };
+
+    // 1-Tap Message Translate
+    const handleTranslateMessage = async (msgId: string, rawText: string) => {
+        if (!rawText || !rawText.trim()) return;
+        if (translatingIds[msgId]) return;
+
+        setTranslatingIds(prev => ({ ...prev, [msgId]: true }));
+        try {
+            const res = await translateText(rawText, myLanguage, 'auto');
+            if (res && res.translatedText) {
+                setTranslatedMessages(prev => ({ ...prev, [msgId]: res.translatedText }));
+                setShowOriginalMap(prev => ({ ...prev, [msgId]: false }));
+            }
+        } catch (err) {
+            console.error('[ChatTranslation] Failed:', err);
+        } finally {
+            setTranslatingIds(prev => ({ ...prev, [msgId]: false }));
+        }
+    };
+
+    // Toggle Show Original / Show Translation
+    const toggleShowOriginal = (msgId: string) => {
+        setShowOriginalMap(prev => ({ ...prev, [msgId]: !prev[msgId] }));
+    };
+
+    // Real-time live translation preview while typing
+    useEffect(() => {
+        if (!autoTranslateChat || !messageInput.trim() || myLanguage === targetLanguage) {
+            setLiveTranslationPreview('');
+            return;
+        }
+
+        if (translationDebounceRef.current) {
+            clearTimeout(translationDebounceRef.current);
+        }
+
+        translationDebounceRef.current = setTimeout(async () => {
+            try {
+                const res = await translateText(messageInput.trim(), targetLanguage, myLanguage);
+                if (res && res.translatedText && res.translatedText.toLowerCase() !== messageInput.trim().toLowerCase()) {
+                    setLiveTranslationPreview(res.translatedText);
+                } else {
+                    setLiveTranslationPreview('');
+                }
+            } catch (e) {
+                setLiveTranslationPreview('');
+            }
+        }, 300);
+
+        return () => {
+            if (translationDebounceRef.current) {
+                clearTimeout(translationDebounceRef.current);
+            }
+        };
+    }, [messageInput, targetLanguage, myLanguage, autoTranslateChat]);
+
+    // Auto-translate incoming direct & group messages
+    useEffect(() => {
+        if (!autoTranslateChat) return;
+        if (view === 'chat') {
+            messages.forEach(msg => {
+                if (
+                    msg.sender_id !== currentUser.id && 
+                    !msg.content.startsWith('[VOICE') && 
+                    !msg.content.startsWith('[SNAP') && 
+                    !msg.content.startsWith('[SHARE') &&
+                    !translatedMessages[msg.id] && 
+                    !translatingIds[msg.id]
+                ) {
+                    handleTranslateMessage(msg.id, msg.content);
+                }
+            });
+        } else if (view === 'group_chat') {
+            groupMessages.forEach(msg => {
+                if (
+                    msg.sender_id !== currentUser.id && 
+                    !msg.content.startsWith('[VOICE') && 
+                    !msg.content.startsWith('[SNAP') && 
+                    !msg.content.startsWith('[SHARE') &&
+                    !translatedMessages[msg.id] && 
+                    !translatingIds[msg.id]
+                ) {
+                    handleTranslateMessage(msg.id, msg.content);
+                }
+            });
+        }
+    }, [messages, groupMessages, autoTranslateChat, view, myLanguage]);
+
+    // Render helper: Reusable Translation Toolbar for Direct and Group chats
+    const renderTranslationToolbar = () => (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 14px',
+            background: 'rgba(255,255,255,0.04)',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            fontSize: '11px',
+            gap: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+        }}>
+            {/* Language Pair Selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, overflowX: 'auto' }}>
+                <Globe size={14} color="#34C759" style={{ flexShrink: 0 }} />
+                <select
+                    value={myLanguage}
+                    onChange={e => {
+                        setMyLanguage(e.target.value);
+                        setUserLanguage(e.target.value);
+                    }}
+                    style={{
+                        background: 'rgba(0,0,0,0.5)',
+                        border: '1px solid rgba(255,255,255,0.18)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        cursor: 'pointer',
+                        outline: 'none'
+                    }}
+                    title="Your Language"
+                >
+                    {SUPPORTED_LANGUAGES.map(l => (
+                        <option key={`my-${l.code}`} value={l.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                            {l.flag} {l.name}
+                        </option>
+                    ))}
+                </select>
+
+                {/* Swap Button */}
+                <button
+                    type="button"
+                    onClick={handleSwapLanguages}
+                    title="Swap Languages"
+                    style={{
+                        background: 'rgba(255,255,255,0.08)',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '22px',
+                        height: '22px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#f5a524',
+                        cursor: 'pointer',
+                        flexShrink: 0
+                    }}
+                >
+                    <ArrowLeftRight size={11} />
+                </button>
+
+                <select
+                    value={targetLanguage}
+                    onChange={e => setTargetLanguage(e.target.value)}
+                    style={{
+                        background: 'rgba(0,0,0,0.5)',
+                        border: '1px solid rgba(255,255,255,0.18)',
+                        borderRadius: '12px',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        cursor: 'pointer',
+                        outline: 'none'
+                    }}
+                    title="Target Recipient Language"
+                >
+                    {SUPPORTED_LANGUAGES.map(l => (
+                        <option key={`target-${l.code}`} value={l.code} style={{ background: '#1c1c1e', color: '#fff' }}>
+                            {l.flag} {l.name}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            {/* Auto-Translate Toggle Button */}
+            <button
+                type="button"
+                onClick={() => setAutoTranslateChat(!autoTranslateChat)}
+                style={{
+                    background: autoTranslateChat ? 'rgba(52,199,89,0.18)' : 'rgba(255,255,255,0.06)',
+                    border: autoTranslateChat ? '1px solid #34C759' : '1px solid rgba(255,255,255,0.1)',
+                    color: autoTranslateChat ? '#34C759' : 'var(--text-inactive)',
+                    borderRadius: '12px',
+                    padding: '3px 8px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    flexShrink: 0
+                }}
+            >
+                <span>Auto-Translate</span>
+                <span style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: autoTranslateChat ? '#34C759' : 'gray'
+                }} />
+            </button>
+        </div>
+    );
+
+    // Render helper: Reusable Live Translation Preview Bar
+    const renderLiveTranslationPreviewBar = () => {
+        if (!liveTranslationPreview) return null;
+        return (
+            <div style={{
+                padding: '6px 14px',
+                background: 'rgba(52, 199, 89, 0.15)',
+                borderTop: '1px solid rgba(52, 199, 89, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.78rem',
+                color: '#34C759',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span>🌐 {getLanguage(targetLanguage).flag} {getLanguage(targetLanguage).name}:</span>
+                    <span style={{ fontStyle: 'italic', color: '#e8f5e9' }}>"{liveTranslationPreview}"</span>
+                </div>
+                <span style={{ fontSize: '0.7rem', opacity: 0.85, flexShrink: 0 }}>Auto-Translating</span>
+            </div>
+        );
+    };
+
+    // Render helper: Reusable Translated Message Content with 1-Tap Toggle
+    const renderTranslatedMessageContent = (msgId: string, rawText: string, isMe: boolean) => {
+        const isTranslated = Boolean(translatedMessages[msgId]);
+        const isShowingOriginal = Boolean(showOriginalMap[msgId]);
+        const textToDisplay = (isTranslated && !isShowingOriginal) ? translatedMessages[msgId] : rawText;
+
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                    {textToDisplay}
+                </div>
+                {/* 🌐 1-Tap Translate & Show Original Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                    {isTranslated ? (
+                        <button
+                            type="button"
+                            onClick={() => toggleShowOriginal(msgId)}
+                            style={{
+                                background: 'rgba(0,0,0,0.18)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: '8px',
+                                padding: '2px 7px',
+                                fontSize: '10px',
+                                color: isMe ? '#000' : '#60a5fa',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                            }}
+                        >
+                            <Languages size={10} />
+                            {isShowingOriginal ? `Show ${getLanguage(myLanguage).name}` : 'Show Original'}
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => handleTranslateMessage(msgId, rawText)}
+                            disabled={translatingIds[msgId]}
+                            style={{
+                                background: 'rgba(0,0,0,0.15)',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                borderRadius: '8px',
+                                padding: '2px 7px',
+                                fontSize: '10px',
+                                color: isMe ? '#000' : '#34C759',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                            }}
+                        >
+                            <Globe size={10} />
+                            {translatingIds[msgId] ? 'Translating...' : `Translate to ${getLanguage(myLanguage).name}`}
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    };
     const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
     const activeAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -763,8 +1081,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const handleSend = (e: React.FormEvent) => {
         e.preventDefault();
         if (!messageInput.trim()) return;
-        const text = messageInput.trim();
+        
+        let text = messageInput.trim();
+        if (autoTranslateChat && liveTranslationPreview && myLanguage !== targetLanguage) {
+            text = `${liveTranslationPreview}\n(🌐 Original: ${messageInput.trim()})`;
+        }
+
         setMessageInput('');
+        setLiveTranslationPreview('');
 
         if (view === 'chat') {
             handleSendDirect(text);
@@ -1535,6 +1859,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         </div>
                     </header>
 
+                    {/* 🌐 Real-Time International Translation Toolbar (Direct Chat) */}
+                    {renderTranslationToolbar()}
+
                     {/* Messages Stream */}
                     <div style={{
                         flex: 1,
@@ -1725,7 +2052,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                             )}
                                                         </div>
                                                     );
-                                                })() : msg.content
+                                                })() : renderTranslatedMessageContent(msg.id, msg.content, isMe)
                                             )}
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
@@ -1754,6 +2081,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         )}
                         <div ref={messagesEndRef} />
                     </div>
+
+                    {/* Live Translation Preview Bar */}
+                    {renderLiveTranslationPreviewBar()}
 
                     {/* Input Bar */}
                     <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
@@ -1879,6 +2209,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             </span>
                         </div>
                     </header>
+
+                    {/* 🌐 Real-Time International Translation Toolbar (Group Chat) */}
+                    {renderTranslationToolbar()}
 
                     {/* Group Messages Stream */}
                     <div style={{
@@ -2072,7 +2405,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                             )}
                                                         </div>
                                                     );
-                                                })() : msg.content}
+                                                })() : renderTranslatedMessageContent(msg.id, msg.content, isMe)}
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
                                             <span style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>
@@ -2086,6 +2419,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         )}
                         <div ref={messagesEndRef} />
                     </div>
+
+                    {/* Live Translation Preview Bar (Group) */}
+                    {renderLiveTranslationPreviewBar()}
 
                     {/* Group Input Bar */}
                     <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
