@@ -531,20 +531,31 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 scrollToBottom();
             });
 
-            const subscription = subscribeToMessages(currentUser.id, selectedContact.id, (newMsg) => {
-                markMessagesAsRead(selectedContact.id, currentUser.id);
-                setMessages(prev => {
-                    if (prev.some(m => m.id === newMsg.id || (m.id.startsWith('temp-') && m.content === newMsg.content))) {
-                        const updated = prev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
+            const subscription = subscribeToMessages(
+                currentUser.id, 
+                selectedContact.id, 
+                (newMsg) => {
+                    markMessagesAsRead(selectedContact.id, currentUser.id);
+                    setMessages(prev => {
+                        if (prev.some(m => m.id === newMsg.id || (m.id.startsWith('temp-') && m.content === newMsg.content))) {
+                            const updated = prev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
+                            localStorage.setItem(cacheKey, JSON.stringify(updated));
+                            return updated;
+                        }
+                        const updated = [...prev, newMsg];
                         localStorage.setItem(cacheKey, JSON.stringify(updated));
                         return updated;
-                    }
-                    const updated = [...prev, newMsg];
-                    localStorage.setItem(cacheKey, JSON.stringify(updated));
-                    return updated;
-                });
-                scrollToBottom();
-            });
+                    });
+                    scrollToBottom();
+                },
+                (deletedId) => {
+                    setMessages(prev => {
+                        const updated = prev.filter(m => m.id !== deletedId);
+                        localStorage.setItem(cacheKey, JSON.stringify(updated));
+                        return updated;
+                    });
+                }
+            );
 
             return () => {
                 subscription.unsubscribe();
@@ -886,15 +897,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
     const handleDeleteMessage = async (msgId: string) => {
         if (!selectedContact) return;
-        if (window.confirm('Delete this message?')) {
-            const { error } = await deleteMessage(msgId, currentUser.id);
-            if (!error) {
-                setMessages(prev => {
-                    const updated = prev.filter(m => m.id !== msgId);
-                    localStorage.setItem(`knock_chat_msgs_${currentUser.id}_${selectedContact.id}`, JSON.stringify(updated));
-                    return updated;
-                });
-            }
+        // Instant optimistic local deletion
+        setMessages(prev => {
+            const updated = prev.filter(m => m.id !== msgId);
+            localStorage.setItem(`knock_chat_msgs_${currentUser.id}_${selectedContact.id}`, JSON.stringify(updated));
+            return updated;
+        });
+        const { error } = await deleteMessage(msgId, currentUser.id);
+        if (error) {
+            console.error('Failed to delete message:', error);
         }
     };
 

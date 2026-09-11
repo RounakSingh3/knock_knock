@@ -3,7 +3,7 @@ import {
     Phone, Mic, MicOff, PhoneOff, Settings2, Clock, Video, VideoOff, 
     Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, 
     Link2, Flame, RefreshCw, CameraOff, ChevronLeft, Lock, Bell,
-    Headphones, Globe, ArrowLeftRight, Languages
+    Headphones, Globe, ArrowLeftRight, Languages, Trash2
 } from 'lucide-react';
 import { 
     SUPPORTED_LANGUAGES, 
@@ -597,6 +597,11 @@ const VoiceCall = () => {
                     isTranslated: isTranslated,
                     time: Date.now(),
                 });
+            })
+            .on('broadcast', { event: 'chat-delete' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                setChatMessages(prev => prev.filter(m => m.id !== payload.messageId));
+                setFloatingSubtitle(null);
             })
             .on('broadcast', { event: 'extend-request' }, ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
@@ -1829,6 +1834,24 @@ const VoiceCall = () => {
         setUserLanguage(targetChatLanguage);
     };
 
+    const handleDeleteChatMessage = (messageId: number) => {
+        setChatMessages(prev => prev.filter(m => m.id !== messageId));
+
+        if (channelRef.current && currentMatchRef.current) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'chat-delete',
+                payload: {
+                    messageId,
+                    senderId: user!.id,
+                    receiverId: currentMatchRef.current.profile.id,
+                }
+            });
+        }
+
+        setFloatingSubtitle(prev => (prev && Date.now() - prev.time < 5500 ? null : prev));
+    };
+
     const isRevealed = isDirectCall || requestStatus === 'accepted';
     const displayName = currentMatch ? (isRevealed ? currentMatch.profile.name : "Mystery Match") : "";
     const displayUsername = currentMatch ? (isRevealed ? currentMatch.profile.username : "anonymous") : "";
@@ -2633,8 +2656,37 @@ const VoiceCall = () => {
                                                 gap: '4px'
                                             }}
                                         >
-                                            <div style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>
-                                                {textToDisplay}
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                                                <div style={{ wordBreak: 'break-word', lineHeight: 1.4, flex: 1 }}>
+                                                    {textToDisplay}
+                                                </div>
+                                                {msg.isMine && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteChatMessage(msg.id);
+                                                        }}
+                                                        title="Delete sent text"
+                                                        style={{
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            color: 'rgba(255,255,255,0.5)',
+                                                            cursor: 'pointer',
+                                                            padding: '2px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            transition: 'color 0.15s ease',
+                                                            flexShrink: 0,
+                                                            marginTop: '2px',
+                                                        }}
+                                                        onMouseEnter={(e) => (e.currentTarget.style.color = '#ff3b30')}
+                                                        onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.5)')}
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {msg.isTranslated ? (
@@ -3196,8 +3248,37 @@ const VoiceCall = () => {
                                             gap: '4px'
                                         }}
                                     >
-                                        <div style={{ wordBreak: 'break-word', lineHeight: 1.4 }}>
-                                            {textToDisplay}
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                                            <div style={{ wordBreak: 'break-word', lineHeight: 1.4, flex: 1 }}>
+                                                {textToDisplay}
+                                            </div>
+                                            {msg.isMine && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDeleteChatMessage(msg.id);
+                                                    }}
+                                                    title="Delete sent text"
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        color: 'rgba(255,255,255,0.6)',
+                                                        cursor: 'pointer',
+                                                        padding: '2px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        transition: 'color 0.15s ease',
+                                                        flexShrink: 0,
+                                                        marginTop: '2px',
+                                                    }}
+                                                    onMouseEnter={(e) => (e.currentTarget.style.color = '#ff3b30')}
+                                                    onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.6)')}
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            )}
                                         </div>
 
                                         {msg.isTranslated ? (

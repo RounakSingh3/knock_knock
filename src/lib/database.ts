@@ -1906,8 +1906,13 @@ export async function deleteMessage(messageId: string, userId: string): Promise<
     return { error: null };
 }
 
-/** Subscribe to messages for a specific conversation (both sent and received) */
-export function subscribeToMessages(user1: string, user2: string, onNewMessage: (msg: MessageData) => void) {
+/** Subscribe to messages for a specific conversation (both sent and received, with real-time delete) */
+export function subscribeToMessages(
+    user1: string, 
+    user2: string, 
+    onNewMessage: (msg: MessageData) => void,
+    onMessageDelete?: (deletedId: string) => void
+) {
     return supabase
         .channel(`messages-${user1}-${user2}`)
         .on(
@@ -1925,6 +1930,19 @@ export function subscribeToMessages(user1: string, user2: string, onNewMessage: 
                 
                 if (isBetween) {
                     onNewMessage(newMsg);
+                }
+            }
+        )
+        .on(
+            'postgres_changes',
+            {
+                event: 'DELETE',
+                schema: 'public',
+                table: 'messages',
+            },
+            (payload) => {
+                if (payload.old && payload.old.id && onMessageDelete) {
+                    onMessageDelete(payload.old.id);
                 }
             }
         )
