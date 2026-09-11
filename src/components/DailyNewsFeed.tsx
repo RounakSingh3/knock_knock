@@ -119,7 +119,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontWeight: '800', fontSize: '17px', color: 'var(--text-active)', letterSpacing: '-0.3px' }}>
-                                Trending
+                                Daily News Feed
                             </span>
                             <span style={{
                                 background: 'rgba(255, 69, 0, 0.2)',
@@ -134,9 +134,22 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             }}>
                                 LIVE
                             </span>
+                            {newsList.length > 0 && (
+                                <span style={{
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    background: 'rgba(245,165,36,0.15)',
+                                    color: '#f5a524',
+                                    border: '1px solid rgba(245,165,36,0.3)',
+                                    padding: '1px 7px',
+                                    borderRadius: '8px'
+                                }}>
+                                    {newsList.length} articles
+                                </span>
+                            )}
                         </div>
                         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)', marginTop: '2px' }}>
-                            Swipe horizontally • Cricket, Bollywood, Hollywood, Gaming & Sports
+                            Top breaking headlines & in-depth coverage • Updated live
                         </p>
                     </div>
                 </div>
@@ -149,7 +162,9 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 overflowX: 'auto',
                 paddingBottom: '8px',
                 scrollbarWidth: 'none',
-                WebkitOverflowScrolling: 'touch'
+                WebkitOverflowScrolling: 'touch',
+                width: '100%',
+                boxSizing: 'border-box'
             }}>
                 {CATEGORIES.map(cat => {
                     const isSelected = selectedCategory === cat;
@@ -181,61 +196,66 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 })}
             </div>
 
-            {/* News Cards Carousel */}
+            {/* Pure Vertical News Feed (Zero Horizontal Expansion) */}
             {isLoading ? (
-                <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    overflowX: 'hidden',
-                    padding: '4px 0'
-                }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
                     {[1, 2, 3].map(i => (
                         <div
                             key={i}
                             style={{
-                                width: '260px',
-                                height: '170px',
-                                borderRadius: '18px',
-                                background: 'rgba(255,255,255,0.05)',
-                                flexShrink: 0,
+                                width: '100%',
+                                height: '90px',
+                                borderRadius: '16px',
+                                background: 'rgba(255,255,255,0.04)',
                                 animation: 'pulse 1.5s infinite ease-in-out'
                             }}
                         />
                     ))}
                 </div>
-            ) : (
+            ) : newsList.length === 0 ? (
                 <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    overflowX: 'auto',
-                    padding: '4px 0',
-                    scrollbarWidth: 'none',
-                    WebkitOverflowScrolling: 'touch'
+                    padding: '24px',
+                    textAlign: 'center',
+                    color: 'var(--text-inactive)',
+                    fontSize: '13px',
+                    background: 'rgba(255,255,255,0.02)',
+                    borderRadius: '16px',
+                    marginTop: '8px'
                 }}>
-                    {newsList.map(news => {
-                        const isLiked = likedNews.has(news.id);
+                    No news articles available for {selectedCategory} at the moment.
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '6px', width: '100%', boxSizing: 'border-box' }}>
+                    {/* Featured Lead Story (Vertical Hero Card) */}
+                    {newsList[0] && (() => {
+                        const heroNews = newsList[0];
+                        const isLiked = likedNews.has(heroNews.id);
                         return (
                             <div
-                                key={news.id}
-                                onClick={() => setActiveNewsModal(news)}
+                                key={heroNews.id}
+                                onClick={() => setActiveNewsModal(heroNews)}
                                 style={{
-                                    width: '260px',
-                                    height: '180px',
+                                    width: '100%',
+                                    minHeight: '200px',
                                     borderRadius: '18px',
                                     overflow: 'hidden',
                                     position: 'relative',
-                                    flexShrink: 0,
                                     cursor: 'pointer',
                                     boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    border: '1px solid rgba(245, 165, 36, 0.25)',
                                     background: '#1c1c1e',
-                                    transition: 'transform 0.2s ease',
+                                    transition: 'transform 0.15s ease',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    justifyContent: 'flex-end',
+                                    padding: '14px',
+                                    boxSizing: 'border-box'
                                 }}
                             >
-                                {/* Background Image */}
+                                {/* Background Cover Image */}
                                 <img
-                                    src={news.imageUrl}
-                                    alt={news.title}
+                                    src={heroNews.imageUrl}
+                                    alt={heroNews.title}
                                     loading="lazy"
                                     referrerPolicy="no-referrer"
                                     onError={(e) => {
@@ -243,236 +263,280 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                                         e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
                                     }}
                                     style={{
+                                        position: 'absolute',
+                                        inset: 0,
                                         width: '100%',
                                         height: '100%',
                                         objectFit: 'cover',
-                                        filter: 'brightness(0.7)'
+                                        filter: 'brightness(0.6)'
                                     }}
                                 />
 
-                                {/* Gradient Overlay */}
+                                {/* Rich Gradient Overlay */}
                                 <div style={{
                                     position: 'absolute',
                                     inset: 0,
-                                    background: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 60%, transparent 100%)'
+                                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 55%, rgba(0,0,0,0.2) 100%)'
                                 }} />
 
-                                {/* Category Badge */}
+                                {/* Top Badges & Actions */}
                                 <div style={{
-                                    position: 'absolute',
-                                    top: '10px',
-                                    left: '10px',
-                                    background: 'rgba(0,0,0,0.65)',
-                                    backdropFilter: 'blur(8px)',
-                                    padding: '3px 8px',
-                                    borderRadius: '12px',
-                                    fontSize: '10px',
-                                    fontWeight: '700',
-                                    color: '#f5a524',
-                                    border: '1px solid rgba(245,165,36,0.3)',
+                                    position: 'relative',
+                                    zIndex: 2,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '4px'
-                                }}>
-                                    <span>{CATEGORY_EMOJIS[news.category] || '📰'}</span>
-                                    <span>{news.category}</span>
-                                </div>
-
-                                {/* Like & Share Actions (Top Right) */}
-                                <div style={{
-                                    position: 'absolute',
-                                    top: '10px',
-                                    right: '10px',
-                                    display: 'flex',
-                                    gap: '6px'
-                                }}>
-                                    <button
-                                        onClick={(e) => toggleLike(news.id, e)}
-                                        style={{
-                                            background: 'rgba(0,0,0,0.65)',
-                                            border: 'none',
-                                            borderRadius: '50%',
-                                            width: '28px',
-                                            height: '28px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                            backdropFilter: 'blur(8px)'
-                                        }}
-                                    >
-                                        <Heart
-                                            size={14}
-                                            fill={isLiked ? '#ff4500' : 'none'}
-                                            color={isLiked ? '#ff4500' : '#fff'}
-                                        />
-                                    </button>
-                                    <button
-                                        onClick={(e) => handleShare(news, e)}
-                                        style={{
-                                            background: 'rgba(0,0,0,0.65)',
-                                            border: 'none',
-                                            borderRadius: '50%',
-                                            width: '28px',
-                                            height: '28px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                            backdropFilter: 'blur(8px)'
-                                        }}
-                                    >
-                                        <Share2 size={13} color="#fff" />
-                                    </button>
-                                </div>
-
-                                {/* Content Details */}
-                                <div style={{
-                                    position: 'absolute',
-                                    bottom: '10px',
-                                    left: '12px',
-                                    right: '12px',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: '4px'
+                                    justifyContent: 'space-between',
+                                    marginBottom: 'auto',
+                                    paddingBottom: '20px'
                                 }}>
                                     <div style={{
-                                        fontSize: '10px',
-                                        color: '#bbb',
+                                        background: 'rgba(0,0,0,0.7)',
+                                        backdropFilter: 'blur(8px)',
+                                        padding: '4px 10px',
+                                        borderRadius: '12px',
+                                        fontSize: '10.5px',
+                                        fontWeight: '800',
+                                        color: '#f5a524',
+                                        border: '1px solid rgba(245,165,36,0.4)',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '6px'
+                                        gap: '5px'
                                     }}>
-                                        <span>{news.source}</span>
+                                        <span>🔥 TOP STORY</span>
+                                        <span>•</span>
+                                        <span>{CATEGORY_EMOJIS[heroNews.category] || '📰'} {heroNews.category}</span>
                                     </div>
-                                    <h4 style={{
-                                        margin: 0,
-                                        fontSize: '12.5px',
-                                        fontWeight: '700',
-                                        color: '#fff',
-                                        lineHeight: 1.3,
+
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button
+                                            onClick={(e) => toggleLike(heroNews.id, e)}
+                                            aria-label="Like story"
+                                            style={{
+                                                background: 'rgba(0,0,0,0.65)',
+                                                border: 'none',
+                                                borderRadius: '50%',
+                                                width: '30px',
+                                                height: '30px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                backdropFilter: 'blur(8px)'
+                                            }}
+                                        >
+                                            <Heart
+                                                size={15}
+                                                fill={isLiked ? '#ff4500' : 'none'}
+                                                color={isLiked ? '#ff4500' : '#fff'}
+                                            />
+                                        </button>
+                                        <button
+                                            onClick={(e) => handleShare(heroNews, e)}
+                                            aria-label="Share story"
+                                            style={{
+                                                background: 'rgba(0,0,0,0.65)',
+                                                border: 'none',
+                                                borderRadius: '50%',
+                                                width: '30px',
+                                                height: '30px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                backdropFilter: 'blur(8px)'
+                                            }}
+                                        >
+                                            <Share2 size={14} color="#fff" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Headline & Details */}
+                                <div style={{ position: 'relative', zIndex: 2 }}>
+                                    <div style={{
+                                        fontSize: '11px',
+                                        color: '#cbd5e1',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        marginBottom: '4px'
+                                    }}>
+                                        <span style={{ color: '#f5a524', fontWeight: '800' }}>{heroNews.source}</span>
+                                        <span>•</span>
+                                        <span>{heroNews.publishedAt}</span>
+                                    </div>
+                                    <h3 style={{
+                                        margin: '0 0 6px 0',
+                                        fontSize: '15px',
+                                        fontWeight: '800',
+                                        color: '#ffffff',
+                                        lineHeight: 1.35,
+                                        letterSpacing: '-0.2px',
                                         display: '-webkit-box',
                                         WebkitLineClamp: 2,
                                         WebkitBoxOrient: 'vertical',
                                         overflow: 'hidden'
                                     }}>
-                                        {news.title}
-                                    </h4>
+                                        {heroNews.title}
+                                    </h3>
+                                    <p style={{
+                                        margin: '0 0 6px 0',
+                                        fontSize: '12px',
+                                        color: 'rgba(255,255,255,0.8)',
+                                        lineHeight: 1.4,
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {heroNews.summary}
+                                    </p>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
+                                        <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <Heart size={11} fill={isLiked ? '#ff4500' : 'none'} color={isLiked ? '#ff4500' : '#aaa'} />
+                                            {heroNews.likesCount + (isLiked ? 1 : 0)} likes
+                                        </span>
+                                        <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                            Tap to read full story <ChevronRight size={13} />
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* Vertical Feed Stories (Rest of the items) */}
+                    {newsList.slice(1, visibleCount).map((news) => {
+                        const isLiked = likedNews.has(news.id);
+                        return (
+                            <div
+                                key={news.id}
+                                onClick={() => setActiveNewsModal(news)}
+                                style={{
+                                    display: 'flex',
+                                    gap: '12px',
+                                    padding: '12px',
+                                    borderRadius: '16px',
+                                    background: 'rgba(255,255,255,0.04)',
+                                    border: '1px solid rgba(255,255,255,0.08)',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.2s ease, transform 0.15s ease',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                                    width: '100%',
+                                    boxSizing: 'border-box'
+                                }}
+                            >
+                                {/* Thumbnail */}
+                                <div style={{
+                                    width: '88px',
+                                    height: '88px',
+                                    borderRadius: '12px',
+                                    overflow: 'hidden',
+                                    flexShrink: 0,
+                                    position: 'relative'
+                                }}>
+                                    <img
+                                        src={news.imageUrl}
+                                        alt={news.title}
+                                        loading="lazy"
+                                        referrerPolicy="no-referrer"
+                                        onError={(e) => {
+                                            e.currentTarget.onerror = null;
+                                            e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
+                                        }}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    />
+                                    <span style={{
+                                        position: 'absolute', bottom: '4px', left: '4px',
+                                        fontSize: '8.5px', fontWeight: '800', background: 'rgba(0,0,0,0.75)',
+                                        backdropFilter: 'blur(4px)',
+                                        color: '#f5a524', padding: '1px 5px', borderRadius: '6px'
+                                    }}>
+                                        {news.category}
+                                    </span>
+                                </div>
+
+                                {/* Info */}
+                                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, justifyContent: 'space-between' }}>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10.5px', color: 'var(--text-inactive)', marginBottom: '3px' }}>
+                                            <span style={{ color: '#f5a524', fontWeight: '700' }}>{news.source}</span>
+                                            <span>•</span>
+                                            <span>{news.publishedAt}</span>
+                                        </div>
+                                        <h4 style={{
+                                            margin: '0 0 4px 0',
+                                            fontSize: '13px',
+                                            fontWeight: '700',
+                                            color: 'var(--text-active)',
+                                            lineHeight: '1.35',
+                                            display: '-webkit-box',
+                                            WebkitLineClamp: 2,
+                                            WebkitBoxOrient: 'vertical',
+                                            overflow: 'hidden'
+                                        }}>
+                                            {news.title}
+                                        </h4>
+                                        <p style={{
+                                            margin: 0,
+                                            fontSize: '11.5px',
+                                            color: 'rgba(255,255,255,0.6)',
+                                            lineHeight: '1.35',
+                                            display: '-webkit-box',
+                                            WebkitLineClamp: 1,
+                                            WebkitBoxOrient: 'vertical',
+                                            overflow: 'hidden'
+                                        }}>
+                                            {news.summary}
+                                        </p>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => toggleLike(news.id, e)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    padding: 0,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    fontSize: '11px',
+                                                    color: isLiked ? '#ff4500' : 'rgba(255,255,255,0.5)',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                <Heart size={12} fill={isLiked ? '#ff4500' : 'none'} color={isLiked ? '#ff4500' : '#888'} />
+                                                <span>{news.likesCount + (isLiked ? 1 : 0)}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleShare(news, e)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    padding: 0,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '3px',
+                                                    fontSize: '11px',
+                                                    color: 'rgba(255,255,255,0.5)',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                <Share2 size={11} color="#888" />
+                                            </button>
+                                        </div>
+                                        <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                            Read Story <ChevronRight size={12} />
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         );
                     })}
-                </div>
-            )}
-
-            {/* Top Stories & Deep Coverage Feed List */}
-            {!isLoading && newsList.length > 0 && (
-                <div style={{ marginTop: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontWeight: '800', fontSize: '15px', color: 'var(--text-active)', letterSpacing: '-0.2px' }}>
-                                Top Stories & In-Depth News
-                            </span>
-                            <span style={{
-                                fontSize: '10px',
-                                fontWeight: '700',
-                                background: 'rgba(245,165,36,0.15)',
-                                color: '#f5a524',
-                                border: '1px solid rgba(245,165,36,0.3)',
-                                padding: '2px 8px',
-                                borderRadius: '10px'
-                            }}>
-                                {newsList.length} articles
-                            </span>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {newsList.slice(0, visibleCount).map((news) => {
-                            const isLiked = likedNews.has(news.id);
-                            return (
-                                <div
-                                    key={news.id}
-                                    onClick={() => setActiveNewsModal(news)}
-                                    style={{
-                                        display: 'flex',
-                                        gap: '12px',
-                                        padding: '10px',
-                                        borderRadius: '16px',
-                                        background: 'rgba(255,255,255,0.04)',
-                                        border: '1px solid rgba(255,255,255,0.08)',
-                                        cursor: 'pointer',
-                                        transition: 'background 0.2s ease, transform 0.15s ease',
-                                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-                                    }}
-                                >
-                                    {/* Thumbnail */}
-                                    <div style={{
-                                        width: '84px',
-                                        height: '84px',
-                                        borderRadius: '12px',
-                                        overflow: 'hidden',
-                                        flexShrink: 0,
-                                        position: 'relative'
-                                    }}>
-                                        <img
-                                            src={news.imageUrl}
-                                            alt={news.title}
-                                            loading="lazy"
-                                            referrerPolicy="no-referrer"
-                                            onError={(e) => {
-                                                e.currentTarget.onerror = null;
-                                                e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
-                                            }}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
-                                        <span style={{
-                                            position: 'absolute', bottom: '4px', left: '4px',
-                                            fontSize: '8px', fontWeight: '800', background: 'rgba(0,0,0,0.75)',
-                                            backdropFilter: 'blur(4px)',
-                                            color: '#f5a524', padding: '1px 5px', borderRadius: '6px'
-                                        }}>
-                                            {news.category}
-                                        </span>
-                                    </div>
-
-                                    {/* Info */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, justifyContent: 'space-between' }}>
-                                        <div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: 'var(--text-inactive)', marginBottom: '3px' }}>
-                                                <span style={{ color: '#f5a524', fontWeight: '700' }}>{news.source}</span>
-                                                <span>•</span>
-                                                <span>{news.publishedAt}</span>
-                                            </div>
-                                            <h4 style={{
-                                                margin: 0,
-                                                fontSize: '13px',
-                                                fontWeight: '700',
-                                                color: 'var(--text-active)',
-                                                lineHeight: '1.35',
-                                                display: '-webkit-box',
-                                                WebkitLineClamp: 2,
-                                                WebkitBoxOrient: 'vertical',
-                                                overflow: 'hidden'
-                                            }}>
-                                                {news.title}
-                                            </h4>
-                                        </div>
-
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px' }}>
-                                            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <Heart size={11} fill={isLiked ? '#ff4500' : 'none'} color={isLiked ? '#ff4500' : '#888'} />
-                                                {news.likesCount + (isLiked ? 1 : 0)}
-                                            </span>
-                                            <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                                Read Story <ChevronRight size={12} />
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
 
                     {/* Load More Button */}
                     {visibleCount < newsList.length && (
@@ -481,13 +545,13 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             onClick={() => setVisibleCount(prev => Math.min(newsList.length, prev + 6))}
                             style={{
                                 width: '100%',
-                                marginTop: '12px',
-                                padding: '11px 0',
+                                marginTop: '4px',
+                                padding: '12px 0',
                                 borderRadius: '14px',
                                 border: '1px solid rgba(245, 165, 36, 0.35)',
                                 background: 'rgba(245, 165, 36, 0.1)',
                                 color: '#f5a524',
-                                fontSize: '12px',
+                                fontSize: '12.5px',
                                 fontWeight: '700',
                                 cursor: 'pointer',
                                 display: 'flex',
@@ -497,7 +561,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                                 transition: 'all 0.2s ease'
                             }}
                         >
-                            <span>Load More News ({newsList.length - visibleCount} remaining)</span>
+                            <span>Load More Stories ({newsList.length - visibleCount} remaining)</span>
                             <ChevronRight size={14} />
                         </button>
                     )}
