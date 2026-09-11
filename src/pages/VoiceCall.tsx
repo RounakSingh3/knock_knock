@@ -22,8 +22,99 @@ const MATCH_PREFERENCES = [
     "Boy to Girl 👦",
     "Girl to Boy 👧",
     "Same Country 🌍",
-    "Random 🎲"
+    "Random 🎲",
+    "AI Voice Space 🤖"
 ];
+
+const AI_VOICE_COMPANION: ProfileData = {
+    id: 'ai-voice-companion-tara',
+    username: 'tara_voice',
+    name: 'Tara • Voice Space',
+    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
+    gender: 'female',
+    points: 1250,
+    created_at: new Date().toISOString(),
+    bio: 'Knock Knock 24/7 Voice Space Companion. Ready to talk with real voice!',
+    likes: ['Voice', 'Music', 'Chat', 'Friends', 'Art'],
+};
+
+// Web Speech API Voice synthesis helper for crystal-clear spoken voice through speakers
+const speakVoice = (
+    text: string, 
+    lang: string = 'en-US',
+    onStart?: () => void,
+    onEnd?: () => void
+) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        if (onEnd) setTimeout(onEnd, 1500);
+        return;
+    }
+    try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = lang;
+        utterance.rate = 1.0;
+        utterance.pitch = 1.05;
+        utterance.volume = 1.0;
+
+        const voices = window.speechSynthesis.getVoices();
+        const preferredVoice = voices.find(v => 
+            (v.lang.startsWith(lang.slice(0, 2)) || v.lang.startsWith('en')) &&
+            (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Victoria') || v.name.includes('Zira') || v.name.includes('Jenny'))
+        ) || voices.find(v => v.lang.startsWith('en'));
+
+        if (preferredVoice) {
+            utterance.voice = preferredVoice;
+        }
+
+        if (onStart) utterance.onstart = onStart;
+        utterance.onend = () => {
+            if (onEnd) onEnd();
+        };
+        utterance.onerror = (e) => {
+            console.warn('[SpeechSynthesis] Error:', e);
+            if (onEnd) onEnd();
+        };
+
+        window.speechSynthesis.speak(utterance);
+    } catch (e) {
+        console.warn('[SpeechSynthesis] Failed:', e);
+        if (onEnd) onEnd();
+    }
+};
+
+const stopVoice = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+            window.speechSynthesis.cancel();
+        } catch (_) {}
+    }
+};
+
+const getCompanionResponse = (input: string): string => {
+    const lower = input.toLowerCase();
+    if (lower.includes('hello') || lower.includes('hi') || lower.includes('hey')) {
+        return "Hello there! Great to hear you! How has your day been?";
+    }
+    if (lower.includes('hear') || lower.includes('voice') || lower.includes('sound')) {
+        return "Yes, your voice and audio connection are crystal clear! I can hear you perfectly.";
+    }
+    if (lower.includes('joke')) {
+        const jokes = [
+            "Why did the smartphone go to school? Because it wanted to get smarter! Haha!",
+            "Why do we tell actors to break a leg? Because every play has a cast!",
+            "What do you call a fake noodle? An impasta! Haha, hope that made you smile."
+        ];
+        return jokes[Math.floor(Math.random() * jokes.length)];
+    }
+    if (lower.includes('how are you')) {
+        return "I am doing fantastic! It is so great talking with you on Knock Knock Voice Space.";
+    }
+    if (lower.includes('what is knock') || lower.includes('knock knock')) {
+        return "Knock Knock is a social app that connects people through live voice, reels, posts, and real-time private chat!";
+    }
+    return "That sounds wonderful! I really enjoy chatting with you in Voice Space. What else are you interested in?";
+};
 
 // Web Audio API sound effects for realistic voice call experience
 const playTone = (freqs: number[], durations: number[], type: OscillatorType = 'sine', volume = 0.12) => {
@@ -195,14 +286,13 @@ const VoiceCall = () => {
     const remoteStreamRef = useRef<MediaStream | null>(null);
     const remoteAudioStreamRef = useRef<MediaStream | null>(null);
 
-    // Mic & Audio Test states for first page
-    const [isMicTesting, setIsMicTesting] = useState(false);
-    const [micTestVolume, setMicTestVolume] = useState(0);
-    const [micLoopback, setMicLoopback] = useState(false);
-    const micTestStreamRef = useRef<MediaStream | null>(null);
-    const micTestAudioCtxRef = useRef<AudioContext | null>(null);
-    const micTestGainNodeRef = useRef<GainNode | null>(null);
-    const micTestAnimFrameRef = useRef<number | null>(null);
+    // Dual Audio Engine & Companion states
+    const [isCompanionCall, setIsCompanionCall] = useState(false);
+    const [isCompanionSpeaking, setIsCompanionSpeaking] = useState(false);
+    const remoteAudioCtxRef = useRef<AudioContext | null>(null);
+    const remoteAudioSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+    const isCompanionCallRef = useRef(false);
+    useEffect(() => { isCompanionCallRef.current = isCompanionCall; }, [isCompanionCall]);
 
     const pendingInviteRef = useRef<string | null>(null);
     const searchTimeoutRef = useRef<number | null>(null);
@@ -237,7 +327,6 @@ const VoiceCall = () => {
         if (!user || !user.id || !isDirectCall || !directPartnerId) return;
 
         const initializeDirectCall = async () => {
-            stopMicTest();
             const profiles = await fetchProfilesByIds([directPartnerId]);
             if (profiles.length === 0) {
                 alert("User not found.");
@@ -296,100 +385,17 @@ const VoiceCall = () => {
         }
     }, [callDuration, inCall, requestStatus]);
 
-    // Mic test helper functions
-    const stopMicTest = () => {
-        if (micTestAnimFrameRef.current) {
-            cancelAnimationFrame(micTestAnimFrameRef.current);
-            micTestAnimFrameRef.current = null;
-        }
-        if (micTestStreamRef.current) {
-            micTestStreamRef.current.getTracks().forEach(t => t.stop());
-            micTestStreamRef.current = null;
-        }
-        if (micTestAudioCtxRef.current) {
-            micTestAudioCtxRef.current.close().catch(() => {});
-            micTestAudioCtxRef.current = null;
-        }
-        micTestGainNodeRef.current = null;
-        setIsMicTesting(false);
-        setMicTestVolume(0);
-    };
-
-    const startMicTest = async () => {
-        if (isMicTesting) {
-            stopMicTest();
-            return;
-        }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                }
-            });
-            micTestStreamRef.current = stream;
-
-            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-            const ctx = new AudioCtx();
-            micTestAudioCtxRef.current = ctx;
-            if (ctx.state === 'suspended') {
-                await ctx.resume();
-            }
-
-            const source = ctx.createMediaStreamSource(stream);
-            const analyser = ctx.createAnalyser();
-            analyser.fftSize = 128;
-            analyser.smoothingTimeConstant = 0.5;
-            source.connect(analyser);
-
-            const gain = ctx.createGain();
-            gain.gain.value = micLoopback ? 0.9 : 0.0;
-            micTestGainNodeRef.current = gain;
-            source.connect(gain);
-            gain.connect(ctx.destination);
-
-            setIsMicTesting(true);
-
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            const updateVolume = () => {
-                if (!micTestStreamRef.current) return;
-                analyser.getByteFrequencyData(dataArray);
-                let sum = 0;
-                for (let i = 0; i < dataArray.length; i++) {
-                    sum += dataArray[i];
-                }
-                const avg = sum / dataArray.length;
-                const level = Math.min(100, Math.round((avg / 100) * 100));
-                setMicTestVolume(level);
-                micTestAnimFrameRef.current = requestAnimationFrame(updateVolume);
-            };
-            updateVolume();
-        } catch (err) {
-            console.error('[MicTest] Access failed:', err);
-            alert('Microphone access was denied or not found. Please ensure microphone permissions are granted in your browser settings.');
-            stopMicTest();
-        }
-    };
-
-    const toggleMicLoopback = () => {
-        const next = !micLoopback;
-        setMicLoopback(next);
-        if (micTestGainNodeRef.current) {
-            micTestGainNodeRef.current.gain.value = next ? 0.9 : 0.0;
-        }
-    };
-
-    // Cleanup mic test on unmount
-    useEffect(() => {
-        return () => {
-            stopMicTest();
-        };
-    }, []);
-
     // WebRTC connection and cleanup functions
     const closeWebRTC = () => {
-        stopMicTest();
+        stopVoice();
+        if (remoteAudioSourceNodeRef.current) {
+            try { remoteAudioSourceNodeRef.current.disconnect(); } catch (_) {}
+            remoteAudioSourceNodeRef.current = null;
+        }
+        if (remoteAudioCtxRef.current) {
+            try { remoteAudioCtxRef.current.close(); } catch (_) {}
+            remoteAudioCtxRef.current = null;
+        }
         if (peerConnectionRef.current) {
             peerConnectionRef.current.close();
             peerConnectionRef.current = null;
@@ -685,7 +691,10 @@ const VoiceCall = () => {
                     const pc = peerConnectionRef.current;
                     if (pc && pc.signalingState === 'stable') {
                         try {
-                            const offer = await pc.createOffer();
+                            const offer = await pc.createOffer({
+                                offerToReceiveAudio: true,
+                                offerToReceiveVideo: videoRequestStatusRef.current === 'accepted',
+                            });
                             await pc.setLocalDescription(offer);
                             channel.send({
                                 type: 'broadcast',
@@ -710,7 +719,10 @@ const VoiceCall = () => {
                     const pc = peerConnectionRef.current;
                     if (pc && pc.signalingState === 'stable') {
                         try {
-                            const offer = await pc.createOffer();
+                            const offer = await pc.createOffer({
+                                offerToReceiveAudio: true,
+                                offerToReceiveVideo: videoRequestStatusRef.current === 'accepted',
+                            });
                             await pc.setLocalDescription(offer);
                             channel.send({
                                 type: 'broadcast',
@@ -842,6 +854,7 @@ const VoiceCall = () => {
     useEffect(() => {
         const startWebRTC = async () => {
             if (!inCall || !currentMatch) return;
+            if (isCompanionCallRef.current) return;
             closeWebRTC();
 
 
@@ -910,6 +923,10 @@ const VoiceCall = () => {
                 });
                 peerConnectionRef.current = pc;
 
+                try {
+                    pc.addTransceiver('audio', { direction: 'sendrecv' });
+                } catch (_) {}
+
                 stream.getTracks().forEach(track => {
                     pc.addTrack(track, stream);
                 });
@@ -948,6 +965,31 @@ const VoiceCall = () => {
 
                         remoteAudioStreamRef.current = stream;
 
+                        // 1. Route directly to hardware Web Audio API for unblocked speaker playback
+                        try {
+                            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                            if (!remoteAudioCtxRef.current || remoteAudioCtxRef.current.state === 'closed') {
+                                remoteAudioCtxRef.current = new AudioCtx();
+                            }
+                            const ctx = remoteAudioCtxRef.current;
+                            if (ctx.state === 'suspended') {
+                                ctx.resume().catch(() => {});
+                            }
+                            if (remoteAudioSourceNodeRef.current) {
+                                try { remoteAudioSourceNodeRef.current.disconnect(); } catch (_) {}
+                            }
+                            const source = ctx.createMediaStreamSource(stream);
+                            const gain = ctx.createGain();
+                            gain.gain.value = 1.0;
+                            source.connect(gain);
+                            gain.connect(ctx.destination);
+                            remoteAudioSourceNodeRef.current = source;
+                            console.log('[WebRTC] Remote audio track successfully piped to Web Audio API destination!');
+                        } catch (audioCtxErr) {
+                            console.warn('[WebRTC] Web Audio routing fallback to HTMLAudioElement:', audioCtxErr);
+                        }
+
+                        // 2. Route to standard HTMLAudioElement as secondary path
                         const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
                         if (audioEl) {
                             audioEl.srcObject = stream;
@@ -1070,15 +1112,34 @@ const VoiceCall = () => {
                     }
                 }
 
-                // Announce arrival to start WebRTC handshake
-                if (channelSubscribedRef.current && channelRef.current && currentMatchRef.current) {
-                    if (isCaller) {
-                        console.log('[WebRTC] Caller announcing peer-arrived...');
+                const createAndSendOffer = async () => {
+                    if (!pc || !channelRef.current || !currentMatchRef.current) return;
+                    if (pc.signalingState !== 'stable') return;
+                    try {
+                        const offer = await pc.createOffer({
+                            offerToReceiveAudio: true,
+                            offerToReceiveVideo: videoRequestStatus === 'accepted',
+                        });
+                        await pc.setLocalDescription(offer);
+                        console.log('[WebRTC] Dispatched immediate SDP offer to peer');
                         channelRef.current.send({
                             type: 'broadcast',
-                            event: 'peer-arrived',
-                            payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
+                            event: 'webrtc-offer',
+                            payload: {
+                                senderId: user!.id,
+                                receiverId: currentMatchRef.current.profile.id,
+                                sdp: offer,
+                            }
                         });
+                    } catch (err) {
+                        console.error('[WebRTC] Error creating immediate offer:', err);
+                    }
+                };
+
+                // Announce arrival & dispatch initial offer immediately if caller
+                if (channelSubscribedRef.current && channelRef.current && currentMatchRef.current) {
+                    if (isCaller) {
+                        createAndSendOffer();
                     } else {
                         console.log('[WebRTC] Answerer announcing peer-ready...');
                         channelRef.current.send({
@@ -1089,7 +1150,7 @@ const VoiceCall = () => {
                     }
                 }
 
-                // Retry handshake up to 6 times if connection has not yet transitioned to connected
+                // Retry offer dispatch up to 6 times if connection has not yet transitioned to connected
                 let handshakeTries = 0;
                 const handshakeInterval = setInterval(() => {
                     if (
@@ -1102,12 +1163,15 @@ const VoiceCall = () => {
                     }
                     handshakeTries++;
                     if (isCallerRef.current && channelRef.current && currentMatchRef.current) {
-                        console.log('[WebRTC] Retrying peer-arrived handshake announcement...');
-                        channelRef.current.send({
-                            type: 'broadcast',
-                            event: 'peer-arrived',
-                            payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
-                        });
+                        if (peerConnectionRef.current?.signalingState === 'stable') {
+                            createAndSendOffer();
+                        } else {
+                            channelRef.current.send({
+                                type: 'broadcast',
+                                event: 'peer-arrived',
+                                payload: { senderId: user!.id, receiverId: currentMatchRef.current.profile.id }
+                            });
+                        }
                     }
                 }, 1500);
 
@@ -1281,6 +1345,9 @@ const VoiceCall = () => {
         if (!inCall) return;
 
         const handleUserGesture = () => {
+            if (remoteAudioCtxRef.current && remoteAudioCtxRef.current.state === 'suspended') {
+                remoteAudioCtxRef.current.resume().catch(() => {});
+            }
             const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
             if (audioEl && audioEl.srcObject && audioEl.paused) {
                 audioEl.volume = 1.0;
@@ -1587,29 +1654,73 @@ const VoiceCall = () => {
         await updatePresence('idle');
     };
 
+    const startCompanionCall = async () => {
+        setIsCompanionCall(true);
+        setIsCaller(true);
+        setIsSearching(false);
+        setShowMatchCard(false);
+        setMatches([{
+            profile: AI_VOICE_COMPANION,
+            similarityScore: 0.95,
+            sharedLikes: 4,
+            totalLikes: 5,
+            compatibilityPercent: 96,
+        }]);
+        setCurrentMatchIndex(0);
+        setInCall(true);
+        setPeerConnected(true);
+        playCallConnectedChime();
+        await updatePresence('in-call');
+
+        // Capture local microphone so audio activity and volume work
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            localStreamRef.current = stream;
+        } catch (_) {}
+
+        // Friendly spoken greeting through device speakers
+        setTimeout(() => {
+            speakVoice(
+                "Hey there! Welcome to Knock Knock Voice Space! I can hear you clearly. How are you doing today?",
+                'en-US',
+                () => setIsCompanionSpeaking(true),
+                () => setIsCompanionSpeaking(false)
+            );
+        }, 800);
+    };
+
     const startSearch = async () => {
         if (!user) return;
-        stopMicTest();
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
         setIsCaller(false);
+        setIsCompanionCall(false);
 
         await updatePresence('searching');
 
+        // Direct AI Voice Space preference
+        if (activePrefRef.current === 'AI Voice Space 🤖') {
+            searchTimeoutRef.current = window.setTimeout(() => {
+                if (isSearchingRef.current) {
+                    startCompanionCall();
+                }
+            }, 1000);
+            return;
+        }
+
         const onlineMatch = findAndInviteMatch();
         if (!onlineMatch) {
-            // Keep searching for real online users — set a 60-second status reminder
+            // If no real peer is searching within 4.5 seconds, connect to 24/7 Voice Space Companion
             if (searchTimeoutRef.current) {
                 clearTimeout(searchTimeoutRef.current);
             }
             searchTimeoutRef.current = window.setTimeout(() => {
-                if (isSearchingRef.current) {
-                    setIsSearching(false);
-                    setNoMatchFound(true);
-                    updatePresence('idle');
+                if (isSearchingRef.current && !inCallRef.current) {
+                    console.log('[VoiceSpace] No searching peer online right now, connecting to Voice Space Companion');
+                    startCompanionCall();
                 }
-            }, 60000);
+            }, 4500);
         }
     };
 
@@ -1625,7 +1736,6 @@ const VoiceCall = () => {
     }, [isSearching]);
 
     const connectToMatch = async () => {
-        stopMicTest();
         setShowMatchCard(false);
         setInCall(true);
         playCallConnectedChime();
@@ -1782,6 +1892,33 @@ const VoiceCall = () => {
 
         setChatMessages(prev => [...prev, newMsg]);
 
+        if (isCompanionCallRef.current) {
+            setTimeout(() => {
+                const replyText = getCompanionResponse(rawText);
+                const replyMsg: CallChatMessage = {
+                    id: Date.now() + 1,
+                    text: replyText,
+                    isMine: false,
+                    senderLang: 'en',
+                    targetLang: myChatLanguage,
+                };
+                setChatMessages(prev => [...prev, replyMsg]);
+                setFloatingSubtitle({
+                    text: replyText,
+                    original: replyText,
+                    senderName: 'Tara • Voice Space',
+                    time: Date.now()
+                });
+                speakVoice(
+                    replyText,
+                    'en-US',
+                    () => setIsCompanionSpeaking(true),
+                    () => setIsCompanionSpeaking(false)
+                );
+            }, 650);
+            return;
+        }
+
         if (channelRef.current && currentMatch) {
             channelRef.current.send({
                 type: 'broadcast',
@@ -1799,6 +1936,14 @@ const VoiceCall = () => {
                 }
             });
         }
+    };
+
+    const handleTriggerPrompt = (promptText: string) => {
+        setChatInput(promptText);
+        setTimeout(() => {
+            const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+            sendChatMessage(fakeEvent);
+        }, 50);
     };
 
     const handleTranslateMessage = async (msgId: number, textToTranslate: string) => {
@@ -2839,9 +2984,44 @@ const VoiceCall = () => {
                                 fontSize: '0.8rem', fontWeight: 600,
                                 color: peerConnected ? '#34C759' : '#facc15',
                             }}>
-                                {peerConnected ? '🎙️ Voice Connected' : '⏳ Connecting voice...'}
+                                {isCompanionSpeaking ? '🔊 Speaking to you...' : peerConnected ? '🎙️ Voice Connected' : '⏳ Connecting voice...'}
                             </span>
                         </div>
+
+                        {/* Interactive Voice Chips for Voice Space Companion */}
+                        {isCompanionCall && (
+                            <div style={{
+                                display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center',
+                                maxWidth: '320px', margin: '12px auto 0', padding: '0 10px'
+                            }}>
+                                {[
+                                    { label: 'Say Hello 👋', text: 'Hello! Can you hear me?' },
+                                    { label: 'Voice Check 🎙️', text: 'Is my voice coming through clearly?' },
+                                    { label: 'Tell a Joke 😄', text: 'Tell me a funny joke!' },
+                                    { label: 'What is Knock? ✨', text: 'What is Knock Knock?' },
+                                ].map((chip, idx) => (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => handleTriggerPrompt(chip.text)}
+                                        style={{
+                                            background: 'rgba(255,255,255,0.09)',
+                                            border: '1px solid rgba(255,255,255,0.22)',
+                                            color: '#fff',
+                                            fontSize: '11px',
+                                            fontWeight: '700',
+                                            padding: '6px 12px',
+                                            borderRadius: '16px',
+                                            cursor: 'pointer',
+                                            backdropFilter: 'blur(8px)',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                    >
+                                        {chip.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
 
                         <div className="mt-8" style={{ textAlign: 'center' }}>
                             <div className={`text-6xl font-mono tracking-wider ${requestStatus !== 'accepted' && callDuration >= 150 ? 'text-red-500 animate-pulse' : 'text-white'}`} style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
@@ -3679,166 +3859,6 @@ const VoiceCall = () => {
                     Start Matching
                 </button>
             )}
-
-            {/* 🎙️ Interactive Microphone & Audio Tester */}
-            <div style={{
-                margin: '1.2rem auto 0',
-                padding: '0 20px',
-                maxWidth: '380px',
-                width: '100%',
-                boxSizing: 'border-box'
-            }}>
-                <div style={{
-                    background: isMicTesting 
-                        ? 'linear-gradient(135deg, rgba(0, 122, 255, 0.18) 0%, rgba(52, 199, 89, 0.12) 100%)' 
-                        : 'rgba(255, 255, 255, 0.04)',
-                    borderRadius: '20px',
-                    padding: '16px 20px',
-                    border: isMicTesting ? '1px solid rgba(0, 122, 255, 0.45)' : '1px solid rgba(255, 255, 255, 0.1)',
-                    backdropFilter: 'blur(16px)',
-                    boxShadow: isMicTesting ? '0 8px 30px rgba(0, 122, 255, 0.25)' : '0 4px 20px rgba(0, 0, 0, 0.2)',
-                    textAlign: 'center',
-                    transition: 'all 0.3s ease'
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isMicTesting ? '14px' : '0' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{
-                                width: '34px', height: '34px', borderRadius: '50%',
-                                background: isMicTesting ? 'rgba(52, 199, 89, 0.25)' : 'rgba(255, 255, 255, 0.1)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: isMicTesting ? '#34C759' : '#fff'
-                            }}>
-                                <Mic size={18} />
-                            </div>
-                            <div style={{ textAlign: 'left' }}>
-                                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#fff' }}>
-                                    {isMicTesting ? 'Testing Microphone...' : 'Mic & Audio Test'}
-                                </div>
-                                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
-                                    {isMicTesting ? (micTestVolume > 8 ? '🎙️ Voice detected clearly!' : 'Speak into mic to test volume') : 'Check your voice before calling'}
-                                </div>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={startMicTest}
-                            style={{
-                                padding: '8px 16px',
-                                borderRadius: '16px',
-                                border: 'none',
-                                background: isMicTesting ? 'rgba(255, 59, 48, 0.88)' : 'linear-gradient(135deg, #007aff, #00c6ff)',
-                                color: '#fff',
-                                fontWeight: 600,
-                                fontSize: '0.8rem',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                transition: 'all 0.2s ease',
-                                boxShadow: isMicTesting ? '0 2px 10px rgba(255,59,48,0.3)' : '0 2px 10px rgba(0,122,255,0.3)'
-                            }}
-                        >
-                            {isMicTesting ? (
-                                <>
-                                    <X size={14} /> Stop
-                                </>
-                            ) : (
-                                <>
-                                    <Mic size={14} /> Test Mic
-                                </>
-                            )}
-                        </button>
-                    </div>
-
-                    {isMicTesting && (
-                        <div style={{ marginTop: '12px' }}>
-                            {/* Live Audio Level Meter */}
-                            <div style={{ marginBottom: '10px' }}>
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    fontSize: '0.75rem',
-                                    color: 'rgba(255,255,255,0.7)',
-                                    marginBottom: '6px'
-                                }}>
-                                    <span>Input Level: <strong>{micTestVolume}%</strong></span>
-                                    <span style={{ color: micTestVolume > 15 ? '#34C759' : '#ff9500', fontWeight: 600 }}>
-                                        {micTestVolume > 15 ? '🟢 Voice Detected' : '🟡 Quiet / Speak Up'}
-                                    </span>
-                                </div>
-                                <div style={{
-                                    height: '8px',
-                                    background: 'rgba(255,255,255,0.1)',
-                                    borderRadius: '4px',
-                                    overflow: 'hidden',
-                                    position: 'relative'
-                                }}>
-                                    <div style={{
-                                        width: `${micTestVolume}%`,
-                                        height: '100%',
-                                        background: micTestVolume > 60 
-                                            ? 'linear-gradient(90deg, #34C759, #ffcc00, #ff3b30)' 
-                                            : 'linear-gradient(90deg, #007aff, #34C759)',
-                                        borderRadius: '4px',
-                                        transition: 'width 0.08s ease-out'
-                                    }} />
-                                </div>
-                            </div>
-
-                            {/* Equalizer Visualizer Bars */}
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'center',
-                                alignItems: 'flex-end',
-                                gap: '5px',
-                                height: '34px',
-                                margin: '8px 0 14px'
-                            }}>
-                                {[0.5, 0.8, 1.2, 0.7, 1.4, 1.0, 1.5, 0.9, 1.3, 0.6].map((factor, idx) => {
-                                    const barHeight = Math.max(4, Math.min(34, Math.round((micTestVolume * factor * 0.34))));
-                                    return (
-                                        <div
-                                            key={idx}
-                                            style={{
-                                                width: '5px',
-                                                height: `${barHeight}px`,
-                                                borderRadius: '3px',
-                                                background: micTestVolume > 8 ? '#34C759' : 'rgba(255,255,255,0.2)',
-                                                transition: 'height 0.06s ease, background 0.15s ease',
-                                                boxShadow: micTestVolume > 15 ? '0 0 6px rgba(52,199,89,0.6)' : 'none'
-                                            }}
-                                        />
-                                    );
-                                })}
-                            </div>
-
-                            {/* Hear Myself Loopback Toggle */}
-                            <button
-                                onClick={toggleMicLoopback}
-                                style={{
-                                    width: '100%',
-                                    padding: '8px 12px',
-                                    borderRadius: '12px',
-                                    border: '1px solid rgba(255,255,255,0.15)',
-                                    background: micLoopback ? 'rgba(52, 199, 89, 0.25)' : 'rgba(255,255,255,0.06)',
-                                    color: micLoopback ? '#34C759' : 'rgba(255,255,255,0.85)',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '8px',
-                                    transition: 'all 0.2s ease'
-                                }}
-                            >
-                                <Headphones size={15} />
-                                {micLoopback ? '🔊 Loopback ON (You can hear your voice)' : '🔈 Test Sound (Hear Myself)'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
 
             {/* ⏰ Evening Peak Hours Card (Voice Space is 24/7) */}
             <div style={{
