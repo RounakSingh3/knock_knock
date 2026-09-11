@@ -436,7 +436,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             objectFit: resolvedObjectFit,
                             display: 'block',
                             opacity: isLoaded || isPlayingMode ? 1 : 0,
-                            transition: 'opacity 0.25s ease-out'
+                            transition: 'opacity 0.2s ease-out',
+                            transform: 'translateZ(0)',
+                            backfaceVisibility: 'hidden',
                         }}
                         muted={effectiveMuted}
                         controls={controls}
@@ -446,6 +448,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         // @ts-ignore
                         webkit-playsinline="true"
                         x5-playsinline="true"
+                        // @ts-ignore
+                        disablePictureInPicture={true}
+                        // @ts-ignore
+                        disableRemotePlayback={true}
                         preload={isPlayingMode ? "auto" : (isInViewport ? "metadata" : "none")}
                         onError={handleMediaError}
                         onLoadedData={() => setIsLoaded(true)}
@@ -528,7 +534,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         objectFit: resolvedObjectFit,
                         display: 'block',
                         opacity: isLoaded ? 1 : 0,
-                        transition: 'opacity 0.25s ease-out'
+                        transition: 'opacity 0.2s ease-out',
+                        transform: 'translateZ(0)',
+                        backfaceVisibility: 'hidden',
                     }}
                     loading="lazy"
                     decoding="async"

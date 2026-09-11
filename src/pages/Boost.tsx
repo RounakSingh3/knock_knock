@@ -44,6 +44,7 @@ import {
 } from '../lib/database';
 import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
 import StoryViewer from '../components/StoryViewer';
+import PostMedia from '../components/PostMedia';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 
 const FILTERS = [
@@ -1182,46 +1183,43 @@ const Boost: React.FC = () => {
                                             e.currentTarget.style.transform = 'scale(1)';
                                         }}
                                     >
-                                        {/* Media */}
-                                        {isVideo ? (
-                                            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                                                <video
-                                                    src={`${story.image_url.split('#')[0]}#t=0.001`}
-                                                    muted
-                                                    playsInline
-                                                    preload="metadata"
-                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                                />
-                                                <div style={{
-                                                    position: 'absolute',
-                                                    top: isBig ? '10px' : '6px',
-                                                    right: isBig ? '10px' : '6px',
-                                                    zIndex: 4,
-                                                    pointerEvents: 'none',
-                                                    background: isBig ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.4)',
-                                                    backdropFilter: 'blur(8px)',
-                                                    borderRadius: isBig ? '16px' : '6px',
-                                                    padding: isBig ? '4px 8px' : '2px 4px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px',
-                                                    boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-                                                }}>
-                                                    <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
-                                                    {isBig && (
-                                                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
-                                                            REEL
-                                                        </span>
-                                                    )}
-                                                </div>
+                                        {/* Optimized Media Pipeline */}
+                                        <PostMedia
+                                            post={{
+                                                image_url: story.image_url.split('#')[0],
+                                                css_filter: FILTERS.find(f => f.name === story.filter_name)?.style || 'none',
+                                                media_type: isVideo ? 'video' : 'image',
+                                            } as any}
+                                            muted
+                                            loop
+                                            playsInline
+                                            autoPlay={false}
+                                            thumbnail={!isBig}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+
+                                        {isVideo && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: isBig ? '10px' : '6px',
+                                                right: isBig ? '10px' : '6px',
+                                                zIndex: 4,
+                                                pointerEvents: 'none',
+                                                background: isBig ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.55)',
+                                                borderRadius: isBig ? '16px' : '6px',
+                                                padding: isBig ? '4px 8px' : '2px 4px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+                                            }}>
+                                                <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
+                                                {isBig && (
+                                                    <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
+                                                        REEL
+                                                    </span>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <img
-                                                src={story.image_url.split('#')[0]}
-                                                alt=""
-                                                loading="lazy"
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                            />
                                         )}
 
                                         {/* Sponsored / Ad Badge */}

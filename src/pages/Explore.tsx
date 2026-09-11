@@ -137,14 +137,13 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                     right: isBig ? '10px' : '6px',
                     zIndex: 4,
                     pointerEvents: 'none',
-                    background: isBig ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.4)',
-                    backdropFilter: 'blur(8px)',
+                    background: isBig ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.55)',
                     borderRadius: isBig ? '16px' : '6px',
                     padding: isBig ? '4px 8px' : '2px 4px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
                 }}>
                     <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
                     {isBig && (
@@ -161,7 +160,7 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                     left: isBig ? '10px' : '6px',
                     zIndex: 5,
                     display: 'flex', alignItems: 'center', gap: '4px',
-                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                    background: 'rgba(0,0,0,0.72)',
                     padding: isBig ? '3px 8px' : '2px 6px',
                     borderRadius: '10px', color: '#fff',
                     fontSize: isBig ? '11px' : '9px', fontWeight: '600', pointerEvents: 'none',
@@ -209,9 +208,9 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                 hasLikes && (
                     <div style={{
                         position: 'absolute', bottom: '6px', left: '6px', zIndex: 4,
-                        background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                        background: 'rgba(0,0,0,0.72)',
                         padding: '2px 6px', borderRadius: '6px',
-                        fontSize: '9px', color: 'rgba(255,255,255,0.8)',
+                        fontSize: '9px', color: 'rgba(255,255,255,0.85)',
                         display: 'flex', alignItems: 'center', gap: '3px',
                         pointerEvents: 'none',
                     }}>
