@@ -366,7 +366,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             borderBottom: '1px solid rgba(255,255,255,0.08)',
             fontSize: '11px',
             gap: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            flexShrink: 0
         }}>
             {/* Language Pair Selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, overflowX: 'auto' }}>
@@ -486,6 +487,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 justifyContent: 'space-between',
                 fontSize: '0.78rem',
                 color: '#34C759',
+                flexShrink: 0
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <span>🌐 {getLanguage(targetLanguage).flag} {getLanguage(targetLanguage).name}:</span>
@@ -564,8 +566,39 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const audioChunksRef = useRef<Blob[]>([]);
     const voiceTimerRef = useRef<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const groupMessagesContainerRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cameraInputRef = useRef<HTMLInputElement>(null);
+    const [visualViewportHeight, setVisualViewportHeight] = useState<number | null>(null);
+
+    // Mobile dynamic viewport listener (keeps chat input & send button above keyboard on mobile)
+    useEffect(() => {
+        if (!window.visualViewport) return;
+        const updateHeight = () => {
+            if (window.visualViewport) {
+                setVisualViewportHeight(window.visualViewport.height);
+            }
+        };
+        updateHeight();
+        window.visualViewport.addEventListener('resize', updateHeight);
+        window.visualViewport.addEventListener('scroll', updateHeight);
+        return () => {
+            window.visualViewport?.removeEventListener('resize', updateHeight);
+            window.visualViewport?.removeEventListener('scroll', updateHeight);
+        };
+    }, []);
+
+    // Lock body scrolling when ChatPanel is open to prevent underlying feed scrolling & phantom gaps
+    useEffect(() => {
+        if (isOpen) {
+            const originalOverflow = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+            return () => {
+                document.body.style.overflow = originalOverflow;
+            };
+        }
+    }, [isOpen]);
 
     const togglePlayVoice = (url: string) => {
         if (playingAudioUrl === url) {
@@ -915,10 +948,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         }
     }, [view, selectedGroup, currentUser.id]);
 
-    const scrollToBottom = () => {
+    const scrollToBottom = (smooth = true) => {
         setTimeout(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
+            const container = view === 'chat' ? messagesContainerRef.current : groupMessagesContainerRef.current;
+            if (container) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: smooth ? 'smooth' : 'auto'
+                });
+            } else if (messagesEndRef.current) {
+                messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+            }
+        }, 80);
     };
 
     // ── Create Group Handler ──
@@ -1372,12 +1413,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     return (
         <div style={{
             position: 'fixed',
-            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: visualViewportHeight ? `${visualViewportHeight}px` : '100dvh',
+            maxHeight: visualViewportHeight ? `${visualViewportHeight}px` : '100dvh',
             background: 'var(--bg-color)',
             zIndex: 1000,
             display: 'flex',
             flexDirection: 'column',
             animation: 'slideInRight 0.3s ease-out',
+            overflow: 'hidden',
+            overscrollBehavior: 'contain',
         }}>
             {view === 'list' ? (
                 <>
@@ -1863,14 +1911,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     {renderTranslationToolbar()}
 
                     {/* Messages Stream */}
-                    <div style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        padding: '16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        background: 'var(--bg-color)'
-                    }}>
+                    <div 
+                        ref={messagesContainerRef}
+                        style={{
+                            flex: 1,
+                            minHeight: 0,
+                            overflowY: 'auto',
+                            overscrollBehavior: 'contain',
+                            padding: '12px 14px 4px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            background: 'var(--bg-color)'
+                        }}
+                    >
+                        {/* Top Flex Spacer: Anchors messages cleanly at bottom when few messages exist */}
+                        <div style={{ flex: '1 1 auto', minHeight: 0 }} />
                         {loadingMessages && messages.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto' }}>Loading chat...</div>
                         ) : messages.length === 0 ? (
@@ -2079,14 +2134,28 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 );
                             })
                         )}
-                        <div ref={messagesEndRef} />
+                        <div ref={messagesEndRef} style={{ height: 0, minHeight: 0, margin: 0, padding: 0 }} />
                     </div>
 
                     {/* Live Translation Preview Bar */}
                     {renderLiveTranslationPreviewBar()}
 
                     {/* Input Bar */}
-                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <form 
+                        onSubmit={handleSend} 
+                        style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            padding: '8px 10px', 
+                            paddingBottom: 'calc(8px + env(safe-area-inset-bottom, 0px))',
+                            background: 'var(--surface-color)', 
+                            borderTop: '1px solid rgba(255,255,255,0.08)',
+                            flexShrink: 0,
+                            gap: '6px',
+                            boxSizing: 'border-box',
+                            width: '100%'
+                        }}
+                    >
                         <input 
                             type="file" 
                             accept="image/*,video/*" 
@@ -2103,12 +2172,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             onChange={handleImageUpload} 
                         />
                         {isRecordingVoice ? (
-                            <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '12px', padding: '0 8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3b30', fontWeight: 'bold', fontSize: '14px', flex: 1 }}>
-                                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff3b30', animation: 'pulse 1s infinite' }} />
-                                    <span>Recording... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '10px', padding: '0 4px', minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3b30', fontWeight: 'bold', fontSize: '14px', flex: 1, minWidth: 0 }}>
+                                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff3b30', animation: 'pulse 1s infinite', flexShrink: 0 }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Recording... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
                                 </div>
-                                <button type="button" onClick={cancelVoiceRecording} style={{ background: 'none', border: 'none', color: '#ff3b30', padding: '8px', cursor: 'pointer' }}>
+                                <button type="button" onClick={cancelVoiceRecording} style={{ background: 'none', border: 'none', color: '#ff3b30', padding: '8px', cursor: 'pointer', flexShrink: 0 }}>
                                     <Trash2 size={22} />
                                 </button>
                                 <button
@@ -2116,67 +2185,113 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     onClick={stopAndSendVoiceRecording}
                                     style={{
                                         background: '#ff3366', color: '#fff', border: 'none',
-                                        borderRadius: '50%', width: '44px', height: '44px',
+                                        borderRadius: '50%', width: '42px', height: '42px',
                                         display: 'flex', justifyContent: 'center', alignItems: 'center',
-                                        cursor: 'pointer',
+                                        cursor: 'pointer', flexShrink: 0
                                     }}
                                 >
-                                    <Send size={20} style={{ marginLeft: '2px' }} />
+                                    <Send size={19} style={{ marginLeft: '2px' }} />
                                 </button>
                             </div>
                         ) : (
                             <>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsSnapModalOpen(true)}
-                                    title="Take Snap with 30s Audio"
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer' }}
-                                    disabled={isUploadingImage || isUploadingVoice}
-                                >
-                                    <Camera size={24} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsSnapModalOpen(true)}
-                                    title="Attach Photo / Video Snap"
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px 6px', cursor: 'pointer' }}
-                                    disabled={isUploadingImage || isUploadingVoice}
-                                >
-                                    <ImageIcon size={24} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={startVoiceRecording}
-                                    title="Record Voice Note"
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer', marginRight: '4px' }}
-                                    disabled={isUploadingImage || isUploadingVoice}
-                                >
-                                    <Mic size={24} />
-                                </button>
+                                {/* Collapsible Media Icons: visible when empty, condensed when writing chat */}
+                                {!messageInput.trim() ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsSnapModalOpen(true)}
+                                            title="Take Snap with 30s Audio"
+                                            style={{ background: 'none', border: 'none', color: '#f5a524', padding: '6px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            disabled={isUploadingImage || isUploadingVoice}
+                                        >
+                                            <Camera size={22} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsSnapModalOpen(true)}
+                                            title="Attach Photo / Video Snap"
+                                            style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '6px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            disabled={isUploadingImage || isUploadingVoice}
+                                        >
+                                            <ImageIcon size={22} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={startVoiceRecording}
+                                            title="Record Voice Note"
+                                            style={{ background: 'none', border: 'none', color: '#f5a524', padding: '6px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            disabled={isUploadingImage || isUploadingVoice}
+                                        >
+                                            <Mic size={22} />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsSnapModalOpen(true)}
+                                        title="Attach Media"
+                                        style={{
+                                            background: 'rgba(255,255,255,0.08)',
+                                            border: 'none',
+                                            borderRadius: '50%',
+                                            width: '32px',
+                                            height: '32px',
+                                            color: '#f5a524',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                            flexShrink: 0,
+                                            padding: 0
+                                        }}
+                                    >
+                                        <Plus size={18} />
+                                    </button>
+                                )}
+
                                 <input
                                     type="text"
                                     value={messageInput}
                                     onChange={(e) => setMessageInput(e.target.value)}
+                                    onFocus={() => scrollToBottom(true)}
                                     placeholder="Message..."
                                     disabled={isUploadingImage || isUploadingVoice}
                                     style={{
-                                        flex: 1, background: 'var(--border-color)', border: 'none',
-                                        borderRadius: '24px', padding: '12px 16px', color: 'var(--text-active)',
-                                        outline: 'none', fontSize: '15px',
+                                        flex: 1,
+                                        minWidth: 0,
+                                        background: 'var(--border-color)',
+                                        border: 'none',
+                                        borderRadius: '24px',
+                                        padding: '10px 16px',
+                                        color: 'var(--text-active)',
+                                        outline: 'none',
+                                        fontSize: '15px',
+                                        boxSizing: 'border-box'
                                     }}
                                 />
+
                                 <button
                                     type="submit"
                                     disabled={!messageInput.trim()}
+                                    title="Send Message"
                                     style={{
-                                        background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
+                                        flexShrink: 0,
+                                        background: messageInput.trim() ? '#f5a524' : 'rgba(255,255,255,0.08)',
                                         color: messageInput.trim() ? '#000' : 'var(--text-inactive)',
-                                        border: 'none', borderRadius: '50%', width: '44px', height: '44px',
-                                        marginLeft: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        border: 'none',
+                                        borderRadius: '50%',
+                                        width: '42px',
+                                        height: '42px',
+                                        display: 'flex',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
                                         cursor: messageInput.trim() ? 'pointer' : 'default',
+                                        boxShadow: messageInput.trim() ? '0 2px 10px rgba(245, 165, 36, 0.45)' : 'none',
+                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                     }}
                                 >
-                                    <Send size={20} style={{ marginLeft: '4px' }} />
+                                    <Send size={19} style={{ marginLeft: '2px' }} />
                                 </button>
                             </>
                         )}
@@ -2214,14 +2329,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     {renderTranslationToolbar()}
 
                     {/* Group Messages Stream */}
-                    <div style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        padding: '16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        background: 'var(--bg-color)'
-                    }}>
+                    <div 
+                        ref={groupMessagesContainerRef}
+                        style={{
+                            flex: 1,
+                            minHeight: 0,
+                            overflowY: 'auto',
+                            overscrollBehavior: 'contain',
+                            padding: '12px 14px 4px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            background: 'var(--bg-color)'
+                        }}
+                    >
+                        {/* Top Flex Spacer: Anchors messages cleanly at bottom when few messages exist */}
+                        <div style={{ flex: '1 1 auto', minHeight: 0 }} />
                         {groupMessages.length === 0 ? (
                             <div style={{ textAlign: 'center', color: 'var(--text-inactive)', margin: 'auto', padding: '24px' }}>
                                 <div style={{ fontSize: '36px', marginBottom: '8px' }}>🎉</div>
@@ -2417,14 +2539,28 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 );
                             })
                         )}
-                        <div ref={messagesEndRef} />
+                        <div ref={messagesEndRef} style={{ height: 0, minHeight: 0, margin: 0, padding: 0 }} />
                     </div>
 
                     {/* Live Translation Preview Bar (Group) */}
                     {renderLiveTranslationPreviewBar()}
 
                     {/* Group Input Bar */}
-                    <form onSubmit={handleSend} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: 'var(--surface-color)', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <form 
+                        onSubmit={handleSend} 
+                        style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            padding: '8px 10px', 
+                            paddingBottom: 'calc(8px + env(safe-area-inset-bottom, 0px))',
+                            background: 'var(--surface-color)', 
+                            borderTop: '1px solid rgba(255,255,255,0.08)',
+                            flexShrink: 0,
+                            gap: '6px',
+                            boxSizing: 'border-box',
+                            width: '100%'
+                        }}
+                    >
                         <input 
                             type="file" 
                             accept="image/*,video/*" 
@@ -2441,12 +2577,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             onChange={handleImageUpload} 
                         />
                         {isRecordingVoice ? (
-                            <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '12px', padding: '0 8px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3b30', fontWeight: 'bold', fontSize: '14px', flex: 1 }}>
-                                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff3b30', animation: 'pulse 1s infinite' }} />
-                                    <span>Recording... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '10px', padding: '0 4px', minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3b30', fontWeight: 'bold', fontSize: '14px', flex: 1, minWidth: 0 }}>
+                                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff3b30', animation: 'pulse 1s infinite', flexShrink: 0 }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Recording... {Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
                                 </div>
-                                <button type="button" onClick={cancelVoiceRecording} style={{ background: 'none', border: 'none', color: '#ff3b30', padding: '8px', cursor: 'pointer' }}>
+                                <button type="button" onClick={cancelVoiceRecording} style={{ background: 'none', border: 'none', color: '#ff3b30', padding: '8px', cursor: 'pointer', flexShrink: 0 }}>
                                     <Trash2 size={22} />
                                 </button>
                                 <button
@@ -2454,67 +2590,113 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                     onClick={stopAndSendVoiceRecording}
                                     style={{
                                         background: '#ff3366', color: '#fff', border: 'none',
-                                        borderRadius: '50%', width: '44px', height: '44px',
+                                        borderRadius: '50%', width: '42px', height: '42px',
                                         display: 'flex', justifyContent: 'center', alignItems: 'center',
-                                        cursor: 'pointer',
+                                        cursor: 'pointer', flexShrink: 0
                                     }}
                                 >
-                                    <Send size={20} style={{ marginLeft: '2px' }} />
+                                    <Send size={19} style={{ marginLeft: '2px' }} />
                                 </button>
                             </div>
                         ) : (
                             <>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsSnapModalOpen(true)}
-                                    title="Take Snap with 30s Audio"
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer' }}
-                                    disabled={isUploadingImage || isUploadingVoice}
-                                >
-                                    <Camera size={24} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsSnapModalOpen(true)}
-                                    title="Attach Photo / Video Snap"
-                                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '8px 6px', cursor: 'pointer' }}
-                                    disabled={isUploadingImage || isUploadingVoice}
-                                >
-                                    <ImageIcon size={24} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={startVoiceRecording}
-                                    title="Record Voice Note"
-                                    style={{ background: 'none', border: 'none', color: '#f5a524', padding: '8px 6px', cursor: 'pointer', marginRight: '4px' }}
-                                    disabled={isUploadingImage || isUploadingVoice}
-                                >
-                                    <Mic size={24} />
-                                </button>
+                                {/* Collapsible Media Icons: visible when empty, condensed when writing chat */}
+                                {!messageInput.trim() ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsSnapModalOpen(true)}
+                                            title="Take Snap with 30s Audio"
+                                            style={{ background: 'none', border: 'none', color: '#f5a524', padding: '6px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            disabled={isUploadingImage || isUploadingVoice}
+                                        >
+                                            <Camera size={22} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsSnapModalOpen(true)}
+                                            title="Attach Photo / Video Snap"
+                                            style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', padding: '6px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            disabled={isUploadingImage || isUploadingVoice}
+                                        >
+                                            <ImageIcon size={22} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={startVoiceRecording}
+                                            title="Record Voice Note"
+                                            style={{ background: 'none', border: 'none', color: '#f5a524', padding: '6px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            disabled={isUploadingImage || isUploadingVoice}
+                                        >
+                                            <Mic size={22} />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsSnapModalOpen(true)}
+                                        title="Attach Media"
+                                        style={{
+                                            background: 'rgba(255,255,255,0.08)',
+                                            border: 'none',
+                                            borderRadius: '50%',
+                                            width: '32px',
+                                            height: '32px',
+                                            color: '#f5a524',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                            flexShrink: 0,
+                                            padding: 0
+                                        }}
+                                    >
+                                        <Plus size={18} />
+                                    </button>
+                                )}
+
                                 <input
                                     type="text"
                                     value={messageInput}
                                     onChange={(e) => setMessageInput(e.target.value)}
+                                    onFocus={() => scrollToBottom(true)}
                                     placeholder="Message group..."
                                     disabled={isUploadingImage || isUploadingVoice}
                                     style={{
-                                        flex: 1, background: 'var(--border-color)', border: 'none',
-                                        borderRadius: '24px', padding: '12px 16px', color: 'var(--text-active)',
-                                        outline: 'none', fontSize: '15px',
+                                        flex: 1,
+                                        minWidth: 0,
+                                        background: 'var(--border-color)',
+                                        border: 'none',
+                                        borderRadius: '24px',
+                                        padding: '10px 16px',
+                                        color: 'var(--text-active)',
+                                        outline: 'none',
+                                        fontSize: '15px',
+                                        boxSizing: 'border-box'
                                     }}
                                 />
+
                                 <button
                                     type="submit"
                                     disabled={!messageInput.trim()}
+                                    title="Send Message"
                                     style={{
-                                        background: messageInput.trim() ? '#f5a524' : 'var(--border-color)',
+                                        flexShrink: 0,
+                                        background: messageInput.trim() ? '#f5a524' : 'rgba(255,255,255,0.08)',
                                         color: messageInput.trim() ? '#000' : 'var(--text-inactive)',
-                                        border: 'none', borderRadius: '50%', width: '44px', height: '44px',
-                                        marginLeft: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        border: 'none',
+                                        borderRadius: '50%',
+                                        width: '42px',
+                                        height: '42px',
+                                        display: 'flex',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
                                         cursor: messageInput.trim() ? 'pointer' : 'default',
+                                        boxShadow: messageInput.trim() ? '0 2px 10px rgba(245, 165, 36, 0.45)' : 'none',
+                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                     }}
                                 >
-                                    <Send size={20} style={{ marginLeft: '4px' }} />
+                                    <Send size={19} style={{ marginLeft: '2px' }} />
                                 </button>
                             </>
                         )}
