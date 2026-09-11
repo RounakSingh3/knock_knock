@@ -17,11 +17,19 @@ import {
     ShieldCheck, 
     TrendingUp,
     RefreshCw,
-    Video
+    Video,
+    Search,
+    ExternalLink,
+    Check,
+    Hash,
+    Globe,
+    Eye,
+    Link as LinkIcon
 } from 'lucide-react';
 import PullToRefresh from '../components/PullToRefresh';
 import { AppContext } from '../context/AppContext';
 import { 
+    convertToPersonalSnap,
     fetch24HourBoostStories, 
     createBoostedStory, 
     recordScreenDelivery, 
@@ -85,6 +93,95 @@ function getTimeRemaining(createdAt: string): { text: string; hoursLeft: number;
     return { text: `${mins}m left`, hoursLeft: 0, percentElapsed };
 }
 
+const TRENDING_HASHTAGS = [
+    '#Trending',
+    '#Viral',
+    '#Reels',
+    '#Comedy',
+    '#Tech',
+    '#Fitness',
+    '#Fashion',
+    '#Music',
+    '#Business',
+    '#Food',
+    '#Ads'
+];
+
+const DISCOVERY_EXPLORE_POSTS: StoryData[] = [
+    {
+        id: 'explore-seed-1',
+        user_id: 'seed-creator-1',
+        username: 'tech_future',
+        image_url: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4#LINK:https%3A%2F%2Fstore.apple.com|Explore%20Gadgets|1',
+        filter_name: 'Normal',
+        is_boosted: true,
+        created_at: new Date().toISOString(),
+        caption: '🚀 Next-gen AI gadgets that will blow your mind! #Tech #Future #Viral #Trending',
+        link_url: 'https://store.apple.com',
+        link_cta: 'Explore Gadgets',
+        is_sponsored: true,
+        target_screens: 850,
+        screens_delivered: 620,
+    },
+    {
+        id: 'explore-seed-2',
+        user_id: 'seed-creator-2',
+        username: 'urban_style',
+        image_url: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4#LINK:https%3A%2F%2Fzara.com|Shop%20Collection|1',
+        filter_name: 'Normal',
+        is_boosted: true,
+        created_at: new Date(Date.now() - 3600000).toISOString(),
+        caption: '✨ Fall fashion drop is live now. 40% off this week only! #Fashion #Style #Trending #Ads',
+        link_url: 'https://zara.com',
+        link_cta: 'Shop Collection',
+        is_sponsored: true,
+        target_screens: 1200,
+        screens_delivered: 890,
+    },
+    {
+        id: 'explore-seed-3',
+        user_id: 'seed-creator-3',
+        username: 'comedy_club',
+        image_url: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4',
+        filter_name: 'Normal',
+        is_boosted: false,
+        created_at: new Date(Date.now() - 7200000).toISOString(),
+        caption: '😂 When you try cooking for the first time… wait for it! #Comedy #Reels #Viral',
+        target_screens: 340,
+        screens_delivered: 210,
+    },
+    {
+        id: 'explore-seed-4',
+        user_id: 'seed-creator-4',
+        username: 'fit_life',
+        image_url: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4#LINK:https%3A%2F%2Fgymshark.com|Start%20Workout|1',
+        filter_name: 'Normal',
+        is_boosted: true,
+        created_at: new Date(Date.now() - 10800000).toISOString(),
+        caption: '💪 30-day transformation challenge starts Monday. Tap link! #Fitness #Workout #Viral #Trending',
+        link_url: 'https://gymshark.com',
+        link_cta: 'Start Workout',
+        is_sponsored: true,
+        target_screens: 980,
+        screens_delivered: 750,
+    },
+    {
+        id: 'explore-seed-5',
+        user_id: 'seed-creator-5',
+        username: 'sound_vibes',
+        image_url: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4#LINK:https%3A%2F%2Fspotify.com|Listen%20Now|0',
+        filter_name: 'Normal',
+        is_boosted: false,
+        created_at: new Date(Date.now() - 14400000).toISOString(),
+        caption: '🌊 Sunset waves with the dreamiest lofi beat ever. #Music #Chill #Nature #Reels',
+        link_url: 'https://spotify.com',
+        link_cta: 'Listen Now',
+        is_sponsored: false,
+        target_screens: 500,
+        screens_delivered: 380,
+    }
+];
+
 const Boost: React.FC = () => {
     const { user, points, setPoints, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
@@ -113,6 +210,18 @@ const Boost: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [filterTab, setFilterTab] = useState<'all' | 'boosted' | 'friends' | 'videos'>('all');
     const [userFriends, setUserFriends] = useState<string[]>([]);
+
+    // Instagram Explore Hashtags & Search States
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedHashtag, setSelectedHashtag] = useState<string | null>(null);
+    const [snapToast, setSnapToast] = useState<string | null>(null);
+
+    // Advertisement & Promotion Link States in Creator Modal
+    const [hasAdLink, setHasAdLink] = useState(false);
+    const [adLinkUrl, setAdLinkUrl] = useState('');
+    const [adLinkCta, setAdLinkCta] = useState('Shop Now');
+    const [isSponsoredAd, setIsSponsoredAd] = useState(false);
+    const [postType, setPostType] = useState<'explore' | 'snap'>('explore');
 
     // Story Viewer State
     const [activeViewerGroupIndex, setActiveViewerGroupIndex] = useState<number | null>(null);
@@ -217,14 +326,65 @@ const Boost: React.FC = () => {
         [stories, user?.id]
     );
     
+    // Combine real DB stories with discovery seed stories (real DB stories appear first)
+    const combinedStories = useMemo(() => {
+        const realIds = new Set(stories.map(s => s.id));
+        const extraSeeds = DISCOVERY_EXPLORE_POSTS.filter(seed => !realIds.has(seed.id));
+        return [...stories, ...extraSeeds];
+    }, [stories]);
+
+    // Enhanced Instagram Explore filtering (Filter Tab + #Hashtag + Search Query)
     const filteredStories = useMemo(() => {
-        return stories.filter(s => {
-            if (filterTab === 'boosted') return s.is_boosted;
-            if (filterTab === 'friends') return s.user_id && userFriends.includes(s.user_id);
-            if (filterTab === 'videos') return isVideoUrl(s.image_url);
+        return combinedStories.filter(s => {
+            // 1. Tab filter
+            if (filterTab === 'boosted' && !s.is_boosted && !s.is_sponsored) return false;
+            if (filterTab === 'friends' && (!s.user_id || !userFriends.includes(s.user_id))) return false;
+            if (filterTab === 'videos' && !isVideoUrl(s.image_url)) return false;
+
+            // 2. Hashtag filter
+            if (selectedHashtag) {
+                const tagClean = selectedHashtag.replace('#', '').toLowerCase();
+                const captionLower = (s.caption || '').toLowerCase();
+                const usernameLower = (s.username || '').toLowerCase();
+                if (!captionLower.includes(tagClean) && !usernameLower.includes(tagClean)) {
+                    return false;
+                }
+            }
+
+            // 3. Search query filter
+            if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase().trim().replace(/^#/, '');
+                const captionLower = (s.caption || '').toLowerCase();
+                const usernameLower = (s.username || '').toLowerCase();
+                const ctaLower = (s.link_cta || '').toLowerCase();
+                if (!captionLower.includes(q) && !usernameLower.includes(q) && !ctaLower.includes(q)) {
+                    return false;
+                }
+            }
+
             return true;
         });
-    }, [stories, filterTab, userFriends]);
+    }, [combinedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
+
+    // Convert to Snap handler
+    const handleConvertToSnap = async (story: StoryData, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!user) {
+            alert('Please log in to convert this video into your Snap.');
+            return;
+        }
+
+        try {
+            const { error } = await convertToPersonalSnap(user.id, story, user.username || user.name);
+            if (error) throw error;
+            setSnapToast('🎉 Video converted to your 24h Snap!');
+            setTimeout(() => setSnapToast(null), 3500);
+            await loadFeed(true);
+        } catch (err: any) {
+            console.error('Convert to snap error:', err);
+            alert('Failed to convert video to snap. Please try again.');
+        }
+    };
 
     // Open Story Viewer (bulletproof fallback resolution)
     const handleOpenStory = (story: StoryData) => {
@@ -459,6 +619,11 @@ const Boost: React.FC = () => {
         setUploadError(null);
         setActiveFilterIndex(0);
         setUploadProgress(0);
+        setHasAdLink(false);
+        setAdLinkUrl('');
+        setAdLinkCta('Shop Now');
+        setIsSponsoredAd(false);
+        setPostType('explore');
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -523,7 +688,7 @@ const Boost: React.FC = () => {
                 throw new Error('Failed to upload media. Please try again.');
             }
 
-            // Step 2: Create 24-hour boosted story with reach guarantee metadata
+            // Step 2: Create 24-hour boosted story with reach guarantee & advertisement link metadata
             const filterName = FILTERS[activeFilterIndex].name;
             const { error: storyError } = await createBoostedStory(
                 user.id,
@@ -535,7 +700,10 @@ const Boost: React.FC = () => {
                 caption.trim() || undefined,
                 selectedTrack?.title,
                 selectedTrack?.artist,
-                selectedTrack?.url
+                selectedTrack?.url,
+                hasAdLink && adLinkUrl.trim() ? adLinkUrl.trim() : undefined,
+                hasAdLink ? adLinkCta : undefined,
+                hasAdLink ? isSponsoredAd : undefined
             );
 
             if (storyError) {
@@ -586,18 +754,20 @@ const Boost: React.FC = () => {
                     </div>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '800', letterSpacing: '-0.3px' }}>KnockUp Screen</h1>
+                            <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '800', letterSpacing: '-0.3px', background: 'linear-gradient(135deg, #f5a524, #ff3366)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                                Explore & Ads
+                            </h1>
                             <span style={{
                                 fontSize: '10px', fontWeight: '800', color: '#ff6b35',
                                 background: 'rgba(255,107,53,0.15)', padding: '2px 6px',
                                 borderRadius: '6px', border: '1px solid rgba(255,107,53,0.3)',
                                 textTransform: 'uppercase', letterSpacing: '0.5px'
                             }}>
-                                24H
+                                Instagram Vibe
                             </span>
                         </div>
                         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)' }}>
-                            Guaranteed Screen Reach • 24h Ephemeral
+                            Trending #Hashtags • Video Ads • Convert to Snap
                         </p>
                     </div>
                 </div>
@@ -638,6 +808,124 @@ const Boost: React.FC = () => {
 
             {/* ── Main Content Area with Native Pull-To-Refresh ── */}
             <PullToRefresh onRefresh={() => loadFeed(true)}>
+                {/* ── Floating Toast for Snap Conversion ── */}
+                {snapToast && (
+                    <div style={{
+                        position: 'fixed',
+                        top: '70px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: 'rgba(34, 197, 94, 0.95)',
+                        backdropFilter: 'blur(10px)',
+                        color: '#fff',
+                        padding: '9px 20px',
+                        borderRadius: '24px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        zIndex: 9999,
+                        boxShadow: '0 6px 20px rgba(0,0,0,0.5)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <Check size={16} /> {snapToast}
+                    </div>
+                )}
+
+                {/* ── 🔍 Instagram Explore Search & Hashtag Bar ── */}
+                <div style={{ padding: '14px 16px 8px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {/* Search Input */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        background: 'rgba(255,255,255,0.07)',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '20px',
+                        padding: '8px 14px',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.4)'
+                    }}>
+                        <Search size={16} color="var(--text-inactive)" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            placeholder="Search #hashtags, videos, creators, ads..."
+                            style={{
+                                flex: 1,
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#fff',
+                                fontSize: '13px',
+                                outline: 'none'
+                            }}
+                        />
+                        {searchQuery && (
+                            <button
+                                onClick={() => setSearchQuery('')}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', padding: 0 }}
+                            >
+                                <X size={15} />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Trending #Hashtags Horizontal Scroller */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        overflowX: 'auto',
+                        paddingBottom: '4px',
+                        WebkitOverflowScrolling: 'touch'
+                    }}>
+                        <button
+                            onClick={() => setSelectedHashtag(null)}
+                            style={{
+                                background: selectedHashtag === null ? 'linear-gradient(135deg, #f5a524, #ff3366)' : 'rgba(255,255,255,0.06)',
+                                border: selectedHashtag === null ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                color: selectedHashtag === null ? '#000' : 'var(--text-inactive)',
+                                padding: '5px 12px',
+                                borderRadius: '16px',
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s ease'
+                            }}
+                        >
+                            #All
+                        </button>
+                        {TRENDING_HASHTAGS.map(tag => {
+                            const isSelected = selectedHashtag === tag;
+                            return (
+                                <button
+                                    key={tag}
+                                    onClick={() => setSelectedHashtag(isSelected ? null : tag)}
+                                    style={{
+                                        background: isSelected ? 'linear-gradient(135deg, #f5a524, #ff3366)' : 'rgba(255,255,255,0.06)',
+                                        border: isSelected ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                        color: isSelected ? '#000' : 'var(--text-active)',
+                                        padding: '5px 12px',
+                                        borderRadius: '16px',
+                                        fontSize: '11px',
+                                        fontWeight: isSelected ? '800' : '600',
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <span>{tag}</span>
+                                    {isSelected && <X size={11} />}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
                 {/* ── Creator's Active 24h Knocks & Reach Guarantee Dashboard ── */}
                 {myActiveKnocks.length > 0 && (
                     <div style={{ padding: '16px', background: 'linear-gradient(180deg, rgba(245, 165, 36, 0.08) 0%, transparent 100%)' }}>
@@ -949,35 +1237,74 @@ const Boost: React.FC = () => {
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                             zIndex: 5
                                         }}>
-                                            {/* 24h Countdown Badge */}
-                                            <div style={{
-                                                background: 'rgba(0,0,0,0.7)',
-                                                backdropFilter: 'blur(8px)',
-                                                borderRadius: '12px',
-                                                padding: '3px 8px',
-                                                display: 'flex', alignItems: 'center', gap: '4px',
-                                                fontSize: '10px', fontWeight: '700',
-                                                color: '#60a5fa',
-                                                border: '1px solid rgba(96,165,250,0.3)'
-                                            }}>
-                                                <Clock size={10} />
-                                                <span>{timeInfo.text}</span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                {story.is_sponsored ? (
+                                                    <div style={{
+                                                        background: 'linear-gradient(135deg, #ff3366, #f5a524)',
+                                                        borderRadius: '10px',
+                                                        padding: '3px 7px',
+                                                        fontSize: '9px',
+                                                        fontWeight: '800',
+                                                        color: '#fff',
+                                                        textTransform: 'uppercase',
+                                                        letterSpacing: '0.4px',
+                                                        boxShadow: '0 2px 8px rgba(255,51,102,0.4)'
+                                                    }}>
+                                                        Sponsored
+                                                    </div>
+                                                ) : isBoosted ? (
+                                                    <div style={{
+                                                        background: 'linear-gradient(135deg, rgba(245,165,36,0.9), rgba(255,107,53,0.9))',
+                                                        borderRadius: '10px',
+                                                        padding: '3px 7px',
+                                                        display: 'flex', alignItems: 'center', gap: '3px',
+                                                        fontSize: '9px', fontWeight: '800',
+                                                        color: '#000',
+                                                        boxShadow: '0 2px 8px rgba(245, 165, 36, 0.4)'
+                                                    }}>
+                                                        <Flame size={10} />
+                                                        <span>+{story.points_spent || 10}</span>
+                                                    </div>
+                                                ) : (
+                                                    <div style={{
+                                                        background: 'rgba(0,0,0,0.7)',
+                                                        backdropFilter: 'blur(8px)',
+                                                        borderRadius: '10px',
+                                                        padding: '3px 6px',
+                                                        display: 'flex', alignItems: 'center', gap: '3px',
+                                                        fontSize: '9px', fontWeight: '700',
+                                                        color: '#60a5fa',
+                                                        border: '1px solid rgba(96,165,250,0.3)'
+                                                    }}>
+                                                        <Clock size={9} />
+                                                        <span>{timeInfo.text}</span>
+                                                    </div>
+                                                )}
                                             </div>
 
-                                            {/* Boost Screen Guarantee Badge */}
-                                            {isBoosted && (
-                                                <div style={{
-                                                    background: 'linear-gradient(135deg, rgba(245,165,36,0.9), rgba(255,107,53,0.9))',
-                                                    borderRadius: '12px',
-                                                    padding: '3px 7px',
-                                                    display: 'flex', alignItems: 'center', gap: '3px',
-                                                    fontSize: '10px', fontWeight: '800',
-                                                    color: '#000',
-                                                    boxShadow: '0 2px 8px rgba(245, 165, 36, 0.4)'
-                                                }}>
-                                                    <Flame size={10} />
-                                                    <span>+{story.points_spent || 10}</span>
-                                                </div>
+                                            {/* Convert to Snap Action Button on Card */}
+                                            {user && story.user_id !== user.id && (
+                                                <button
+                                                    onClick={(e) => handleConvertToSnap(story, e)}
+                                                    title="Convert this video into your 24h Snap"
+                                                    style={{
+                                                        background: 'rgba(0,0,0,0.75)',
+                                                        backdropFilter: 'blur(8px)',
+                                                        border: '1px solid rgba(245,165,36,0.45)',
+                                                        borderRadius: '12px',
+                                                        padding: '3px 8px',
+                                                        color: '#f5a524',
+                                                        fontSize: '10px',
+                                                        fontWeight: '800',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
+                                                    }}
+                                                >
+                                                    <Zap size={11} fill="#f5a524" /> Snap
+                                                </button>
                                             )}
                                         </div>
 
@@ -1022,6 +1349,35 @@ const Boost: React.FC = () => {
                                                     <Music size={10} />
                                                     <span>{story.music_title}</span>
                                                 </div>
+                                            )}
+
+                                            {/* 🔗 Advertisement Call-To-Action Button on Card */}
+                                            {story.link_url && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        window.open(story.link_url, '_blank', 'noopener,noreferrer');
+                                                    }}
+                                                    style={{
+                                                        background: 'linear-gradient(135deg, #ff3366, #f5a524)',
+                                                        color: '#fff',
+                                                        border: 'none',
+                                                        borderRadius: '12px',
+                                                        padding: '4px 8px',
+                                                        fontSize: '10px',
+                                                        fontWeight: 800,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '4px',
+                                                        cursor: 'pointer',
+                                                        boxShadow: '0 2px 10px rgba(255,51,102,0.4)',
+                                                        marginTop: '2px'
+                                                    }}
+                                                >
+                                                    <ExternalLink size={10} />
+                                                    <span>{story.link_cta || 'Shop Now'} ↗</span>
+                                                </button>
                                             )}
 
                                             {/* Reach Delivery Indicator */}
@@ -1375,19 +1731,191 @@ const Boost: React.FC = () => {
                                 </button>
                             </div>
 
-                            {/* Caption Input */}
-                            <input
-                                type="text"
-                                value={caption}
-                                onChange={e => setCaption(e.target.value)}
-                                placeholder="Add a caption or story note..."
-                                style={{
-                                    width: '100%', background: 'rgba(255,255,255,0.06)',
-                                    border: '1px solid rgba(255,255,255,0.1)',
-                                    borderRadius: '12px', padding: '12px 14px',
-                                    color: 'var(--text-active)', fontSize: '13px', outline: 'none'
-                                }}
-                            />
+                            {/* Post Type Selector (Explore Video/Ad vs 24h Snap) */}
+                            <div style={{
+                                display: 'flex',
+                                background: 'rgba(0,0,0,0.4)',
+                                borderRadius: '14px',
+                                padding: '4px',
+                                border: '1px solid rgba(255,255,255,0.08)'
+                            }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setPostType('explore')}
+                                    style={{
+                                        flex: 1,
+                                        background: postType === 'explore' ? 'linear-gradient(135deg, #f5a524, #ff3366)' : 'transparent',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        padding: '8px 10px',
+                                        color: postType === 'explore' ? '#000' : 'var(--text-inactive)',
+                                        fontSize: '12px',
+                                        fontWeight: 800,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    🎬 Explore Video / Ad
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPostType('snap')}
+                                    style={{
+                                        flex: 1,
+                                        background: postType === 'snap' ? 'linear-gradient(135deg, #f5a524, #ff6b35)' : 'transparent',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        padding: '8px 10px',
+                                        color: postType === 'snap' ? '#000' : 'var(--text-inactive)',
+                                        fontSize: '12px',
+                                        fontWeight: 800,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    ⚡ 24h Ephemeral Snap
+                                </button>
+                            </div>
+
+                            {/* Caption Input with #Hashtag Quick Chips */}
+                            <div>
+                                <input
+                                    type="text"
+                                    value={caption}
+                                    onChange={e => setCaption(e.target.value)}
+                                    placeholder="Add a caption with #hashtags (e.g. #trending #ad)..."
+                                    style={{
+                                        width: '100%', background: 'rgba(255,255,255,0.06)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        borderRadius: '12px', padding: '12px 14px',
+                                        color: 'var(--text-active)', fontSize: '13px', outline: 'none',
+                                        boxSizing: 'border-box'
+                                    }}
+                                />
+
+                                {/* 1-Tap Quick #Hashtag Chips */}
+                                <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginTop: '8px', paddingBottom: '2px' }}>
+                                    {['#trending', '#viral', '#foryou', '#ad', '#business', '#reels', '#tech', '#deal'].map(tag => (
+                                        <button
+                                            key={tag}
+                                            type="button"
+                                            onClick={() => {
+                                                if (!caption.includes(tag)) {
+                                                    setCaption(prev => prev ? `${prev.trim()} ${tag}` : tag);
+                                                }
+                                            }}
+                                            style={{
+                                                background: caption.includes(tag) ? 'rgba(245,165,36,0.2)' : 'rgba(255,255,255,0.06)',
+                                                border: caption.includes(tag) ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                                color: caption.includes(tag) ? '#f5a524' : 'var(--text-inactive)',
+                                                padding: '3px 8px',
+                                                borderRadius: '12px',
+                                                fontSize: '11px',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                                whiteSpace: 'nowrap'
+                                            }}
+                                        >
+                                            +{tag}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* ── 📢 Advertisement & External Website Link Section ── */}
+                            <div style={{
+                                background: hasAdLink ? 'linear-gradient(135deg, rgba(255,51,102,0.12), rgba(245,165,36,0.08))' : 'rgba(255,255,255,0.04)',
+                                border: hasAdLink ? '1px solid rgba(255,51,102,0.35)' : '1px solid rgba(255,255,255,0.08)',
+                                borderRadius: '16px',
+                                padding: '14px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '10px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={hasAdLink}
+                                            onChange={e => setHasAdLink(e.target.checked)}
+                                            style={{ accentColor: '#ff3366', width: '16px', height: '16px' }}
+                                        />
+                                        <span style={{ fontSize: '13px', fontWeight: 700, color: hasAdLink ? '#ff3366' : 'var(--text-active)' }}>
+                                            🔗 Add Advertisement / Website Link
+                                        </span>
+                                    </label>
+                                    {hasAdLink && (
+                                        <span style={{ fontSize: '10px', color: '#f5a524', fontWeight: 800 }}>PROMOTION</span>
+                                    )}
+                                </div>
+
+                                {hasAdLink && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                                        {/* Website / Destination URL */}
+                                        <div>
+                                            <label style={{ fontSize: '11px', color: 'var(--text-inactive)', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+                                                Destination URL (e.g. Website, Shop, App link):
+                                            </label>
+                                            <input
+                                                type="url"
+                                                value={adLinkUrl}
+                                                onChange={e => setAdLinkUrl(e.target.value)}
+                                                placeholder="https://yourbrand.com/offer"
+                                                style={{
+                                                    width: '100%',
+                                                    background: 'rgba(0,0,0,0.4)',
+                                                    border: '1px solid rgba(255,255,255,0.15)',
+                                                    borderRadius: '10px',
+                                                    padding: '10px 12px',
+                                                    color: '#fff',
+                                                    fontSize: '12px',
+                                                    outline: 'none',
+                                                    boxSizing: 'border-box'
+                                                }}
+                                            />
+                                        </div>
+
+                                        {/* Call To Action Dropdown */}
+                                        <div>
+                                            <label style={{ fontSize: '11px', color: 'var(--text-inactive)', display: 'block', marginBottom: '4px', fontWeight: 600 }}>
+                                                Call-To-Action Button Text:
+                                            </label>
+                                            <select
+                                                value={adLinkCta}
+                                                onChange={e => setAdLinkCta(e.target.value)}
+                                                style={{
+                                                    width: '100%',
+                                                    background: '#1a1a1a',
+                                                    border: '1px solid rgba(255,255,255,0.15)',
+                                                    borderRadius: '10px',
+                                                    padding: '10px 12px',
+                                                    color: '#fff',
+                                                    fontSize: '12px',
+                                                    outline: 'none',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {['Shop Now', 'Learn More', 'Visit Website', 'Order Now', 'Sign Up', 'Watch More', 'Book Now'].map(cta => (
+                                                    <option key={cta} value={cta} style={{ background: '#1c1c1e', color: '#fff' }}>
+                                                        {cta}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Sponsored Badge Toggle */}
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '2px' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={isSponsoredAd}
+                                                onChange={e => setIsSponsoredAd(e.target.checked)}
+                                                style={{ accentColor: '#f5a524', width: '15px', height: '15px' }}
+                                            />
+                                            <span style={{ fontSize: '11px', color: 'var(--text-active)', fontWeight: 600 }}>
+                                                Display "Sponsored Ad 📢" badge on video
+                                            </span>
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
 
                             {/* ── Screen Delivery Reach Engine (The Core Feature) ── */}
                             <div style={{

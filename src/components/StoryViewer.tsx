@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap } from 'lucide-react';
-import { type UserStoryGroup, deleteStory, recordScreenDelivery } from '../lib/database';
+import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap, ExternalLink, Check } from 'lucide-react';
+import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 
@@ -46,6 +46,24 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
     const [audioPlaying, setAudioPlaying] = useState(true);
     const [musicMuted, setMusicMuted] = useState(false);
+    const [snapConvertedToast, setSnapConvertedToast] = useState(false);
+
+    const handleConvertToSnap = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!currentUserId || !currentStory) {
+            alert('Please log in to convert this video into your Snap.');
+            return;
+        }
+        try {
+            const { error } = await convertToPersonalSnap(currentUserId, currentStory, currentGroup?.username);
+            if (error) throw error;
+            setSnapConvertedToast(true);
+            setTimeout(() => setSnapConvertedToast(false), 3000);
+        } catch (err: any) {
+            console.error('Failed to convert to snap:', err);
+            alert('Could not convert video to snap. Please try again.');
+        }
+    };
 
     const handleNextStory = useCallback(() => {
         if (!currentGroup) return;
@@ -339,7 +357,34 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         </div>
                     </div>
                 </div>
-                <div className="story-actions">
+                <div className="story-actions" style={{ display: 'flex', alignItems: 'center' }}>
+                    {currentUserId && currentStory.user_id !== currentUserId && (
+                        <button
+                            onClick={handleConvertToSnap}
+                            title="Convert video to your own 24h Snap"
+                            style={{
+                                background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                                border: 'none',
+                                borderRadius: '16px',
+                                padding: '4px 10px',
+                                color: '#000',
+                                fontWeight: 800,
+                                fontSize: '11px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                marginRight: '10px',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 8px rgba(245,165,36,0.4)',
+                                transition: 'transform 0.1s ease'
+                            }}
+                            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.95)'}
+                            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                        >
+                            <Zap size={13} fill="#000" />
+                            <span>Convert Snap</span>
+                        </button>
+                    )}
                     {currentStory.user_id === currentUserId && (
                         <button onClick={handleDelete} className="icon-btn" style={{ marginRight: 15 }}>
                             <Trash2 size={24} color="var(--text-active)" />
@@ -399,10 +444,106 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 />
             )}
 
-            {/* Caption */}
+            {/* Toast when converted to Snap */}
+            {snapConvertedToast && (
+                <div style={{
+                    position: 'absolute',
+                    top: '75px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: 'rgba(34, 197, 94, 0.95)',
+                    backdropFilter: 'blur(10px)',
+                    color: '#fff',
+                    padding: '8px 18px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    zIndex: 200,
+                    boxShadow: '0 4px 18px rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                }}>
+                    <Check size={14} /> Converted to your 24h Snap!
+                </div>
+            )}
+
+            {/* Caption with Highlighted #Hashtags */}
             {currentStory.caption && (
-                <div className="story-caption-overlay">
-                    {currentStory.caption}
+                <div className="story-caption-overlay" style={{
+                    maxHeight: '120px',
+                    overflowY: 'auto',
+                    lineHeight: 1.45,
+                    fontSize: '13px'
+                }}>
+                    {currentStory.caption.split(' ').map((word: string, wIdx: number) => {
+                        if (word.startsWith('#') && word.length > 1) {
+                            return (
+                                <span key={wIdx} style={{ color: '#f5a524', fontWeight: 700, marginRight: '4px' }}>
+                                    {word}{' '}
+                                </span>
+                            );
+                        }
+                        return word + ' ';
+                    })}
+                </div>
+            )}
+
+            {/* 📢 Instagram-Style Advertisement Call-to-Action Bar */}
+            {currentStory.link_url && (
+                <div style={{
+                    position: 'absolute',
+                    bottom: (currentStory.music_url || currentStory.music_title) ? '180px' : '95px',
+                    left: '16px',
+                    right: '16px',
+                    zIndex: 110,
+                    display: 'flex',
+                    justifyContent: 'center'
+                }}>
+                    <a
+                        href={currentStory.link_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            width: '100%',
+                            maxWidth: '380px',
+                            background: 'linear-gradient(135deg, rgba(255, 51, 102, 0.95) 0%, rgba(245, 165, 36, 0.95) 100%)',
+                            backdropFilter: 'blur(16px)',
+                            border: '1px solid rgba(255, 255, 255, 0.35)',
+                            borderRadius: '16px',
+                            padding: '11px 18px',
+                            color: '#fff',
+                            textDecoration: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            boxShadow: '0 8px 30px rgba(255, 51, 102, 0.45)',
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                            transition: 'transform 0.15s ease'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <ExternalLink size={16} color="#fff" />
+                            <span style={{ fontSize: '0.92rem', letterSpacing: '0.2px' }}>
+                                {currentStory.link_cta || 'Learn More'}
+                            </span>
+                            {currentStory.is_sponsored && (
+                                <span style={{
+                                    fontSize: '0.65rem',
+                                    background: 'rgba(0,0,0,0.35)',
+                                    padding: '2px 6px',
+                                    borderRadius: '6px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.5px'
+                                }}>
+                                    Sponsored Ad
+                                </span>
+                            )}
+                        </div>
+                        <span style={{ fontSize: '0.82rem', opacity: 0.9 }}>Visit ↗</span>
+                    </a>
                 </div>
             )}
 

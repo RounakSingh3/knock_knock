@@ -747,6 +747,9 @@ export interface StoryData {
     target_screens?: number;
     screens_delivered?: number;
     points_spent?: number;
+    link_url?: string;
+    link_cta?: string;
+    is_sponsored?: boolean;
 }
 
 export function normalizeStory(story: StoryData): StoryData {
@@ -756,6 +759,37 @@ export function normalizeStory(story: StoryData): StoryData {
     let music_title = story.music_title;
     let music_artist = story.music_artist;
     let boost_meta: BoostReachMeta | undefined = story.boost_meta;
+    let link_url = story.link_url;
+    let link_cta = story.link_cta || 'Learn More';
+    let is_sponsored = story.is_sponsored || false;
+
+    if (image_url.includes('#LINK:')) {
+        const parts = image_url.split('#LINK:');
+        image_url = parts[0];
+        const linkData = parts[1]?.split('#')[0];
+        if (linkData) {
+            const match = linkData.match(/([^|]+)\|([^|]*)\|([^|]*)/);
+            if (match) {
+                try {
+                    link_url = decodeURIComponent(match[1]);
+                    link_cta = decodeURIComponent(match[2]) || 'Learn More';
+                    is_sponsored = match[3] === '1';
+                } catch {
+                    link_url = match[1];
+                    link_cta = match[2] || 'Learn More';
+                    is_sponsored = match[3] === '1';
+                }
+            }
+        }
+    }
+
+    if (!link_url && story.caption) {
+        const urlMatch = story.caption.match(/(https?:\/\/[^\s]+)/i);
+        if (urlMatch) {
+            link_url = urlMatch[1];
+            link_cta = 'Visit Website';
+        }
+    }
 
     if (image_url.includes('#BOOST:')) {
         const parts = image_url.split('#BOOST:');
@@ -854,6 +888,9 @@ export function normalizeStory(story: StoryData): StoryData {
         target_screens: boost_meta?.targetScreens,
         screens_delivered: boost_meta?.screensDelivered,
         points_spent: boost_meta?.pointsSpent,
+        link_url,
+        link_cta,
+        is_sponsored,
     };
 }
 
@@ -1069,7 +1106,10 @@ export async function createBoostedStory(
     caption?: string,
     musicTitle?: string,
     musicArtist?: string,
-    musicUrl?: string
+    musicUrl?: string,
+    linkUrl?: string,
+    linkCta?: string,
+    isSponsored?: boolean
 ): Promise<{ error: Error | null; story?: StoryData }> {
     const baseScreens = Math.max(friendsCount, 1);
     const extraScreens = Math.max(pointsSpent, 0);
@@ -1080,6 +1120,9 @@ export async function createBoostedStory(
     let finalImageUrl = imageUrl;
     if (musicUrl) {
         finalImageUrl = `${finalImageUrl}#MUSIC:${encodeURIComponent(musicUrl)}|${encodeURIComponent(musicTitle || '')}|${encodeURIComponent(musicArtist || '')}`;
+    }
+    if (linkUrl) {
+        finalImageUrl = `${finalImageUrl}#LINK:${encodeURIComponent(linkUrl)}|${encodeURIComponent(linkCta || 'Learn More')}|${isSponsored ? '1' : '0'}`;
     }
     finalImageUrl = `${finalImageUrl}${boostTag}`;
 
@@ -1104,6 +1147,29 @@ export async function createBoostedStory(
     invalidateCache('24h_boost_stories');
 
     return { error: null };
+}
+
+/** Repost / Convert an explore video or post into a personal 24h Snap */
+export async function convertToPersonalSnap(
+    userId: string,
+    originalStory: StoryData,
+    currentUsername?: string
+): Promise<{ error: Error | null; story?: StoryData }> {
+    return createBoostedStory(
+        userId,
+        originalStory.image_url,
+        originalStory.filter_name || 'Normal',
+        0,
+        14,
+        currentUsername || 'You',
+        originalStory.caption,
+        originalStory.music_title,
+        originalStory.music_artist,
+        originalStory.music_url,
+        originalStory.link_url,
+        originalStory.link_cta,
+        originalStory.is_sponsored
+    );
 }
 
 /** Fetch all 24-hour stories for the Boost Explore page, sorted by delivery guarantee duty */
