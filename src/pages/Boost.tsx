@@ -1081,29 +1081,35 @@ const Boost: React.FC = () => {
                     })}
                 </div>
 
-                {/* ── 24-Hour Ephemeral Discovery Feed (Grid - 3 Columns like Third Page) ── */}
-                <div style={{ padding: '0 12px 24px 12px' }}>
+                {/* ── 24-Hour Ephemeral Discovery Feed (Grid - Instagram Explore Style with Big Cards) ── */}
+                <div style={{ padding: '0 2px 24px 2px' }}>
                     {isLoading && stories.length === 0 ? (
                         <div style={{
                             display: 'grid',
                             gridTemplateColumns: 'repeat(3, 1fr)',
+                            gridAutoFlow: 'dense',
                             gap: '2px'
                         }}>
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => (
-                                <div
-                                    key={i}
-                                    style={{
-                                        aspectRatio: '1',
-                                        borderRadius: '4px',
-                                        background: 'rgba(255,255,255,0.04)',
-                                        border: '1px solid rgba(255,255,255,0.06)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        opacity: 0.7
-                                    }}
-                                >
-                                    <Rocket size={20} color="rgba(245, 165, 36, 0.4)" />
-                                </div>
-                            ))}
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i, idx) => {
+                                const isBig = (idx % 12 === 0) || (idx % 12 === 8);
+                                return (
+                                    <div
+                                        key={i}
+                                        style={{
+                                            aspectRatio: '1',
+                                            gridColumn: isBig ? 'span 2' : 'span 1',
+                                            gridRow: isBig ? 'span 2' : 'span 1',
+                                            borderRadius: '4px',
+                                            background: 'rgba(255,255,255,0.04)',
+                                            border: '1px solid rgba(255,255,255,0.06)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            opacity: 0.7
+                                        }}
+                                    >
+                                        <Rocket size={isBig ? 32 : 20} color="rgba(245, 165, 36, 0.4)" />
+                                    </div>
+                                );
+                            })}
                         </div>
                     ) : filteredStories.length === 0 ? (
                         <div style={{
@@ -1143,11 +1149,13 @@ const Boost: React.FC = () => {
                         <div style={{
                             display: 'grid',
                             gridTemplateColumns: 'repeat(3, 1fr)',
+                            gridAutoFlow: 'dense',
                             gap: '2px'
                         }}>
-                            {filteredStories.map((story) => {
+                            {filteredStories.map((story, idx) => {
                                 const isVideo = isVideoUrl(story.image_url);
                                 const isBoosted = story.is_boosted;
+                                const isBig = (idx % 12 === 0) || (idx % 12 === 8);
 
                                 return (
                                     <div
@@ -1157,6 +1165,8 @@ const Boost: React.FC = () => {
                                         onClick={() => handleOpenStory(story)}
                                         style={{
                                             aspectRatio: '1',
+                                            gridColumn: isBig ? 'span 2' : 'span 1',
+                                            gridRow: isBig ? 'span 2' : 'span 1',
                                             position: 'relative',
                                             cursor: 'pointer',
                                             overflow: 'hidden',
@@ -1182,8 +1192,27 @@ const Boost: React.FC = () => {
                                                     preload="metadata"
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                 />
-                                                <div style={{ position: 'absolute', top: '6px', right: '6px', zIndex: 4, pointerEvents: 'none' }}>
-                                                    <Play size={14} color="#fff" fill="#fff" />
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    top: isBig ? '10px' : '6px',
+                                                    right: isBig ? '10px' : '6px',
+                                                    zIndex: 4,
+                                                    pointerEvents: 'none',
+                                                    background: isBig ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.4)',
+                                                    backdropFilter: 'blur(8px)',
+                                                    borderRadius: isBig ? '16px' : '6px',
+                                                    padding: isBig ? '4px 8px' : '2px 4px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                                                }}>
+                                                    <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
+                                                    {isBig && (
+                                                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
+                                                            REEL
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         ) : (
@@ -1198,11 +1227,18 @@ const Boost: React.FC = () => {
                                         {/* Sponsored / Ad Badge */}
                                         {story.is_sponsored && (
                                             <div style={{
-                                                position: 'absolute', top: '6px', left: '6px', zIndex: 4,
+                                                position: 'absolute',
+                                                top: isBig ? '10px' : '6px',
+                                                left: isBig ? '10px' : '6px',
+                                                zIndex: 4,
                                                 background: 'linear-gradient(135deg, #ff3366, #f5a524)',
-                                                borderRadius: '6px', padding: '1px 5px',
-                                                fontSize: '9px', fontWeight: '800', color: '#fff',
-                                                textTransform: 'uppercase', letterSpacing: '0.3px',
+                                                borderRadius: '6px',
+                                                padding: isBig ? '2px 8px' : '1px 5px',
+                                                fontSize: isBig ? '10px' : '9px',
+                                                fontWeight: '800',
+                                                color: '#fff',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.3px',
                                                 boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                                                 pointerEvents: 'none'
                                             }}>
@@ -1214,17 +1250,18 @@ const Boost: React.FC = () => {
                                         <div style={{
                                             position: 'absolute', bottom: 0, left: 0, right: 0,
                                             background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
-                                            padding: '12px 6px 4px 6px',
+                                            padding: isBig ? '28px 10px 8px 10px' : '12px 6px 4px 6px',
                                             zIndex: 3,
                                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                             pointerEvents: 'none'
                                         }}>
-                                            <span style={{ fontSize: '10px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <span style={{ fontSize: isBig ? '12px' : '10px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 @{story.username || 'user'}
                                             </span>
                                             {isBoosted && (
-                                                <span style={{ fontSize: '9px', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                                    <Flame size={10} fill="#f5a524" />
+                                                <span style={{ fontSize: isBig ? '11px' : '9px', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '700' }}>
+                                                    <Flame size={isBig ? 13 : 10} fill="#f5a524" />
+                                                    {isBig && 'Boosted'}
                                                 </span>
                                             )}
                                         </div>

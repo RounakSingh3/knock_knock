@@ -95,6 +95,7 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
     const isVideo = isVideoPost(post);
     const hasMusic = Boolean(post.music_url || post.music_title);
     const hasLikes = (post.likes_count || 0) >= 5 && !isSurprise;
+    const isBig = (index % 12 === 0) || (index % 12 === 8);
 
     const handleClick = useCallback(() => {
         onPostClick(post, index);
@@ -104,15 +105,18 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
         <div
             ref={trackViewRef}
             data-postid={post.id}
-            className="explore-grid-item"
+            className={`explore-grid-item ${isBig ? 'explore-grid-item-big' : ''}`}
             style={{
                 aspectRatio: '1',
+                gridColumn: isBig ? 'span 2' : 'span 1',
+                gridRow: isBig ? 'span 2' : 'span 1',
                 position: 'relative',
                 cursor: 'pointer',
                 overflow: 'hidden',
                 borderRadius: '4px',
                 background: '#18181b',
                 contain: 'layout paint',
+                transition: 'transform 0.15s ease',
             }}
             onClick={handleClick}
         >
@@ -123,37 +127,97 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                 loop
                 playsInline
                 autoPlay={false}
-                thumbnail={true}
+                thumbnail={!isBig}
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
             {isVideo && (
-                <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 4, pointerEvents: 'none' }}>
-                    <Play size={16} color="var(--text-active)" fill="var(--text-active)" />
+                <div style={{
+                    position: 'absolute',
+                    top: isBig ? '10px' : '6px',
+                    right: isBig ? '10px' : '6px',
+                    zIndex: 4,
+                    pointerEvents: 'none',
+                    background: isBig ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.4)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: isBig ? '16px' : '6px',
+                    padding: isBig ? '4px 8px' : '2px 4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                }}>
+                    <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
+                    {isBig && (
+                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
+                            REEL
+                        </span>
+                    )}
                 </div>
             )}
             {hasMusic && (
                 <div style={{
-                    position: 'absolute', top: '6px', left: '6px', zIndex: 5,
+                    position: 'absolute',
+                    top: isBig ? '10px' : '6px',
+                    left: isBig ? '10px' : '6px',
+                    zIndex: 5,
                     display: 'flex', alignItems: 'center', gap: '4px',
                     background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
-                    padding: '2px 6px', borderRadius: '10px', color: '#fff',
-                    fontSize: '9px', fontWeight: '600', pointerEvents: 'none',
+                    padding: isBig ? '3px 8px' : '2px 6px',
+                    borderRadius: '10px', color: '#fff',
+                    fontSize: isBig ? '11px' : '9px', fontWeight: '600', pointerEvents: 'none',
                 }}>
-                    <Music size={9} color="#f5a524" />
+                    <Music size={isBig ? 11 : 9} color="#f5a524" />
                     <span>{post.music_title || '♪'}</span>
                 </div>
             )}
-            {hasLikes && (
+            {/* Bottom details: for big cards show creator & likes; for standard cards show likes badge */}
+            {isBig ? (
                 <div style={{
-                    position: 'absolute', bottom: '6px', left: '6px', zIndex: 4,
-                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-                    padding: '2px 6px', borderRadius: '6px',
-                    fontSize: '9px', color: 'rgba(255,255,255,0.8)',
-                    display: 'flex', alignItems: 'center', gap: '3px',
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 4,
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
+                    padding: '28px 10px 8px 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                     pointerEvents: 'none',
                 }}>
-                    <Flame size={9} color="#f5a524" /> {post.likes_count}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                        {post.user?.avatar_url && (
+                            <img
+                                src={post.user.avatar_url}
+                                alt=""
+                                style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }}
+                            />
+                        )}
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            @{post.user?.username || 'user'}
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                        {(post.likes_count || 0) > 0 && (
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Flame size={12} fill="#f5a524" /> {post.likes_count}
+                            </span>
+                        )}
+                    </div>
                 </div>
+            ) : (
+                hasLikes && (
+                    <div style={{
+                        position: 'absolute', bottom: '6px', left: '6px', zIndex: 4,
+                        background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                        padding: '2px 6px', borderRadius: '6px',
+                        fontSize: '9px', color: 'rgba(255,255,255,0.8)',
+                        display: 'flex', alignItems: 'center', gap: '3px',
+                        pointerEvents: 'none',
+                    }}>
+                        <Flame size={9} color="#f5a524" /> {post.likes_count}
+                    </div>
+                )
             )}
         </div>
     );
@@ -727,7 +791,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                 </div>
                             ) : (
                                 <>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
                                         {discoverPosts.map((post, idx) => (
                                             <ExploreGridCard
                                                 key={post.id}
@@ -799,7 +863,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                                         No posts found
                                     </div>
                                 ) : (
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
                                             {postResults.map((post, idx) => (
                                                 <ExploreGridCard
                                                     key={post.id}
