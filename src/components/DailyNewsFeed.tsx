@@ -35,6 +35,14 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
     const [selectedCategory, setSelectedCategory] = useState<'All' | NewsCategory>('All');
     const [newsList, setNewsList] = useState<NewsItem[]>([]);
     const [visibleCount, setVisibleCount] = useState(10);
+    const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
+    const scrollLineRef = useRef<HTMLDivElement>(null);
+
+    const scrollHorizontal = (offset: number) => {
+        if (scrollLineRef.current) {
+            scrollLineRef.current.scrollBy({ left: offset, behavior: 'smooth' });
+        }
+    };
     const [isLoading, setIsLoading] = useState(true);
     const [activeNewsModal, setActiveNewsModal] = useState<NewsItem | null>(null);
     const [likedNews, setLikedNews] = useState<Set<string>>(new Set());
@@ -119,7 +127,7 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontWeight: '800', fontSize: '17px', color: 'var(--text-active)', letterSpacing: '-0.3px' }}>
-                                Daily News Feed
+                                Trending News
                             </span>
                             <span style={{
                                 background: 'rgba(255, 69, 0, 0.2)',
@@ -149,18 +157,114 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             )}
                         </div>
                         <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-inactive)', marginTop: '2px' }}>
-                            Top breaking headlines & in-depth coverage • Updated live
+                            {layoutMode === 'horizontal' 
+                                ? 'Swipe horizontally • All news in a horizontal line' 
+                                : 'Top breaking headlines & in-depth coverage • Vertical feed'
+                            }
                         </p>
+                    </div>
+                </div>
+
+                {/* Right controls: Scroll arrows & View Toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {layoutMode === 'horizontal' && (
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                                type="button"
+                                onClick={() => scrollHorizontal(-280)}
+                                aria-label="Scroll Left"
+                                style={{
+                                    width: '28px',
+                                    height: '28px',
+                                    borderRadius: '50%',
+                                    background: 'rgba(255,255,255,0.06)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    color: '#fff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <ChevronRight size={15} style={{ transform: 'rotate(180deg)' }} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => scrollHorizontal(280)}
+                                aria-label="Scroll Right"
+                                style={{
+                                    width: '28px',
+                                    height: '28px',
+                                    borderRadius: '50%',
+                                    background: 'rgba(255,255,255,0.06)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    color: '#fff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <ChevronRight size={15} />
+                            </button>
+                        </div>
+                    )}
+
+                    <div style={{
+                        display: 'flex',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '2px'
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => setLayoutMode('horizontal')}
+                            title="Horizontal Line View"
+                            style={{
+                                background: layoutMode === 'horizontal' ? '#f5a524' : 'transparent',
+                                color: layoutMode === 'horizontal' ? '#000' : 'var(--text-inactive)',
+                                border: 'none',
+                                borderRadius: '10px',
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            ↔ Line
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setLayoutMode('vertical')}
+                            title="Vertical List View"
+                            style={{
+                                background: layoutMode === 'vertical' ? '#f5a524' : 'transparent',
+                                color: layoutMode === 'vertical' ? '#000' : 'var(--text-inactive)',
+                                border: 'none',
+                                borderRadius: '10px',
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            ↕ List
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* Category Filter Pills (100% Vertical Flow, Wrapped) */}
+            {/* Category Filter Pills */}
             <div style={{
                 display: 'flex',
-                flexWrap: 'wrap',
-                gap: '6px',
-                paddingBottom: '10px',
+                gap: '8px',
+                overflowX: 'auto',
+                paddingBottom: '8px',
+                scrollbarWidth: 'none',
+                WebkitOverflowScrolling: 'touch',
                 width: '100%',
                 boxSizing: 'border-box'
             }}>
@@ -174,16 +278,18 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '4px',
+                                gap: '5px',
                                 padding: '6px 12px',
-                                borderRadius: '16px',
+                                borderRadius: '18px',
                                 border: isSelected ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.08)',
                                 background: isSelected ? 'rgba(245, 165, 36, 0.2)' : 'rgba(255,255,255,0.04)',
                                 color: isSelected ? '#f5a524' : 'var(--text-active)',
-                                fontSize: '11.5px',
+                                fontSize: '12px',
                                 fontWeight: isSelected ? '700' : '500',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s ease'
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.2s ease',
+                                flexShrink: 0
                             }}
                         >
                             <span>{CATEGORY_EMOJIS[cat]}</span>
@@ -193,17 +299,23 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 })}
             </div>
 
-            {/* Pure Vertical News Feed — ALL News Cards Stacked Vertically */}
+            {/* News Feed Content */}
             {isLoading ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '6px' }}>
-                    {[1, 2, 3].map(i => (
+                <div style={{
+                    display: 'flex',
+                    gap: '12px',
+                    overflowX: 'hidden',
+                    padding: '4px 0'
+                }}>
+                    {[1, 2, 3, 4].map(i => (
                         <div
                             key={i}
                             style={{
-                                width: '100%',
-                                height: '240px',
+                                width: '280px',
+                                height: '215px',
                                 borderRadius: '18px',
                                 background: 'rgba(255,255,255,0.04)',
+                                flexShrink: 0,
                                 animation: 'pulse 1.5s infinite ease-in-out'
                             }}
                         />
@@ -221,7 +333,196 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                 }}>
                     No news articles available for {selectedCategory} at the moment.
                 </div>
+            ) : layoutMode === 'horizontal' ? (
+                /* ── ↔ HORIZONTAL LINE VIEW (ALL NEWS IN A HORIZONTAL LINE) ── */
+                <div
+                    ref={scrollLineRef}
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        gap: '12px',
+                        overflowX: 'auto',
+                        padding: '4px 2px 14px 2px',
+                        scrollbarWidth: 'none',
+                        WebkitOverflowScrolling: 'touch',
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        scrollSnapType: 'x mandatory'
+                    }}
+                >
+                    {newsList.map((news) => {
+                        const isLiked = likedNews.has(news.id);
+                        return (
+                            <div
+                                key={news.id}
+                                onClick={() => setActiveNewsModal(news)}
+                                style={{
+                                    width: '280px',
+                                    minWidth: '280px',
+                                    maxWidth: '280px',
+                                    height: '215px',
+                                    borderRadius: '18px',
+                                    overflow: 'hidden',
+                                    position: 'relative',
+                                    flexShrink: 0,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                                    border: '1px solid rgba(255,255,255,0.1)',
+                                    background: '#1c1c1e',
+                                    transition: 'transform 0.2s ease',
+                                    scrollSnapAlign: 'start',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    justifyContent: 'flex-end',
+                                    padding: '14px',
+                                    boxSizing: 'border-box'
+                                }}
+                            >
+                                {/* Background Image */}
+                                <img
+                                    src={news.imageUrl}
+                                    alt={news.title}
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => {
+                                        e.currentTarget.onerror = null;
+                                        e.currentTarget.src = 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=600';
+                                    }}
+                                    style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        filter: 'brightness(0.65)'
+                                    }}
+                                />
+
+                                {/* Gradient Overlay */}
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.45) 55%, transparent 100%)'
+                                }} />
+
+                                {/* Top Badges & Actions */}
+                                <div style={{
+                                    position: 'relative',
+                                    zIndex: 2,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    marginBottom: 'auto',
+                                    paddingBottom: '16px'
+                                }}>
+                                    <div style={{
+                                        background: 'rgba(0,0,0,0.7)',
+                                        backdropFilter: 'blur(8px)',
+                                        padding: '3px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '10px',
+                                        fontWeight: '800',
+                                        color: '#f5a524',
+                                        border: '1px solid rgba(245,165,36,0.35)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}>
+                                        <span>{CATEGORY_EMOJIS[news.category] || '📰'}</span>
+                                        <span>{news.category}</span>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => toggleLike(news.id, e)}
+                                            style={{
+                                                background: 'rgba(0,0,0,0.65)',
+                                                border: 'none',
+                                                borderRadius: '50%',
+                                                width: '28px',
+                                                height: '28px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                backdropFilter: 'blur(8px)'
+                                            }}
+                                        >
+                                            <Heart
+                                                size={14}
+                                                fill={isLiked ? '#ff4500' : 'none'}
+                                                color={isLiked ? '#ff4500' : '#fff'}
+                                            />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleShare(news, e)}
+                                            style={{
+                                                background: 'rgba(0,0,0,0.65)',
+                                                border: 'none',
+                                                borderRadius: '50%',
+                                                width: '28px',
+                                                height: '28px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                                backdropFilter: 'blur(8px)'
+                                            }}
+                                        >
+                                            <Share2 size={13} color="#fff" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Content Details */}
+                                <div style={{ position: 'relative', zIndex: 2 }}>
+                                    <div style={{
+                                        fontSize: '10.5px',
+                                        color: '#d1d5db',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        marginBottom: '4px'
+                                    }}>
+                                        <span style={{ color: '#f5a524', fontWeight: '800' }}>{news.source}</span>
+                                        <span>•</span>
+                                        <span>{news.publishedAt}</span>
+                                    </div>
+                                    <h4 style={{
+                                        margin: '0 0 4px 0',
+                                        fontSize: '13.5px',
+                                        fontWeight: '800',
+                                        color: '#ffffff',
+                                        lineHeight: 1.35,
+                                        letterSpacing: '-0.2px',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {news.title}
+                                    </h4>
+                                    <p style={{
+                                        margin: 0,
+                                        fontSize: '11px',
+                                        color: 'rgba(255,255,255,0.75)',
+                                        lineHeight: '1.35',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 1,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden'
+                                    }}>
+                                        {news.summary}
+                                    </p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
             ) : (
+                /* ── ↕ VERTICAL LIST VIEW ── */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '6px', width: '100%', boxSizing: 'border-box' }}>
                     {newsList.slice(0, visibleCount).map((news, idx) => {
                         const isLiked = likedNews.has(news.id);
@@ -243,7 +544,6 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                                     boxSizing: 'border-box'
                                 }}
                             >
-                                {/* 1. Full-Width Cover Image (Top of Vertical Card) */}
                                 <div style={{
                                     width: '100%',
                                     height: idx === 0 ? '195px' : '170px',
@@ -273,7 +573,6 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                                         background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.2) 60%, transparent 100%)'
                                     }} />
 
-                                    {/* Category Pill (Top-Left) */}
                                     <div style={{
                                         position: 'absolute',
                                         top: '10px',
@@ -294,7 +593,6 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                                         <span>{news.category}</span>
                                     </div>
 
-                                    {/* Like & Share (Top-Right) */}
                                     <div style={{
                                         position: 'absolute',
                                         top: '10px',
@@ -341,7 +639,6 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                                     </div>
                                 </div>
 
-                                {/* 2. Vertical Text & Actions Body (Bottom of Vertical Card) */}
                                 <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-inactive)' }}>
                                         <span style={{ color: '#f5a524', fontWeight: '800' }}>{news.source}</span>
@@ -392,7 +689,6 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
                         );
                     })}
 
-                    {/* Load More Button */}
                     {visibleCount < newsList.length && (
                         <button
                             type="button"
