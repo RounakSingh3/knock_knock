@@ -6,33 +6,32 @@
    Warm amber/ember glow on deep near-black surfaces.
    ─────────────────────────────────────────────────────────── */
 :root {
-    /* Surfaces — deep night */
-    --bg-color: #07060d;
-    --surface-color: rgba(255, 255, 255, 0.06);
-    --surface-solid: #0f0d1a;
-    --nav-bg: rgba(15, 13, 26, 0.7);
+    /* Surfaces — The Midnight Porch */
+    --bg-color: #07070b;
+    --surface-color: rgba(255, 255, 255, 0.05);
+    --surface-solid: #0d0e14;
+    --nav-bg: rgba(13, 14, 20, 0.85);
 
-    /* Primary — porch-light glow (amber → ember) */
-    --porch-gradient: linear-gradient(135deg, #f5a524 0%, #ff6b35 100%);
-    /* Backward-compat alias so existing var(--primary-gradient) usages retheme automatically */
-    --primary-gradient: linear-gradient(135deg, #f5a524 0%, #ff6b35 100%);
+    /* Primary — Porch-Light Lantern Glow (Warm Amber → Hearth Ember) */
+    --porch-gradient: linear-gradient(135deg, #f5a524 0%, #ff7a45 100%);
+    --primary-gradient: linear-gradient(135deg, #f5a524 0%, #ff7a45 100%);
     --primary-color: #f5a524;
+    --primary-glow: rgba(245, 165, 36, 0.35);
 
     /* Accents */
-    --accent-amber: #fbbf24;
-    --accent-ember: #ff6b35;
-    --accent-cool: #6b7280;
-    /* Legacy aliases — keep old names pointing at warm tones */
-    --accent-cyan: #ff6b35;
-    --accent-rose: #ef4444;
+    --accent-amber: #f5a524;
+    --accent-ember: #ff7a45;
+    --accent-cool: #94a3b8;
+    --accent-cyan: #f5a524;
+    --accent-rose: #f43f5e;
 
     /* Text */
     --text-active: #f8fafc;
     --text-inactive: #94a3b8;
 
     /* Lines & glass */
-    --border-color: rgba(255, 255, 255, 0.08);
-    --glass-blur: blur(8px);
+    --border-color: rgba(245, 165, 36, 0.12);
+    --glass-blur: blur(12px);
 
     /* Status */
     --success: #34d399;
@@ -103,8 +102,12 @@ body::before {
     position: fixed;
     inset: 0;
     background-image:
-        radial-gradient(circle at 15% 10%, rgba(245, 165, 36, 0.10) 0%, transparent 42%),
-        radial-gradient(circle at 85% 90%, rgba(255, 107, 53, 0.07) 0%, transparent 48%);
+        /* The Porch Light lantern bloom washing down from above */
+        radial-gradient(circle at 50% -60px, rgba(245, 165, 36, 0.18) 0%, rgba(245, 165, 36, 0.05) 45%, transparent 72%),
+        /* Warm hearth ember glow on lower right */
+        radial-gradient(circle at 92% 88%, rgba(255, 122, 69, 0.09) 0%, transparent 52%),
+        /* Deep midnight indigo vignette on lower left */
+        radial-gradient(circle at 8% 85%, rgba(18, 16, 28, 0.6) 0%, transparent 55%);
     pointer-events: none;
     z-index: -1;
     transform: translateZ(0);
@@ -163,14 +166,14 @@ body::before {
     display: flex;
     justify-content: space-around;
     align-items: center;
-    background: var(--nav-bg);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--border-color);
+    background: rgba(13, 14, 20, 0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(245, 165, 36, 0.18);
     border-radius: 32px;
     z-index: 1000;
     padding: 0 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.65), 0 0 20px rgba(245, 165, 36, 0.08);
     will-change: transform;
     contain: layout style;
 }
@@ -190,9 +193,9 @@ body::before {
 }
 
 .nav-item.active {
-    color: #fff;
+    color: #f5a524;
     transform: scale(1.15) translateY(-2px);
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(245, 165, 36, 0.1);
 }
 
 .nav-item::after {
@@ -202,7 +205,7 @@ body::before {
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background-color: var(--accent-cyan);
+    background-color: #f5a524;
     opacity: 0;
     transform: scale(0);
     transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.15s ease;
@@ -211,7 +214,7 @@ body::before {
 .nav-item.active::after {
     opacity: 1;
     transform: scale(1);
-    box-shadow: 0 0 8px var(--accent-cyan);
+    box-shadow: 0 0 8px #f5a524, 0 0 18px rgba(245, 165, 36, 0.45);
 }
 
 .nav-item:active {
@@ -321,11 +324,14 @@ body::before {
 
 .home-brand-title {
     font-family: 'Sora', sans-serif;
-    font-size: 1.35rem;
+    font-size: 1.4rem;
     font-weight: 800;
     letter-spacing: -0.5px;
     margin: 0;
-    color: lightgreen;
+    background: linear-gradient(135deg, #f5a524 0%, #ff9f43 50%, #ff6b35 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 2px 10px rgba(245, 165, 36, 0.3));
 }
 
 .header-right-v2 {
