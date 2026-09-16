@@ -436,14 +436,14 @@ const Home = () => {
                     className={`feed-toggle-pill ${feedMode === 'foryou' ? 'active' : ''}`}
                     onClick={() => setFeedMode('foryou')}
                 >
-                    <Sparkles size={14} />
+                    <Sparkles size={17} />
                     For You
                 </button>
                 <button
                     className={`feed-toggle-pill ${feedMode === 'connections' ? 'active' : ''}`}
                     onClick={() => setFeedMode('connections')}
                 >
-                    <Users size={14} />
+                    <Users size={17} />
                     Connections
                 </button>
             </div>
