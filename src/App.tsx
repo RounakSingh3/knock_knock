@@ -329,6 +329,9 @@ function App() {
     }, [user?.id]);
 
     const signOut = useCallback(async () => {
+        if (user?.id) {
+            try { await setUserOnlineStatus(user.id, false); } catch (_) {}
+        }
         try {
             await authSignOut();
         } catch (e) {
@@ -337,7 +340,7 @@ function App() {
         localStorage.removeItem('knock_user_session');
         setUser(null);
         setPoints(0);
-    }, []);
+    }, [user?.id]);
 
     const contextValue = useMemo(() => ({
         points,

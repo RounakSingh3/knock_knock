@@ -18,12 +18,11 @@ import { createConnection, checkConnection, fetchProfilesByIds, type MatchResult
 import { supabase } from '../lib/supabase';
 
 const MATCH_PREFERENCES = [
+    "Random 🎲",
     "Similar Likes 💖",
     "Boy to Girl 👦",
     "Girl to Boy 👧",
-    "Same Country 🌍",
-    "Random 🎲",
-    "AI Voice Space 🤖"
+    "Same Country 🌍"
 ];
 
 const AI_VOICE_COMPANION: ProfileData = {
@@ -570,8 +569,10 @@ const VoiceCall = () => {
                         searchTimeoutRef.current = null;
                     }
 
-                    setIsCaller(false);
-                            setMatches([{
+                    // Deterministic role assignment: lower user id is designated caller, higher is answerer
+                    const shouldBeCaller = user.id < payload.callerId;
+                    setIsCaller(shouldBeCaller);
+                    setMatches([{
                         profile: callerProfile,
                         similarityScore: payload.compatibilityPercent / 100,
                         sharedLikes: payload.sharedLikes,
@@ -612,8 +613,10 @@ const VoiceCall = () => {
                         searchTimeoutRef.current = null;
                     }
 
-                    setIsCaller(true);
-                            setMatches([{
+                    // Deterministic role assignment: lower user id is designated caller, higher is answerer
+                    const shouldBeCaller = user.id < payload.receiverId;
+                    setIsCaller(shouldBeCaller);
+                    setMatches([{
                         profile: payload.receiverProfile,
                         similarityScore: 0.85,
                         sharedLikes: 3,
@@ -1002,10 +1005,6 @@ const VoiceCall = () => {
                 });
                 peerConnectionRef.current = pc;
 
-                try {
-                    pc.addTransceiver('audio', { direction: 'sendrecv' });
-                } catch (_) {}
-
                 stream.getTracks().forEach(track => {
                     pc.addTrack(track, stream);
                 });
@@ -1034,17 +1033,43 @@ const VoiceCall = () => {
                 pc.ontrack = (event) => {
                     console.log('[WebRTC ontrack]', event.track.kind, event.track.id);
 
+                    let masterStream = remoteStreamRef.current;
+                    if (!masterStream || !(masterStream instanceof MediaStream)) {
+                        masterStream = new MediaStream();
+                        remoteStreamRef.current = masterStream;
+                    }
+
                     if (event.track.kind === 'audio') {
                         setPeerConnected(true);
                         console.log('[WebRTC ontrack] Remote audio track received:', event.track.id, 'readyState:', event.track.readyState);
 
-                        const stream = (event.streams && event.streams[0]) 
-                            ? event.streams[0] 
-                            : new MediaStream([event.track]);
+                        masterStream.getAudioTracks().forEach(t => {
+                            if (t.id !== event.track.id) {
+                                masterStream!.removeTrack(t);
+                            }
+                        });
+                        if (!masterStream.getAudioTracks().some(t => t.id === event.track.id)) {
+                            masterStream.addTrack(event.track);
+                        }
 
-                        remoteAudioStreamRef.current = stream;
+                        const audioStream = new MediaStream([event.track]);
+                        remoteAudioStreamRef.current = audioStream;
 
-                        // 1. Route directly to hardware Web Audio API for unblocked speaker playback
+                        // 1. Play through persistent audio element
+                        const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+                        if (audioEl) {
+                            audioEl.srcObject = audioStream;
+                            audioEl.volume = 1.0;
+                            audioEl.muted = false;
+                            audioEl.play().then(() => {
+                                setAudioBlocked(false);
+                            }).catch(err => {
+                                console.warn('[WebRTC] Audio autoplay blocked:', err);
+                                setAudioBlocked(true);
+                            });
+                        }
+
+                        // 2. Route directly to Web Audio API
                         try {
                             const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
                             if (!remoteAudioCtxRef.current || remoteAudioCtxRef.current.state === 'closed') {
@@ -1057,29 +1082,24 @@ const VoiceCall = () => {
                             if (remoteAudioSourceNodeRef.current) {
                                 try { remoteAudioSourceNodeRef.current.disconnect(); } catch (_) {}
                             }
-                            const source = ctx.createMediaStreamSource(stream);
+                            const source = ctx.createMediaStreamSource(audioStream);
                             const gain = ctx.createGain();
                             gain.gain.value = 1.0;
                             source.connect(gain);
                             gain.connect(ctx.destination);
                             remoteAudioSourceNodeRef.current = source;
-                            console.log('[WebRTC] Remote audio track successfully piped to Web Audio API destination!');
                         } catch (audioCtxErr) {
-                            console.warn('[WebRTC] Web Audio routing fallback to HTMLAudioElement:', audioCtxErr);
+                            console.warn('[WebRTC] Web Audio routing notice:', audioCtxErr);
                         }
 
-                        // 2. Route to standard HTMLAudioElement as secondary path
-                        const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
-                        if (audioEl) {
-                            audioEl.srcObject = stream;
-                            audioEl.volume = 1.0;
-                            audioEl.muted = false;
-                            audioEl.play().then(() => {
-                                setAudioBlocked(false);
-                            }).catch(err => {
-                                console.warn('Audio autoplay blocked, showing tap-to-unmute:', err);
-                                setAudioBlocked(true);
-                            });
+                        // 3. Ensure remote video element has masterStream and is unmuted
+                        if (remoteVideoRef.current) {
+                            if (remoteVideoRef.current.srcObject !== masterStream) {
+                                remoteVideoRef.current.srcObject = masterStream;
+                            }
+                            remoteVideoRef.current.muted = false;
+                            remoteVideoRef.current.volume = 1.0;
+                            remoteVideoRef.current.play().catch(() => {});
                         }
                     }
 
@@ -1087,30 +1107,31 @@ const VoiceCall = () => {
                         setPeerConnected(true);
                         console.log('[WebRTC ontrack] Incoming remote video track received:', event.track.id);
 
-                        let videoStream = remoteStreamRef.current;
-                        if (!videoStream || !(videoStream instanceof MediaStream)) {
-                            videoStream = new MediaStream();
-                            remoteStreamRef.current = videoStream;
-                        }
-
-                        // Remove ended or duplicate tracks
-                        videoStream.getVideoTracks().forEach(t => {
+                        masterStream.getVideoTracks().forEach(t => {
                             if (t.id !== event.track.id) {
-                                videoStream!.removeTrack(t);
+                                masterStream!.removeTrack(t);
                             }
                         });
 
-                        if (!videoStream.getVideoTracks().some(t => t.id === event.track.id)) {
-                            videoStream.addTrack(event.track);
+                        if (!masterStream.getVideoTracks().some(t => t.id === event.track.id)) {
+                            masterStream.addTrack(event.track);
+                        }
+
+                        // Ensure any live remote audio track from receivers is also in masterStream
+                        const audioReceiver = pc.getReceivers().find(r => r.track && r.track.kind === 'audio' && r.track.readyState === 'live');
+                        if (audioReceiver && audioReceiver.track && !masterStream.getAudioTracks().some(t => t.id === audioReceiver.track!.id)) {
+                            masterStream.addTrack(audioReceiver.track);
                         }
 
                         setHasRemoteVideo(true);
 
+                        // Remote video element plays combined masterStream with audio, unmuted!
                         if (remoteVideoRef.current) {
-                            if (remoteVideoRef.current.srcObject !== videoStream) {
-                                remoteVideoRef.current.srcObject = videoStream;
+                            if (remoteVideoRef.current.srcObject !== masterStream) {
+                                remoteVideoRef.current.srcObject = masterStream;
                             }
-                            remoteVideoRef.current.muted = true;
+                            remoteVideoRef.current.muted = false;
+                            remoteVideoRef.current.volume = 1.0;
                             remoteVideoRef.current.play().catch(e => console.warn('Remote video play failed:', e));
                         }
 
@@ -1125,6 +1146,8 @@ const VoiceCall = () => {
                             console.log('[WebRTC] Remote video track unmuted');
                             setHasRemoteVideo(true);
                             if (remoteVideoRef.current) {
+                                remoteVideoRef.current.muted = false;
+                                remoteVideoRef.current.volume = 1.0;
                                 remoteVideoRef.current.play().catch(() => {});
                             }
                         };
@@ -1285,7 +1308,10 @@ const VoiceCall = () => {
         renegotiationPendingRef.current = false;
         try {
             console.log('[WebRTC] Initiating renegotiation offer...');
-            const offer = await pc.createOffer();
+            const offer = await pc.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+            });
             await pc.setLocalDescription(offer);
             channelRef.current.send({
                 type: 'broadcast',
@@ -1454,43 +1480,67 @@ const VoiceCall = () => {
 
         const syncStreams = () => {
             const pc = peerConnectionRef.current;
+            if (!pc) return;
 
-            // 1. Recover any live remote video track directly from pc.getReceivers()
-            if (pc) {
-                const receivers = pc.getReceivers();
-                const remoteVideoTrack = receivers
-                    .map(r => r.track)
-                    .find(t => t && t.kind === 'video' && t.readyState === 'live');
+            // 1. Recover any live remote video & audio tracks directly from pc.getReceivers()
+            const receivers = pc.getReceivers();
+            const remoteVideoTrack = receivers
+                .map(r => r.track)
+                .find(t => t && t.kind === 'video' && t.readyState === 'live');
+            const remoteAudioTrack = receivers
+                .map(r => r.track)
+                .find(t => t && t.kind === 'audio' && t.readyState === 'live');
 
-                if (remoteVideoTrack) {
-                    let rStream = remoteStreamRef.current;
-                    if (!rStream || !(rStream instanceof MediaStream)) {
-                        rStream = new MediaStream();
-                        remoteStreamRef.current = rStream;
-                    }
-                    if (!rStream.getVideoTracks().some(t => t.id === remoteVideoTrack.id)) {
-                        rStream.addTrack(remoteVideoTrack);
-                    }
-                    setHasRemoteVideo(true);
+            let rStream = remoteStreamRef.current;
+            if (!rStream || !(rStream instanceof MediaStream)) {
+                rStream = new MediaStream();
+                remoteStreamRef.current = rStream;
+            }
+
+            if (remoteVideoTrack && !rStream.getVideoTracks().some(t => t.id === remoteVideoTrack.id)) {
+                rStream.addTrack(remoteVideoTrack);
+                setHasRemoteVideo(true);
+            }
+
+            if (remoteAudioTrack && !rStream.getAudioTracks().some(t => t.id === remoteAudioTrack.id)) {
+                rStream.addTrack(remoteAudioTrack);
+            }
+
+            // 2. Ensure remote video element has the remote stream attached, UNMUTED, and playing
+            if (remoteVideoRef.current && rStream.getVideoTracks().length > 0) {
+                if (remoteVideoRef.current.srcObject !== rStream) {
+                    remoteVideoRef.current.srcObject = rStream;
+                }
+                remoteVideoRef.current.muted = false;
+                remoteVideoRef.current.volume = 1.0;
+                if (remoteVideoRef.current.paused) {
+                    remoteVideoRef.current.play().catch(() => {});
                 }
             }
 
-            // 2. Ensure remote video element has the remote video stream attached and playing
-            if (remoteVideoRef.current && remoteStreamRef.current && remoteStreamRef.current.getVideoTracks().length > 0) {
-                if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
-                    remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            // 3. Ensure backup remote audio element also has audio track and is active
+            const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+            if (audioEl && remoteAudioTrack) {
+                let aStream = audioEl.srcObject as MediaStream;
+                if (!aStream || !aStream.getAudioTracks().some(t => t.id === remoteAudioTrack.id)) {
+                    audioEl.srcObject = new MediaStream([remoteAudioTrack]);
                 }
-                remoteVideoRef.current.muted = true;
-                remoteVideoRef.current.play().catch(() => {});
+                audioEl.muted = false;
+                audioEl.volume = 1.0;
+                if (audioEl.paused) {
+                    audioEl.play().then(() => setAudioBlocked(false)).catch(() => {});
+                }
             }
 
-            // 3. Ensure local video element has local video stream attached and playing
+            // 4. Ensure local video element has local video stream attached and playing (MUTED for preview)
             if (localVideoRef.current && localStreamRef.current && localStreamRef.current.getVideoTracks().length > 0) {
                 if (localVideoRef.current.srcObject !== localStreamRef.current) {
                     localVideoRef.current.srcObject = localStreamRef.current;
                 }
                 localVideoRef.current.muted = true;
-                localVideoRef.current.play().catch(() => {});
+                if (localVideoRef.current.paused) {
+                    localVideoRef.current.play().catch(() => {});
+                }
             }
         };
 
@@ -1632,8 +1682,26 @@ const VoiceCall = () => {
         }
     };
 
-    // Toggle auto-hiding controls on tap
+    // Toggle auto-hiding controls on tap & resume unmuted audio on tap
     const handleVideoAreaTap = () => {
+        if (remoteVideoRef.current) {
+            remoteVideoRef.current.muted = false;
+            remoteVideoRef.current.volume = 1.0;
+            if (remoteVideoRef.current.paused) {
+                remoteVideoRef.current.play().catch(() => {});
+            }
+        }
+        const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
+        if (audioEl) {
+            audioEl.muted = false;
+            audioEl.volume = 1.0;
+            if (audioEl.paused) {
+                audioEl.play().then(() => setAudioBlocked(false)).catch(() => {});
+            }
+        }
+        if (remoteAudioCtxRef.current && remoteAudioCtxRef.current.state === 'suspended') {
+            remoteAudioCtxRef.current.resume().catch(() => {});
+        }
         setShowVideoControls(prev => {
             const nextState = !prev;
             if (nextState) {
@@ -1733,40 +1801,9 @@ const VoiceCall = () => {
         await updatePresence('idle');
     };
 
+    // Companion/fake calls disabled permanently — only real live users
     const startCompanionCall = async () => {
-        setIsCompanionCall(true);
-        setIsCaller(true);
-        setIsSearching(false);
-        setShowMatchCard(false);
-        setMatches([{
-            profile: AI_VOICE_COMPANION,
-            similarityScore: 0.95,
-            sharedLikes: 4,
-            totalLikes: 5,
-            compatibilityPercent: 96,
-        }]);
-        setCurrentMatchIndex(0);
-        setInCall(true);
-        setPeerConnected(true);
-        playCallConnectedChime();
-        await updatePresence('in-call');
-
-        // Capture local microphone so audio activity and volume work
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            localStreamRef.current = stream;
-            setupMicAnalyser(stream);
-        } catch (_) {}
-
-        // Friendly spoken greeting through device speakers
-        setTimeout(() => {
-            speakVoice(
-                "Hey there! Welcome to Knock Knock Voice Space! I can hear you clearly. How are you doing today?",
-                'en-US',
-                () => setIsCompanionSpeaking(true),
-                () => setIsCompanionSpeaking(false)
-            );
-        }, 800);
+        console.log('[VoiceSpace] Fake bot calls are permanently disabled.');
     };
 
     const startSearch = async () => {
@@ -1779,27 +1816,21 @@ const VoiceCall = () => {
 
         await updatePresence('searching');
 
-        // Direct AI Voice Space preference
-        if (activePrefRef.current === 'AI Voice Space 🤖') {
-            searchTimeoutRef.current = window.setTimeout(() => {
-                if (isSearchingRef.current) {
-                    startCompanionCall();
-                }
-            }, 1000);
-            return;
-        }
-
-        const onlineMatch = findAndInviteMatch();
         if (searchTimeoutRef.current) {
             clearTimeout(searchTimeoutRef.current);
+            searchTimeoutRef.current = null;
         }
-        // Fallback to Companion if no peer connects in time (4.5s if none found, 8s if invite sent)
+
+        // Search immediately for live searching peers
+        findAndInviteMatch();
+
+        // STRICT REAL-USERS ONLY: Never call fake or AI bots under any circumstance.
+        // If no peer is searching after 15s, notify user with noMatchFound banner while radar continues actively listening.
         searchTimeoutRef.current = window.setTimeout(() => {
             if (isSearchingRef.current && !inCallRef.current) {
-                console.log('[VoiceSpace] Matchmaking timeout reached, connecting to Voice Space Companion');
-                startCompanionCall();
+                setNoMatchFound(true);
             }
-        }, onlineMatch ? 8000 : 4500);
+        }, 15000);
     };
 
     // Periodically re-check for searching peers while radar is active
@@ -2234,7 +2265,7 @@ const VoiceCall = () => {
                             ref={remoteVideoRef}
                             autoPlay
                             playsInline
-                            muted
+                            muted={false}
                             style={{
                                 width: '100%',
                                 height: '100%',
@@ -2518,12 +2549,21 @@ const VoiceCall = () => {
                         <div
                             onClick={(e) => {
                                 e.stopPropagation();
+                                if (remoteVideoRef.current) {
+                                    remoteVideoRef.current.muted = false;
+                                    remoteVideoRef.current.volume = 1.0;
+                                    remoteVideoRef.current.play().catch(() => {});
+                                }
                                 const audioEl = remoteAudioRef.current || (document.getElementById('knock-call-audio') as HTMLAudioElement);
                                 if (audioEl) {
                                     audioEl.volume = 1.0;
                                     audioEl.muted = false;
                                     audioEl.play().then(() => setAudioBlocked(false)).catch(() => {});
                                 }
+                                if (remoteAudioCtxRef.current && remoteAudioCtxRef.current.state === 'suspended') {
+                                    remoteAudioCtxRef.current.resume().catch(() => {});
+                                }
+                                setAudioBlocked(false);
                             }}
                             style={{
                                 position: 'absolute',
