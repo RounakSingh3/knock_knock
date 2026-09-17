@@ -512,7 +512,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 <>
                     <video
                         ref={videoRef}
-                        src={isInViewport || isPlayingMode ? videoSrc : undefined}
+                        src={videoSrc}
                         className={className}
                         style={{
                             ...style,
@@ -521,8 +521,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             height: '100%',
                             objectFit: resolvedObjectFit,
                             display: 'block',
-                            opacity: isLoaded || isPlayingMode ? 1 : 0,
-                            transition: 'opacity 0.2s ease-out',
                             transform: 'translateZ(0)',
                             backfaceVisibility: 'hidden',
                         }}
@@ -538,7 +536,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         disablePictureInPicture={true}
                         // @ts-ignore
                         disableRemotePlayback={true}
-                        preload={isPlayingMode ? "auto" : "none"}
+                        preload={isPlayingMode ? "auto" : "metadata"}
                         onError={handleMediaError}
                         onLoadedData={() => setIsLoaded(true)}
                         onLoadedMetadata={() => setIsLoaded(true)}
@@ -661,15 +659,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         height: '100%',
                         objectFit: resolvedObjectFit,
                         display: 'block',
-                        opacity: isLoaded ? 1 : 0,
-                        transition: 'opacity 0.2s ease-out',
                         transform: 'translateZ(0)',
                         backfaceVisibility: 'hidden',
                     }}
                     loading="lazy"
                     decoding="async"
                     referrerPolicy="no-referrer"
-                    onLoad={() => setIsLoaded(true)}
                     onError={handleMediaError}
                 />
             )}

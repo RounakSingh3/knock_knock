@@ -910,7 +910,7 @@ const Reels: React.FC = () => {
                                         ref={(el) => {
                                             videoRefs.current[idx] = el;
                                         }}
-                                        src={isNearby ? reel.videoUrl : undefined}
+                                        src={reel.videoUrl}
                                         poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
                                         loop
                                         playsInline

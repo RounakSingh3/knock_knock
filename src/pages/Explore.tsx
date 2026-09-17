@@ -115,9 +115,6 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                 overflow: 'hidden',
                 borderRadius: '4px',
                 background: '#18181b',
-                contain: 'layout paint',
-                contentVisibility: 'auto' as any,
-                containIntrinsicSize: isBig ? '260px' : '130px',
                 transition: 'transform 0.15s ease',
             }}
             onClick={handleClick}

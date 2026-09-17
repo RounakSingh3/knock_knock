@@ -143,7 +143,6 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         >
             {posts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNear = Math.abs(index - currentIndex) <= 3;
                 return (
                     <div 
                         key={post.id} 
@@ -151,32 +150,31 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                         data-postid={post.id}
                         data-category={post.category || 'General'}
                         style={{ 
-                            height: '100%', 
-                            width: '100%',
+                            height: '100vh', 
+                            minHeight: '100vh',
+                            maxHeight: '100vh',
+                            width: '100vw',
                             scrollSnapAlign: 'start', 
                             scrollSnapStop: 'always', 
                             position: 'relative',
                             overflow: 'hidden',
-                            boxSizing: 'border-box'
+                            boxSizing: 'border-box',
+                            flexShrink: 0,
                         }}
                     >
-                        {isNear ? (
-                            <PostModalContent 
-                                post={post} 
-                                onClose={onClose} 
-                                onCommentClick={onCommentClick} 
-                                onShareClick={onShareClick} 
-                                isEmbedded={true}
-                                isActive={post.id === activePostId}
-                                isMuted={isGlobalMuted}
-                                onMuteToggle={(muted) => {
-                                    setIsGlobalMuted(muted);
-                                    setFeedMutedPreference(muted);
-                                }}
-                            />
-                        ) : (
-                            <div style={{ width: '100%', height: '100%', background: '#000' }} />
-                        )}
+                        <PostModalContent 
+                            post={post} 
+                            onClose={onClose} 
+                            onCommentClick={onCommentClick} 
+                            onShareClick={onShareClick} 
+                            isEmbedded={true}
+                            isActive={post.id === activePostId}
+                            isMuted={isGlobalMuted}
+                            onMuteToggle={(muted) => {
+                                setIsGlobalMuted(muted);
+                                setFeedMutedPreference(muted);
+                            }}
+                        />
                     </div>
                 );
             })}
