@@ -570,23 +570,64 @@ export function rankFeedPosts(
     });
 }
 
+// ── Everyday Reshuffle Engine ──────────────────────────────
+
+/**
+ * Generates a deterministic integer seed from a date string (YYYY-MM-DD).
+ */
+export function getDailySeed(dateStr?: string): number {
+    const key = dateStr || new Date().toISOString().slice(0, 10);
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+        hash = ((hash << 5) - hash) + key.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+}
+
+/**
+ * Deterministic daily reshuffle using a pseudo-random generator seeded by date.
+ * Guarantees a completely fresh permutation every calendar day, while staying
+ * consistent and stable throughout the same day.
+ */
+export function dailyReshuffle<T>(items: T[], dateStr?: string): T[] {
+    if (!items || items.length <= 1) return items;
+    const seed = getDailySeed(dateStr);
+    let s = seed;
+    const rng = () => {
+        s = (s * 9301 + 49297) % 233280;
+        return s / 233280;
+    };
+
+    const copy = [...items];
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+}
+
 // ── Surface 2: Reels Model (rankReels) ──────────────────────
 
 /**
  * Model 2: Dedicated Reels Model
  * Fast-dopamine short-form video optimization:
  * Prioritizes high completion probability, popular sound sync, category affinity,
- * and stochastically paces viral hits with discovery reels.
+ * daily permutation so everyday brings new reels, and stochastically paces viral hits.
  */
 export function rankReels<T extends { id: any; category?: string; music_url?: string; music_title?: string; likes?: number; shares?: number; creator?: string }>(
     reels: T[],
     profile: UserInterestProfile,
-    currentUserId?: string
+    currentUserId?: string,
+    dateStr?: string
 ): T[] {
     if (!reels || reels.length === 0) return [];
 
+    // ⚡ Everyday Reshuffle: Apply daily seed shuffle so new video content is served each day
+    const dailyReels = dailyReshuffle(reels, dateStr);
+
     // Calculate watch-retention score for each reel
-    const scoredReels = reels.map(reel => {
+    const scoredReels = dailyReels.map(reel => {
         let score = 5.0;
         const cat = reel.category || 'General';
         score += (profile.categoryScores[cat] || 0) * 0.8;
@@ -641,19 +682,47 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
 
 /**
  * Model 3: Dedicated Explore Discovery Model
- * Focuses on category discovery, visual micro-niches, and injecting
- * serendipitous content based on implicit linger signals.
+ * Focuses on category discovery, visual micro-niches, everyday content reshuffle,
+ * and guaranteed balanced rotation of both reels and photo posts.
  */
 export function rankExploreGrid(
     posts: PostData[],
     profile: UserInterestProfile,
-    activeCategory?: string | null
+    activeCategory?: string | null,
+    dateStr?: string
 ): PostData[] {
     if (!posts || posts.length === 0) return [];
 
     let filtered = posts;
     if (activeCategory && activeCategory !== 'All') {
         filtered = posts.filter(p => p.category === activeCategory);
+    }
+
+    // ⚡ Everyday Reshuffle: Permute candidate pool by date seed so users get new content every day
+    filtered = dailyReshuffle(filtered, dateStr);
+
+    // Balance reels (video posts) and photo posts so everyday rotation guarantees fresh reels and posts
+    const videoPosts: PostData[] = [];
+    const photoPosts: PostData[] = [];
+    for (const p of filtered) {
+        if (isVideoPost(p)) {
+            videoPosts.push(p);
+        } else {
+            photoPosts.push(p);
+        }
+    }
+
+    // Interleave reels and posts with high presence (1 video reel every 2 photo posts)
+    if (videoPosts.length > 0 && photoPosts.length > 0) {
+        const interleavedMedia: PostData[] = [];
+        let v = 0;
+        let p = 0;
+        while (v < videoPosts.length || p < photoPosts.length) {
+            if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
+            if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
+            if (v < videoPosts.length) interleavedMedia.push(videoPosts[v++]);
+        }
+        filtered = interleavedMedia;
     }
 
     // Interleave categories if "All" is active

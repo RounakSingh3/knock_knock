@@ -325,9 +325,10 @@ const Reels: React.FC = () => {
                 }
             }
 
-            // Apply Pillar 1 & 5: Variable Reward Schedule & Hyper-Personalization for Reels
+            // Apply Pillar 1 & 5: Variable Reward Schedule & Hyper-Personalization with Everyday Reshuffle
             const hybridProfile = getHybridInterestProfile(engagements);
-            const ranked = rankReels(merged, hybridProfile, user?.id);
+            const todayKey = new Date().toISOString().slice(0, 10);
+            const ranked = rankReels(merged, hybridProfile, user?.id, todayKey);
 
             setRawReelPool(ranked);
             setReelsList(ranked);
@@ -495,7 +496,8 @@ const Reels: React.FC = () => {
                 10,
                 (batch) => {
                     const profile = getHybridInterestProfile([]);
-                    return rankReels(batch, profile, user?.id);
+                    const todayKey = new Date().toISOString().slice(0, 10);
+                    return rankReels(batch, profile, user?.id, todayKey);
                 }
             );
             const newReelsWithKeys = nextBatch.map((r, i) => ({

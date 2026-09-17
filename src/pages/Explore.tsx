@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
-import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, type ScoredPost } from '../lib/algorithm';
+import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import { AppContext } from '../context/AppContext';
@@ -259,21 +259,36 @@ const Explore = () => {
     const [activeTab, setActiveTab] = useState<'people' | 'posts' | 'stories'>('people');
     const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
     
-    // Discover (Default) State with instant cache rehydration
+    // ⚡ Everyday Reshuffle Date Key (YYYY-MM-DD)
+    const getTodayKey = (): string => new Date().toISOString().slice(0, 10);
+
+    // Discover (Default) State with instant cache rehydration and everyday cache invalidation
     const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
         try {
-            const cached = localStorage.getItem('knock_explore_posts_cache_v5');
-            if (cached) {
-                const parsed = JSON.parse(cached);
-                if (Array.isArray(parsed)) {
-                    return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+            const today = new Date().toISOString().slice(0, 10);
+            const cachedDate = localStorage.getItem('knock_explore_cache_date');
+            if (cachedDate === today) {
+                const cached = localStorage.getItem('knock_explore_posts_cache_v5');
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+                    }
                 }
+            } else {
+                // New day detected! Clear stale caches to trigger fresh everyday reshuffle
+                localStorage.removeItem('knock_explore_posts_cache_v5');
+                localStorage.removeItem('knock_explore_trending_cache_v5');
+                localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
         return [];
     });
     const [isDiscoverLoading, setIsDiscoverLoading] = useState<boolean>(() => {
         try {
+            const today = new Date().toISOString().slice(0, 10);
+            const cachedDate = localStorage.getItem('knock_explore_cache_date');
+            if (cachedDate !== today) return true;
             const cached = localStorage.getItem('knock_explore_posts_cache_v5');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
@@ -291,14 +306,18 @@ const Explore = () => {
     const [hasMore, setHasMore] = useState(true);
     const sentinelRef = useRef<HTMLDivElement>(null);
 
-    // Trending posts (FOMO) with instant cache rehydration
+    // Trending posts (FOMO) with instant cache rehydration and everyday reshuffle
     const [trendingPosts, setTrendingPosts] = useState<PostData[]>(() => {
         try {
-            const cached = localStorage.getItem('knock_explore_trending_cache_v5');
-            if (cached) {
-                const parsed = JSON.parse(cached);
-                if (Array.isArray(parsed)) {
-                    return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+            const today = new Date().toISOString().slice(0, 10);
+            const cachedDate = localStorage.getItem('knock_explore_cache_date');
+            if (cachedDate === today) {
+                const cached = localStorage.getItem('knock_explore_trending_cache_v5');
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+                    }
                 }
             }
         } catch (e) {}
@@ -306,6 +325,9 @@ const Explore = () => {
     });
     const [isTrendingLoading, setIsTrendingLoading] = useState<boolean>(() => {
         try {
+            const today = new Date().toISOString().slice(0, 10);
+            const cachedDate = localStorage.getItem('knock_explore_cache_date');
+            if (cachedDate !== today) return true;
             const cached = localStorage.getItem('knock_explore_trending_cache_v5');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
@@ -357,21 +379,23 @@ const Explore = () => {
         discoverPostsRef.current = discoverPosts;
     }, [discoverPosts]);
 
-    // Load Trending Posts (FOMO banner)
+    // Load Trending Posts (FOMO banner) with Everyday Reshuffle
     useEffect(() => {
         if (trendingPosts.length === 0) setIsTrendingLoading(true);
-        fetchTrendingPosts(6).then(posts => {
+        fetchTrendingPosts(20).then(posts => {
             const filtered = posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)));
-            setTrendingPosts(filtered);
+            // ⚡ Everyday reshuffle on trending reels/posts so opening the page each day shows fresh highlights
+            const reshuffledTrending = dailyReshuffle(filtered, getTodayKey()).slice(0, 6);
+            setTrendingPosts(reshuffledTrending);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v5', JSON.stringify(filtered));
+                localStorage.setItem('knock_explore_trending_cache_v5', JSON.stringify(reshuffledTrending));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
     }, [blockedIds]);
 
-    // Load Discover Feed with Dedicated Explore Discovery Model & Variable Rewards
-    const loadDiscoverFeed = async () => {
+    // Load Discover Feed with Dedicated Explore Discovery Model & Everyday Reshuffle
+    const loadDiscoverFeed = async (dateKeyOverride?: string) => {
         if (discoverPosts.length === 0) setIsDiscoverLoading(true);
         setFeedPage(0);
         feedPageRef.current = 0;
@@ -397,12 +421,14 @@ const Explore = () => {
             const hybridProfile = getHybridInterestProfile(engagements);
             userProfileRef.current = hybridProfile;
 
-            // Apply Model 3: Dedicated Explore Discovery Model
-            const rankedExplore = rankExploreGrid(uniqueRaw, hybridProfile, selectedCategory);
+            // Apply Model 3: Dedicated Explore Discovery Model with Everyday Reshuffle
+            const dateKey = dateKeyOverride || getTodayKey();
+            const rankedExplore = rankExploreGrid(uniqueRaw, hybridProfile, selectedCategory, dateKey);
             const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
                 localStorage.setItem('knock_explore_posts_cache_v5', JSON.stringify(fresh));
+                localStorage.setItem('knock_explore_cache_date', getTodayKey());
             } catch (e) {}
             setHasMore(true);
         } catch (e) {
@@ -430,6 +456,7 @@ const Explore = () => {
             const seenUrls = new Set(currentPosts.map(p => p.image_url));
 
             const activeProfile = userProfileRef.current || getHybridInterestProfile([]);
+            const currentDay = getTodayKey();
             
             let nextBatch: PostData[] = [];
 
@@ -438,7 +465,7 @@ const Explore = () => {
                     rawPostsCacheRef.current,
                     nextPage,
                     PAGE_SIZE,
-                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory)
+                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory, currentDay)
                 );
                 nextBatch = streamBatch.filter(p => !seenIds.has(p.id) && !seenUrls.has(p.image_url));
             }
@@ -455,7 +482,7 @@ const Explore = () => {
                 
                 if (freshDbPosts.length > 0) {
                     rawPostsCacheRef.current = [...rawPostsCacheRef.current, ...freshDbPosts];
-                    const rankedDb = rankExploreGrid(freshDbPosts, activeProfile, selectedCategory);
+                    const rankedDb = rankExploreGrid(freshDbPosts, activeProfile, selectedCategory, currentDay);
                     nextBatch = [...nextBatch, ...rankedDb.slice(0, PAGE_SIZE - nextBatch.length)];
                 }
             }
@@ -466,7 +493,7 @@ const Explore = () => {
                     rawPostsCacheRef.current,
                     nextPage,
                     PAGE_SIZE,
-                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory)
+                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory, currentDay)
                 );
             }
             
@@ -569,9 +596,14 @@ const Explore = () => {
 
     const handleRefresh = useCallback(async () => {
         setIsRefreshing(true);
-        await loadDiscoverFeed();
-        // Reload trending too
-        fetchTrendingPosts(6).then(posts => setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)))));
+        // ⚡ On-demand fresh shuffle on pull-to-refresh
+        const refreshSeed = `${getTodayKey()}_pull_${Date.now()}`;
+        await loadDiscoverFeed(refreshSeed);
+        // Reload trending with fresh shuffle too
+        fetchTrendingPosts(20).then(posts => {
+            const filtered = posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)));
+            setTrendingPosts(dailyReshuffle(filtered, refreshSeed).slice(0, 6));
+        });
         setIsRefreshing(false);
     }, [selectedCategory, blockedIds]);
 
