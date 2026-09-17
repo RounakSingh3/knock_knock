@@ -1836,8 +1836,6 @@ function getLocalMessages(user1: string, user2: string): MessageData[] {
     const keys = [
         `knock_chat_msgs_${user1}_${user2}`,
         `knock_chat_msgs_${user2}_${user1}`,
-        `knock_chat_${user2}`,
-        `knock_chat_${user1}`,
     ];
     const idMap = new Map<string, MessageData>();
 
@@ -1848,20 +1846,37 @@ function getLocalMessages(user1: string, user2: string): MessageData[] {
                 const parsed: MessageData[] = JSON.parse(raw);
                 if (Array.isArray(parsed)) {
                     parsed.forEach(m => {
-                        if (m && m.id && m.content) idMap.set(m.id, m);
+                        if (m && m.id && m.content) {
+                            // Strict check: Message MUST strictly belong to this conversation!
+                            const isBetween = 
+                                (m.sender_id === user1 && m.receiver_id === user2) ||
+                                (m.sender_id === user2 && m.receiver_id === user1);
+                            if (isBetween) {
+                                idMap.set(m.id, m);
+                            }
+                        }
                     });
                 }
             }
         } catch (e) {}
     });
 
-    return Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const clean = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    // Auto-clean any contaminated cache key
+    try {
+        localStorage.setItem(`knock_chat_msgs_${user1}_${user2}`, JSON.stringify(clean));
+    } catch (e) {}
+    return clean;
 }
 
 /** Helper to save local messages between two users */
 function saveLocalMessages(user1: string, user2: string, msgs: MessageData[]) {
     try {
-        localStorage.setItem(`knock_chat_msgs_${user1}_${user2}`, JSON.stringify(msgs));
+        const strictlyClean = msgs.filter(m => 
+            (m.sender_id === user1 && m.receiver_id === user2) ||
+            (m.sender_id === user2 && m.receiver_id === user1)
+        );
+        localStorage.setItem(`knock_chat_msgs_${user1}_${user2}`, JSON.stringify(strictlyClean));
     } catch (e) {}
 }
 
@@ -1882,7 +1897,14 @@ export async function fetchMessages(user1: string, user2: string): Promise<Messa
 
         const idMap = new Map<string, MessageData>();
         localMsgs.forEach(m => idMap.set(m.id, m));
-        data.forEach(m => idMap.set(m.id, m));
+        data.forEach(m => {
+            const isBetween = 
+                (m.sender_id === user1 && m.receiver_id === user2) ||
+                (m.sender_id === user2 && m.receiver_id === user1);
+            if (isBetween) {
+                idMap.set(m.id, m);
+            }
+        });
         const merged = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         saveLocalMessages(user1, user2, merged);
         return merged;

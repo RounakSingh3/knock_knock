@@ -107,13 +107,11 @@ function getSharePreview(content: string, isMe: boolean, contactName: string) {
     return content;
 }
 
-// ── Multi-Key Local Storage Chat Recovery Helpers (Zero Data Loss) ──
+// ── Strictly Isolated Local Storage Chat Helpers ──
 function loadLocalChatMessages(myId: string, partnerId: string): MessageData[] {
     const keys = [
         `knock_chat_msgs_${myId}_${partnerId}`,
         `knock_chat_msgs_${partnerId}_${myId}`,
-        `knock_chat_msgs_${partnerId}`,
-        `knock_chat_${partnerId}`,
     ];
     const idMap = new Map<string, MessageData>();
 
@@ -124,14 +122,23 @@ function loadLocalChatMessages(myId: string, partnerId: string): MessageData[] {
                 const parsed: MessageData[] = JSON.parse(raw);
                 if (Array.isArray(parsed)) {
                     parsed.forEach(m => {
-                        if (m && m.id && m.content) idMap.set(m.id, m);
+                        const isBetween =
+                            (m?.sender_id === myId && m?.receiver_id === partnerId) ||
+                            (m?.sender_id === partnerId && m?.receiver_id === myId);
+                        if (isBetween && m && m.id && m.content) {
+                            idMap.set(m.id, m);
+                        }
                     });
                 }
             }
         } catch (e) {}
     });
 
-    return Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    const clean = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    try {
+        localStorage.setItem(`knock_chat_msgs_${myId}_${partnerId}`, JSON.stringify(clean));
+    } catch (e) {}
+    return clean;
 }
 
 function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: MessageData; unreadCount: number }> {
@@ -139,22 +146,105 @@ function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: Messa
     try {
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key && (key.startsWith('knock_chat_msgs_') || key.startsWith('knock_chat_'))) {
-                const parts = key.replace('knock_chat_msgs_', '').replace('knock_chat_', '').split('_');
-                const otherId = parts.length >= 2 ? (parts[0] === myId ? parts[1] : parts[0]) : parts[0];
-                if (otherId && otherId !== myId) {
-                    try {
-                        const msgs: MessageData[] = JSON.parse(localStorage.getItem(key) || '[]');
-                        if (Array.isArray(msgs) && msgs.length > 0) {
-                            const last = msgs[msgs.length - 1];
-                            map.set(otherId, { lastMessage: last, unreadCount: 0 });
-                        }
-                    } catch (e) {}
+            if (key && key.startsWith('knock_chat_msgs_')) {
+                const parts = key.replace('knock_chat_msgs_', '').split('_');
+                if (parts.length === 2 && (parts[0] === myId || parts[1] === myId)) {
+                    const otherId = parts[0] === myId ? parts[1] : parts[0];
+                    if (otherId && otherId !== myId) {
+                        try {
+                            const msgs: MessageData[] = JSON.parse(localStorage.getItem(key) || '[]');
+                            if (Array.isArray(msgs) && msgs.length > 0) {
+                                const validMsgs = msgs.filter(m =>
+                                    (m?.sender_id === myId && m?.receiver_id === otherId) ||
+                                    (m?.sender_id === otherId && m?.receiver_id === myId)
+                                );
+                                if (validMsgs.length > 0) {
+                                    const last = validMsgs[validMsgs.length - 1];
+                                    const existing = map.get(otherId);
+                                    if (!existing || new Date(last.created_at).getTime() > new Date(existing.lastMessage.created_at).getTime()) {
+                                        map.set(otherId, { lastMessage: last, unreadCount: 0 });
+                                    }
+                                }
+                            }
+                        } catch (e) {}
+                    }
                 }
             }
         }
     } catch (e) {}
     return map;
+}
+
+// ── One-time LocalStorage Chat Sanitizer (Purges contaminated cross-chat cache) ──
+function sanitizeLocalStorageChats(myId: string) {
+    if (!myId) return;
+    try {
+        const keysToInspect: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('knock_chat_msgs_') || key.startsWith('knock_chat_'))) {
+                keysToInspect.push(key);
+            }
+        }
+
+        keysToInspect.forEach(key => {
+            if (key.startsWith('knock_chat_msgs_')) {
+                const parts = key.replace('knock_chat_msgs_', '').split('_');
+                if (parts.length === 2 && (parts[0] === myId || parts[1] === myId)) {
+                    const otherId = parts[0] === myId ? parts[1] : parts[0];
+                    try {
+                        const raw = localStorage.getItem(key);
+                        if (raw) {
+                            const msgs: MessageData[] = JSON.parse(raw);
+                            if (Array.isArray(msgs)) {
+                                const strictlyValid = msgs.filter(m =>
+                                    (m?.sender_id === myId && m?.receiver_id === otherId) ||
+                                    (m?.sender_id === otherId && m?.receiver_id === myId)
+                                );
+                                if (strictlyValid.length !== msgs.length) {
+                                    if (strictlyValid.length === 0) {
+                                        localStorage.removeItem(key);
+                                    } else {
+                                        localStorage.setItem(key, JSON.stringify(strictlyValid));
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                }
+            } else if (key === `knock_chat_${myId}`) {
+                try { localStorage.removeItem(key); } catch (e) {}
+            }
+        });
+
+        // Clean cached contact list
+        const listKey = `knock_chat_list_${myId}`;
+        const rawList = localStorage.getItem(listKey);
+        if (rawList) {
+            try {
+                const list: ChatContact[] = JSON.parse(rawList);
+                if (Array.isArray(list)) {
+                    let changed = false;
+                    const cleanedList = list.map(c => {
+                        if (c && c.lastMessage) {
+                            const lm = c.lastMessage;
+                            const isValid =
+                                (lm.sender_id === myId && lm.receiver_id === c.id) ||
+                                (lm.sender_id === c.id && lm.receiver_id === myId);
+                            if (!isValid) {
+                                changed = true;
+                                return { ...c, lastMessage: null, unreadCount: 0 };
+                            }
+                        }
+                        return c;
+                    });
+                    if (changed) {
+                        localStorage.setItem(listKey, JSON.stringify(cleanedList));
+                    }
+                }
+            } catch (e) {}
+        }
+    } catch (e) {}
 }
 
 // ── Group Storage Helpers ──
@@ -219,7 +309,23 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         if (currentUser?.id) {
             const cached = localStorage.getItem(`knock_chat_list_${currentUser.id}`);
             if (cached) {
-                try { return JSON.parse(cached); } catch (e) {}
+                try {
+                    const parsed: ChatContact[] = JSON.parse(cached);
+                    if (Array.isArray(parsed)) {
+                        return parsed.map(c => {
+                            if (c && c.lastMessage) {
+                                const lm = c.lastMessage;
+                                const isValid =
+                                    (lm.sender_id === currentUser.id && lm.receiver_id === c.id) ||
+                                    (lm.sender_id === c.id && lm.receiver_id === currentUser.id);
+                                if (!isValid) {
+                                    return { ...c, lastMessage: null, unreadCount: 0 };
+                                }
+                            }
+                            return c;
+                        });
+                    }
+                } catch (e) {}
             }
         }
         return [];
@@ -228,6 +334,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [selectedContact, setSelectedContact] = useState<ChatContact | null>(null);
     const [messages, setMessages] = useState<MessageData[]>([]);
     const [loadingMessages, setLoadingMessages] = useState(false);
+
+    // ── Purge Contaminated Cross-Chat Cache On Mount ──
+    useEffect(() => {
+        if (currentUser?.id) {
+            sanitizeLocalStorageChats(currentUser.id);
+        }
+    }, [currentUser?.id]);
 
     // ── Group Chat States ──
     const [groupsList, setGroupsList] = useState<GroupChatData[]>(() => loadStoredGroups(currentUser.id));
@@ -653,6 +766,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             } else if (view === 'chat' || view === 'group_chat') {
                 setView('list');
                 setSelectedContact(null);
+                setMessages([]);
                 setSelectedGroup(null);
                 window.history.pushState({ chatPanel: true }, '');
             } else {
@@ -677,6 +791,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         if (msgs && Array.isArray(msgs)) {
             msgs.forEach((m: MessageData) => {
                 const partnerId = m.sender_id === myId ? m.receiver_id : m.sender_id;
+                if (!partnerId || partnerId === myId) return;
+                const isValid = (m.sender_id === myId && m.receiver_id === partnerId) ||
+                                (m.sender_id === partnerId && m.receiver_id === myId);
+                if (!isValid) return;
+
                 if (!threadsMap.has(partnerId)) {
                     threadsMap.set(partnerId, { lastMessage: m, unreadCount: 0 });
                 }
@@ -777,6 +896,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 if (initialOpenUserId) {
                     const targetUser = merged.find(p => p.id === initialOpenUserId);
                     if (targetUser) {
+                        setMessages([]);
                         setSelectedContact(targetUser);
                         setView('chat');
                     }
@@ -859,23 +979,38 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     // ── Load 1-on-1 Chat Room ──
     useEffect(() => {
         if (view === 'chat' && selectedContact) {
-            const cacheKey = `knock_chat_msgs_${currentUser.id}_${selectedContact.id}`;
-            const initialLocalMsgs = loadLocalChatMessages(currentUser.id, selectedContact.id);
-            if (initialLocalMsgs.length > 0) {
-                setMessages(initialLocalMsgs);
-            }
+            let isCurrent = true;
+            const currentId = currentUser.id;
+            const partnerId = selectedContact.id;
+            const cacheKey = `knock_chat_msgs_${currentId}_${partnerId}`;
+
+            // Immediately display local messages strictly validated for this conversation pair
+            const initialLocalMsgs = loadLocalChatMessages(currentId, partnerId);
+            setMessages(initialLocalMsgs);
 
             setLoadingMessages(true);
-            markMessagesAsRead(selectedContact.id, currentUser.id);
+            markMessagesAsRead(partnerId, currentId);
 
-            fetchMessages(currentUser.id, selectedContact.id).then(data => {
-                setMessages(prev => {
+            fetchMessages(currentId, partnerId).then(data => {
+                if (!isCurrent) return; // Prevent race conditions if user switched contacts
+
+                setMessages(() => {
                     const idMap = new Map<string, MessageData>();
-                    initialLocalMsgs.forEach(m => idMap.set(m.id, m));
-                    prev.forEach(m => idMap.set(m.id, m));
-                    (data || []).forEach(m => idMap.set(m.id, m));
+                    // Only populate messages strictly belonging to this conversation
+                    initialLocalMsgs.forEach(m => {
+                        const isBetween = (m.sender_id === currentId && m.receiver_id === partnerId) ||
+                                          (m.sender_id === partnerId && m.receiver_id === currentId);
+                        if (isBetween) idMap.set(m.id, m);
+                    });
+                    (data || []).forEach(m => {
+                        const isBetween = (m.sender_id === currentId && m.receiver_id === partnerId) ||
+                                          (m.sender_id === partnerId && m.receiver_id === currentId);
+                        if (isBetween) idMap.set(m.id, m);
+                    });
                     const sorted = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-                    localStorage.setItem(cacheKey, JSON.stringify(sorted));
+                    try {
+                        localStorage.setItem(cacheKey, JSON.stringify(sorted));
+                    } catch (e) {}
                     return sorted;
                 });
                 setLoadingMessages(false);
@@ -883,36 +1018,50 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             });
 
             const subscription = subscribeToMessages(
-                currentUser.id, 
-                selectedContact.id, 
+                currentId, 
+                partnerId, 
                 (newMsg) => {
-                    markMessagesAsRead(selectedContact.id, currentUser.id);
+                    if (!isCurrent) return;
+                    const isBetween = (newMsg.sender_id === currentId && newMsg.receiver_id === partnerId) ||
+                                      (newMsg.sender_id === partnerId && newMsg.receiver_id === currentId);
+                    if (!isBetween) return;
+
+                    markMessagesAsRead(partnerId, currentId);
                     setMessages(prev => {
-                        if (prev.some(m => m.id === newMsg.id || (m.id.startsWith('temp-') && m.content === newMsg.content))) {
-                            const updated = prev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
-                            localStorage.setItem(cacheKey, JSON.stringify(updated));
+                        const cleanPrev = prev.filter(m => 
+                            (m.sender_id === currentId && m.receiver_id === partnerId) ||
+                            (m.sender_id === partnerId && m.receiver_id === currentId)
+                        );
+                        if (cleanPrev.some(m => m.id === newMsg.id || (m.id.startsWith('temp-') && m.content === newMsg.content))) {
+                            const updated = cleanPrev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
+                            try { localStorage.setItem(cacheKey, JSON.stringify(updated)); } catch (e) {}
                             return updated;
                         }
-                        const updated = [...prev, newMsg];
-                        localStorage.setItem(cacheKey, JSON.stringify(updated));
+                        const updated = [...cleanPrev, newMsg];
+                        try { localStorage.setItem(cacheKey, JSON.stringify(updated)); } catch (e) {}
                         return updated;
                     });
                     scrollToBottom();
                 },
                 (deletedId) => {
+                    if (!isCurrent) return;
                     setMessages(prev => {
                         const updated = prev.filter(m => m.id !== deletedId);
-                        localStorage.setItem(cacheKey, JSON.stringify(updated));
+                        try { localStorage.setItem(cacheKey, JSON.stringify(updated)); } catch (e) {}
                         return updated;
                     });
                 }
             );
 
             return () => {
+                isCurrent = false;
                 subscription.unsubscribe();
+                setMessages([]);
             };
+        } else {
+            setMessages([]);
         }
-    }, [view, selectedContact, currentUser.id]);
+    }, [view, selectedContact?.id, currentUser?.id]);
 
     // ── Load Group Chat Room ──
     useEffect(() => {
@@ -1649,7 +1798,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         return (
                                             <div
                                                 key={contact.id}
-                                                onClick={() => { setSelectedContact(contact); setView('chat'); }}
+                                                onClick={() => { setMessages([]); setSelectedContact(contact); setView('chat'); }}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
@@ -1840,7 +1989,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 {unchattedContacts.map(contact => (
                                     <div
                                         key={contact.id}
-                                        onClick={() => { setSelectedContact(contact); setView('chat'); }}
+                                        onClick={() => { setMessages([]); setSelectedContact(contact); setView('chat'); }}
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
@@ -1875,6 +2024,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         <button
                             onClick={() => {
                                 setView('list');
+                                setSelectedContact(null);
+                                setMessages([]);
                                 if (initialOpenUserId) onClose();
                             }}
                             style={{ background: 'none', border: 'none', color: '#f5a524', marginRight: '12px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
