@@ -396,6 +396,8 @@ const Reels: React.FC = () => {
                         if (playPromise !== undefined) {
                             playPromise.catch((err) => {
                                 console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
+                                setMutedAll(true);
+                                setFeedMutedPreference(true);
                                 v.muted = true;
                                 v.play().catch(() => {});
                             });
@@ -445,6 +447,8 @@ const Reels: React.FC = () => {
                         if (playPromise !== undefined) {
                             playPromise.catch((err) => {
                                 console.warn('[Reels] Intersection autoplay rejected, falling back to muted play:', err);
+                                setMutedAll(true);
+                                setFeedMutedPreference(true);
                                 video.muted = true;
                                 video.play().catch(() => {});
                             });
