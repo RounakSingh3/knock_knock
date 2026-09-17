@@ -10,8 +10,7 @@ import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
-import { audioPlayer } from '../lib/audioPlayer';
-import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
+import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankFeedPosts, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, type ScoredPost } from '../lib/algorithm';
 
 // ⚡ Lazy-load heavy modals so the Home feed renders in 0ms!
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
@@ -25,6 +24,142 @@ export interface UnifiedItem {
     post?: PostData;
     latestDate: Date;
 }
+
+interface MasonryPostCardProps {
+    post: PostData;
+    index: number;
+    isLiked: boolean;
+    isImped: boolean;
+    likeCount: number;
+    currentUserId?: string;
+    onSelect: (post: PostData) => void;
+    onDoubleTap: (post: PostData) => void;
+    onLikeToggle: (postId: string) => void;
+    onImpToggle: (postId: string) => void;
+    onOpenChat: (userId: string) => void;
+    onShare: (post: PostData) => void;
+    onOpenComments: (postId: string) => void;
+}
+
+const MasonryPostCard = React.memo<MasonryPostCardProps>(({
+    post,
+    index,
+    isLiked,
+    isImped,
+    likeCount,
+    currentUserId,
+    onSelect,
+    onDoubleTap,
+    onLikeToggle,
+    onImpToggle,
+    onOpenChat,
+    onShare,
+    onOpenComments,
+}) => {
+    return (
+        <div
+            className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
+            data-post-id={post.id}
+            data-post-cat={post.category || 'General'}
+            onClick={() => onSelect(post)}
+            onDoubleClick={() => onDoubleTap(post)}
+        >
+            <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
+            {(post.music_url || post.music_title) && (
+                <div style={{
+                    position: 'absolute', top: '12px', left: '12px', zIndex: 5,
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                    padding: '4px 10px', borderRadius: '14px', color: '#fff',
+                    fontSize: '11px', fontWeight: 'bold', maxWidth: '140px',
+                    overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
+                }}>
+                    <Music size={12} color="#f5a524" />
+                    <span>{post.music_title || 'Music'}</span>
+                </div>
+            )}
+            {isVideoPost(post) && (
+                <span className="masonry-video-sound-hint">🔊 Tap for sound</span>
+            )}
+            <div className="masonry-card-overlay" />
+            <button
+                className={`masonry-like-btn ${isLiked ? 'liked' : ''}`}
+                style={{ top: '12px', right: '12px' }}
+                onClick={(e) => { e.stopPropagation(); onLikeToggle(post.id); }}
+            >
+                <Heart size={16} fill={isLiked ? '#f5a524' : 'none'} color={isLiked ? '#f5a524' : 'var(--text-active)'} />
+            </button>
+            <button
+                className="masonry-like-btn"
+                style={{ top: '52px', right: '12px' }}
+                onClick={(e) => { e.stopPropagation(); onOpenChat(post.user_id); }}
+            >
+                <MessageCircle size={16} color="var(--text-active)" />
+            </button>
+            <button
+                className="masonry-like-btn"
+                style={{ top: '92px', right: '12px' }}
+                onClick={(e) => { e.stopPropagation(); onShare(post); }}
+            >
+                <Send size={16} color="var(--text-active)" />
+            </button>
+            <button
+                className={`masonry-like-btn ${isImped ? 'imped' : ''}`}
+                style={{ top: '132px', right: '12px' }}
+                onClick={(e) => { e.stopPropagation(); onImpToggle(post.id); }}
+                title="Imp / Boost post"
+            >
+                <Flame size={16} fill={isImped ? '#ff4500' : 'none'} color={isImped ? '#ff4500' : 'var(--text-active)'} />
+            </button>
+            {currentUserId && post.user_id && post.user_id !== currentUserId && (
+                <div style={{ position: 'absolute', bottom: '144px', right: '8px', zIndex: 5 }}>
+                    <VoiceReaction
+                        postId={post.id}
+                        postCategory={post.category}
+                        currentUserId={currentUserId}
+                        postOwnerId={post.user_id}
+                    />
+                </div>
+            )}
+            {post.attached_link && (
+                <div className="masonry-link-badge">
+                    <LinkIcon size={12} />
+                </div>
+            )}
+            <div className="masonry-card-info">
+                <div className="masonry-card-user">
+                    <img
+                        src={getOptimizedImageUrl(post.avatar_url || 'https://i.pravatar.cc/150', 80)}
+                        alt=""
+                        className="masonry-avatar"
+                        loading="lazy"
+                        decoding="async"
+                    />
+                    <span className="masonry-username">{post.username}</span>
+                </div>
+                <div className="masonry-meta">
+                    <span className="masonry-likes">{likeCount || 0} ❤️</span>
+                    <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
+                </div>
+                <button
+                    onClick={(e) => { e.stopPropagation(); onOpenComments(post.id); }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                    <MessageCircle size={12} /> {post.comments_count || 0}
+                </button>
+            </div>
+        </div>
+    );
+}, (prev, next) => {
+    return (
+        prev.post.id === next.post.id &&
+        prev.post.comments_count === next.post.comments_count &&
+        prev.isLiked === next.isLiked &&
+        prev.isImped === next.isImped &&
+        prev.likeCount === next.likeCount &&
+        prev.index === next.index
+    );
+});
 
 const Home = () => {
     const { signOut, user, blockedIds } = useContext(AppContext);
@@ -137,7 +272,7 @@ const Home = () => {
             setLoading(true);
         }
         setError('');
-        // Fetch all raw posts and user engagements, then build scored feed
+        // Fetch all raw posts and user engagements, then build scored feed using Hyper-Personalized algorithm
         Promise.all([
             fetchAllPostsForScoring(userId),
             fetchUserEngagements(userId)
@@ -152,28 +287,28 @@ const Home = () => {
                 return true;
             });
             setAllRawPosts(uniquePosts);
-            const profile = buildInterestProfile(engagements);
-            const firstPage = assembleFeed(uniquePosts, profile, 0, 10, userId);
+            const hybridProfile = getHybridInterestProfile(engagements);
+            const connIds = Array.from(connectionUserIds);
+            const rankedPosts = rankFeedPosts(uniquePosts, hybridProfile, userId, connIds);
+            const firstBatch = rankedPosts.slice(0, 10);
             
-            setScoredFeed(firstPage);
-            const freshPosts = firstPage.map(s => s.post);
-            setPosts(freshPosts);
+            setPosts(firstBatch);
             try {
-                localStorage.setItem('knock_home_posts_cache', JSON.stringify(freshPosts));
+                localStorage.setItem('knock_home_posts_cache', JSON.stringify(firstBatch));
             } catch (e) {}
             setLoading(false);
             
             const counts: Record<string, number> = {};
             const iCounts: Record<string, number> = {};
-            firstPage.forEach(s => { 
-                counts[s.post.id] = s.post.likes_count; 
-                iCounts[s.post.id] = s.post.imps_count || 0;
+            firstBatch.forEach(p => { 
+                counts[p.id] = p.likes_count; 
+                iCounts[p.id] = p.imps_count || 0;
             });
             setLikeCounts(counts);
             setImpCounts(iCounts);
             
             // Batch check all likes in one query instead of N individual queries
-            const postIds = firstPage.map(s => s.post.id);
+            const postIds = firstBatch.map(p => p.id);
             checkIfLikedBatch(userId, postIds).then(likedMap => {
                 setLikedPosts(prev => ({ ...prev, ...likedMap }));
             });
@@ -184,17 +319,17 @@ const Home = () => {
             });
             
             // Track view engagements
-            firstPage.forEach(s => {
-                trackEngagement(userId, s.post.id, 'view', 1, s.post.category || 'General');
+            firstBatch.forEach(p => {
+                trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
             });
             
-            setHasMorePosts(firstPage.length >= 10);
+            setHasMorePosts(true);
         }).catch(err => {
             console.error('Failed to fetch posts:', err);
             setError('Failed to load posts. Please check your connection and try again.');
             setLoading(false);
         });
-    }, [userId, blockedIds]);
+    }, [userId, blockedIds, connectionUserIds]);
 
     useEffect(() => {
         loadForYouFeed();
@@ -205,54 +340,49 @@ const Home = () => {
         if (!userId || isRefreshing) return;
         setIsRefreshing(true);
         try {
-            const shuffled = shuffleFeedForRefresh(allRawPosts);
             const engagements = await fetchUserEngagements(userId);
-            const profile = buildInterestProfile(engagements);
-            const freshFeed = assembleFeed(shuffled, profile, 0, 10, userId);
-            setScoredFeed(freshFeed);
-            setPosts(freshFeed.map(s => s.post));
+            const hybridProfile = getHybridInterestProfile(engagements);
+            const connIds = Array.from(connectionUserIds);
+            const shuffled = shuffleFeedForRefresh(allRawPosts);
+            const freshBatch = rankFeedPosts(shuffled, hybridProfile, userId, connIds).slice(0, 10);
+            setPosts(freshBatch);
             setFeedPage(0);
             setHasMorePosts(true);
         } catch (err) {
             console.error('Refresh failed:', err);
         }
         setIsRefreshing(false);
-    }, [userId, isRefreshing, allRawPosts]);
+    }, [userId, isRefreshing, allRawPosts, connectionUserIds]);
 
-    // Infinite scroll — load more posts automatically (Guarantees NO duplicate photos)
+    // Infinite scroll — load more posts automatically (Infinite non-terminating stream with variable rewards)
     const loadMorePosts = useCallback(async () => {
-        if (!userId || !hasMorePosts || isLoadingMore || loading) return;
+        if (!userId || isLoadingMore || loading) return;
         setIsLoadingMore(true);
         try {
             const nextPage = feedPage + 1;
             const engagements = await fetchUserEngagements(userId);
-            const profile = buildInterestProfile(engagements);
-            const nextBatch = assembleFeed(allRawPosts, profile, nextPage, 10, userId);
+            const hybridProfile = getHybridInterestProfile(engagements);
+            const connIds = Array.from(connectionUserIds);
             
             const currentIds = new Set(posts.map(p => p.id));
             const currentUrls = new Set(posts.map(p => p.image_url));
-            const freshBatch = nextBatch.filter(s => {
-                if (!s.post.image_url || currentIds.has(s.post.id) || currentUrls.has(s.post.image_url)) return false;
-                currentIds.add(s.post.id);
-                currentUrls.add(s.post.image_url);
-                return true;
-            });
 
-            if (freshBatch.length > 0) {
-                setScoredFeed(prev => [...prev, ...freshBatch]);
-                setPosts(prev => [...prev, ...freshBatch.map(s => s.post)]);
-                setFeedPage(nextPage);
-                // Batch check likes for new posts
-                const newPostIds = freshBatch.map(s => s.post.id);
-                checkIfLikedBatch(userId, newPostIds).then(likedMap => {
-                    setLikedPosts(prev => ({ ...prev, ...likedMap }));
-                });
-                freshBatch.forEach(s => {
-                    trackEngagement(userId, s.post.id, 'view', 1, s.post.category || 'General');
-                    setLikeCounts(prev => ({ ...prev, [s.post.id]: s.post.likes_count }));
-                });
-            } else {
-                // If all in-memory raw posts used, fetch more from DB directly
+            // Generate next stream batch via infinite stream synthesizer
+            let streamBatch: PostData[] = [];
+            if (allRawPosts.length > 0) {
+                streamBatch = generateInfiniteStream(
+                    allRawPosts,
+                    nextPage,
+                    10,
+                    (batch) => rankFeedPosts(batch, hybridProfile, userId, connIds)
+                );
+            }
+
+            // Exclude already loaded posts to keep feed fresh
+            let freshBatch = streamBatch.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url));
+
+            if (freshBatch.length < 5) {
+                // Fetch more discover posts if pool is running low
                 const moreDbPosts = await fetchDiscoverPosts(null, 50, allRawPosts.length);
                 const uniqueMoreDb = moreDbPosts.filter(p => {
                     if (!p.image_url || currentIds.has(p.id) || currentUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
@@ -263,20 +393,41 @@ const Home = () => {
 
                 if (uniqueMoreDb.length > 0) {
                     setAllRawPosts(prev => [...prev, ...uniqueMoreDb]);
-                    const scoredMore = assembleFeed(uniqueMoreDb, profile, 0, 10, userId);
-                    setScoredFeed(prev => [...prev, ...scoredMore]);
-                    setPosts(prev => [...prev, ...scoredMore.map(s => s.post)]);
-                    setFeedPage(nextPage);
-                } else {
-                    setHasMorePosts(false);
+                    const rankedMore = rankFeedPosts(uniqueMoreDb, hybridProfile, userId, connIds);
+                    freshBatch = [...freshBatch, ...rankedMore.slice(0, 10 - freshBatch.length)];
                 }
             }
+
+            // If still empty (small dataset), allow cyclical stream
+            if (freshBatch.length === 0 && allRawPosts.length > 0) {
+                freshBatch = generateInfiniteStream(
+                    allRawPosts,
+                    nextPage,
+                    10,
+                    (batch) => rankFeedPosts(batch, hybridProfile, userId, connIds)
+                );
+            }
+
+            if (freshBatch.length > 0) {
+                setPosts(prev => [...prev, ...freshBatch]);
+                setFeedPage(nextPage);
+                // Batch check likes for new posts
+                const newPostIds = freshBatch.map(p => p.id);
+                checkIfLikedBatch(userId, newPostIds).then(likedMap => {
+                    setLikedPosts(prev => ({ ...prev, ...likedMap }));
+                });
+                freshBatch.forEach(p => {
+                    trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
+                    setLikeCounts(prev => ({ ...prev, [p.id]: p.likes_count }));
+                });
+            }
+            setHasMorePosts(true);
         } catch (err) {
             console.error('Error loading more posts on home:', err);
         } finally {
             setIsLoadingMore(false);
         }
-    }, [userId, hasMorePosts, isLoadingMore, loading, feedPage, allRawPosts, posts, blockedIds]);
+    }, [userId, isLoadingMore, loading, feedPage, allRawPosts, posts, blockedIds, connectionUserIds]);
 
     // IntersectionObserver for automatic infinite scrolling as user scrolls
     useEffect(() => {
@@ -331,24 +482,85 @@ const Home = () => {
         setIsRefreshing(true);
         try {
             const engagements = await fetchUserEngagements(userId);
-            const profile = buildInterestProfile(engagements);
-            const newFeed = assembleFeed(allRawPosts, profile, 0, 10, userId);
-            const shuffled = shuffleFeedForRefresh(newFeed);
-            setScoredFeed(shuffled);
-            setPosts(shuffled.map(s => s.post));
+            const hybridProfile = getHybridInterestProfile(engagements);
+            const connIds = Array.from(connectionUserIds);
+            const shuffled = shuffleFeedForRefresh(allRawPosts);
+            const freshBatch = rankFeedPosts(shuffled, hybridProfile, userId, connIds).slice(0, 10);
+            setPosts(freshBatch);
             setFeedPage(0);
             setHasMorePosts(true);
         } catch (err) {
             console.error('Refresh failed:', err);
         }
         setIsRefreshing(false);
-    }, [userId, isRefreshing, allRawPosts]);
+    }, [userId, isRefreshing, allRawPosts, connectionUserIds]);
 
     const handleDoubleTap = (post: PostData) => {
         if (!likedPosts[post.id]) {
             handleLikeToggle(post.id);
         }
     };
+
+    // Pillar 2: Implicit Signal Tracking for Home Feed Cards (dwell time & fast skips)
+    useEffect(() => {
+        if (feedMode !== 'foryou' || posts.length === 0) return;
+
+        const cardTimers = new Map<string, number>();
+
+        const observer = new IntersectionObserver((entries) => {
+            const now = Date.now();
+            entries.forEach(entry => {
+                const el = entry.target as HTMLElement;
+                const postId = el.getAttribute('data-post-id');
+                const category = el.getAttribute('data-post-cat') || 'General';
+                if (!postId) return;
+
+                if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+                    // Start timer if not already running
+                    if (!cardTimers.has(postId)) {
+                        cardTimers.set(postId, now);
+                    }
+                } else {
+                    // Card left viewport
+                    const startTime = cardTimers.get(postId);
+                    if (startTime) {
+                        const dwellMs = now - startTime;
+                        cardTimers.delete(postId);
+                        if (dwellMs >= 2500) {
+                            // User lingered/focused on this post (positive implicit signal)
+                            recordImplicitSignal({
+                                type: 'dwell',
+                                postId,
+                                category,
+                                value: dwellMs,
+                                timestamp: now,
+                            });
+                        } else if (dwellMs > 100 && dwellMs < 1200) {
+                            // User rapidly scrolled past (skip signal)
+                            recordImplicitSignal({
+                                type: 'skip',
+                                postId,
+                                category,
+                                value: dwellMs,
+                                timestamp: now,
+                            });
+                        }
+                    }
+                }
+            });
+        }, {
+            threshold: [0.1, 0.5]
+        });
+
+        // Observe all masonry cards
+        const cards = document.querySelectorAll('.masonry-card[data-post-id]');
+        cards.forEach(card => observer.observe(card));
+
+        return () => {
+            observer.disconnect();
+            cardTimers.clear();
+        };
+    }, [posts, feedMode]);
 
     // Load connection posts when mode switches
     useEffect(() => {
@@ -517,97 +729,22 @@ const Home = () => {
                         <PullToRefresh onRefresh={handleRefresh}>
                         <div className="masonry-grid">
                             {posts.map((post, index) => (
-                                <div
-                                    key={post.id}
-                                    className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
-                                    onClick={() => setSelectedPost(normalizePost(post))}
-                                    onDoubleClick={() => handleDoubleTap(post)}
-                                >
-                                    <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
-                                    {(post.music_url || post.music_title) && (
-                                        <div style={{
-                                            position: 'absolute', top: '12px', left: '12px', zIndex: 5,
-                                            display: 'flex', alignItems: 'center', gap: '5px',
-                                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
-                                            padding: '4px 10px', borderRadius: '14px', color: '#fff',
-                                            fontSize: '11px', fontWeight: 'bold', maxWidth: '140px',
-                                            overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
-                                        }}>
-                                            <Music size={12} color="#f5a524" />
-                                            <span>{post.music_title || 'Music'}</span>
-                                        </div>
-                                    )}
-                                    {isVideoPost(post) && (
-                                        <span className="masonry-video-sound-hint">🔊 Tap for sound</span>
-                                    )}
-                                    <div className="masonry-card-overlay" />
-                                    <button
-                                        className={`masonry-like-btn ${likedPosts[post.id] ? 'liked' : ''}`}
-                                        style={{ top: '12px', right: '12px' }}
-                                        onClick={(e) => { e.stopPropagation(); handleLikeToggle(post.id); }}
-                                    >
-                                        <Heart size={16} fill={likedPosts[post.id] ? '#f5a524' : 'none'} color={likedPosts[post.id] ? '#f5a524' : 'var(--text-active)'} />
-                                    </button>
-                                    <button
-                                        className="masonry-like-btn"
-                                        style={{ top: '52px', right: '12px' }}
-                                        onClick={(e) => { e.stopPropagation(); setChatUserId(post.user_id); setIsChatOpen(true); }}
-                                    >
-                                        <MessageCircle size={16} color="var(--text-active)" />
-                                    </button>
-                                    <button
-                                        className="masonry-like-btn"
-                                        style={{ top: '92px', right: '12px' }}
-                                        onClick={(e) => { e.stopPropagation(); setPostToShare(post); setIsShareOpen(true); }}
-                                    >
-                                        <Send size={16} color="var(--text-active)" />
-                                    </button>
-                                    <button
-                                        className={`masonry-like-btn ${impedPosts[post.id] ? 'imped' : ''}`}
-                                        style={{ top: '132px', right: '12px' }}
-                                        onClick={(e) => { e.stopPropagation(); handleImpToggle(post.id); }}
-                                        title="Imp / Boost post"
-                                    >
-                                        <Flame size={16} fill={impedPosts[post.id] ? '#ff4500' : 'none'} color={impedPosts[post.id] ? '#ff4500' : 'var(--text-active)'} />
-                                    </button>
-                                    {user && post.user_id && post.user_id !== user.id && (
-                                        <div style={{ position: 'absolute', bottom: '144px', right: '8px', zIndex: 5 }}>
-                                            <VoiceReaction
-                                                postId={post.id}
-                                                postCategory={post.category}
-                                                currentUserId={user.id}
-                                                postOwnerId={post.user_id}
-                                            />
-                                        </div>
-                                    )}
-                                    {post.attached_link && (
-                                        <div className="masonry-link-badge">
-                                            <LinkIcon size={12} />
-                                        </div>
-                                    )}
-                                    <div className="masonry-card-info">
-                                        <div className="masonry-card-user">
-                                            <img
-                                                src={getOptimizedImageUrl(post.avatar_url || 'https://i.pravatar.cc/150', 80)}
-                                                alt=""
-                                                className="masonry-avatar"
-                                                loading="lazy"
-                                                decoding="async"
-                                            />
-                                            <span className="masonry-username">{post.username}</span>
-                                        </div>
-                                        <div className="masonry-meta">
-                                            <span className="masonry-likes">{likeCounts[post.id] || 0} ❤️</span>
-                                            <span className="masonry-time">{getTimeAgo(post.created_at)}</span>
-                                        </div>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); setCommentsPostId(post.id); setIsCommentsOpen(true); }}
-                                            style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                        >
-                                            <MessageCircle size={12} /> {post.comments_count || 0}
-                                        </button>
-                                    </div>
-                                </div>
+                                <MasonryPostCard
+                                    key={post.id + '-' + index}
+                                    post={post}
+                                    index={index}
+                                    isLiked={!!likedPosts[post.id]}
+                                    isImped={!!impedPosts[post.id]}
+                                    likeCount={likeCounts[post.id] ?? post.likes_count ?? 0}
+                                    currentUserId={user?.id}
+                                    onSelect={(p) => setSelectedPost(normalizePost(p))}
+                                    onDoubleTap={(p) => handleDoubleTap(p)}
+                                    onLikeToggle={handleLikeToggle}
+                                    onImpToggle={handleImpToggle}
+                                    onOpenChat={(uid) => { setChatUserId(uid); setIsChatOpen(true); }}
+                                    onShare={(p) => { setPostToShare(p); setIsShareOpen(true); }}
+                                    onOpenComments={(pid) => { setCommentsPostId(pid); setIsCommentsOpen(true); }}
+                                />
                             ))}
                         </div>
                         {/* Seamless Automatic Infinite Scroll Sentinel */}

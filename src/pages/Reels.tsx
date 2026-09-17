@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
-import { fetchVideoPosts, trackEngagement, toggleImp, normalizePost, type PostData, type MessageData } from '../lib/database';
+import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, type PostData, type MessageData } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import ChatPanel from '../components/ChatPanel';
 import ShareModal from '../components/ShareModal';
 import { audioPlayer } from '../lib/audioPlayer';
+import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream } from '../lib/algorithm';
 
 export interface ReelData {
     id: string | number;
@@ -257,12 +258,19 @@ const Reels: React.FC = () => {
     const [chatRefreshKey, setChatRefreshKey] = useState(0);
     const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: MessageData } | null>(null);
 
+    const [rawReelPool, setRawReelPool] = useState<ReelData[]>([]);
+    const [reelPage, setReelPage] = useState(0);
+    const completedReelsRef = useRef<Set<string | number>>(new Set());
+
     // Watch time & replay tracking
     const watchStartRef = useRef<number>(0);
     const replayCountRef = useRef<Record<number, number>>({});
 
     useEffect(() => {
-        fetchVideoPosts(user?.id).then(async (videoPosts) => {
+        Promise.all([
+            fetchVideoPosts(user?.id),
+            user?.id ? fetchUserEngagements(user.id) : Promise.resolve([])
+        ]).then(async ([videoPosts, engagements]) => {
             const validPosts = videoPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
             const resolvedPosts = await Promise.all(validPosts.map(async (rawP) => {
                 const p = normalizePost(rawP);
@@ -314,9 +322,14 @@ const Reels: React.FC = () => {
                 }
             }
 
-            setReelsList(merged);
-            setPlayStates(merged.map(() => true));
-            setProgresses(merged.map(() => 0));
+            // Apply Pillar 1 & 5: Variable Reward Schedule & Hyper-Personalization for Reels
+            const hybridProfile = getHybridInterestProfile(engagements);
+            const ranked = rankReels(merged, hybridProfile, user?.id);
+
+            setRawReelPool(ranked);
+            setReelsList(ranked);
+            setPlayStates(ranked.map(() => true));
+            setProgresses(ranked.map(() => 0));
         });
     }, [user?.id, user?.username, blockedIds]);
 
@@ -454,32 +467,95 @@ const Reels: React.FC = () => {
         return () => observer.disconnect();
     }, [selectedReelIndex, mutedAll, reelsList, playReelAudio]);
 
-    // Watch time tracking: when active reel changes, log watch time for the previous one
+    // Pillar 4: Instant Gratification — Preload next video buffer for 0ms swipe latency
     useEffect(() => {
-        if (!user) return;
-        // Log watch time for previously active reel
+        const nextIdx = activeIndex + 1;
+        if (nextIdx < reelsList.length && videoRefs.current[nextIdx]) {
+            const nextVideo = videoRefs.current[nextIdx];
+            if (nextVideo && nextVideo.preload !== 'auto') {
+                nextVideo.preload = 'auto';
+            }
+        }
+    }, [activeIndex, reelsList.length]);
+
+    // Pillar 3: The Infinite Scroll — Auto-extend stream when user nears bottom
+    useEffect(() => {
+        if (selectedReelIndex !== null && activeIndex >= reelsList.length - 2 && rawReelPool.length > 0) {
+            const nextPage = reelPage + 1;
+            setReelPage(nextPage);
+            const nextBatch = generateInfiniteStream(
+                rawReelPool,
+                nextPage,
+                10,
+                (batch) => {
+                    const profile = getHybridInterestProfile([]);
+                    return rankReels(batch, profile, user?.id);
+                }
+            );
+            const newReelsWithKeys = nextBatch.map((r, i) => ({
+                ...r,
+                id: `${r.id}_p${nextPage}_${i}`
+            }));
+            setReelsList(prev => [...prev, ...newReelsWithKeys]);
+            setPlayStates(prev => [...prev, ...newReelsWithKeys.map(() => true)]);
+            setProgresses(prev => [...prev, ...newReelsWithKeys.map(() => 0)]);
+        }
+    }, [activeIndex, reelsList.length, rawReelPool, reelPage, selectedReelIndex, user?.id]);
+
+    // Pillar 2: Implicit Signal Tracking — Watch time, fast-skip penalties, and dwell
+    useEffect(() => {
         if (watchStartRef.current > 0) {
-            const watchDuration = (Date.now() - watchStartRef.current) / 1000; // seconds
+            const watchDuration = (Date.now() - watchStartRef.current) / 1000;
             const prevReel = reelsList[activeIndex];
-            if (prevReel && typeof prevReel.id === 'string') {
-                trackEngagement(user.id, prevReel.id, 'watch_time', watchDuration, prevReel.category || 'General');
+            if (prevReel) {
+                const reelIdStr = String(prevReel.id);
+                if (watchDuration < 1.5) {
+                    // Fast skip signal (penalizes category / content in implicit profile)
+                    recordImplicitSignal({
+                        type: 'skip',
+                        postId: reelIdStr,
+                        category: prevReel.category || 'General',
+                        value: watchDuration,
+                        timestamp: Date.now()
+                    });
+                } else if (watchDuration >= 4.0) {
+                    // Positive dwell signal
+                    recordImplicitSignal({
+                        type: 'dwell',
+                        postId: reelIdStr,
+                        category: prevReel.category || 'General',
+                        value: watchDuration * 1000,
+                        timestamp: Date.now()
+                    });
+                }
+                if (user && typeof prevReel.id === 'string') {
+                    trackEngagement(user.id, prevReel.id, 'watch_time', watchDuration, prevReel.category || 'General');
+                }
             }
         }
         watchStartRef.current = Date.now();
     }, [activeIndex]);
 
-    // Replay detection: listen for video 'ended' events
+    // Pillar 2: Re-watch Loop Detection (Super-strong positive signal)
     useEffect(() => {
-        if (selectedReelIndex === null || !user) return;
+        if (selectedReelIndex === null) return;
         const handlers: (() => void)[] = [];
         videoRefs.current.forEach((video, idx) => {
             if (!video) return;
             const handler = () => {
                 const reel = reelsList[idx];
-                if (reel && typeof reel.id === 'string') {
+                if (reel) {
                     replayCountRef.current[idx] = (replayCountRef.current[idx] || 0) + 1;
-                    if (replayCountRef.current[idx] >= 2) {
-                        trackEngagement(user.id, reel.id, 'replay', replayCountRef.current[idx], reel.category || 'General');
+                    const loops = replayCountRef.current[idx];
+                    recordImplicitSignal({
+                        type: 'loop',
+                        postId: String(reel.id),
+                        category: reel.category || 'General',
+                        value: loops,
+                        timestamp: Date.now()
+                    });
+                    if (user && typeof reel.id === 'string' && loops >= 2) {
+                        trackEngagement(user.id, reel.id, 'replay', loops, reel.category || 'General');
                     }
                 }
             };
@@ -487,24 +563,38 @@ const Reels: React.FC = () => {
             handlers.push(() => video.removeEventListener('ended', handler));
         });
         return () => handlers.forEach(h => h());
-    }, [selectedReelIndex, reelsList]);
+    }, [selectedReelIndex, reelsList, user]);
 
-    // Progress bar updater
+    // Pillar 2: Progress bar updater & 80%+ completion signal tracking
     useEffect(() => {
         if (selectedReelIndex === null) return;
         const interval = setInterval(() => {
             videoRefs.current.forEach((video, idx) => {
                 if (video && video.duration) {
+                    const pct = (video.currentTime / video.duration) * 100;
                     setProgresses((prev) => {
                         const next = [...prev];
-                        next[idx] = (video.currentTime / video.duration) * 100;
+                        next[idx] = pct;
                         return next;
                     });
+                    if (idx === activeIndex && pct >= 80) {
+                        const currentReel = reelsList[idx];
+                        if (currentReel && !completedReelsRef.current.has(currentReel.id)) {
+                            completedReelsRef.current.add(currentReel.id);
+                            recordImplicitSignal({
+                                type: 'watch_pct',
+                                postId: String(currentReel.id),
+                                category: currentReel.category || 'General',
+                                value: pct,
+                                timestamp: Date.now()
+                            });
+                        }
+                    }
                 }
             });
-        }, 500);
+        }, 300);
         return () => clearInterval(interval);
-    }, [selectedReelIndex]);
+    }, [selectedReelIndex, activeIndex, reelsList]);
 
     const togglePlay = useCallback(
         (idx: number) => {
@@ -725,6 +815,17 @@ const Reels: React.FC = () => {
                             onClick={() => {
                                 const newMuted = !mutedAll;
                                 setMutedAll(newMuted);
+                                if (!newMuted) {
+                                    const currentReel = reelsList[activeIndex];
+                                    if (currentReel) {
+                                        recordImplicitSignal({
+                                            type: 'unmute',
+                                            postId: String(currentReel.id),
+                                            category: currentReel.category || 'General',
+                                            timestamp: Date.now()
+                                        });
+                                    }
+                                }
                                 videoRefs.current.forEach((v, vIdx) => {
                                     if (v) {
                                         const hasMusic = Boolean(reelsList[vIdx]?.musicUrl);
@@ -778,6 +879,7 @@ const Reels: React.FC = () => {
                                         poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
                                         loop
                                         playsInline
+                                        preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
                                         autoPlay={idx === selectedReelIndex}
                                         muted={Boolean(reel.musicUrl) || mutedAll}
                                         className="reel-video"

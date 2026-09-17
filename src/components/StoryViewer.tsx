@@ -4,6 +4,7 @@ import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Ro
 import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
+import { recordImplicitSignal } from '../lib/algorithm';
 
 // Map filter names stored in DB to actual CSS filter values
 const FILTER_MAP: Record<string, string> = {
@@ -38,6 +39,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const [isPaused, setIsPaused] = useState(false);
     const bgAudioRef = useRef<HTMLAudioElement | null>(null);
     const storyVideoRef = useRef<HTMLVideoElement | null>(null);
+    const storyStartRef = useRef<number>(Date.now());
     const navigate = useNavigate();
 
     const currentGroup = storyGroups[groupIndex];
@@ -66,7 +68,25 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     };
 
     const handleNextStory = useCallback(() => {
-        if (!currentGroup) return;
+        if (!currentGroup || !currentStory) return;
+        const dwellTime = Date.now() - storyStartRef.current;
+        if (progress >= 95) {
+            recordImplicitSignal({
+                type: 'story_complete',
+                postId: currentStory.id,
+                category: (currentStory as any).category || 'General',
+                timestamp: Date.now()
+            });
+        } else if (dwellTime < 1800) {
+            recordImplicitSignal({
+                type: 'story_skip',
+                postId: currentStory.id,
+                category: (currentStory as any).category || 'General',
+                timestamp: Date.now()
+            });
+        }
+        storyStartRef.current = Date.now();
+
         if (storyIndex < currentGroup.stories.length - 1) {
             setStoryIndex(prev => prev + 1);
             setProgress(0);
@@ -77,7 +97,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         } else {
             onClose();
         }
-    }, [currentGroup, groupIndex, storyGroups.length, storyIndex, onClose]);
+    }, [currentGroup, currentStory, groupIndex, storyGroups.length, storyIndex, progress, onClose]);
 
     const handlePrevStory = useCallback(() => {
         if (!currentGroup) return;
@@ -117,6 +137,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
     // Reset state when story changes
     useEffect(() => {
+        storyStartRef.current = Date.now();
         setProgress(0);
         setAudioPlaying(true);
         setIsPaused(false);
@@ -150,6 +171,14 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
     const handleForward = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (currentStory && (Date.now() - storyStartRef.current < 1800)) {
+            recordImplicitSignal({
+                type: 'story_skip',
+                postId: currentStory.id,
+                category: (currentStory as any).category || 'General',
+                timestamp: Date.now()
+            });
+        }
         handleNextStory();
     };
 

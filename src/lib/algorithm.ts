@@ -1,26 +1,28 @@
 /**
- * algorithm.ts — Knock Knock Recommendation Engine
+ * algorithm.ts — Knock Knock Hyper-Personalized Recommendation Engine
  * 
- * Implements a weighted scoring and Instagram-style feed blending engine:
- * - User interest profiling based on engagement history
- * - Post scoring based on weighted engagement signals + new creator exploration boost
- * - Author anti-clustering (consecutive creator penalty)
- * - Media format interleaving (videos and photos mixed: "all form")
- * - Category rotation & variable reward surprise content injection
- * - Active user new-upload priority
+ * Implements an advanced, multi-surface engagement architecture:
+ * 1. Variable Reward Schedule: Intermittent reinforcement engine mimicking slot machines.
+ * 2. Implicit Signal Tracking: Real-time dwell time, scroll velocity, watch completion, loops, audio taps.
+ * 3. Hyper-Personalization: 4 distinct AI / algorithmic models for Feed, Stories, Explore, and Reels.
+ * 4. Infinite Scroll Stream Generator: Endless cyclical permutation without artificial stopping points.
  */
 
 import { isVideoPost } from './media';
+import { trackEngagement, type PostData, type UserStoryGroup } from './database';
 
 // ── Weight Configuration ───────────────────────────────────
 export const ENGAGEMENT_WEIGHTS: Record<string, number> = {
-    watch_time: 5,   // Strongest intent — watched >75% of video
-    replay: 4,       // Very high interest
-    share: 3,        // Social validation
+    watch_time: 5,   // Watched >75% of video
+    replay: 4,       // Video looped
+    share: 4,        // Social sharing
     voice_react: 3,  // High emotional engagement
-    like: 2,         // Standard engagement
-    save: 2,         // Intent to revisit
-    view: 1,         // Minimal — just scrolled past
+    like: 2,         // Standard explicit like
+    save: 2,         // Bookmark / save
+    view: 0.8,       // Scrolled past
+    dwell: 3,        // Lingered on card >2.5s
+    skip: -1.2,      // Fast flick past item <1.5s
+    unmute: 3.5,     // Explicit sound activation
 };
 
 // ── Content Categories ─────────────────────────────────────
@@ -50,7 +52,7 @@ export interface UserInterestProfile {
     categoryScores: Record<string, number>;
     /** Sorted array of top categories */
     topCategories: string[];
-    /** Categories the user has NEVER interacted with */
+    /** Categories the user has rarely or never interacted with */
     unexploredCategories: string[];
 }
 
@@ -75,61 +77,193 @@ export function buildInterestProfile(
     return { categoryScores, topCategories, unexploredCategories };
 }
 
-// ── Post Scoring ───────────────────────────────────────────
+// ── Implicit Signal Tracking ───────────────────────────────
+
+export interface ImplicitSignal {
+    userId?: string;
+    targetId: string;
+    category: string;
+    type: 'dwell' | 'skip' | 'watch_pct' | 'replay' | 'unmute' | 'comments_open' | 'share_tap' | 'story_complete' | 'story_skip';
+    value: number; // duration in ms, watch %, or replay count
+    timestamp?: number;
+}
+
+const LOCAL_IMPLICIT_STORAGE_KEY = 'knock_implicit_signals_v1';
+
+/** Retrieve locally cached implicit affinity scores */
+export function getLocalImplicitScores(): Record<string, number> {
+    try {
+        const raw = localStorage.getItem(LOCAL_IMPLICIT_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch {
+        return {};
+    }
+}
+
+/**
+ * Record a hidden / implicit behavior (dwell time, fast skip, completion %, audio unmuting)
+ * Updates real-time localized affinity and asynchronously pushes to database engagement log.
+ */
+export function recordImplicitSignal(signal: ImplicitSignal): void {
+    if (!signal.category && !signal.targetId) return;
+    const scores = getLocalImplicitScores();
+    const cat = signal.category || 'General';
+    let delta = 0;
+
+    switch (signal.type) {
+        case 'dwell':
+            // Pause time on card: >5000ms = strong (+4), >2500ms = moderate (+2)
+            if (signal.value >= 5000) delta = 4;
+            else if (signal.value >= 2500) delta = 2;
+            break;
+        case 'skip':
+            // Fast swipe past item under 1500ms: negative implicit signal
+            delta = -1.2;
+            break;
+        case 'watch_pct':
+            // Video percentage completed
+            if (signal.value >= 0.9) delta = 5;
+            else if (signal.value >= 0.75) delta = 3;
+            else if (signal.value < 0.25) delta = -1;
+            break;
+        case 'replay':
+            // Video loop / re-watch
+            delta = Math.min(16, (signal.value || 1) * 4);
+            break;
+        case 'unmute':
+            // Desired sound listening
+            delta = 3.5;
+            break;
+        case 'comments_open':
+            // Inspecting conversation
+            delta = 2.5;
+            break;
+        case 'share_tap':
+            // Intention to send
+            delta = 4.5;
+            break;
+        case 'story_complete':
+            delta = 3;
+            break;
+        case 'story_skip':
+            delta = -1.5;
+            break;
+        default:
+            delta = 1;
+    }
+
+    if (delta !== 0) {
+        scores[cat] = Math.max(-15, Math.min(250, (scores[cat] || 0) + delta));
+        try {
+            localStorage.setItem(LOCAL_IMPLICIT_STORAGE_KEY, JSON.stringify(scores));
+        } catch {}
+
+        // Async dispatch to server pipeline if user is authenticated
+        if (signal.userId && signal.targetId) {
+            try {
+                trackEngagement(signal.userId, signal.targetId, `implicit_${signal.type}`, Math.abs(delta), cat).catch(() => {});
+            } catch {}
+        }
+    }
+}
+
+/**
+ * Merge explicit database engagement profile with fast real-time local implicit signals.
+ */
+export function getHybridInterestProfile(
+    explicitProfile?: UserInterestProfile,
+    _userId?: string
+): UserInterestProfile {
+    const localScores = getLocalImplicitScores();
+    const baseScores = explicitProfile?.categoryScores ? { ...explicitProfile.categoryScores } : {};
+
+    for (const [cat, impScore] of Object.entries(localScores)) {
+        baseScores[cat] = (baseScores[cat] || 0) + impScore;
+    }
+
+    const topCategories = Object.entries(baseScores)
+        .sort((a, b) => b[1] - a[1])
+        .map(([c]) => c);
+
+    const exploredSet = new Set(topCategories);
+    const unexploredCategories = CONTENT_CATEGORIES.filter(c => !exploredSet.has(c));
+
+    return {
+        categoryScores: baseScores,
+        topCategories,
+        unexploredCategories
+    };
+}
+
+// ── Variable Reward Schedule (Intermittent Reinforcement) ──
+
+/**
+ * Intermittent Reinforcement Scheduler
+ * 
+ * Re-orders candidates so that high-dopamine "Gems" (viral, high-affinity posts)
+ * drop at unpredictable intervals (stochastic ratio: ~1 Gem every 2 to 4 items,
+ * with occasional back-to-back "Jackpot" hits).
+ */
+export function scheduleVariableRewards<T>(
+    items: T[],
+    getViralScore: (item: T) => number
+): T[] {
+    if (!items || items.length <= 3) return items;
+
+    const scored = items.map(item => ({ item, score: getViralScore(item) }));
+    scored.sort((a, b) => b.score - a.score);
+
+    const total = scored.length;
+    const tierACount = Math.max(1, Math.floor(total * 0.25)); // Top 25% = Gems
+    const tierBCount = Math.max(1, Math.floor(total * 0.55)); // Middle 55% = Solid
+    // Remaining 20% = Discovery
+
+    const tierA = scored.slice(0, tierACount).map(s => s.item);
+    const tierB = scored.slice(tierACount, tierACount + tierBCount).map(s => s.item);
+    const tierC = scored.slice(tierACount + tierBCount).map(s => s.item);
+
+    const result: T[] = [];
+    let aIdx = 0;
+    let bIdx = 0;
+    let cIdx = 0;
+
+    // Stochastic spacing for next Gem
+    let nextGemCountdown = Math.random() < 0.25 ? 1 : Math.floor(Math.random() * 3) + 2;
+
+    while (aIdx < tierA.length || bIdx < tierB.length || cIdx < tierC.length) {
+        if (nextGemCountdown <= 0 && aIdx < tierA.length) {
+            // Drop a Gem!
+            result.push(tierA[aIdx++]);
+            // Re-arm countdown with stochastic variance (15% chance of consecutive jackpot)
+            nextGemCountdown = Math.random() < 0.15 ? 1 : Math.floor(Math.random() * 3) + 2;
+            continue;
+        }
+
+        // Standard flow: draw from Tier B or Tier C
+        if (bIdx < tierB.length && (Math.random() < 0.75 || cIdx >= tierC.length)) {
+            result.push(tierB[bIdx++]);
+        } else if (cIdx < tierC.length) {
+            result.push(tierC[cIdx++]);
+        } else if (aIdx < tierA.length) {
+            result.push(tierA[aIdx++]);
+        } else {
+            break;
+        }
+
+        nextGemCountdown--;
+    }
+
+    return result;
+}
+
+// ── Post Scoring & Time Decay ───────────────────────────────
+
 export interface ScoredPost {
     post: any;
     score: number;
     isSurprise: boolean;
 }
 
-/**
- * Calculate a relevance score for a single post relative to the user's interest profile.
- */
-export function calculatePostScore(
-    post: { id?: string; user_id?: string; category?: string; created_at: string; likes_count?: number; shares_count?: number; imps_count?: number; comments_count?: number },
-    userProfile: UserInterestProfile,
-    currentUserId?: string
-): number {
-    let score = 1.0; // Baseline score so all posts have initial relevance
-
-    // 1. Category affinity: boost if post matches user's tracked top interests
-    const postCategory = post.category || 'General';
-    const categoryScore = userProfile.categoryScores[postCategory] || 0;
-    score += categoryScore * 0.6;
-
-    // 2. Engagement signals: likes, shares, comments
-    score += (post.likes_count || 0) * 0.05;
-    score += (post.shares_count || 0) * 0.1;
-    score += ((post as any).comments_count || 0) * 0.1;
-
-    // 3. Imp Boost: Massive visibility multiplier if users have imped the content
-    if (post.imps_count && post.imps_count > 0) {
-        score += (post.imps_count * 50);
-    }
-
-    // 4. Time decay & Exploration Boost for fresh uploads
-    const hoursOld = Math.max(0, (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60));
-    const decay = decayFactor(hoursOld);
-    score *= decay;
-
-    // 5. Active user's own recent upload priority (< 48 hours)
-    if (currentUserId && post.user_id && post.user_id === currentUserId && hoursOld < 48) {
-        score += 1000; // Pin/prioritize user's own newly posted content at the top of their feed
-    }
-
-    return score;
-}
-
-/**
- * Time decay function. Content loses relevance over time, but fresh content
- * gets an Instagram-style "Exploration Boost" for creator discovery.
- * - < 2 hours: 2.5x boost (new upload exploration phase)
- * - 2-12 hours: 1.8x boost
- * - 12-24 hours: 1.4x boost
- * - 1-3 days: 1.0x (neutral)
- * - 3-7 days: 0.6x
- * - > 7 days: 0.3x
- */
 export function decayFactor(hoursOld: number): number {
     if (hoursOld < 2) return 2.5;
     if (hoursOld < 12) return 1.8;
@@ -139,17 +273,43 @@ export function decayFactor(hoursOld: number): number {
     return 0.3;
 }
 
-/**
- * Instagram-Style Feed Diversification & Blending
- * 
- * Takes scored candidate posts and applies:
- * 1. Author Anti-Clustering: Prevents bulk uploads from one creator (e.g. 37 Tara videos)
- *    from appearing consecutively. Spreads creator posts across the feed.
- * 2. Media Format Interleaving ("Mixed, all form"): Smoothly interleaves video reels and photo posts.
- * 3. Category Rotation: Rotates across different categories to prevent topic fatigue.
- * 4. Variable Reward Surprise Content: Injects fresh unexplored content periodically (~every 5 posts).
- * 5. Own Post Priority: Pins the logged-in user's own fresh uploads to the top.
- */
+export function calculatePostScore(
+    post: { id?: string; user_id?: string; category?: string; created_at: string; likes_count?: number; shares_count?: number; imps_count?: number; comments_count?: number },
+    userProfile: UserInterestProfile,
+    currentUserId?: string
+): number {
+    let score = 1.0;
+
+    // 1. Category affinity
+    const postCategory = post.category || 'General';
+    const categoryScore = userProfile.categoryScores[postCategory] || 0;
+    score += categoryScore * 0.7;
+
+    // 2. Engagement signals
+    score += (post.likes_count || 0) * 0.08;
+    score += (post.shares_count || 0) * 0.15;
+    score += ((post as any).comments_count || 0) * 0.12;
+
+    // 3. Imp Boost
+    if (post.imps_count && post.imps_count > 0) {
+        score += (post.imps_count * 50);
+    }
+
+    // 4. Time decay & exploration boost
+    const hoursOld = Math.max(0, (Date.now() - new Date(post.created_at).getTime()) / (1000 * 60 * 60));
+    const decay = decayFactor(hoursOld);
+    score *= decay;
+
+    // 5. Active user's own fresh uploads
+    if (currentUserId && post.user_id && post.user_id === currentUserId && hoursOld < 48) {
+        score += 1000;
+    }
+
+    return score;
+}
+
+// ── Feed Diversification & Blending ─────────────────────────
+
 export function blendFeed(
     scoredPosts: ScoredPost[],
     userProfile: UserInterestProfile,
@@ -157,7 +317,6 @@ export function blendFeed(
 ): ScoredPost[] {
     if (scoredPosts.length <= 1) return scoredPosts;
 
-    // Separate user's own fresh posts to pin at the very top (positions 0-1)
     const ownFreshPosts: ScoredPost[] = [];
     const regularPosts: ScoredPost[] = [];
 
@@ -173,7 +332,6 @@ export function blendFeed(
     // Sort regular candidates by score descending
     regularPosts.sort((a, b) => b.score - a.score);
 
-    // Identify surprise candidates from unexplored categories
     const surprisePool: ScoredPost[] = [];
     const mainPool: ScoredPost[] = [];
 
@@ -186,19 +344,16 @@ export function blendFeed(
         }
     }
 
-    // If mainPool is empty, move surprisePool items to mainPool
     if (mainPool.length === 0) {
         mainPool.push(...surprisePool);
         surprisePool.length = 0;
     }
 
     const blended: ScoredPost[] = [];
-    // Start with user's own fresh posts at the top
     for (const own of ownFreshPosts) {
         blended.push(own);
     }
 
-    // Working copy of candidate items
     const candidates = [...mainPool];
     let surpriseIdx = 0;
 
@@ -209,11 +364,10 @@ export function blendFeed(
     while (candidates.length > 0) {
         const nextIndex = blended.length;
 
-        // Check if we should inject a surprise post (every 5th item)
+        // Inject surprise post (every 5th item)
         if (nextIndex % 5 === 0 && surpriseIdx < surprisePool.length) {
             const surprise = { ...surprisePool[surpriseIdx], isSurprise: true };
             const author = surprise.post.username || surprise.post.user_id || 'anon';
-            // Only inject if surprise author does not match immediate previous author
             if (recentAuthors.length === 0 || recentAuthors[recentAuthors.length - 1] !== author) {
                 blended.push(surprise);
                 recentAuthors.push(author);
@@ -227,22 +381,15 @@ export function blendFeed(
             }
         }
 
-        // Determine ideal target format: if last 2 were videos, prefer image; if last 2 were images, prefer video
         const wantImage = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'video');
         const wantVideo = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'image');
 
         const lastAuthor = recentAuthors.length > 0 ? recentAuthors[recentAuthors.length - 1] : '';
         const lastCategory = recentCategories.length > 0 ? recentCategories[recentCategories.length - 1] : '';
 
-        // Search for the best candidate that satisfies:
-        // Priority 1: Different author from lastAuthor AND format match AND different category
-        // Priority 2: Different author from lastAuthor AND format match
-        // Priority 3: Different author from lastAuthor
-        // Priority 4: Fallback (only 1 author remains)
         let bestCandidateIdx = -1;
         let bestCandidateScore = -Infinity;
 
-        // Pass 1: Strict author diversity + format & category preference
         for (let i = 0; i < candidates.length; i++) {
             const c = candidates[i];
             const author = c.post.username || c.post.user_id || 'anon';
@@ -250,18 +397,13 @@ export function blendFeed(
             const format = isVid ? 'video' : 'image';
             const cat = c.post.category || 'General';
 
-            if (lastAuthor && author === lastAuthor) continue; // No consecutive author!
+            if (lastAuthor && author === lastAuthor) continue;
 
             let candidateBonus = c.score;
-
-            // Format interleaving bonus ("mixed, all form")
             if (wantImage && format === 'image') candidateBonus += 50;
             if (wantVideo && format === 'video') candidateBonus += 50;
-
-            // Category rotation bonus
             if (lastCategory && cat !== lastCategory) candidateBonus += 20;
 
-            // Second-previous author penalty to avoid A-B-A-B oscillation if more authors exist
             if (recentAuthors.length >= 2 && recentAuthors[recentAuthors.length - 2] === author) {
                 candidateBonus -= 15;
             }
@@ -272,7 +414,6 @@ export function blendFeed(
             }
         }
 
-        // Pass 2: If no candidate passed (e.g. all available have same format or category), relax to just author difference
         if (bestCandidateIdx === -1) {
             for (let i = 0; i < candidates.length; i++) {
                 const c = candidates[i];
@@ -286,12 +427,10 @@ export function blendFeed(
             }
         }
 
-        // Pass 3: Fallback (only 1 author remains, e.g. remaining videos after all other creators placed)
         if (bestCandidateIdx === -1) {
             bestCandidateIdx = 0;
         }
 
-        // Pick the chosen candidate
         const [chosen] = candidates.splice(bestCandidateIdx, 1);
         blended.push(chosen);
 
@@ -306,7 +445,6 @@ export function blendFeed(
         if (recentCategories.length > 3) recentCategories.shift();
     }
 
-    // Append any leftover surprises at the end
     while (surpriseIdx < surprisePool.length) {
         blended.push({ ...surprisePool[surpriseIdx], isSurprise: true });
         surpriseIdx++;
@@ -315,19 +453,6 @@ export function blendFeed(
     return blended;
 }
 
-/**
- * Assemble a fully ranked, blended feed with Instagram-style diversity:
- * - Author anti-clustering (consecutive creator penalty)
- * - Media format interleaving (videos and photos mixed: "all form")
- * - Category rotation & variable reward surprise content injection
- * - Active user new-upload priority
- * 
- * @param posts - Raw posts from the database
- * @param userProfile - The user's interest profile
- * @param page - Pagination page (0-indexed)
- * @param pageSize - Number of posts per page
- * @param currentUserId - Optional logged-in user ID to prioritize own uploads
- */
 export function assembleFeed(
     posts: any[],
     userProfile: UserInterestProfile,
@@ -335,36 +460,25 @@ export function assembleFeed(
     pageSize: number = 10,
     currentUserId?: string
 ): ScoredPost[] {
-    // Score all posts
     const scored: ScoredPost[] = posts.map(post => ({
         post,
         score: calculatePostScore(post, userProfile, currentUserId),
         isSurprise: false,
     }));
 
-    // Apply Instagram-style feed blending (author anti-clustering, format mixing, category rotation)
     const blended = blendFeed(scored, userProfile, currentUserId);
-
-    // Paginate
     const start = page * pageSize;
     return blended.slice(start, start + pageSize);
 }
 
-/**
- * Shuffle feed slightly for pull-to-refresh (variable reward schedule).
- * We maintain author diversity and format mixing while creating fresh novelty.
- */
 export function shuffleFeedForRefresh(
     posts: any[],
-    userProfile?: UserInterestProfile,
-    currentUserId?: string
+    _userProfile?: UserInterestProfile,
+    _currentUserId?: string
 ): any[] {
     if (!posts || posts.length <= 1) return posts;
 
-    // Extract raw post objects if ScoredPost[] was passed
     const rawList = posts.map(p => (p && p.post ? p.post : p));
-
-    // Fisher-Yates shuffle within tiers of 5
     const shuffled: any[] = [];
     for (let i = 0; i < rawList.length; i += 5) {
         const tier = rawList.slice(i, i + 5);
@@ -374,11 +488,282 @@ export function shuffleFeedForRefresh(
         }
         shuffled.push(...tier);
     }
-
     return shuffled;
 }
 
-// ── Conversation Starters (VoiceCall) ──────────────────────
+// ── Surface 1: Feed Model (rankFeedPosts) ───────────────────
+
+/**
+ * Model 1: Dedicated Feed Model
+ * Blends social affinity (friends/following), category interest, photo/video interleaving,
+ * and passes candidates through the Variable Reward Scheduler.
+ */
+export function rankFeedPosts(
+    posts: PostData[],
+    profile: UserInterestProfile,
+    currentUserId?: string,
+    followingIds: string[] = []
+): PostData[] {
+    if (!posts || posts.length === 0) return [];
+
+    const followingSet = new Set(followingIds);
+
+    // Score posts
+    const scored: ScoredPost[] = posts.map(post => {
+        let base = calculatePostScore(post, profile, currentUserId);
+        // Social Graph bonus: following
+        if (post.user_id && followingSet.has(post.user_id)) {
+            base += 45;
+        }
+        return { post, score: base, isSurprise: false };
+    });
+
+    // Blend for author diversity and format mixing
+    const blended = blendFeed(scored, profile, currentUserId);
+    const rawPosts = blended.map(b => b.post);
+
+    // Apply Variable Reward slot-machine scheduling
+    return scheduleVariableRewards(rawPosts, (p: PostData) => {
+        const likes = p.likes_count || 0;
+        const imps = (p.imps_count || 0) * 10;
+        const comments = ((p as any).comments_count || 0) * 5;
+        const catScore = profile.categoryScores[p.category || 'General'] || 0;
+        return likes + imps + comments + catScore;
+    });
+}
+
+// ── Surface 2: Reels Model (rankReels) ──────────────────────
+
+/**
+ * Model 2: Dedicated Reels Model
+ * Fast-dopamine short-form video optimization:
+ * Prioritizes high completion probability, popular sound sync, category affinity,
+ * and stochastically paces viral hits with discovery reels.
+ */
+export function rankReels<T extends { id: any; category?: string; music_url?: string; music_title?: string; likes?: number; shares?: number; creator?: string }>(
+    reels: T[],
+    profile: UserInterestProfile,
+    currentUserId?: string
+): T[] {
+    if (!reels || reels.length === 0) return [];
+
+    // Calculate watch-retention score for each reel
+    const scoredReels = reels.map(reel => {
+        let score = 5.0;
+        const cat = reel.category || 'General';
+        score += (profile.categoryScores[cat] || 0) * 0.8;
+
+        // Music / sound affinity
+        if (reel.music_url && !reel.music_url.includes('soundhelix')) {
+            score += 15;
+        }
+        if (reel.likes) score += reel.likes * 0.05;
+        if (reel.shares) score += reel.shares * 0.1;
+
+        // Boost active user's own reels
+        if (currentUserId && (reel as any).creator_id === currentUserId) {
+            score += 500;
+        }
+
+        return { reel, score };
+    });
+
+    // Author anti-clustering for reels (spread same creator)
+    const authorGrouped: Record<string, typeof scoredReels> = {};
+    for (const item of scoredReels) {
+        const creator = item.reel.creator || 'unknown';
+        if (!authorGrouped[creator]) authorGrouped[creator] = [];
+        authorGrouped[creator].push(item);
+    }
+
+    const dispersed: T[] = [];
+    const activeKeys = Object.keys(authorGrouped);
+
+    while (activeKeys.length > 0) {
+        for (let i = activeKeys.length - 1; i >= 0; i--) {
+            const key = activeKeys[i];
+            const nextItem = authorGrouped[key].shift();
+            if (nextItem) {
+                dispersed.push(nextItem.reel);
+            }
+            if (authorGrouped[key].length === 0) {
+                activeKeys.splice(i, 1);
+            }
+        }
+    }
+
+    // Apply Variable Reward slot-machine scheduling
+    return scheduleVariableRewards(dispersed, (r: T) => {
+        const catScore = profile.categoryScores[r.category || 'General'] || 0;
+        return (r.likes || 0) + (r.shares || 0) * 2 + catScore;
+    });
+}
+
+// ── Surface 3: Explore Model (rankExploreGrid) ──────────────
+
+/**
+ * Model 3: Dedicated Explore Discovery Model
+ * Focuses on category discovery, visual micro-niches, and injecting
+ * serendipitous content based on implicit linger signals.
+ */
+export function rankExploreGrid(
+    posts: PostData[],
+    profile: UserInterestProfile,
+    activeCategory?: string | null
+): PostData[] {
+    if (!posts || posts.length === 0) return [];
+
+    let filtered = posts;
+    if (activeCategory && activeCategory !== 'All') {
+        filtered = posts.filter(p => p.category === activeCategory);
+    }
+
+    // Interleave categories if "All" is active
+    if (!activeCategory || activeCategory === 'All') {
+        const catMap = new Map<string, PostData[]>();
+        for (const p of filtered) {
+            const cat = p.category || 'General';
+            if (!catMap.has(cat)) catMap.set(cat, []);
+            catMap.get(cat)!.push(p);
+        }
+
+        const interleaved: PostData[] = [];
+        const cats = Array.from(catMap.keys());
+        // Sort categories so top interest categories appear with higher density
+        cats.sort((a, b) => (profile.categoryScores[b] || 0) - (profile.categoryScores[a] || 0));
+
+        let hasMore = true;
+        let round = 0;
+        while (hasMore) {
+            hasMore = false;
+            for (const cat of cats) {
+                const list = catMap.get(cat)!;
+                if (round < list.length) {
+                    interleaved.push(list[round]);
+                    hasMore = true;
+                }
+            }
+            round++;
+        }
+        filtered = interleaved;
+    }
+
+    // Apply Variable Reward slot-machine scheduling
+    return scheduleVariableRewards(filtered, (p: PostData) => {
+        const likes = p.likes_count || 0;
+        const imps = (p.imps_count || 0) * 8;
+        const cat = profile.categoryScores[p.category || 'General'] || 0;
+        return likes + imps + cat;
+    });
+}
+
+// ── Surface 4: Stories Model (rankStoryGroups) ──────────────
+
+/**
+ * Model 4: Dedicated Stories Model
+ * Ranks story circles based on intimacy and closeness:
+ * - Unwatched stories prioritized before already-watched stories
+ * - Close social connections (frequent DM / chat history) prioritized
+ * - High category alignment creators prioritized
+ */
+export function rankStoryGroups(
+    groups: UserStoryGroup[],
+    profile: UserInterestProfile,
+    currentUserId?: string,
+    dmCounts: Record<string, number> = {}
+): UserStoryGroup[] {
+    if (!groups || groups.length === 0) return [];
+
+    const scored = groups.map(group => {
+        let score = 10.0;
+
+        // Prioritize logged-in user's own story at position 0
+        if (currentUserId && group.userId === currentUserId) {
+            return { group, score: 99999 };
+        }
+
+        // Intimacy bonus from direct messaging history
+        const dms = dmCounts[group.userId] || 0;
+        score += dms * 12;
+
+        // Check if group contains unwatched stories
+        const hasUnseen = group.stories.some(s => !s.viewed_by_user);
+        if (hasUnseen) {
+            score += 50;
+        }
+
+        // Category affinity of recent stories
+        for (const s of group.stories) {
+            const cat = (s as any).category || 'General';
+            score += (profile.categoryScores[cat] || 0) * 0.4;
+        }
+
+        // Recency: stories uploaded in last 4 hours get priority
+        const newestStory = group.stories.reduce((latest, s) => {
+            const t = new Date(s.created_at).getTime();
+            return t > latest ? t : latest;
+        }, 0);
+        if (newestStory > 0) {
+            const hoursOld = (Date.now() - newestStory) / (1000 * 60 * 60);
+            if (hoursOld < 4) score += 25;
+            else if (hoursOld < 12) score += 10;
+        }
+
+        return { group, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map(s => s.group);
+}
+
+// ── Infinite Stream Generator ───────────────────────────────
+
+/**
+ * Generates an endless stream of personalized items without any stopping points.
+ * When base content is consumed, creates fresh permutations and re-ranks them.
+ */
+export function generateInfiniteStream<T>(
+    basePool: T[],
+    page: number,
+    pageSize: number,
+    ranker?: (items: T[]) => T[]
+): T[] {
+    if (!basePool || basePool.length === 0) return [];
+    const poolSize = basePool.length;
+    const startIndex = page * pageSize;
+
+    if (startIndex + pageSize <= poolSize) {
+        const slice = basePool.slice(startIndex, startIndex + pageSize);
+        return ranker ? ranker(slice) : slice;
+    }
+
+    const cycle = Math.floor(startIndex / poolSize);
+    const offsetInCycle = startIndex % poolSize;
+
+    const permuted = [...basePool];
+    for (let i = permuted.length - 1; i > 0; i--) {
+        const hash = ((i + 1) * 31 + cycle * 17) % (i + 1);
+        [permuted[i], permuted[hash]] = [permuted[hash], permuted[i]];
+    }
+
+    let items: T[] = [];
+    if (offsetInCycle + pageSize <= poolSize) {
+        items = permuted.slice(offsetInCycle, offsetInCycle + pageSize);
+    } else {
+        const head = permuted.slice(offsetInCycle);
+        const nextCyclePermuted = [...basePool];
+        const nextCycle = cycle + 1;
+        for (let i = nextCyclePermuted.length - 1; i > 0; i--) {
+            const hash = ((i + 1) * 31 + nextCycle * 17) % (i + 1);
+            [nextCyclePermuted[i], nextCyclePermuted[hash]] = [nextCyclePermuted[hash], nextCyclePermuted[i]];
+        }
+        items = [...head, ...nextCyclePermuted.slice(0, pageSize - head.length)];
+    }
+
+    return ranker ? ranker(items) : items;
+}
+
+// ── Conversation Starters (VoiceCall) ───────────────────────
 
 const CONVERSATION_PROMPTS: Record<string, string[]> = {
     Travel: ["What's your dream travel destination?", "Best trip you've ever been on?", "Mountains or beaches?"],
@@ -398,10 +783,6 @@ const CONVERSATION_PROMPTS: Record<string, string[]> = {
     General: ["What's the most interesting thing about you?", "If you could have dinner with anyone, who would it be?", "What's on your bucket list?"],
 };
 
-/**
- * Get random conversation starters based on shared interest categories.
- * Returns 2-3 prompts relevant to the users' common interests.
- */
 export function getConversationStarters(sharedCategories: string[]): string[] {
     const starters: string[] = [];
     const cats = sharedCategories.length > 0 ? sharedCategories : ['General'];
@@ -412,7 +793,6 @@ export function getConversationStarters(sharedCategories: string[]): string[] {
         starters.push(randomPrompt);
     }
     
-    // Always add one wildcard from General
     if (starters.length < 3) {
         const generalPrompts = CONVERSATION_PROMPTS['General'];
         starters.push(generalPrompts[Math.floor(Math.random() * generalPrompts.length)]);
@@ -420,4 +800,3 @@ export function getConversationStarters(sharedCategories: string[]): string[] {
     
     return starters;
 }
-

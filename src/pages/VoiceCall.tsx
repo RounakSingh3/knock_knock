@@ -285,8 +285,8 @@ const VoiceCall = () => {
         });
     };
 
-    // Calling allowed ONLY between 8:00 PM and 10:00 PM (or if dev bypass is active or direct incoming call)
-    const isCallingAllowed = scheduleInfo.isActive || devBypass || isDirectCall;
+    // Voice Calling and 24/7 Voice Space Companion unlocked anytime
+    const isCallingAllowed = true;
 
     const currentMatch = matches[currentMatchIndex] || null;
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -312,10 +312,16 @@ const VoiceCall = () => {
     // Dual Audio Engine & Companion states
     const [isCompanionCall, setIsCompanionCall] = useState(false);
     const [isCompanionSpeaking, setIsCompanionSpeaking] = useState(false);
+    const [micVolume, setMicVolume] = useState(0);
+    const micAudioCtxRef = useRef<AudioContext | null>(null);
+    const micAnalyserRef = useRef<AnalyserNode | null>(null);
+    const micAnimFrameRef = useRef<number | null>(null);
     const remoteAudioCtxRef = useRef<AudioContext | null>(null);
     const remoteAudioSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const isCompanionCallRef = useRef(false);
+    const isCompanionSpeakingRef = useRef(false);
     useEffect(() => { isCompanionCallRef.current = isCompanionCall; }, [isCompanionCall]);
+    useEffect(() => { isCompanionSpeakingRef.current = isCompanionSpeaking; }, [isCompanionSpeaking]);
 
     const pendingInviteRef = useRef<string | null>(null);
     const searchTimeoutRef = useRef<number | null>(null);
@@ -408,9 +414,58 @@ const VoiceCall = () => {
         }
     }, [callDuration, inCall, requestStatus]);
 
+    // Real-time microphone volume analyzer
+    const setupMicAnalyser = (stream: MediaStream) => {
+        try {
+            const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioCtx) return;
+            if (micAudioCtxRef.current) {
+                try { micAudioCtxRef.current.close(); } catch (_) {}
+            }
+            const ctx = new AudioCtx();
+            micAudioCtxRef.current = ctx;
+            const source = ctx.createMediaStreamSource(stream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.4;
+            source.connect(analyser);
+            micAnalyserRef.current = analyser;
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            const checkVolume = () => {
+                if (!analyser) return;
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                const avg = sum / dataArray.length;
+                const normalized = Math.min(1, avg / 40);
+                setMicVolume(normalized);
+                micAnimFrameRef.current = requestAnimationFrame(checkVolume);
+            };
+            micAnimFrameRef.current = requestAnimationFrame(checkVolume);
+        } catch (err) {
+            console.warn('Mic analyser init failed:', err);
+        }
+    };
+
+    const stopMicAnalyser = () => {
+        if (micAnimFrameRef.current) {
+            cancelAnimationFrame(micAnimFrameRef.current);
+            micAnimFrameRef.current = null;
+        }
+        if (micAudioCtxRef.current) {
+            try { micAudioCtxRef.current.close(); } catch (_) {}
+            micAudioCtxRef.current = null;
+        }
+        setMicVolume(0);
+    };
+
     // WebRTC connection and cleanup functions
     const closeWebRTC = () => {
         stopVoice();
+        stopMicAnalyser();
         if (remoteAudioSourceNodeRef.current) {
             try { remoteAudioSourceNodeRef.current.disconnect(); } catch (_) {}
             remoteAudioSourceNodeRef.current = null;
@@ -902,6 +957,7 @@ const VoiceCall = () => {
                     });
                 }
                 localStreamRef.current = stream;
+                setupMicAnalyser(stream);
 
                 // Ensure local audio tracks are active
                 stream.getAudioTracks().forEach(track => {
@@ -1699,6 +1755,7 @@ const VoiceCall = () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
             localStreamRef.current = stream;
+            setupMicAnalyser(stream);
         } catch (_) {}
 
         // Friendly spoken greeting through device speakers
@@ -1714,10 +1771,6 @@ const VoiceCall = () => {
 
     const startSearch = async () => {
         if (!user) return;
-        if (!isCallingAllowed && !isDirectCall) {
-            alert("Voice calling is only open between 8:00 PM and 10:00 PM daily. Enable Dev Mode to test.");
-            return;
-        }
         setIsSearching(true);
         setNoMatchFound(false);
         setShowMatchCard(false);
@@ -1737,18 +1790,16 @@ const VoiceCall = () => {
         }
 
         const onlineMatch = findAndInviteMatch();
-        if (!onlineMatch) {
-            // If no real peer is searching within 4.5 seconds, connect to 24/7 Voice Space Companion
-            if (searchTimeoutRef.current) {
-                clearTimeout(searchTimeoutRef.current);
-            }
-            searchTimeoutRef.current = window.setTimeout(() => {
-                if (isSearchingRef.current && !inCallRef.current) {
-                    console.log('[VoiceSpace] No searching peer online right now, connecting to Voice Space Companion');
-                    startCompanionCall();
-                }
-            }, 4500);
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
         }
+        // Fallback to Companion if no peer connects in time (4.5s if none found, 8s if invite sent)
+        searchTimeoutRef.current = window.setTimeout(() => {
+            if (isSearchingRef.current && !inCallRef.current) {
+                console.log('[VoiceSpace] Matchmaking timeout reached, connecting to Voice Space Companion');
+                startCompanionCall();
+            }
+        }, onlineMatch ? 8000 : 4500);
     };
 
     // Periodically re-check for searching peers while radar is active
@@ -1835,6 +1886,9 @@ const VoiceCall = () => {
             clearTimeout(searchTimeoutRef.current);
             searchTimeoutRef.current = null;
         }
+        stopMicAnalyser();
+        setIsCompanionCall(false);
+        setIsCompanionSpeaking(false);
         if (videoControlsTimeoutRef.current) {
             clearTimeout(videoControlsTimeoutRef.current);
             videoControlsTimeoutRef.current = null;
@@ -1965,12 +2019,104 @@ const VoiceCall = () => {
         }
     };
 
+    const handleSpokenInput = (spokenText: string) => {
+        if (!spokenText || !spokenText.trim() || isCompanionSpeakingRef.current) return;
+        const rawText = spokenText.trim();
+        const newMsg: CallChatMessage = {
+            id: Date.now(),
+            text: rawText,
+            isMine: true,
+            senderLang: myChatLanguage,
+            targetLang: targetChatLanguage,
+        };
+
+        setChatMessages(prev => [...prev, newMsg]);
+        setFloatingSubtitle({
+            text: rawText,
+            original: rawText,
+            senderName: user?.username ? `@${user.username}` : 'You',
+            time: Date.now()
+        });
+
+        if (isCompanionCallRef.current) {
+            setTimeout(() => {
+                const replyText = getCompanionResponse(rawText);
+                const replyMsg: CallChatMessage = {
+                    id: Date.now() + 1,
+                    text: replyText,
+                    isMine: false,
+                    senderLang: 'en',
+                    targetLang: myChatLanguage,
+                };
+                setChatMessages(prev => [...prev, replyMsg]);
+                setFloatingSubtitle({
+                    text: replyText,
+                    original: replyText,
+                    senderName: 'Tara • Voice Space',
+                    time: Date.now()
+                });
+                speakVoice(
+                    replyText,
+                    'en-US',
+                    () => setIsCompanionSpeaking(true),
+                    () => setIsCompanionSpeaking(false)
+                );
+            }, 500);
+        }
+    };
+
+    // Continuous real-time speech recognition for Tara AI Voice Space
+    useEffect(() => {
+        if (!inCall || !isCompanionCall || isMuted) return;
+        const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognitionClass) return;
+
+        let recognition: any = null;
+        let isStopped = false;
+
+        try {
+            recognition = new SpeechRecognitionClass();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event: any) => {
+                if (isStopped || isCompanionSpeakingRef.current) return;
+                const lastIdx = event.results.length - 1;
+                const transcript = event.results[lastIdx]?.[0]?.transcript?.trim();
+                if (transcript && transcript.length > 1) {
+                    console.log('[VoiceSpace SpeechRecognition] User said:', transcript);
+                    handleSpokenInput(transcript);
+                }
+            };
+
+            recognition.onerror = (event: any) => {
+                if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                    console.warn('[VoiceSpace SpeechRecognition] Warning:', event.error);
+                }
+            };
+
+            recognition.onend = () => {
+                if (!isStopped && inCallRef.current && isCompanionCallRef.current && !isCompanionSpeakingRef.current) {
+                    try { recognition.start(); } catch (_) {}
+                }
+            };
+
+            recognition.start();
+        } catch (e) {
+            console.warn('[VoiceSpace SpeechRecognition] Init failed:', e);
+        }
+
+        return () => {
+            isStopped = true;
+            if (recognition) {
+                try { recognition.abort(); } catch (_) {}
+            }
+        };
+    }, [inCall, isCompanionCall, isMuted]);
+
     const handleTriggerPrompt = (promptText: string) => {
-        setChatInput(promptText);
-        setTimeout(() => {
-            const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
-            sendChatMessage(fakeEvent);
-        }, 50);
+        handleSpokenInput(promptText);
     };
 
     const handleTranslateMessage = async (msgId: number, textToTranslate: string) => {
@@ -2969,17 +3115,35 @@ const VoiceCall = () => {
                         <div style={{ position: 'relative', display: 'inline-block' }}>
                             <div style={{
                                 position: 'absolute',
-                                inset: -12,
+                                inset: -14,
                                 borderRadius: '50%',
-                                background: 'radial-gradient(circle, rgba(255, 51, 102, 0.3) 0%, rgba(245, 165, 36, 0.05) 70%, transparent 100%)',
-                                animation: 'voiceAuraPulse 2s ease-in-out infinite',
+                                background: isCompanionSpeaking
+                                    ? 'radial-gradient(circle, rgba(52, 199, 89, 0.45) 0%, rgba(52, 199, 89, 0.1) 70%, transparent 100%)'
+                                    : micVolume > 0.08
+                                    ? 'radial-gradient(circle, rgba(255, 51, 102, 0.55) 0%, rgba(245, 165, 36, 0.2) 70%, transparent 100%)'
+                                    : 'radial-gradient(circle, rgba(255, 51, 102, 0.3) 0%, rgba(245, 165, 36, 0.05) 70%, transparent 100%)',
+                                transform: `scale(${1 + (isCompanionSpeaking ? 0.2 : micVolume * 0.35)})`,
+                                transition: 'transform 0.1s ease-out, background 0.2s ease',
                                 pointerEvents: 'none'
                             }} />
                             <img
                                 src={displayAvatar}
                                 alt={displayUsername}
                                 className="call-avatar"
-                                style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,51,102,0.5)', position: 'relative', zIndex: 2 }}
+                                style={{
+                                    width: '120px',
+                                    height: '120px',
+                                    borderRadius: '50%',
+                                    objectFit: 'cover',
+                                    border: isCompanionSpeaking
+                                        ? '4px solid #34C759'
+                                        : micVolume > 0.08
+                                        ? '4px solid #ff3366'
+                                        : '4px solid rgba(255,51,102,0.5)',
+                                    position: 'relative',
+                                    zIndex: 2,
+                                    transition: 'border-color 0.15s ease'
+                                }}
                             />
                         </div>
                         <h2 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '4px', marginTop: '16px' }}>
@@ -2995,24 +3159,56 @@ const VoiceCall = () => {
                             <span style={{ color: '#ff3366' }}>{currentMatch.sharedLikes} shared likes</span>
                         </div>
 
-                        {/* Connection Status Indicator */}
+                        {/* Connection & Live Audio Indicator */}
                         <div style={{
                             display: 'flex', alignItems: 'center', gap: '8px',
                             padding: '6px 14px', borderRadius: '20px', marginTop: '8px',
-                            background: peerConnected ? 'rgba(52,199,89,0.15)' : 'rgba(250,204,21,0.15)',
+                            background: isCompanionSpeaking
+                                ? 'rgba(52,199,89,0.2)'
+                                : micVolume > 0.08
+                                ? 'rgba(255,51,102,0.2)'
+                                : peerConnected
+                                ? 'rgba(52,199,89,0.15)'
+                                : 'rgba(250,204,21,0.15)',
+                            transition: 'background 0.2s ease'
                         }}>
                             <span style={{
                                 width: '8px', height: '8px', borderRadius: '50%',
-                                background: peerConnected ? '#34C759' : '#facc15',
-                                boxShadow: peerConnected ? '0 0 8px #34C759' : '0 0 8px #facc15',
+                                background: isCompanionSpeaking ? '#34C759' : micVolume > 0.08 ? '#ff3366' : peerConnected ? '#34C759' : '#facc15',
+                                boxShadow: isCompanionSpeaking ? '0 0 10px #34C759' : micVolume > 0.08 ? '0 0 10px #ff3366' : peerConnected ? '0 0 8px #34C759' : '0 0 8px #facc15',
                                 animation: peerConnected ? 'none' : 'pulse 1.5s ease-in-out infinite',
                             }} />
                             <span style={{
                                 fontSize: '0.8rem', fontWeight: 600,
-                                color: peerConnected ? '#34C759' : '#facc15',
+                                color: isCompanionSpeaking ? '#34C759' : micVolume > 0.08 ? '#ff3366' : peerConnected ? '#34C759' : '#facc15',
                             }}>
-                                {isCompanionSpeaking ? '🔊 Speaking to you...' : peerConnected ? '🎙️ Voice Connected' : '⏳ Connecting voice...'}
+                                {isCompanionSpeaking
+                                    ? '🔊 Speaking to you...'
+                                    : micVolume > 0.08
+                                    ? '🎤 Hearing your voice...'
+                                    : isMuted
+                                    ? '🔇 Mic Muted'
+                                    : peerConnected
+                                    ? '🎙️ Voice Connected'
+                                    : '⏳ Connecting voice...'}
                             </span>
+                        </div>
+
+                        {/* Real-time Waveform Bars */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '18px', marginTop: '8px' }}>
+                            {[0.3, 0.7, 1.0, 0.65, 0.4].map((mult, idx) => (
+                                <span
+                                    key={idx}
+                                    style={{
+                                        display: 'inline-block',
+                                        width: '3.5px',
+                                        height: `${Math.max(4, (isCompanionSpeaking ? 16 : Math.min(1, micVolume * 1.6) * 18) * mult)}px`,
+                                        background: isCompanionSpeaking ? '#34C759' : micVolume > 0.08 ? '#ff3366' : 'rgba(255,255,255,0.3)',
+                                        borderRadius: '3px',
+                                        transition: 'height 0.08s ease, background 0.2s ease'
+                                    }}
+                                />
+                            ))}
                         </div>
 
                         {/* Interactive Voice Chips for Voice Space Companion */}
@@ -3686,319 +3882,7 @@ const VoiceCall = () => {
     const searchingUserCount = onlineUsers.filter((u: any) => u.status === 'searching' && u.user_id !== user?.id).length;
     const totalOnlineCount = onlineUsers.filter((u: any) => u.user_id !== user?.id).length;
 
-    // ── 8:00 PM to 10:00 PM Calling Window: Closed Screen ──
-    if (!isCallingAllowed && !isDirectCall) {
-        return (
-            <>
-                <audio
-                    id="knock-call-audio"
-                    ref={remoteAudioRef}
-                    autoPlay
-                    playsInline
-                    style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}
-                />
-                <div className="call-hub-bg pb-20" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem 1.25rem 6rem' }}>
-                    {/* Schedule Badge */}
-                    <div style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        background: 'rgba(245, 165, 36, 0.12)',
-                        border: '1px solid rgba(245, 165, 36, 0.35)',
-                        padding: '8px 18px',
-                        borderRadius: '30px',
-                        marginBottom: '1.75rem',
-                        boxShadow: '0 4px 20px rgba(245, 165, 36, 0.15)'
-                    }}>
-                        <Clock size={16} color="#f5a524" />
-                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f5a524', letterSpacing: '0.3px' }}>
-                            Daily Calling Window • 8:00 PM – 10:00 PM
-                        </span>
-                    </div>
-
-                    {/* Glowing Moon / Call Closed Icon */}
-                    <div style={{
-                        position: 'relative',
-                        width: '100px',
-                        height: '100px',
-                        borderRadius: '50%',
-                        background: 'radial-gradient(circle, rgba(255,51,102,0.25) 0%, rgba(20,20,30,0.85) 70%)',
-                        border: '2px solid rgba(255,51,102,0.35)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginBottom: '1.5rem',
-                        boxShadow: '0 0 35px rgba(255,51,102,0.25)'
-                    }}>
-                        <Moon size={46} color="#ff3366" style={{ filter: 'drop-shadow(0 0 12px rgba(255,51,102,0.5))' }} />
-                        <div style={{
-                            position: 'absolute',
-                            bottom: '-4px',
-                            right: '-4px',
-                            background: '#1a1a24',
-                            border: '2px solid #ff3366',
-                            borderRadius: '50%',
-                            width: '32px',
-                            height: '32px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}>
-                            <Lock size={15} color="#f5a524" />
-                        </div>
-                    </div>
-
-                    {/* Headline */}
-                    <h1 style={{
-                        fontSize: '1.65rem',
-                        fontWeight: 800,
-                        color: '#fff',
-                        margin: '0 0 0.6rem',
-                        textAlign: 'center',
-                        letterSpacing: '-0.5px'
-                    }}>
-                        Voice Calls Closed Now
-                    </h1>
-                    <p style={{
-                        color: 'rgba(255, 255, 255, 0.72)',
-                        fontSize: '0.9rem',
-                        textAlign: 'center',
-                        maxWidth: '340px',
-                        lineHeight: 1.5,
-                        margin: '0 0 1.75rem'
-                    }}>
-                        Live matchmaking is open exclusively between <strong style={{ color: '#f5a524' }}>8:00 PM and 10:00 PM</strong> daily. No calls are permitted in-between.
-                    </p>
-
-                    {/* ⏰ Live Digital Countdown Grid */}
-                    <div style={{
-                        background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
-                        border: '1px solid rgba(255, 255, 255, 0.12)',
-                        borderRadius: '24px',
-                        padding: '1.5rem 1.25rem',
-                        width: '100%',
-                        maxWidth: '340px',
-                        backdropFilter: 'blur(20px)',
-                        boxShadow: '0 12px 35px rgba(0,0,0,0.5)',
-                        textAlign: 'center',
-                        marginBottom: '1.5rem'
-                    }}>
-                        <div style={{
-                            fontSize: '0.78rem',
-                            fontWeight: 700,
-                            letterSpacing: '1px',
-                            textTransform: 'uppercase',
-                            color: 'rgba(255,255,255,0.5)',
-                            marginBottom: '1rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px'
-                        }}>
-                            <Flame size={14} color="#f5a524" /> Next Session Opens In
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
-                            {/* Hours */}
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <div style={{
-                                    background: 'rgba(0,0,0,0.55)',
-                                    border: '1px solid rgba(245,165,36,0.3)',
-                                    borderRadius: '14px',
-                                    width: '100%',
-                                    padding: '10px 0',
-                                    fontFamily: "'SF Mono', Monaco, monospace",
-                                    fontSize: '1.8rem',
-                                    fontWeight: 800,
-                                    color: '#f5a524',
-                                    boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)'
-                                }}>
-                                    {scheduleInfo.hours.toString().padStart(2, '0')}
-                                </div>
-                                <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                    Hours
-                                </span>
-                            </div>
-
-                            <span style={{ fontSize: '1.6rem', fontWeight: 800, color: 'rgba(255,255,255,0.3)', marginBottom: '16px' }}>:</span>
-
-                            {/* Minutes */}
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <div style={{
-                                    background: 'rgba(0,0,0,0.55)',
-                                    border: '1px solid rgba(245,165,36,0.3)',
-                                    borderRadius: '14px',
-                                    width: '100%',
-                                    padding: '10px 0',
-                                    fontFamily: "'SF Mono', Monaco, monospace",
-                                    fontSize: '1.8rem',
-                                    fontWeight: 800,
-                                    color: '#f5a524',
-                                    boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)'
-                                }}>
-                                    {scheduleInfo.minutes.toString().padStart(2, '0')}
-                                </div>
-                                <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                    Mins
-                                </span>
-                            </div>
-
-                            <span style={{ fontSize: '1.6rem', fontWeight: 800, color: 'rgba(255,255,255,0.3)', marginBottom: '16px' }}>:</span>
-
-                            {/* Seconds */}
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                <div style={{
-                                    background: 'rgba(0,0,0,0.55)',
-                                    border: '1px solid rgba(255,51,102,0.4)',
-                                    borderRadius: '14px',
-                                    width: '100%',
-                                    padding: '10px 0',
-                                    fontFamily: "'SF Mono', Monaco, monospace",
-                                    fontSize: '1.8rem',
-                                    fontWeight: 800,
-                                    color: '#ff3366',
-                                    boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6)'
-                                }}>
-                                    {scheduleInfo.seconds.toString().padStart(2, '0')}
-                                </div>
-                                <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                    Secs
-                                </span>
-                            </div>
-                        </div>
-
-                        <div style={{
-                            marginTop: '1.1rem',
-                            paddingTop: '0.9rem',
-                            borderTop: '1px solid rgba(255,255,255,0.08)',
-                            fontSize: '0.78rem',
-                            color: 'rgba(255,255,255,0.65)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px'
-                        }}>
-                            <span>📅 Session Time:</span>
-                            <strong style={{ color: '#fff' }}>8:00 PM – 10:00 PM Local Time</strong>
-                        </div>
-                    </div>
-
-                    {/* Quick navigation while waiting */}
-                    <div style={{
-                        display: 'flex',
-                        gap: '10px',
-                        width: '100%',
-                        maxWidth: '340px',
-                        marginBottom: '1.5rem'
-                    }}>
-                        <button
-                            onClick={() => navigate('/boost')}
-                            style={{
-                                flex: 1,
-                                background: 'rgba(255, 255, 255, 0.08)',
-                                border: '1px solid rgba(255, 255, 255, 0.15)',
-                                borderRadius: '16px',
-                                padding: '12px 10px',
-                                color: '#fff',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: '6px',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease'
-                            }}
-                        >
-                            <Flame size={20} color="#ff3366" />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Watch Reels</span>
-                        </button>
-
-                        <button
-                            onClick={() => navigate('/explore')}
-                            style={{
-                                flex: 1,
-                                background: 'rgba(255, 255, 255, 0.08)',
-                                border: '1px solid rgba(255, 255, 255, 0.15)',
-                                borderRadius: '16px',
-                                padding: '12px 10px',
-                                color: '#fff',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: '6px',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease'
-                            }}
-                        >
-                            <Globe size={20} color="#34C759" />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Read News</span>
-                        </button>
-
-                        <button
-                            onClick={() => navigate('/home')}
-                            style={{
-                                flex: 1,
-                                background: 'rgba(255, 255, 255, 0.08)',
-                                border: '1px solid rgba(255, 255, 255, 0.15)',
-                                borderRadius: '16px',
-                                padding: '12px 10px',
-                                color: '#fff',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: '6px',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease'
-                            }}
-                        >
-                            <MessageSquare size={20} color="#60a5fa" />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Chat</span>
-                        </button>
-                    </div>
-
-                    {/* ⚡ Developer / Tester Mode Bypass Card */}
-                    <div style={{
-                        width: '100%',
-                        maxWidth: '340px',
-                        background: 'rgba(245, 165, 36, 0.08)',
-                        border: '1px dashed rgba(245, 165, 36, 0.45)',
-                        borderRadius: '20px',
-                        padding: '16px',
-                        textAlign: 'center',
-                        boxSizing: 'border-box'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#f5a524', fontWeight: 700, fontSize: '0.85rem', marginBottom: '6px' }}>
-                            <Zap size={16} /> Dev / Tester Mode
-                        </div>
-                        <p style={{ color: 'rgba(255, 255, 255, 0.65)', fontSize: '0.78rem', margin: '0 0 12px', lineHeight: 1.4 }}>
-                            Test voice calls, microphone, and Tara AI companion outside 8:00 PM – 10:00 PM.
-                        </p>
-                        <button
-                            onClick={toggleDevBypass}
-                            style={{
-                                background: 'linear-gradient(135deg, #f5a524 0%, #ff3366 100%)',
-                                border: 'none',
-                                color: '#fff',
-                                fontWeight: 700,
-                                fontSize: '0.85rem',
-                                padding: '10px 20px',
-                                borderRadius: '24px',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                boxShadow: '0 4px 16px rgba(245, 165, 36, 0.35)',
-                                transition: 'transform 0.15s ease'
-                            }}
-                        >
-                            <Zap size={16} /> Enter Call Hub Now (Dev Bypass)
-                        </button>
-                    </div>
-                </div>
-            </>
-        );
-    }
-
-    // ── Main Calling Screen (When Window is Open or Dev Bypassed) ──
+    // ── Main Calling Screen (Voice Space 24/7 & Peak Hours) ──
     return (
         <>
             <audio
@@ -4027,46 +3911,26 @@ const VoiceCall = () => {
                             boxShadow: '0 0 10px #34C759', animation: 'pulse 1.6s infinite'
                         }} />
                         <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#34C759' }}>
-                            🟢 CALLING OPEN (8:00 PM – 10:00 PM) • {scheduleInfo.formatted} remaining
+                            🟢 CALLING OPEN (8:00 PM – 10:00 PM) • {scheduleInfo.formatted} remaining • 2x Points Active!
                         </span>
                     </div>
-                ) : devBypass ? (
+                ) : (
                     <div style={{
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '12px',
-                        background: 'rgba(245, 165, 36, 0.14)',
-                        border: '1px solid rgba(245, 165, 36, 0.4)',
-                        padding: '8px 16px',
-                        borderRadius: '24px',
-                        maxWidth: '380px',
-                        width: '100%',
-                        boxSizing: 'border-box'
+                        gap: '8px',
+                        background: 'rgba(245, 165, 36, 0.12)',
+                        border: '1px solid rgba(245, 165, 36, 0.35)',
+                        padding: '7px 18px',
+                        borderRadius: '30px',
+                        boxShadow: '0 4px 15px rgba(245, 165, 36, 0.15)'
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Zap size={16} color="#f5a524" />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f5a524' }}>
-                                ⚡ Dev Bypass Active (Calls unlocked)
-                            </span>
-                        </div>
-                        <button
-                            onClick={toggleDevBypass}
-                            style={{
-                                background: 'rgba(255,255,255,0.12)',
-                                border: '1px solid rgba(255,255,255,0.25)',
-                                color: '#fff',
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                padding: '4px 10px',
-                                borderRadius: '12px',
-                                cursor: 'pointer'
-                            }}
-                        >
-                            Exit Dev Mode
-                        </button>
+                        <Clock size={15} color="#f5a524" />
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f5a524' }}>
+                            🌙 Peak Window: 8:00 PM – 10:00 PM (2x Points) • 24/7 Voice Space Open
+                        </span>
                     </div>
-                ) : null}
+                )}
             </div>
 
             <div className="text-center mb-6">

@@ -19,7 +19,14 @@ const VoiceReaction: React.FC<VoiceReactionProps> = ({ postId, postCategory, cur
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream);
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus'
+                : MediaRecorder.isTypeSupported('audio/webm')
+                ? 'audio/webm'
+                : MediaRecorder.isTypeSupported('audio/mp4')
+                ? 'audio/mp4'
+                : '';
+            const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
             mediaRecorderRef.current = recorder;
             chunksRef.current = [];
 
@@ -29,7 +36,8 @@ const VoiceReaction: React.FC<VoiceReactionProps> = ({ postId, postCategory, cur
 
             recorder.onstop = async () => {
                 stream.getTracks().forEach(t => t.stop());
-                const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+                const finalMime = recorder.mimeType || 'audio/webm';
+                const audioBlob = new Blob(chunksRef.current, { type: finalMime });
                 
                 setSending(true);
                 try {

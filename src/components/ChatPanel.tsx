@@ -1330,7 +1330,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const startVoiceRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream);
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus'
+                : MediaRecorder.isTypeSupported('audio/webm')
+                ? 'audio/webm'
+                : MediaRecorder.isTypeSupported('audio/mp4')
+                ? 'audio/mp4'
+                : '';
+            const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
             mediaRecorderRef.current = recorder;
             audioChunksRef.current = [];
             setRecordingTime(0);
@@ -1362,7 +1369,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             if (recorder.stream) {
                 recorder.stream.getTracks().forEach(t => t.stop());
             }
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const mimeType = recorder.mimeType || 'audio/webm';
+            const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
             audioChunksRef.current = [];
 
             if (audioBlob.size === 0) {
@@ -1371,9 +1379,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             }
 
             try {
-                const ext = 'webm';
+                const isMp4 = mimeType.includes('mp4') || mimeType.includes('aac') || mimeType.includes('m4a');
+                const ext = isMp4 ? 'm4a' : 'webm';
                 const path = `chat_voice/${currentUser.id}-${Date.now()}.${ext}`;
-                const file = new File([audioBlob], `voice-${Date.now()}.${ext}`, { type: 'audio/webm' });
+                const file = new File([audioBlob], `voice-${Date.now()}.${ext}`, { type: mimeType });
                 const voiceUrl = await uploadMedia(file, path);
 
                 const text = `[VOICE_REACTION] ${voiceUrl}`;

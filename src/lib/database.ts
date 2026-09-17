@@ -2175,13 +2175,16 @@ export async function fetchAllPostsForScoring(currentUserId?: string): Promise<P
 
 /** Upload a voice reaction audio blob to Supabase storage */
 export async function uploadVoiceReaction(audioBlob: Blob, userId: string): Promise<string> {
-    const fileName = `voice_${userId}_${Date.now()}.webm`;
+    const isMp4 = audioBlob.type.includes('mp4') || audioBlob.type.includes('aac') || audioBlob.type.includes('m4a');
+    const ext = isMp4 ? 'm4a' : 'webm';
+    const contentType = audioBlob.type || (isMp4 ? 'audio/mp4' : 'audio/webm');
+    const fileName = `voice_${userId}_${Date.now()}.${ext}`;
     const filePath = `voice-reactions/${fileName}`;
 
     const { error } = await supabase.storage
         .from(STORAGE_BUCKET)
         .upload(filePath, audioBlob, {
-            contentType: 'audio/webm',
+            contentType,
             upsert: false,
         });
 

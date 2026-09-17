@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
-import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, type ScoredPost } from '../lib/algorithm';
+import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import { AppContext } from '../context/AppContext';
@@ -366,7 +366,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
     return result.length > 0 ? result : posts;
 }
 
-    // Load Discover Feed
+    // Load Discover Feed with Dedicated Explore Discovery Model & Variable Rewards
     const loadDiscoverFeed = async () => {
         if (discoverPosts.length === 0) setIsDiscoverLoading(true);
         setFeedPage(0);
@@ -386,25 +386,20 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                 return true;
             });
 
-            // If "All" categories selected, interleave categories for a rich Instagram mix
-            if (!selectedCategory || selectedCategory === 'All') {
-                uniqueRaw = interleaveCategories(uniqueRaw);
-            }
-
             rawPostsCacheRef.current = uniqueRaw;
 
-            const profile = user 
-                ? buildInterestProfile(await fetchUserEngagements(user.id))
-                : { categoryScores: {}, topCategories: [], unexploredCategories: [] };
-            userProfileRef.current = profile;
-            const scored = assembleFeed(uniqueRaw, profile, 0, PAGE_SIZE, user?.id);
-            setAllScoredPosts(scored);
-            const fresh = scored.map(s => s.post);
+            const engagements = user ? await fetchUserEngagements(user.id) : [];
+            const hybridProfile = getHybridInterestProfile(engagements);
+            userProfileRef.current = hybridProfile;
+
+            // Apply Model 3: Dedicated Explore Discovery Model
+            const rankedExplore = rankExploreGrid(uniqueRaw, hybridProfile, selectedCategory);
+            const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
                 localStorage.setItem('knock_explore_posts_cache_v5', JSON.stringify(fresh));
             } catch (e) {}
-            setHasMore(uniqueRaw.length > PAGE_SIZE);
+            setHasMore(true);
         } catch (e) {
             console.error('Error loading discover feed:', e);
         } finally {
@@ -417,9 +412,9 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         loadDiscoverFeed();
     }, [selectedCategory, searchTerm, user?.id]);
 
-    // Infinite Scroll — Load More (Guarantees NO duplicate photos)
+    // Infinite Scroll — Load More (Guarantees NO duplicate photos and continuous infinite stream)
     const loadMore = useCallback(async () => {
-        if (isLoadingMore || !hasMore) return;
+        if (isLoadingMore) return;
         setIsLoadingMore(true);
         const nextPage = feedPage + 1;
         
@@ -428,23 +423,24 @@ function interleaveCategories(posts: PostData[]): PostData[] {
             const seenIds = new Set(currentPosts.map(p => p.id));
             const seenUrls = new Set(currentPosts.map(p => p.image_url));
 
-            const activeProfile = userProfileRef.current || { categoryScores: {}, topCategories: [], unexploredCategories: [] };
-            const more = assembleFeed(rawPostsCacheRef.current, activeProfile, nextPage, PAGE_SIZE, user?.id);
-            const freshUnseen = more.filter(s => {
-                if (!s.post.image_url || seenIds.has(s.post.id) || seenUrls.has(s.post.image_url)) return false;
-                seenIds.add(s.post.id);
-                seenUrls.add(s.post.image_url);
-                return true;
-            });
+            const activeProfile = userProfileRef.current || getHybridInterestProfile([]);
             
-            if (freshUnseen.length > 0) {
-                setAllScoredPosts(prev => [...prev, ...freshUnseen]);
-                setDiscoverPosts(prev => [...prev, ...freshUnseen.map(s => s.post)]);
-                setFeedPage(nextPage);
-            } else {
+            let nextBatch: PostData[] = [];
+
+            if (rawPostsCacheRef.current.length > 0) {
+                const streamBatch = generateInfiniteStream(
+                    rawPostsCacheRef.current,
+                    nextPage,
+                    PAGE_SIZE,
+                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory)
+                );
+                nextBatch = streamBatch.filter(p => !seenIds.has(p.id) && !seenUrls.has(p.image_url));
+            }
+
+            if (nextBatch.length < 6) {
                 // Fetch next page offset from DB
-                const nextBatch = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
-                const freshDbPosts = nextBatch.filter(p => {
+                const nextBatchDb = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
+                const freshDbPosts = nextBatchDb.filter(p => {
                     if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
                     seenIds.add(p.id);
                     seenUrls.add(p.image_url);
@@ -453,21 +449,32 @@ function interleaveCategories(posts: PostData[]): PostData[] {
                 
                 if (freshDbPosts.length > 0) {
                     rawPostsCacheRef.current = [...rawPostsCacheRef.current, ...freshDbPosts];
-                    const freshScored = assembleFeed(freshDbPosts, activeProfile, 0, PAGE_SIZE, user?.id);
-                    setAllScoredPosts(prev => [...prev, ...freshScored]);
-                    setDiscoverPosts(prev => [...prev, ...freshScored.map(s => s.post)]);
-                    setFeedPage(nextPage);
-                } else {
-                    setHasMore(false);
+                    const rankedDb = rankExploreGrid(freshDbPosts, activeProfile, selectedCategory);
+                    nextBatch = [...nextBatch, ...rankedDb.slice(0, PAGE_SIZE - nextBatch.length)];
                 }
             }
+
+            // If still empty, cycle infinite stream
+            if (nextBatch.length === 0 && rawPostsCacheRef.current.length > 0) {
+                nextBatch = generateInfiniteStream(
+                    rawPostsCacheRef.current,
+                    nextPage,
+                    PAGE_SIZE,
+                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory)
+                );
+            }
+            
+            if (nextBatch.length > 0) {
+                setDiscoverPosts(prev => [...prev, ...nextBatch]);
+                setFeedPage(nextPage);
+            }
+            setHasMore(true);
         } catch (e) {
             console.error('Error loading more posts:', e);
-            setHasMore(false);
         } finally {
             setIsLoadingMore(false);
         }
-    }, [feedPage, isLoadingMore, hasMore, user?.id, selectedCategory, blockedIds]);
+    }, [feedPage, isLoadingMore, user?.id, selectedCategory, blockedIds]);
 
     // IntersectionObserver for infinite scroll sentinel
     useEffect(() => {
@@ -484,33 +491,66 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         return () => observer.disconnect();
     }, [loadMore, isDiscoverLoading, isLoadingMore, hasMore, searchTerm]);
 
-    // High-performance shared IntersectionObserver for viewport engagement tracking
+    // High-performance shared IntersectionObserver for viewport engagement and dwell tracking
     const viewObserverRef = useRef<IntersectionObserver | null>(null);
 
-    // IntersectionObserver for view delivery tracking
+    // Pillar 2: IntersectionObserver for view delivery and tile dwell telemetry
     useEffect(() => {
         if (!user || discoverPosts.length === 0) return;
 
+        const tileTimers = new Map<string, number>();
+
         viewObserverRef.current = new IntersectionObserver(
             (entries) => {
+                const now = Date.now();
                 entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        const postId = (entry.target as HTMLElement).dataset.postid;
-                        if (postId && !observedPostsRef.current.has(postId)) {
+                    const el = entry.target as HTMLElement;
+                    const postId = el.dataset.postid;
+                    if (!postId) return;
+
+                    if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+                        if (!tileTimers.has(postId)) {
+                            tileTimers.set(postId, now);
+                        }
+                        if (!observedPostsRef.current.has(postId)) {
                             observedPostsRef.current.add(postId);
                             trackEngagement(user.id, postId, 'view', 1, selectedCategory || 'General').catch(() => {});
+                        }
+                    } else {
+                        const startTime = tileTimers.get(postId);
+                        if (startTime) {
+                            const dwellMs = now - startTime;
+                            tileTimers.delete(postId);
+                            if (dwellMs >= 2000) {
+                                recordImplicitSignal({
+                                    type: 'dwell',
+                                    postId,
+                                    category: selectedCategory || 'General',
+                                    value: dwellMs,
+                                    timestamp: now
+                                });
+                            } else if (dwellMs > 50 && dwellMs < 800) {
+                                recordImplicitSignal({
+                                    type: 'skip',
+                                    postId,
+                                    category: selectedCategory || 'General',
+                                    value: dwellMs,
+                                    timestamp: now
+                                });
+                            }
                         }
                     }
                 });
             },
-            { threshold: 0.5 }
+            { threshold: [0.1, 0.5] }
         );
 
         return () => {
             viewObserverRef.current?.disconnect();
             viewObserverRef.current = null;
+            tileTimers.clear();
         };
-    }, [user?.id, discoverPosts]);
+    }, [user?.id, discoverPosts, selectedCategory]);
 
     const trackViewRef = useCallback((node: HTMLDivElement | null) => {
         if (!node || !user || !viewObserverRef.current) return;

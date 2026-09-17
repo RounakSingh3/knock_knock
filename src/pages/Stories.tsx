@@ -23,6 +23,7 @@ import {
 } from '../lib/database';
 import StoryViewer from '../components/StoryViewer';
 import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
+import { rankStoryGroups, getHybridInterestProfile } from '../lib/algorithm';
 
 function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -222,7 +223,9 @@ const Stories = () => {
             seen.add(s.id);
             return true;
         });
-        const groups = groupStoriesByUser(uniqueStories);
+        const rawGroups = groupStoriesByUser(uniqueStories);
+        const profile = getHybridInterestProfile([]);
+        const groups = rankStoryGroups(rawGroups, profile, user?.id);
         const groupIdx = groups.findIndex((g) => g.stories.some((s) => s.id === story.id));
         if (groupIdx >= 0) {
             setViewerStoryGroups(groups);
