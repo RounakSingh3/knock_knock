@@ -211,12 +211,20 @@ const Home = () => {
     
     // Algorithmic feed state
     const [allRawPosts, setAllRawPosts] = useState<PostData[]>([]);
-    const [scoredFeed, setScoredFeed] = useState<ScoredPost[]>([]);
+    // ⚡ Removed unused scoredFeed/setScoredFeed state (dead since algorithm refactor)
     const [feedPage, setFeedPage] = useState(0);
     const [hasMorePosts, setHasMorePosts] = useState(true);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const sentinelRef = useRef<HTMLDivElement>(null);
+
+    // ⚡ Refs mirror state to break useCallback dependency chains
+    const postsRef = useRef<PostData[]>(posts);
+    const allRawPostsRef = useRef<PostData[]>([]);
+    const feedPageRef = useRef(0);
+    const likedPostsRef = useRef<Record<string, boolean>>(likedPosts);
+    const impedPostsRef = useRef<Record<string, boolean>>(impedPosts);
+    const engagementCacheRef = useRef<{ data: any[]; fetchedAt: number }>({ data: [], fetchedAt: 0 });
     
     // Connection List (like Page 3)
     const [connectionsList, setConnectionsList] = useState<any[]>([]);
@@ -266,16 +274,36 @@ const Home = () => {
         };
     }, [userId]);
 
+    // ⚡ Keep refs synced with state for stable callbacks
+    useEffect(() => { postsRef.current = posts; }, [posts]);
+    useEffect(() => { allRawPostsRef.current = allRawPosts; }, [allRawPosts]);
+    useEffect(() => { feedPageRef.current = feedPage; }, [feedPage]);
+    useEffect(() => { likedPostsRef.current = likedPosts; }, [likedPosts]);
+    useEffect(() => { impedPostsRef.current = impedPosts; }, [impedPosts]);
+
+    // ⚡ Cached engagement fetcher — avoids network call on every scroll
+    const getCachedEngagements = useCallback(async () => {
+        const CACHE_TTL = 60_000; // 60 seconds
+        const now = Date.now();
+        if (engagementCacheRef.current.fetchedAt > 0 && now - engagementCacheRef.current.fetchedAt < CACHE_TTL) {
+            return engagementCacheRef.current.data;
+        }
+        if (!userId) return [];
+        const engagements = await fetchUserEngagements(userId);
+        engagementCacheRef.current = { data: engagements, fetchedAt: now };
+        return engagements;
+    }, [userId]);
+
     const loadForYouFeed = useCallback(() => {
         if (!userId) return;
-        if (posts.length === 0) {
+        if (postsRef.current.length === 0) {
             setLoading(true);
         }
         setError('');
         // Fetch all raw posts and user engagements, then build scored feed using Hyper-Personalized algorithm
         Promise.all([
             fetchAllPostsForScoring(userId),
-            fetchUserEngagements(userId)
+            getCachedEngagements()
         ]).then(([rawPosts, engagements]) => {
             const validPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
             const seenUrls = new Set<string>();
@@ -287,12 +315,14 @@ const Home = () => {
                 return true;
             });
             setAllRawPosts(uniquePosts);
+            allRawPostsRef.current = uniquePosts;
             const hybridProfile = getHybridInterestProfile(engagements);
             const connIds = Array.from(connectionUserIds);
             const rankedPosts = rankFeedPosts(uniquePosts, hybridProfile, userId, connIds);
             const firstBatch = rankedPosts.slice(0, 10);
             
             setPosts(firstBatch);
+            postsRef.current = firstBatch;
             try {
                 localStorage.setItem('knock_home_posts_cache', JSON.stringify(firstBatch));
             } catch (e) {}
@@ -329,49 +359,54 @@ const Home = () => {
             setError('Failed to load posts. Please check your connection and try again.');
             setLoading(false);
         });
-    }, [userId, blockedIds, connectionUserIds]);
+    }, [userId, blockedIds, connectionUserIds, getCachedEngagements]);
 
     useEffect(() => {
         loadForYouFeed();
     }, [loadForYouFeed, feedMode]);
 
-    // Pull-to-refresh handler (For You Feed)
+    // Pull-to-refresh handler (For You Feed) — ⚡ consolidated (was duplicate handleRefresh)
     const handleRefreshForYou = useCallback(async () => {
         if (!userId || isRefreshing) return;
         setIsRefreshing(true);
         try {
-            const engagements = await fetchUserEngagements(userId);
+            const engagements = await getCachedEngagements();
             const hybridProfile = getHybridInterestProfile(engagements);
             const connIds = Array.from(connectionUserIds);
-            const shuffled = shuffleFeedForRefresh(allRawPosts);
+            const shuffled = shuffleFeedForRefresh(allRawPostsRef.current);
             const freshBatch = rankFeedPosts(shuffled, hybridProfile, userId, connIds).slice(0, 10);
             setPosts(freshBatch);
+            postsRef.current = freshBatch;
             setFeedPage(0);
+            feedPageRef.current = 0;
             setHasMorePosts(true);
         } catch (err) {
             console.error('Refresh failed:', err);
         }
         setIsRefreshing(false);
-    }, [userId, isRefreshing, allRawPosts, connectionUserIds]);
+    }, [userId, isRefreshing, connectionUserIds, getCachedEngagements]);
 
     // Infinite scroll — load more posts automatically (Infinite non-terminating stream with variable rewards)
+    // ⚡ Reads from refs instead of state to avoid callback recreation on every scroll
     const loadMorePosts = useCallback(async () => {
         if (!userId || isLoadingMore || loading) return;
         setIsLoadingMore(true);
         try {
-            const nextPage = feedPage + 1;
-            const engagements = await fetchUserEngagements(userId);
+            const nextPage = feedPageRef.current + 1;
+            const engagements = await getCachedEngagements();
             const hybridProfile = getHybridInterestProfile(engagements);
             const connIds = Array.from(connectionUserIds);
             
-            const currentIds = new Set(posts.map(p => p.id));
-            const currentUrls = new Set(posts.map(p => p.image_url));
+            const currentPosts = postsRef.current;
+            const currentIds = new Set(currentPosts.map(p => p.id));
+            const currentUrls = new Set(currentPosts.map(p => p.image_url));
+            const rawPosts = allRawPostsRef.current;
 
             // Generate next stream batch via infinite stream synthesizer
             let streamBatch: PostData[] = [];
-            if (allRawPosts.length > 0) {
+            if (rawPosts.length > 0) {
                 streamBatch = generateInfiniteStream(
-                    allRawPosts,
+                    rawPosts,
                     nextPage,
                     10,
                     (batch) => rankFeedPosts(batch, hybridProfile, userId, connIds)
@@ -383,7 +418,7 @@ const Home = () => {
 
             if (freshBatch.length < 5) {
                 // Fetch more discover posts if pool is running low
-                const moreDbPosts = await fetchDiscoverPosts(null, 50, allRawPosts.length);
+                const moreDbPosts = await fetchDiscoverPosts(null, 50, rawPosts.length);
                 const uniqueMoreDb = moreDbPosts.filter(p => {
                     if (!p.image_url || currentIds.has(p.id) || currentUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
                     currentIds.add(p.id);
@@ -399,9 +434,9 @@ const Home = () => {
             }
 
             // If still empty (small dataset), allow cyclical stream
-            if (freshBatch.length === 0 && allRawPosts.length > 0) {
+            if (freshBatch.length === 0 && rawPosts.length > 0) {
                 freshBatch = generateInfiniteStream(
-                    allRawPosts,
+                    rawPosts,
                     nextPage,
                     10,
                     (batch) => rankFeedPosts(batch, hybridProfile, userId, connIds)
@@ -411,6 +446,7 @@ const Home = () => {
             if (freshBatch.length > 0) {
                 setPosts(prev => [...prev, ...freshBatch]);
                 setFeedPage(nextPage);
+                feedPageRef.current = nextPage;
                 // Batch check likes for new posts
                 const newPostIds = freshBatch.map(p => p.id);
                 checkIfLikedBatch(userId, newPostIds).then(likedMap => {
@@ -427,7 +463,7 @@ const Home = () => {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [userId, isLoadingMore, loading, feedPage, allRawPosts, posts, blockedIds, connectionUserIds]);
+    }, [userId, isLoadingMore, loading, blockedIds, connectionUserIds, getCachedEngagements]);
 
     // IntersectionObserver for automatic infinite scrolling as user scrolls
     useEffect(() => {
@@ -455,112 +491,117 @@ const Home = () => {
 
     const handleLikeToggle = useCallback(async (postId: string) => {
         if (!userId) return;
-        const currentlyLiked = likedPosts[postId] || false;
+        const currentlyLiked = likedPostsRef.current[postId] || false;
         const newLiked = !currentlyLiked;
         setLikedPosts(prev => ({ ...prev, [postId]: newLiked }));
         setLikeCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newLiked ? 1 : -1) }));
         await toggleLike(userId, postId, currentlyLiked);
         // Track like engagement
         if (newLiked) {
-            const post = posts.find(p => p.id === postId);
+            const post = postsRef.current.find(p => p.id === postId);
             trackEngagement(userId, postId, 'like', 1, post?.category || 'General');
         }
-    }, [userId, likedPosts, posts]);
+    }, [userId]);
 
     const handleImpToggle = useCallback(async (postId: string) => {
         if (!userId) return;
-        const currentlyImped = impedPosts[postId] || false;
+        const currentlyImped = impedPostsRef.current[postId] || false;
         const newImped = !currentlyImped;
         setImpedPosts(prev => ({ ...prev, [postId]: newImped }));
         setImpCounts(prev => ({ ...prev, [postId]: (prev[postId] || 0) + (newImped ? 1 : -1) }));
         await toggleImp(userId, postId, currentlyImped);
-    }, [userId, impedPosts]);
+    }, [userId]);
 
-    // Pull-to-refresh handler
-    const handleRefresh = useCallback(async () => {
-        if (!userId || isRefreshing) return;
-        setIsRefreshing(true);
-        try {
-            const engagements = await fetchUserEngagements(userId);
-            const hybridProfile = getHybridInterestProfile(engagements);
-            const connIds = Array.from(connectionUserIds);
-            const shuffled = shuffleFeedForRefresh(allRawPosts);
-            const freshBatch = rankFeedPosts(shuffled, hybridProfile, userId, connIds).slice(0, 10);
-            setPosts(freshBatch);
-            setFeedPage(0);
-            setHasMorePosts(true);
-        } catch (err) {
-            console.error('Refresh failed:', err);
-        }
-        setIsRefreshing(false);
-    }, [userId, isRefreshing, allRawPosts, connectionUserIds]);
+    // Pull-to-refresh handler (points to consolidated handleRefreshForYou)
+    const handleRefresh = handleRefreshForYou;
 
-    const handleDoubleTap = (post: PostData) => {
-        if (!likedPosts[post.id]) {
+    const handleDoubleTap = useCallback((post: PostData) => {
+        if (!likedPostsRef.current[post.id]) {
             handleLikeToggle(post.id);
         }
-    };
+    }, [handleLikeToggle]);
+
+    // ⚡ Stable callback closures for MasonryPostCard props to avoid allocating per-card closures on each render
+    const handleSelectPost = useCallback((p: PostData) => setSelectedPost(normalizePost(p)), []);
+    const handleOpenChat = useCallback((uid: string) => { setChatUserId(uid); setIsChatOpen(true); }, []);
+    const handleSharePost = useCallback((p: PostData) => { setPostToShare(p); setIsShareOpen(true); }, []);
+    const handleOpenComments = useCallback((pid: string) => { setCommentsPostId(pid); setIsCommentsOpen(true); }, []);
 
     // Pillar 2: Implicit Signal Tracking for Home Feed Cards (dwell time & fast skips)
+    // ⚡ Persistent observer across infinite scroll appends; does not wipe timers on every load-more
+    const dwellObserverRef = useRef<IntersectionObserver | null>(null);
+    const observedCardIdsRef = useRef<Set<string>>(new Set());
+    const cardTimersRef = useRef<Map<string, number>>(new Map());
+
     useEffect(() => {
-        if (feedMode !== 'foryou' || posts.length === 0) return;
+        if (feedMode !== 'foryou') {
+            dwellObserverRef.current?.disconnect();
+            dwellObserverRef.current = null;
+            observedCardIdsRef.current.clear();
+            cardTimersRef.current.clear();
+            return;
+        }
 
-        const cardTimers = new Map<string, number>();
+        if (!dwellObserverRef.current) {
+            dwellObserverRef.current = new IntersectionObserver((entries) => {
+                const now = Date.now();
+                entries.forEach(entry => {
+                    const el = entry.target as HTMLElement;
+                    const postId = el.getAttribute('data-post-id');
+                    const category = el.getAttribute('data-post-cat') || 'General';
+                    if (!postId) return;
 
-        const observer = new IntersectionObserver((entries) => {
-            const now = Date.now();
-            entries.forEach(entry => {
-                const el = entry.target as HTMLElement;
-                const postId = el.getAttribute('data-post-id');
-                const category = el.getAttribute('data-post-cat') || 'General';
-                if (!postId) return;
-
-                if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-                    // Start timer if not already running
-                    if (!cardTimers.has(postId)) {
-                        cardTimers.set(postId, now);
-                    }
-                } else {
-                    // Card left viewport
-                    const startTime = cardTimers.get(postId);
-                    if (startTime) {
-                        const dwellMs = now - startTime;
-                        cardTimers.delete(postId);
-                        if (dwellMs >= 2500) {
-                            // User lingered/focused on this post (positive implicit signal)
-                            recordImplicitSignal({
-                                type: 'dwell',
-                                postId,
-                                category,
-                                value: dwellMs,
-                                timestamp: now,
-                            });
-                        } else if (dwellMs > 100 && dwellMs < 1200) {
-                            // User rapidly scrolled past (skip signal)
-                            recordImplicitSignal({
-                                type: 'skip',
-                                postId,
-                                category,
-                                value: dwellMs,
-                                timestamp: now,
-                            });
+                    if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+                        if (!cardTimersRef.current.has(postId)) {
+                            cardTimersRef.current.set(postId, now);
+                        }
+                    } else {
+                        const startTime = cardTimersRef.current.get(postId);
+                        if (startTime) {
+                            const dwellMs = now - startTime;
+                            cardTimersRef.current.delete(postId);
+                            if (dwellMs >= 2500) {
+                                recordImplicitSignal({
+                                    type: 'dwell',
+                                    postId,
+                                    category,
+                                    value: dwellMs,
+                                    timestamp: now,
+                                });
+                            } else if (dwellMs > 100 && dwellMs < 1200) {
+                                recordImplicitSignal({
+                                    type: 'skip',
+                                    postId,
+                                    category,
+                                    value: dwellMs,
+                                    timestamp: now,
+                                });
+                            }
                         }
                     }
-                }
-            });
-        }, {
-            threshold: [0.1, 0.5]
-        });
+                });
+            }, { threshold: [0.1, 0.5] });
+        }
 
-        // Observe all masonry cards
+        // Incrementally observe new cards only
         const cards = document.querySelectorAll('.masonry-card[data-post-id]');
-        cards.forEach(card => observer.observe(card));
+        cards.forEach(card => {
+            const id = card.getAttribute('data-post-id');
+            if (id && !observedCardIdsRef.current.has(id)) {
+                observedCardIdsRef.current.add(id);
+                dwellObserverRef.current?.observe(card);
+            }
+        });
+    }, [posts.length, feedMode]);
 
+    useEffect(() => {
         return () => {
-            observer.disconnect();
-            cardTimers.clear();
+            dwellObserverRef.current?.disconnect();
+            dwellObserverRef.current = null;
+            cardTimersRef.current.clear();
+            observedCardIdsRef.current.clear();
         };
-    }, [posts, feedMode]);
+    }, []);
 
     // Load connection posts when mode switches
     useEffect(() => {
@@ -737,13 +778,13 @@ const Home = () => {
                                     isImped={!!impedPosts[post.id]}
                                     likeCount={likeCounts[post.id] ?? post.likes_count ?? 0}
                                     currentUserId={user?.id}
-                                    onSelect={(p) => setSelectedPost(normalizePost(p))}
-                                    onDoubleTap={(p) => handleDoubleTap(p)}
+                                    onSelect={handleSelectPost}
+                                    onDoubleTap={handleDoubleTap}
                                     onLikeToggle={handleLikeToggle}
                                     onImpToggle={handleImpToggle}
-                                    onOpenChat={(uid) => { setChatUserId(uid); setIsChatOpen(true); }}
-                                    onShare={(p) => { setPostToShare(p); setIsShareOpen(true); }}
-                                    onOpenComments={(pid) => { setCommentsPostId(pid); setIsCommentsOpen(true); }}
+                                    onOpenChat={handleOpenChat}
+                                    onShare={handleSharePost}
+                                    onOpenComments={handleOpenComments}
                                 />
                             ))}
                         </div>

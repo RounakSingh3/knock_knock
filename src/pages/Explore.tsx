@@ -116,6 +116,8 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                 borderRadius: '4px',
                 background: '#18181b',
                 contain: 'layout paint',
+                contentVisibility: 'auto' as any,
+                containIntrinsicSize: isBig ? '260px' : '130px',
                 transition: 'transform 0.15s ease',
             }}
             onClick={handleClick}
@@ -222,6 +224,33 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
     );
 });
 
+function interleaveCategories(posts: PostData[]): PostData[] {
+    const buckets: Record<string, PostData[]> = {};
+    posts.forEach(p => {
+        const cat = p.category || 'General';
+        if (!buckets[cat]) buckets[cat] = [];
+        buckets[cat].push(p);
+    });
+
+    const categoryKeys = Object.keys(buckets);
+    const result: PostData[] = [];
+    let hasMoreInBuckets = true;
+    let idx = 0;
+
+    while (hasMoreInBuckets) {
+        hasMoreInBuckets = false;
+        for (const cat of categoryKeys) {
+            if (idx < buckets[cat].length) {
+                result.push(buckets[cat][idx]);
+                hasMoreInBuckets = true;
+            }
+        }
+        idx++;
+    }
+
+    return result.length > 0 ? result : posts;
+}
+
 const Explore = () => {
     const { user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
@@ -255,6 +284,8 @@ const Explore = () => {
 
     // Infinite scroll state
     const [feedPage, setFeedPage] = useState(0);
+    const feedPageRef = useRef(0);
+    useEffect(() => { feedPageRef.current = feedPage; }, [feedPage]);
     const [allScoredPosts, setAllScoredPosts] = useState<ScoredPost[]>([]);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -339,37 +370,11 @@ const Explore = () => {
         });
     }, [blockedIds]);
 
-function interleaveCategories(posts: PostData[]): PostData[] {
-    const buckets: Record<string, PostData[]> = {};
-    posts.forEach(p => {
-        const cat = p.category || 'General';
-        if (!buckets[cat]) buckets[cat] = [];
-        buckets[cat].push(p);
-    });
-
-    const categoryKeys = Object.keys(buckets);
-    const result: PostData[] = [];
-    let hasMoreInBuckets = true;
-    let idx = 0;
-
-    while (hasMoreInBuckets) {
-        hasMoreInBuckets = false;
-        for (const cat of categoryKeys) {
-            if (idx < buckets[cat].length) {
-                result.push(buckets[cat][idx]);
-                hasMoreInBuckets = true;
-            }
-        }
-        idx++;
-    }
-
-    return result.length > 0 ? result : posts;
-}
-
     // Load Discover Feed with Dedicated Explore Discovery Model & Variable Rewards
     const loadDiscoverFeed = async () => {
         if (discoverPosts.length === 0) setIsDiscoverLoading(true);
         setFeedPage(0);
+        feedPageRef.current = 0;
         setHasMore(true);
         observedPostsRef.current.clear();
         try {
@@ -413,10 +418,11 @@ function interleaveCategories(posts: PostData[]): PostData[] {
     }, [selectedCategory, searchTerm, user?.id]);
 
     // Infinite Scroll — Load More (Guarantees NO duplicate photos and continuous infinite stream)
+    // ⚡ Uses feedPageRef to keep callback stable and prevent sentinel observer churn
     const loadMore = useCallback(async () => {
         if (isLoadingMore) return;
         setIsLoadingMore(true);
-        const nextPage = feedPage + 1;
+        const nextPage = feedPageRef.current + 1;
         
         try {
             const currentPosts = discoverPostsRef.current;
@@ -467,6 +473,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
             if (nextBatch.length > 0) {
                 setDiscoverPosts(prev => [...prev, ...nextBatch]);
                 setFeedPage(nextPage);
+                feedPageRef.current = nextPage;
             }
             setHasMore(true);
         } catch (e) {
@@ -474,7 +481,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [feedPage, isLoadingMore, user?.id, selectedCategory, blockedIds]);
+    }, [isLoadingMore, selectedCategory, blockedIds]);
 
     // IntersectionObserver for infinite scroll sentinel
     useEffect(() => {
@@ -495,8 +502,9 @@ function interleaveCategories(posts: PostData[]): PostData[] {
     const viewObserverRef = useRef<IntersectionObserver | null>(null);
 
     // Pillar 2: IntersectionObserver for view delivery and tile dwell telemetry
+    // ⚡ Persistent observer — does NOT rebuild every time discoverPosts appends
     useEffect(() => {
-        if (!user || discoverPosts.length === 0) return;
+        if (!user) return;
 
         const tileTimers = new Map<string, number>();
 
@@ -550,7 +558,7 @@ function interleaveCategories(posts: PostData[]): PostData[] {
             viewObserverRef.current = null;
             tileTimers.clear();
         };
-    }, [user?.id, discoverPosts, selectedCategory]);
+    }, [user?.id, selectedCategory]);
 
     const trackViewRef = useCallback((node: HTMLDivElement | null) => {
         if (!node || !user || !viewObserverRef.current) return;
@@ -559,13 +567,13 @@ function interleaveCategories(posts: PostData[]): PostData[] {
         viewObserverRef.current.observe(node);
     }, [user?.id]);
 
-    const handleRefresh = async () => {
+    const handleRefresh = useCallback(async () => {
         setIsRefreshing(true);
         await loadDiscoverFeed();
         // Reload trending too
         fetchTrendingPosts(6).then(posts => setTrendingPosts(posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)))));
         setIsRefreshing(false);
-    };
+    }, [selectedCategory, blockedIds]);
 
     // Handle Search Queries
     useEffect(() => {

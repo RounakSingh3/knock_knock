@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap, ExternalLink, Check } from 'lucide-react';
 import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap } from '../lib/database';
@@ -16,6 +16,24 @@ const FILTER_MAP: Record<string, string> = {
     'Cool': 'hue-rotate(-30deg) saturate(1.2)',
     'Warm': 'sepia(0.3) saturate(1.4)',
     'Alien': 'invert(0.8) hue-rotate(180deg)',
+};
+
+const timeSince = (dateString: string) => {
+    const diff = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
+    if (diff < 60) return `${diff}s`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+    return `${Math.floor(diff / 3600)}h`;
+};
+
+const getTimeLeft24h = (createdStr?: string) => {
+    if (!createdStr) return null;
+    const expiryTime = new Date(createdStr).getTime() + 24 * 60 * 60 * 1000;
+    const msLeft = expiryTime - Date.now();
+    if (msLeft <= 0) return 'Expired';
+    const hours = Math.floor(msLeft / (1000 * 60 * 60));
+    const mins = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 0) return `${hours}h ${mins}m left`;
+    return `${mins}m left`;
 };
 
 interface StoryViewerProps {
@@ -37,6 +55,15 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const [storyIndex, setStoryIndex] = useState(0);
     const [progress, setProgress] = useState(0);
     const [isPaused, setIsPaused] = useState(false);
+    
+    const groupIndexRef = useRef(groupIndex);
+    const storyIndexRef = useRef(storyIndex);
+    const progressRef = useRef(progress);
+    
+    useEffect(() => { groupIndexRef.current = groupIndex; }, [groupIndex]);
+    useEffect(() => { storyIndexRef.current = storyIndex; }, [storyIndex]);
+    useEffect(() => { progressRef.current = progress; }, [progress]);
+
     const bgAudioRef = useRef<HTMLAudioElement | null>(null);
     const storyVideoRef = useRef<HTMLVideoElement | null>(null);
     const storyStartRef = useRef<number>(Date.now());
@@ -70,7 +97,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const handleNextStory = useCallback(() => {
         if (!currentGroup || !currentStory) return;
         const dwellTime = Date.now() - storyStartRef.current;
-        if (progress >= 95) {
+        if (progressRef.current >= 95) {
             recordImplicitSignal({
                 type: 'story_complete',
                 postId: currentStory.id,
@@ -87,17 +114,17 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         }
         storyStartRef.current = Date.now();
 
-        if (storyIndex < currentGroup.stories.length - 1) {
+        if (storyIndexRef.current < currentGroup.stories.length - 1) {
             setStoryIndex(prev => prev + 1);
             setProgress(0);
-        } else if (groupIndex < storyGroups.length - 1) {
+        } else if (groupIndexRef.current < storyGroups.length - 1) {
             setGroupIndex(prev => prev + 1);
             setStoryIndex(0);
             setProgress(0);
         } else {
             onClose();
         }
-    }, [currentGroup, currentStory, groupIndex, storyGroups.length, storyIndex, progress, onClose]);
+    }, [currentGroup, currentStory, storyGroups.length, onClose]);
 
     const handlePrevStory = useCallback(() => {
         if (!currentGroup) return;
@@ -282,24 +309,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     }, [currentStory?.id, currentUserId]);
 
     if (!currentGroup || !currentStory) return null;
-
-    const timeSince = (dateString: string) => {
-        const diff = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
-        if (diff < 60) return `${diff}s`;
-        if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-        return `${Math.floor(diff / 3600)}h`;
-    };
-
-    const getTimeLeft24h = (createdStr?: string) => {
-        if (!createdStr) return null;
-        const expiryTime = new Date(createdStr).getTime() + 24 * 60 * 60 * 1000;
-        const msLeft = expiryTime - Date.now();
-        if (msLeft <= 0) return 'Expired';
-        const hours = Math.floor(msLeft / (1000 * 60 * 60));
-        const mins = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
-        if (hours > 0) return `${hours}h ${mins}m left`;
-        return `${mins}m left`;
-    };
 
     return (
         <div className="story-viewer-overlay">
@@ -611,107 +620,109 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 );
             })()}
             
-            <style>{`
-                .story-viewer-overlay {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100vw;
-                    height: 100vh;
-                    background: var(--bg-color);
-                    z-index: 9999;
-                    display: flex;
-                    flex-direction: column;
-                }
-                .story-progress-container {
-                    position: absolute;
-                    top: 10px;
-                    left: 10px;
-                    right: 10px;
-                    display: flex;
-                    gap: 4px;
-                    z-index: 10;
-                }
-                .story-progress-segment {
-                    flex: 1;
-                    height: 2px;
-                    background: rgba(255, 255, 255, 0.3);
-                    border-radius: 2px;
-                    overflow: hidden;
-                }
-                .story-progress-fill {
-                    height: 100%;
-                    background: #fff;
-                    width: 0%;
-                }
-                .story-header {
-                    position: absolute;
-                    top: 20px;
-                    left: 10px;
-                    right: 10px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    z-index: 10;
-                    padding-top: 10px;
-                }
-                .story-user-info {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                }
-                .story-user-info img {
-                    width: 32px;
-                    height: 32px;
-                    border-radius: 50%;
-                    object-fit: cover;
-                }
-                .story-username {
-                    color: var(--text-active);
-                    font-weight: 600;
-                    font-size: 14px;
-                    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-                }
-                .story-time {
-                    color: rgba(255,255,255,0.7);
-                    font-size: 14px;
-                    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-                }
-                .story-touch-area {
-                    position: absolute;
-                    top: 0;
-                    bottom: 0;
-                    z-index: 5;
-                }
-                .story-touch-area.left {
-                    left: 0;
-                    width: 30%;
-                }
-                .story-touch-area.right {
-                    right: 0;
-                    width: 70%;
-                }
-                .story-image {
-                    width: 100%;
-                    height: 100%;
-                    object-fit: contain;
-                }
-                .story-caption-overlay {
-                    position: absolute;
-                    bottom: 40px;
-                    left: 20px;
-                    right: 20px;
-                    background: rgba(0,0,0,0.6);
-                    color: var(--text-active);
-                    padding: 12px 16px;
-                    border-radius: 12px;
-                    backdrop-filter: blur(5px);
-                    font-size: 16px;
-                    font-weight: bold;
-                    z-index: 10;
-                    text-align: center;
-                }
-            `}</style>
+            {useMemo(() => (
+                <style>{`
+                    .story-viewer-overlay {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100vw;
+                        height: 100vh;
+                        background: var(--bg-color);
+                        z-index: 9999;
+                        display: flex;
+                        flex-direction: column;
+                    }
+                    .story-progress-container {
+                        position: absolute;
+                        top: 10px;
+                        left: 10px;
+                        right: 10px;
+                        display: flex;
+                        gap: 4px;
+                        z-index: 10;
+                    }
+                    .story-progress-segment {
+                        flex: 1;
+                        height: 2px;
+                        background: rgba(255, 255, 255, 0.3);
+                        border-radius: 2px;
+                        overflow: hidden;
+                    }
+                    .story-progress-fill {
+                        height: 100%;
+                        background: #fff;
+                        width: 0%;
+                    }
+                    .story-header {
+                        position: absolute;
+                        top: 20px;
+                        left: 10px;
+                        right: 10px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        z-index: 10;
+                        padding-top: 10px;
+                    }
+                    .story-user-info {
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    }
+                    .story-user-info img {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 50%;
+                        object-fit: cover;
+                    }
+                    .story-username {
+                        color: var(--text-active);
+                        font-weight: 600;
+                        font-size: 14px;
+                        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+                    }
+                    .story-time {
+                        color: rgba(255,255,255,0.7);
+                        font-size: 14px;
+                        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+                    }
+                    .story-touch-area {
+                        position: absolute;
+                        top: 0;
+                        bottom: 0;
+                        z-index: 5;
+                    }
+                    .story-touch-area.left {
+                        left: 0;
+                        width: 30%;
+                    }
+                    .story-touch-area.right {
+                        right: 0;
+                        width: 70%;
+                    }
+                    .story-image {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: contain;
+                    }
+                    .story-caption-overlay {
+                        position: absolute;
+                        bottom: 40px;
+                        left: 20px;
+                        right: 20px;
+                        background: rgba(0,0,0,0.6);
+                        color: var(--text-active);
+                        padding: 12px 16px;
+                        border-radius: 12px;
+                        backdrop-filter: blur(5px);
+                        font-size: 16px;
+                        font-weight: bold;
+                        z-index: 10;
+                        text-align: center;
+                    }
+                `}</style>
+            ), [])}
         </div>
     );
 };

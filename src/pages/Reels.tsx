@@ -1,13 +1,15 @@
-import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
 import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, type PostData, type MessageData } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 import { AppContext } from '../context/AppContext';
-import ChatPanel from '../components/ChatPanel';
-import ShareModal from '../components/ShareModal';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream } from '../lib/algorithm';
+
+// ⚡ Lazy-load heavy modals so Reels renders instantly
+const ChatPanel = lazy(() => import('../components/ChatPanel'));
+const ShareModal = lazy(() => import('../components/ShareModal'));
 
 export interface ReelData {
     id: string | number;
@@ -245,7 +247,8 @@ const Reels: React.FC = () => {
 
     const [playStates, setPlayStates] = useState<boolean[]>(REELS_DATA.map(() => true));
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
-    const [progresses, setProgresses] = useState<number[]>(REELS_DATA.map(() => 0));
+    // ⚡ Progress stored in ref (NOT state) to avoid re-rendering 3x/sec
+    const progressesRef = useRef<number[]>(REELS_DATA.map(() => 0));
 
 
     // Audio playback logic moved to native <audio> controls.
@@ -329,7 +332,7 @@ const Reels: React.FC = () => {
             setRawReelPool(ranked);
             setReelsList(ranked);
             setPlayStates(ranked.map(() => true));
-            setProgresses(ranked.map(() => 0));
+            progressesRef.current = ranked.map(() => 0);
         });
     }, [user?.id, user?.username, blockedIds]);
 
@@ -418,7 +421,10 @@ const Reels: React.FC = () => {
         const observer = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
-                    const idx = videoRefs.current.findIndex((v) => v === entry.target);
+                    // ⚡ O(1) index lookup via data attribute instead of O(N) findIndex
+                    const card = (entry.target as HTMLElement).closest('.reel-card') as HTMLElement;
+                    const idxStr = card?.getAttribute('data-reel-index');
+                    const idx = idxStr !== null ? parseInt(idxStr, 10) : -1;
                     if (idx === -1) return;
                     const video = entry.target as HTMLVideoElement;
                     const reel = reelsList[idx];
@@ -498,7 +504,7 @@ const Reels: React.FC = () => {
             }));
             setReelsList(prev => [...prev, ...newReelsWithKeys]);
             setPlayStates(prev => [...prev, ...newReelsWithKeys.map(() => true)]);
-            setProgresses(prev => [...prev, ...newReelsWithKeys.map(() => 0)]);
+            progressesRef.current = [...progressesRef.current, ...newReelsWithKeys.map(() => 0)];
         }
     }, [activeIndex, reelsList.length, rawReelPool, reelPage, selectedReelIndex, user?.id]);
 
@@ -566,19 +572,24 @@ const Reels: React.FC = () => {
     }, [selectedReelIndex, reelsList, user]);
 
     // Pillar 2: Progress bar updater & 80%+ completion signal tracking
+    // ⚡ Uses requestAnimationFrame + direct DOM manipulation instead of setState to avoid re-rendering
     useEffect(() => {
         if (selectedReelIndex === null) return;
-        const interval = setInterval(() => {
+        let rafId: number;
+        const reelsListRef_local = reelsList; // capture for closure
+
+        const tick = () => {
             videoRefs.current.forEach((video, idx) => {
                 if (video && video.duration) {
                     const pct = (video.currentTime / video.duration) * 100;
-                    setProgresses((prev) => {
-                        const next = [...prev];
-                        next[idx] = pct;
-                        return next;
-                    });
+                    progressesRef.current[idx] = pct;
+
+                    // ⚡ Direct DOM update — zero React re-renders
+                    const bar = document.querySelector(`.reel-card[data-reel-index="${idx}"] .reel-progress-fill`) as HTMLElement;
+                    if (bar) bar.style.width = `${pct}%`;
+
                     if (idx === activeIndex && pct >= 80) {
-                        const currentReel = reelsList[idx];
+                        const currentReel = reelsListRef_local[idx];
                         if (currentReel && !completedReelsRef.current.has(currentReel.id)) {
                             completedReelsRef.current.add(currentReel.id);
                             recordImplicitSignal({
@@ -592,8 +603,11 @@ const Reels: React.FC = () => {
                     }
                 }
             });
-        }, 300);
-        return () => clearInterval(interval);
+            rafId = requestAnimationFrame(tick);
+        };
+
+        rafId = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafId);
     }, [selectedReelIndex, activeIndex, reelsList]);
 
     const togglePlay = useCallback(
@@ -864,6 +878,7 @@ const Reels: React.FC = () => {
                                 <div 
                                     className="reel-card" 
                                     key={reel.id}
+                                    data-reel-index={idx}
                                     onTouchStart={handleTouchStart}
                                     onTouchEnd={(e) => handleTouchEnd(reel, e)}
                                 >
@@ -999,11 +1014,11 @@ const Reels: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* Progress bar */}
+                                    {/* Progress bar — width updated directly by RAF, not React state */}
                                     <div className="reel-progress-bar">
                                         <div
                                             className="reel-progress-fill"
-                                            style={{ width: `${progresses[idx]}%` }}
+                                            style={{ width: '0%' }}
                                         />
                                     </div>
                                 </div>
@@ -1014,33 +1029,37 @@ const Reels: React.FC = () => {
             )}
 
             {user && (
-                <ChatPanel 
-                    isOpen={isChatOpen} 
-                    onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
-                    currentUser={{ ...user, username: user.username || 'user' }} 
-                    initialOpenUserId={chatUserId}
-                    refreshKey={chatRefreshKey}
-                    pendingShare={pendingShare}
-                />
+                <Suspense fallback={null}>
+                    <ChatPanel 
+                        isOpen={isChatOpen} 
+                        onClose={() => { setIsChatOpen(false); setChatUserId(null); }} 
+                        currentUser={{ ...user, username: user.username || 'user' }} 
+                        initialOpenUserId={chatUserId}
+                        refreshKey={chatRefreshKey}
+                        pendingShare={pendingShare}
+                    />
+                </Suspense>
             )}
 
             {isShareOpen && postToShare && user && (
-                <ShareModal 
-                    isOpen={isShareOpen} 
-                    onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
-                    post={postToShare}
-                    currentUser={{ ...user, username: user.username || 'user' }} 
-                    onMessageSent={(receiverId, message) => {
-                        setPendingShare({ receiverId, message });
-                        setChatRefreshKey(k => k + 1);
-                    }}
-                    onViewChat={(userId) => {
-                        setIsShareOpen(false);
-                        setPostToShare(null);
-                        setChatUserId(userId);
-                        setIsChatOpen(true);
-                    }}
-                />
+                <Suspense fallback={null}>
+                    <ShareModal 
+                        isOpen={isShareOpen} 
+                        onClose={() => { setIsShareOpen(false); setPostToShare(null); }} 
+                        post={postToShare}
+                        currentUser={{ ...user, username: user.username || 'user' }} 
+                        onMessageSent={(receiverId, message) => {
+                            setPendingShare({ receiverId, message });
+                            setChatRefreshKey(k => k + 1);
+                        }}
+                        onViewChat={(userId) => {
+                            setIsShareOpen(false);
+                            setPostToShare(null);
+                            setChatUserId(userId);
+                            setIsChatOpen(true);
+                        }}
+                    />
+                </Suspense>
             )}
         </div>
     );

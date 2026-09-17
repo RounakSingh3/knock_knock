@@ -1,7 +1,7 @@
-import React, { useRef, useState, useEffect, useContext, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useContext, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock, Eye, HelpCircle, Users, Music } from 'lucide-react';
-import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
+import type { Track } from '../components/MusicPickerModal';
 import { AppContext } from '../context/AppContext';
 import {
     fetchBoostedStories,
@@ -21,9 +21,12 @@ import {
     type ProfileData,
     uploadMedia
 } from '../lib/database';
-import StoryViewer from '../components/StoryViewer';
 import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
 import { rankStoryGroups, getHybridInterestProfile } from '../lib/algorithm';
+
+// ⚡ Lazy load heavy modals
+const StoryViewer = lazy(() => import('../components/StoryViewer'));
+const MusicPickerModal = lazy(() => import('../components/MusicPickerModal').then(m => ({ default: m.MusicPickerModal })));
 
 function groupStoriesByUser(stories: StoryData[]): UserStoryGroup[] {
     const groups: Record<string, UserStoryGroup> = {};
@@ -120,11 +123,12 @@ const Stories = () => {
     }, [user?.id, blockedIds]);
 
     // Infinite scroll observer for boosted stories
+    // ⚡ Does not re-create observer when visible count changes
     useEffect(() => {
         if (!boostedSentinelRef.current) return;
         const observer = new IntersectionObserver(
             (entries) => {
-                if (entries[0].isIntersecting && visibleBoostedCount < boostedStories.length) {
+                if (entries[0].isIntersecting) {
                     setVisibleBoostedCount(prev => Math.min(prev + 6, boostedStories.length));
                 }
             },
@@ -132,28 +136,28 @@ const Stories = () => {
         );
         observer.observe(boostedSentinelRef.current);
         return () => observer.disconnect();
-    }, [visibleBoostedCount, boostedStories.length]);
+    }, [boostedStories.length]);
 
     // How long streak is alive
-    const isStreakAlive = () => {
+    const isStreakAlive = useCallback(() => {
         if (!lastStoryAt) return false;
         const hoursSince = (Date.now() - new Date(lastStoryAt).getTime()) / (1000 * 60 * 60);
         return hoursSince <= 24;
-    };
+    }, [lastStoryAt]);
 
-    const streakTimeLeft = () => {
+    const streakTimeLeft = useCallback(() => {
         if (!lastStoryAt) return null;
         const msLeft = new Date(lastStoryAt).getTime() + 24 * 60 * 60 * 1000 - Date.now();
         if (msLeft <= 0) return null;
         const hours = Math.floor(msLeft / (1000 * 60 * 60));
         const mins = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
         return `${hours}h ${mins}m`;
-    };
+    }, [lastStoryAt]);
 
-    const nextStreakReward = () => {
+    const nextStreakReward = useCallback(() => {
         const nextStreak = isStreakAlive() ? (streakCount + 1) : 1;
         return nextStreak * 5;
-    };
+    }, [isStreakAlive, streakCount]);
 
     // Camera functions
     const startCamera = async () => {
@@ -213,7 +217,7 @@ const Stories = () => {
         }
     };
 
-    const openStoryViewer = (story: StoryData) => {
+    const openStoryViewer = useCallback((story: StoryData) => {
         // Search in both boosted and user's own stories
         const allStories = [...boostedStories, ...myStories];
         // Deduplicate by id
@@ -231,7 +235,7 @@ const Stories = () => {
             setViewerStoryGroups(groups);
             setActiveStoryGroupIndex(groupIdx);
         }
-    };
+    }, [boostedStories, myStories, user?.id]);
 
     const postStory = async (boost: boolean) => {
         if (!user || !capturedImageUrl) return;
@@ -896,24 +900,30 @@ const Stories = () => {
             )}
 
             {activeStoryGroupIndex !== null && (
-                <StoryViewer
-                    storyGroups={viewerStoryGroups}
-                    initialGroupIndex={activeStoryGroupIndex}
-                    currentUserId={user?.id}
-                    onClose={() => setActiveStoryGroupIndex(null)}
-                    onGroupsUpdated={(groups) => {
-                        setViewerStoryGroups(groups);
-                        setBoostedStories(groups.flatMap((g) => g.stories).filter((s) => s.is_boosted));
-                    }}
-                />
+                <Suspense fallback={null}>
+                    <StoryViewer
+                        storyGroups={viewerStoryGroups}
+                        initialGroupIndex={activeStoryGroupIndex}
+                        currentUserId={user?.id}
+                        onClose={() => setActiveStoryGroupIndex(null)}
+                        onGroupsUpdated={(groups) => {
+                            setViewerStoryGroups(groups);
+                            setBoostedStories(groups.flatMap((g) => g.stories).filter((s) => s.is_boosted));
+                        }}
+                    />
+                </Suspense>
             )}
             {/* Music Picker Modal */}
-            <MusicPickerModal
-                isOpen={isMusicModalOpen}
-                onClose={() => setIsMusicModalOpen(false)}
-                onSelectTrack={(track) => setSelectedTrack(track)}
-                selectedTrackId={selectedTrack?.id}
-            />
+            {isMusicModalOpen && (
+                <Suspense fallback={null}>
+                    <MusicPickerModal
+                        isOpen={isMusicModalOpen}
+                        onClose={() => setIsMusicModalOpen(false)}
+                        onSelectTrack={(track) => setSelectedTrack(track)}
+                        selectedTrackId={selectedTrack?.id}
+                    />
+                </Suspense>
+            )}
         </div>
     );
 };

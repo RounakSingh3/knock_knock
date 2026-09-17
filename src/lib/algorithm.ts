@@ -90,14 +90,110 @@ export interface ImplicitSignal {
 
 const LOCAL_IMPLICIT_STORAGE_KEY = 'knock_implicit_signals_v1';
 
+let _implicitBuffer: ImplicitSignal[] = [];
+let _implicitScoresCache: Record<string, number> | null = null;
+
+function _getSignalDelta(signal: ImplicitSignal): number {
+    switch (signal.type) {
+        case 'dwell':
+            if (signal.value >= 5000) return 4;
+            if (signal.value >= 2500) return 2;
+            return 0;
+        case 'skip':
+            return -1.2;
+        case 'watch_pct':
+            if (signal.value >= 0.9) return 5;
+            if (signal.value >= 0.75) return 3;
+            if (signal.value < 0.25) return -1;
+            return 0;
+        case 'replay':
+            return Math.min(16, (signal.value || 1) * 4);
+        case 'unmute':
+            return 3.5;
+        case 'comments_open':
+            return 2.5;
+        case 'share_tap':
+            return 4.5;
+        case 'story_complete':
+            return 3;
+        case 'story_skip':
+            return -1.5;
+        default:
+            return 1;
+    }
+}
+
+function flushImplicitSignals(): void {
+    if (_implicitBuffer.length === 0) return;
+    if (_implicitScoresCache === null) {
+        try {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_IMPLICIT_STORAGE_KEY) : null;
+            _implicitScoresCache = raw ? JSON.parse(raw) : {};
+        } catch {
+            _implicitScoresCache = {};
+        }
+    }
+    const scores = _implicitScoresCache!;
+    let changed = false;
+    for (const signal of _implicitBuffer) {
+        const cat = signal.category || 'General';
+        const delta = _getSignalDelta(signal);
+        if (delta !== 0) {
+            scores[cat] = Math.max(-15, Math.min(250, (scores[cat] || 0) + delta));
+            changed = true;
+            if (signal.userId && signal.targetId) {
+                try {
+                    trackEngagement(signal.userId, signal.targetId, `implicit_${signal.type}`, Math.abs(delta), cat).catch(() => {});
+                } catch {}
+            }
+        }
+    }
+    if (changed) {
+        try {
+            if (typeof window !== 'undefined') {
+                localStorage.setItem(LOCAL_IMPLICIT_STORAGE_KEY, JSON.stringify(scores));
+            }
+        } catch {}
+    }
+    _implicitBuffer = [];
+}
+
+if (typeof window !== 'undefined') {
+    const scheduleFlush = () => {
+        setTimeout(() => {
+            flushImplicitSignals();
+            scheduleFlush();
+        }, 5000);
+    };
+    scheduleFlush();
+    window.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            flushImplicitSignals();
+        }
+    });
+}
+
 /** Retrieve locally cached implicit affinity scores */
 export function getLocalImplicitScores(): Record<string, number> {
-    try {
-        const raw = localStorage.getItem(LOCAL_IMPLICIT_STORAGE_KEY);
-        return raw ? JSON.parse(raw) : {};
-    } catch {
-        return {};
+    if (_implicitScoresCache === null) {
+        try {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_IMPLICIT_STORAGE_KEY) : null;
+            _implicitScoresCache = raw ? JSON.parse(raw) : {};
+        } catch {
+            _implicitScoresCache = {};
+        }
     }
+    if (_implicitBuffer.length === 0) return { ..._implicitScoresCache! };
+    
+    const merged = { ..._implicitScoresCache! };
+    for (const signal of _implicitBuffer) {
+        const cat = signal.category || 'General';
+        const delta = _getSignalDelta(signal);
+        if (delta !== 0) {
+            merged[cat] = Math.max(-15, Math.min(250, (merged[cat] || 0) + delta));
+        }
+    }
+    return merged;
 }
 
 /**
@@ -106,65 +202,7 @@ export function getLocalImplicitScores(): Record<string, number> {
  */
 export function recordImplicitSignal(signal: ImplicitSignal): void {
     if (!signal.category && !signal.targetId) return;
-    const scores = getLocalImplicitScores();
-    const cat = signal.category || 'General';
-    let delta = 0;
-
-    switch (signal.type) {
-        case 'dwell':
-            // Pause time on card: >5000ms = strong (+4), >2500ms = moderate (+2)
-            if (signal.value >= 5000) delta = 4;
-            else if (signal.value >= 2500) delta = 2;
-            break;
-        case 'skip':
-            // Fast swipe past item under 1500ms: negative implicit signal
-            delta = -1.2;
-            break;
-        case 'watch_pct':
-            // Video percentage completed
-            if (signal.value >= 0.9) delta = 5;
-            else if (signal.value >= 0.75) delta = 3;
-            else if (signal.value < 0.25) delta = -1;
-            break;
-        case 'replay':
-            // Video loop / re-watch
-            delta = Math.min(16, (signal.value || 1) * 4);
-            break;
-        case 'unmute':
-            // Desired sound listening
-            delta = 3.5;
-            break;
-        case 'comments_open':
-            // Inspecting conversation
-            delta = 2.5;
-            break;
-        case 'share_tap':
-            // Intention to send
-            delta = 4.5;
-            break;
-        case 'story_complete':
-            delta = 3;
-            break;
-        case 'story_skip':
-            delta = -1.5;
-            break;
-        default:
-            delta = 1;
-    }
-
-    if (delta !== 0) {
-        scores[cat] = Math.max(-15, Math.min(250, (scores[cat] || 0) + delta));
-        try {
-            localStorage.setItem(LOCAL_IMPLICIT_STORAGE_KEY, JSON.stringify(scores));
-        } catch {}
-
-        // Async dispatch to server pipeline if user is authenticated
-        if (signal.userId && signal.targetId) {
-            try {
-                trackEngagement(signal.userId, signal.targetId, `implicit_${signal.type}`, Math.abs(delta), cat).catch(() => {});
-            } catch {}
-        }
-    }
+    _implicitBuffer.push(signal);
 }
 
 /**
