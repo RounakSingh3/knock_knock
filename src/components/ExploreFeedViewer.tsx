@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { type PostData, trackEngagement, normalizePost } from '../lib/database';
 import { PostModalContent } from './PostModal';
 import { AppContext } from '../context/AppContext';
+import { getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 
 interface ExploreFeedViewerProps {
     posts: PostData[];
@@ -20,9 +21,11 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
     const targetPost = posts[initialIndex] || posts[0];
     const [activePostId, setActivePostId] = useState<string | null>(targetPost?.id || null);
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
+    const [isGlobalMuted, setIsGlobalMuted] = useState(() => getFeedMutedPreference());
+    const [snapEnabled, setSnapEnabled] = useState(false);
     const isInitialMountRef = useRef(true);
 
-    // Immediate layout positioning to guarantee target reel is active and visible
+    // Immediate layout positioning to guarantee target reel is active and visible without snap fighting
     useLayoutEffect(() => {
         if (!scrollRef.current || !targetPost) return;
         const targetEl = itemRefs.current[targetPost.id];
@@ -33,7 +36,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         }
     }, [initialIndex, targetPost]);
 
-    // Secondary alignment after backdrop mount
+    // Secondary alignment and snap engagement
     useEffect(() => {
         const scrollToInitial = () => {
             if (!scrollRef.current || !targetPost) return;
@@ -48,9 +51,9 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         scrollToInitial();
         const timer = setTimeout(() => {
             scrollToInitial();
-            // Unlock observer after scroll settling
+            setSnapEnabled(true);
             isInitialMountRef.current = false;
-        }, 200);
+        }, 60);
 
         return () => clearTimeout(timer);
     }, [initialIndex, targetPost]);
@@ -138,7 +141,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                 height: '100dvh',
                 zIndex: 99999, 
                 overflowY: 'auto', 
-                scrollSnapType: 'y mandatory', 
+                scrollSnapType: snapEnabled ? 'y mandatory' : 'none', 
                 scrollBehavior: 'auto',
                 WebkitOverflowScrolling: 'touch',
                 overscrollBehaviorY: 'contain',
@@ -176,6 +179,11 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                                 onShareClick={onShareClick} 
                                 isEmbedded={true}
                                 isActive={post.id === activePostId}
+                                isMuted={isGlobalMuted}
+                                onMuteToggle={(muted) => {
+                                    setIsGlobalMuted(muted);
+                                    setFeedMutedPreference(muted);
+                                }}
                             />
                         ) : (
                             <div style={{ width: '100vw', height: '100dvh', minHeight: '100dvh', background: '#000' }} />

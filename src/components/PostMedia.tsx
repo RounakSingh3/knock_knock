@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, memo, useCallback } from 'react';
-import { VolumeX } from 'lucide-react';
+import { VolumeX, Play, Pause, Heart } from 'lucide-react';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
 import type { PostData } from '../lib/database';
 
@@ -20,6 +20,10 @@ interface PostMediaProps {
     objectFit?: React.CSSProperties['objectFit'];
     /** Render in optimized lightweight thumbnail mode (for feeds/grids) */
     thumbnail?: boolean;
+    /** Instagram-style gestures */
+    onDoubleTapLike?: () => void;
+    onTogglePlay?: (isPlaying: boolean) => void;
+    onMuteChange?: (muted: boolean) => void;
 }
 
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
@@ -84,6 +88,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     soundOn = false,
     objectFit,
     thumbnail,
+    onDoubleTapLike,
+    onTogglePlay,
+    onMuteChange,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -93,6 +100,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const [isLoaded, setIsLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
     const [isAudioBlocked, setIsAudioBlocked] = useState(false);
+    const [isAutoplayFallbackMuted, setIsAutoplayFallbackMuted] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(autoPlay || soundOn);
+    const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
+    const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
+    const [videoProgress, setVideoProgress] = useState(0);
+    const lastTapTimeRef = useRef(0);
+    const playPauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retryCountRef = useRef(0);
     const fallbackUsedRef = useRef(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
@@ -150,7 +164,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         ? true 
         : (muted !== undefined ? muted : (soundOn ? false : true));
 
-    const isAudioActive = soundOn || (autoPlay && !effectiveMuted);
+    // Fallback-aware DOM muted state:
+    const domMuted = hasMusic ? true : (isAutoplayFallbackMuted || effectiveMuted);
+    const isAudioActive = soundOn || (autoPlay && !domMuted);
 
     // Resolve missing or unknown music_url from music_title via iTunes API only if active and needed
     useEffect(() => {
@@ -189,12 +205,16 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         if (e) {
             e.stopPropagation();
         }
+        setIsAutoplayFallbackMuted(false);
+        setIsAudioBlocked(false);
+        if (onMuteChange) onMuteChange(false);
+
         const video = videoRef.current;
         if (video) {
-            video.muted = false;
+            video.muted = hasMusic ? true : false;
             video.volume = 1;
             if (video.paused) {
-                video.play().catch(() => {});
+                video.play().then(() => setIsPlaying(true)).catch(() => {});
             }
         }
         const audio = audioRef.current;
@@ -205,8 +225,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 audio.play().catch(() => {});
             }
         }
-        setIsAudioBlocked(false);
-    }, [hasMusic]);
+    }, [hasMusic, onMuteChange]);
 
     // When audio is blocked by browser autoplay policy, listen for any user tap anywhere to seamlessly unmute
     useEffect(() => {
@@ -230,14 +249,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         let isCancelled = false;
 
-        // If post has music attached, force video element to remain muted
-        if (hasMusic) {
-            video.muted = true;
-        } else {
-            video.muted = effectiveMuted;
-            if (!effectiveMuted) {
-                video.volume = 1;
-            }
+        // Force DOM muted property to match domMuted
+        video.muted = domMuted;
+        if (!domMuted) {
+            video.volume = 1;
         }
 
         if (autoPlay || soundOn) {
@@ -245,29 +260,89 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             if (playPromise !== undefined) {
                 playPromise
                     .then(() => {
-                        if (!isCancelled && !video.muted) {
-                            setIsAudioBlocked(false);
+                        if (!isCancelled) {
+                            setIsPlaying(true);
+                            if (!domMuted) {
+                                setIsAudioBlocked(false);
+                            }
                         }
                     })
                     .catch((err) => {
                         if (isCancelled) return;
-                        console.warn('[PostMedia] Video autoplay rejected by browser policy:', err);
+                        console.warn('[PostMedia] Video autoplay rejected by browser policy, falling back to muted play:', err);
                         // If unmuted autoplay failed due to browser policy, fallback to muted autoplay so video never freezes!
-                        if (!video.muted && !hasMusic) {
-                            video.muted = true;
+                        if (!hasMusic) {
+                            setIsAutoplayFallbackMuted(true);
                             setIsAudioBlocked(true);
-                            video.play().catch(() => {});
+                            video.muted = true;
+                            video.play().then(() => {
+                                if (!isCancelled) setIsPlaying(true);
+                            }).catch(() => {});
                         }
                     });
             }
         } else {
             video.pause();
+            setIsPlaying(false);
         }
 
         return () => {
             isCancelled = true;
         };
-    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, effectiveMuted]);
+    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, domMuted]);
+
+    const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        if (!isPlayingMode) return;
+
+        const now = Date.now();
+        const timeSinceLast = now - lastTapTimeRef.current;
+        lastTapTimeRef.current = now;
+
+        if (timeSinceLast < 300) {
+            // Double tap — like with heart burst!
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const burstId = Date.now();
+            setHeartBursts(prev => [...prev, { id: burstId, x, y }]);
+            setTimeout(() => setHeartBursts(prev => prev.filter(h => h.id !== burstId)), 900);
+            if (onDoubleTapLike) onDoubleTapLike();
+            return;
+        }
+
+        // Single tap — if audio was blocked, unmute on tap
+        if (isAudioBlocked) {
+            handleUnmute(e);
+            return;
+        }
+
+        // Single tap — toggle play/pause
+        const video = videoRef.current;
+        if (video && isVideo) {
+            if (video.paused) {
+                video.play().then(() => {
+                    setIsPlaying(true);
+                    setShowPlayPauseIcon('play');
+                    if (onTogglePlay) onTogglePlay(true);
+                }).catch(() => {});
+                if (audioRef.current && hasMusic && !domMuted) {
+                    audioRef.current.play().catch(() => {});
+                }
+            } else {
+                video.pause();
+                setIsPlaying(false);
+                setShowPlayPauseIcon('pause');
+                if (onTogglePlay) onTogglePlay(false);
+                if (audioRef.current) {
+                    audioRef.current.pause();
+                }
+            }
+            if (playPauseTimeoutRef.current) clearTimeout(playPauseTimeoutRef.current);
+            playPauseTimeoutRef.current = setTimeout(() => {
+                setShowPlayPauseIcon(null);
+            }, 600);
+        }
+    }, [isPlayingMode, isAudioBlocked, handleUnmute, isVideo, onDoubleTapLike, onTogglePlay, hasMusic, domMuted]);
 
     // Handle background audio playback for posts with music
     useEffect(() => {
@@ -413,13 +488,17 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     return (
         <div 
             ref={containerRef} 
+            onClick={handleMediaClick}
             style={{ 
                 position: 'relative', 
                 width: '100%', 
                 height: style?.height || '100%', 
                 minHeight: style?.minHeight || '0px',
                 backgroundColor: '#18181b',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                cursor: isPlayingMode ? 'pointer' : 'default',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
             }}
         >
             {isVideo ? (
@@ -440,7 +519,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             transform: 'translateZ(0)',
                             backfaceVisibility: 'hidden',
                         }}
-                        muted={effectiveMuted}
+                        muted={domMuted}
                         controls={controls}
                         autoPlay={autoPlay || soundOn}
                         loop={loop}
@@ -466,6 +545,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 } catch (_) {}
                             }
                         }}
+                        onTimeUpdate={(e) => {
+                            const v = e.currentTarget;
+                            if (v.duration) {
+                                setVideoProgress((v.currentTime / v.duration) * 100);
+                            }
+                        }}
                         onMouseEnter={() => {
                             if (!isPlayingMode && videoRef.current) {
                                 videoRef.current.muted = true;
@@ -478,11 +563,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 try {
                                     videoRef.current.currentTime = 0.1;
                                 } catch (_) {}
-                            }
-                        }}
-                        onClick={(e) => {
-                            if (isAudioBlocked) {
-                                handleUnmute(e);
                             }
                         }}
                     />
@@ -520,6 +600,56 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             <span>Tap for sound</span>
                         </button>
                     )}
+
+                    {/* Central Play/Pause Flash Indicator */}
+                    {showPlayPauseIcon && (
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                zIndex: 30,
+                                width: '72px',
+                                height: '72px',
+                                borderRadius: '50%',
+                                background: 'rgba(0, 0, 0, 0.65)',
+                                backdropFilter: 'blur(8px)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                pointerEvents: 'none',
+                                animation: 'reelIconPop 0.4s ease-out forwards',
+                            }}
+                        >
+                            {showPlayPauseIcon === 'play' ? (
+                                <Play size={36} fill="#fff" color="#fff" style={{ marginLeft: '4px' }} />
+                            ) : (
+                                <Pause size={36} fill="#fff" color="#fff" />
+                            )}
+                        </div>
+                    )}
+
+                    {/* Subtle video progress indicator in active playback mode */}
+                    {isPlayingMode && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: '2px',
+                            backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                            zIndex: 20,
+                            pointerEvents: 'none',
+                        }}>
+                            <div style={{
+                                height: '100%',
+                                width: `${videoProgress}%`,
+                                backgroundColor: '#f5a524',
+                                transition: 'width 0.15s linear',
+                            }} />
+                        </div>
+                    )}
                 </>
             ) : (
                 <img
@@ -545,6 +675,23 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     onError={handleMediaError}
                 />
             )}
+
+            {/* Heart Bursts on Double Tap */}
+            {heartBursts.map(h => (
+                <div
+                    key={h.id}
+                    className="heart-burst"
+                    style={{
+                        position: 'absolute',
+                        left: h.x,
+                        top: h.y,
+                        zIndex: 40,
+                    }}
+                >
+                    <Heart size={80} fill="#f5a524" color="#f5a524" />
+                </div>
+            ))}
+
             
             {resolvedMusicUrl && isAudioActive && (
                 <audio

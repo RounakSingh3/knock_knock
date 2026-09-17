@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useContext, lazy, Susp
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
 import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, type PostData, type MessageData } from '../lib/database';
-import { getCleanSongUrl, isVideoUrl } from '../lib/media';
+import { getCleanSongUrl, isVideoUrl, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream } from '../lib/algorithm';
@@ -241,7 +241,7 @@ const Reels: React.FC = () => {
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
-    const [mutedAll, setMutedAll] = useState(false);
+    const [mutedAll, setMutedAll] = useState(() => getFeedMutedPreference());
     const [activeIndex, setActiveIndex] = useState(0);
     const [selectedReelIndex, setSelectedReelIndex] = useState<number | null>(null);
 
@@ -392,7 +392,14 @@ const Reels: React.FC = () => {
                     const hasMusic = Boolean(reel?.musicUrl);
                     v.muted = hasMusic ? true : mutedAll;
                     if (idx === selectedReelIndex) {
-                        v.play().catch(() => {});
+                        const playPromise = v.play();
+                        if (playPromise !== undefined) {
+                            playPromise.catch((err) => {
+                                console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
+                                v.muted = true;
+                                v.play().catch(() => {});
+                            });
+                        }
                     } else {
                         v.pause();
                     }
@@ -434,7 +441,14 @@ const Reels: React.FC = () => {
                     if (entry.isIntersecting) {
                         setActiveIndex(idx);
                         video.muted = hasMusic ? true : mutedAll;
-                        video.play().catch(() => { });
+                        const playPromise = video.play();
+                        if (playPromise !== undefined) {
+                            playPromise.catch((err) => {
+                                console.warn('[Reels] Intersection autoplay rejected, falling back to muted play:', err);
+                                video.muted = true;
+                                video.play().catch(() => {});
+                            });
+                        }
                         // Stop all other audios immediately, and play only this reel's audio
                         audioRefs.current.forEach((a, i) => {
                             if (a) {
@@ -756,7 +770,10 @@ const Reels: React.FC = () => {
                     <div 
                         key={reel.id} 
                         className="explore-item" 
-                        onClick={() => setSelectedReelIndex(idx)}
+                        onClick={() => {
+                            setActiveIndex(idx);
+                            setSelectedReelIndex(idx);
+                        }}
                         style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
                     >
                         {isVideoUrl(reel.posterUrl) || isVideoUrl(reel.videoUrl) ? (
@@ -831,6 +848,7 @@ const Reels: React.FC = () => {
                             onClick={() => {
                                 const newMuted = !mutedAll;
                                 setMutedAll(newMuted);
+                                setFeedMutedPreference(newMuted);
                                 if (!newMuted) {
                                     const currentReel = reelsList[activeIndex];
                                     if (currentReel) {

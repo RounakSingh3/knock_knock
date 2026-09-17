@@ -9,7 +9,7 @@ import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
-import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
+import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankFeedPosts, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, type ScoredPost } from '../lib/algorithm';
 
 // ⚡ Lazy-load heavy modals so the Home feed renders in 0ms!
@@ -187,7 +187,7 @@ const Home = () => {
     });
     const [error, setError] = useState('');
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
-    const [isModalMuted, setIsModalMuted] = useState(false);
+    const [isModalMuted, setIsModalMuted] = useState(() => getFeedMutedPreference());
     const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
@@ -866,7 +866,12 @@ const Home = () => {
                                 <button
                                     className="modal-mute-btn"
                                     type="button"
-                                    onClick={(e) => { e.stopPropagation(); setIsModalMuted(!isModalMuted); }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const nextMuted = !isModalMuted;
+                                        setIsModalMuted(nextMuted);
+                                        setFeedMutedPreference(nextMuted);
+                                    }}
                                     aria-label={isModalMuted ? 'Unmute' : 'Mute'}
                                     style={{
                                         width: '34px',
@@ -894,13 +899,17 @@ const Home = () => {
                             <PostMedia
                                 post={selectedPost}
                                 className="modal-image"
-                                controls
                                 playsInline
                                 autoPlay={true}
                                 soundOn={!isModalMuted}
                                 muted={isModalMuted}
                                 loop={true}
                                 objectFit="contain"
+                                onDoubleTapLike={() => handleLikeToggle(selectedPost.id)}
+                                onMuteChange={(muted) => {
+                                    setIsModalMuted(muted);
+                                    setFeedMutedPreference(muted);
+                                }}
                             />
                         </div>
                         <div className="modal-details modal-details--sheet">

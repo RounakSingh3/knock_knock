@@ -9,7 +9,7 @@ import {
     checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost
 } from '../lib/database';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
-import { isVideoPost, compressImage } from '../lib/media';
+import { isVideoPost, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
 import { supabase } from '../lib/supabase';
@@ -38,7 +38,7 @@ const Profile = () => {
     const [touchStart, setTouchStart] = useState<number | null>(null);
     const [touchEnd, setTouchEnd] = useState<number | null>(null);
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
-    const [isMuted, setIsMuted] = useState(false);
+    const [isMuted, setIsMuted] = useState(() => getFeedMutedPreference());
 
     // ── Share, Chat, and Comments States ──
     const [isShareOpen, setIsShareOpen] = useState(false);
@@ -1118,7 +1118,12 @@ const Profile = () => {
                                     <button
                                         className="modal-mute-btn"
                                         type="button"
-                                        onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const nextMuted = !isMuted;
+                                            setIsMuted(nextMuted);
+                                            setFeedMutedPreference(nextMuted);
+                                        }}
                                         aria-label={isMuted ? 'Unmute' : 'Mute'}
                                         style={{
                                             width: '34px',
@@ -1156,13 +1161,17 @@ const Profile = () => {
                                     key={selectedPost.id}
                                     post={selectedPost}
                                     className="modal-image"
-                                    controls
                                     playsInline
                                     autoPlay={true}
                                     soundOn={!isMuted}
                                     muted={isMuted}
                                     loop={true}
                                     objectFit="contain"
+                                    onDoubleTapLike={handleToggleSelectedLike}
+                                    onMuteChange={(muted) => {
+                                        setIsMuted(muted);
+                                        setFeedMutedPreference(muted);
+                                    }}
                                 />
                                 {hasNext && (
                                     <button 

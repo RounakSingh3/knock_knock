@@ -23,6 +23,7 @@ function getTimeAgo(dateStr: string) {
 }
 
 import { audioPlayer } from '../lib/audioPlayer';
+import { getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 
 export interface PostModalContentProps {
     post: PostData;
@@ -32,16 +33,36 @@ export interface PostModalContentProps {
     onShareClick?: (post: PostData) => void;
     isEmbedded?: boolean;
     isActive?: boolean;
+    isMuted?: boolean;
+    onMuteToggle?: (muted: boolean) => void;
 }
 
-export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClose, onDelete, onCommentClick, onShareClick, isEmbedded, isActive = true }) => {
+export const PostModalContent: React.FC<PostModalContentProps> = ({
+    post,
+    onClose,
+    onDelete,
+    onCommentClick,
+    onShareClick,
+    isEmbedded,
+    isActive = true,
+    isMuted: isMutedProp,
+    onMuteToggle,
+}) => {
     const { user } = useContext(AppContext);
     const navigate = useNavigate();
     const [isLiked, setIsLiked] = useState(false);
     const [likeCount, setLikeCount] = useState(post.likes_count || 0);
     const [isImped, setIsImped] = useState(false);
     const [impCount, setImpCount] = useState(post.imps_count || 0);
-    const [isMuted, setIsMuted] = useState(false);
+    const [localMuted, setLocalMuted] = useState(() => isMutedProp !== undefined ? isMutedProp : getFeedMutedPreference());
+
+    const effectiveMuted = isMutedProp !== undefined ? isMutedProp : localMuted;
+
+    useEffect(() => {
+        if (isMutedProp !== undefined) {
+            setLocalMuted(isMutedProp);
+        }
+    }, [isMutedProp]);
 
     useEffect(() => {
         if (user) {
@@ -64,6 +85,14 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
         setIsLiked(newStatus);
         setLikeCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
         await toggleLike(user.id, post.id, newStatus);
+    };
+
+    const handleMuteToggle = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const nextMuted = !effectiveMuted;
+        setLocalMuted(nextMuted);
+        setFeedMutedPreference(nextMuted);
+        if (onMuteToggle) onMuteToggle(nextMuted);
     };
 
     return (
@@ -96,15 +125,21 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                     className="modal-image"
                     playsInline
                     autoPlay={isActive}
-                    soundOn={isActive && !isMuted}
-                    muted={isMuted || !isActive}
+                    soundOn={isActive && !effectiveMuted}
+                    muted={effectiveMuted || !isActive}
                     loop={true}
                     objectFit="contain"
+                    onDoubleTapLike={handleLikeToggle}
+                    onMuteChange={(muted) => {
+                        setLocalMuted(muted);
+                        setFeedMutedPreference(muted);
+                        if (onMuteToggle) onMuteToggle(muted);
+                    }}
                 />
                 <button
                     className="modal-mute-btn"
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setIsMuted(!isMuted); }}
+                    onClick={handleMuteToggle}
                     style={{
                         position: 'absolute',
                         top: '16px',
@@ -123,7 +158,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({ post, onClos
                         backdropFilter: 'blur(8px)'
                     }}
                 >
-                    {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                    {effectiveMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                 </button>
                 {(post.music_url || post.music_title) && (
                     <div style={{
