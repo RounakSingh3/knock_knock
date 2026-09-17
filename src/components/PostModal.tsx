@@ -96,7 +96,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     };
 
     return (
-        <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()} style={isEmbedded ? { height: '100dvh', width: '100vw', maxHeight: '100dvh', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden' } : undefined}>
+        <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()} style={isEmbedded ? { height: '100%', width: '100%', maxHeight: '100%', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden' } : undefined}>
             <div className="modal-top-bar">
                 <div className="modal-user-row">
                     <img
@@ -174,9 +174,12 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     </div>
                 )}
             </div>
-            <div className="modal-details modal-details--sheet">
+            <div 
+                className="modal-details modal-details--sheet"
+                style={isEmbedded ? { pointerEvents: 'none', touchAction: 'pan-y' } : undefined}
+            >
                 {post.caption && (
-                    <p className="modal-caption">{post.caption}</p>
+                    <p className="modal-caption" style={isEmbedded ? { pointerEvents: 'auto' } : undefined}>{post.caption}</p>
                 )}
                 {post.attached_link && (
                     <a
@@ -184,11 +187,12 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         className="modal-link"
+                        style={isEmbedded ? { pointerEvents: 'auto' } : undefined}
                     >
                         <LinkIcon size={14} /> {post.attached_link}
                     </a>
                 )}
-                <div className="modal-actions">
+                <div className="modal-actions" style={isEmbedded ? { pointerEvents: 'auto' } : undefined}>
                     <button
                         className={`modal-action-btn ${isLiked ? 'liked' : ''}`}
                         onClick={handleLikeToggle}

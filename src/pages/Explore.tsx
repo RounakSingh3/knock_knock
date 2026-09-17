@@ -129,7 +129,7 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                 loop
                 playsInline
                 autoPlay={false}
-                thumbnail={!isBig}
+                thumbnail={true}
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
             {isVideo && (
@@ -792,7 +792,7 @@ const Explore = () => {
                                                     }
                                                 }}
                                             >
-                                                <PostMedia post={post} className="" muted loop playsInline autoPlay={false}
+                                                <PostMedia post={post} className="" muted loop playsInline autoPlay={false} thumbnail={true}
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 <div style={{
                                                     position: 'absolute', bottom: 0, left: 0, right: 0,

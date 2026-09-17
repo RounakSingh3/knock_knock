@@ -599,30 +599,29 @@ const Reels: React.FC = () => {
         const reelsListRef_local = reelsList; // capture for closure
 
         const tick = () => {
-            videoRefs.current.forEach((video, idx) => {
-                if (video && video.duration) {
-                    const pct = (video.currentTime / video.duration) * 100;
-                    progressesRef.current[idx] = pct;
+            const activeVideo = videoRefs.current[activeIndex];
+            if (activeVideo && activeVideo.duration) {
+                const pct = (activeVideo.currentTime / activeVideo.duration) * 100;
+                progressesRef.current[activeIndex] = pct;
 
-                    // ⚡ Direct DOM update — zero React re-renders
-                    const bar = document.querySelector(`.reel-card[data-reel-index="${idx}"] .reel-progress-fill`) as HTMLElement;
-                    if (bar) bar.style.width = `${pct}%`;
+                // ⚡ Direct DOM update only for active reel — eliminates layout thrashing
+                const bar = document.querySelector(`.reel-card[data-reel-index="${activeIndex}"] .reel-progress-fill`) as HTMLElement;
+                if (bar) bar.style.width = `${pct}%`;
 
-                    if (idx === activeIndex && pct >= 80) {
-                        const currentReel = reelsListRef_local[idx];
-                        if (currentReel && !completedReelsRef.current.has(currentReel.id)) {
-                            completedReelsRef.current.add(currentReel.id);
-                            recordImplicitSignal({
-                                type: 'watch_pct',
-                                postId: String(currentReel.id),
-                                category: currentReel.category || 'General',
-                                value: pct,
-                                timestamp: Date.now()
-                            });
-                        }
+                if (pct >= 80) {
+                    const currentReel = reelsListRef_local[activeIndex];
+                    if (currentReel && !completedReelsRef.current.has(currentReel.id)) {
+                        completedReelsRef.current.add(currentReel.id);
+                        recordImplicitSignal({
+                            type: 'watch_pct',
+                            postId: String(currentReel.id),
+                            category: currentReel.category || 'General',
+                            value: pct,
+                            timestamp: Date.now()
+                        });
                     }
                 }
-            });
+            }
             rafId = requestAnimationFrame(tick);
         };
 
@@ -703,22 +702,24 @@ const Reels: React.FC = () => {
         }
     }, [user?.id, impedReels]);
 
-    const [touchStartPos, setTouchStartPos] = useState<{x: number, y: number} | null>(null);
+    const touchStartPosRef = useRef<{x: number, y: number} | null>(null);
 
     const handleTouchStart = (e: React.TouchEvent) => {
-        setTouchStartPos({
+        if (!e.changedTouches[0]) return;
+        touchStartPosRef.current = {
             x: e.changedTouches[0].screenX,
             y: e.changedTouches[0].screenY
-        });
+        };
     };
 
     const handleTouchEnd = (reel: ReelData, e: React.TouchEvent) => {
-        if (!touchStartPos) return;
+        if (!touchStartPosRef.current || !e.changedTouches[0]) return;
         const touchEndX = e.changedTouches[0].screenX;
         const touchEndY = e.changedTouches[0].screenY;
         
-        const diffX = touchEndX - touchStartPos.x;
-        const diffY = touchEndY - touchStartPos.y;
+        const diffX = touchEndX - touchStartPosRef.current.x;
+        const diffY = touchEndY - touchStartPosRef.current.y;
+        touchStartPosRef.current = null;
 
         // Only trigger horizontal swipe if X movement is greater than Y movement (to avoid triggering on scroll)
         if (Math.abs(diffX) > 60 && Math.abs(diffX) > Math.abs(diffY)) {
@@ -730,7 +731,6 @@ const Reels: React.FC = () => {
                 closePlayer();
             }
         }
-        setTouchStartPos(null);
     };
 
     const closePlayer = () => {
@@ -786,7 +786,7 @@ const Reels: React.FC = () => {
                                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                 muted
                                 playsInline
-                                preload="metadata"
+                                preload="none"
                             />
                         ) : (
                             <img src={reel.posterUrl} alt={reel.caption || 'Reel'} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -909,10 +909,6 @@ const Reels: React.FC = () => {
                                     <video
                                         ref={(el) => {
                                             videoRefs.current[idx] = el;
-                                            if (el && !isNearby) {
-                                                el.removeAttribute('src');
-                                                el.load();
-                                            }
                                         }}
                                         src={isNearby ? reel.videoUrl : undefined}
                                         poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}

@@ -655,7 +655,6 @@ body::before {
     max-width: none;
     max-height: none;
     height: 100%;
-    height: 100dvh;
     border-radius: 0;
     border: none;
     box-shadow: none;
@@ -663,6 +662,7 @@ body::before {
     animation: modal-fade-in 0.2s ease;
     position: relative;
     overflow: hidden;
+    touch-action: pan-y;
 }
 
 @keyframes modal-slide-up {
@@ -1897,6 +1897,8 @@ body::before {
     overflow-y: scroll;
     scroll-snap-type: y mandatory;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
     scrollbar-width: none;
     background: #000;
     position: relative;
@@ -1951,6 +1953,8 @@ body::before {
     overflow: hidden;
     background: #000;
     flex-shrink: 0;
+    touch-action: pan-y;
+    contain: layout paint;
 }
 
 .reel-video {
@@ -1958,6 +1962,8 @@ body::before {
     height: 100%;
     object-fit: cover;
     cursor: pointer;
+    transform: translateZ(0);
+    backface-visibility: hidden;
 }
 
 /* Pause indicator */

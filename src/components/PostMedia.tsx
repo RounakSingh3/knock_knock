@@ -104,7 +104,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const [isPlaying, setIsPlaying] = useState(autoPlay || soundOn);
     const [showPlayPauseIcon, setShowPlayPauseIcon] = useState<'play' | 'pause' | null>(null);
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
-    const [videoProgress, setVideoProgress] = useState(0);
+    const progressBarRef = useRef<HTMLDivElement>(null);
     const lastTapTimeRef = useRef(0);
     const playPauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retryCountRef = useRef(0);
@@ -241,6 +241,17 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         };
     }, [isAudioBlocked, handleUnmute]);
 
+    // Synchronize DOM muted state directly without restarting play cycle
+    useEffect(() => {
+        if (!isVideo) return;
+        const video = videoRef.current;
+        if (!video) return;
+        video.muted = domMuted;
+        if (!domMuted) {
+            video.volume = 1;
+        }
+    }, [isVideo, domMuted]);
+
     // Handle video play/pause & sound with resilient dual-stage autoplay
     useEffect(() => {
         if (!isVideo) return;
@@ -249,12 +260,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         let isCancelled = false;
 
-        // Force DOM muted property to match domMuted
-        video.muted = domMuted;
-        if (!domMuted) {
-            video.volume = 1;
-        }
-
         if (autoPlay || soundOn) {
             const playPromise = video.play();
             if (playPromise !== undefined) {
@@ -262,16 +267,15 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     .then(() => {
                         if (!isCancelled) {
                             setIsPlaying(true);
-                            if (!domMuted) {
+                            if (!video.muted) {
                                 setIsAudioBlocked(false);
                             }
                         }
                     })
                     .catch((err) => {
                         if (isCancelled) return;
-                        console.warn('[PostMedia] Video autoplay rejected by browser policy, falling back to muted play:', err);
                         // If unmuted autoplay failed due to browser policy, fallback to muted autoplay so video never freezes!
-                        if (!hasMusic) {
+                        if (!hasMusic && !video.muted) {
                             setIsAutoplayFallbackMuted(true);
                             setIsAudioBlocked(true);
                             video.muted = true;
@@ -288,8 +292,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         return () => {
             isCancelled = true;
+            try {
+                video.pause();
+            } catch (_) {}
         };
-    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, domMuted]);
+    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic]);
 
     const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!isPlayingMode) return;
@@ -531,38 +538,26 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         disablePictureInPicture={true}
                         // @ts-ignore
                         disableRemotePlayback={true}
-                        preload={isPlayingMode ? "auto" : (isInViewport ? "metadata" : "none")}
+                        preload={isPlayingMode ? "auto" : "none"}
                         onError={handleMediaError}
                         onLoadedData={() => setIsLoaded(true)}
-                        onLoadedMetadata={(e) => {
-                            setIsLoaded(true);
-                            const v = e.currentTarget;
-                            if (!isPlayingMode) {
-                                try {
-                                    if (v.currentTime < 0.1) {
-                                        v.currentTime = 0.1;
-                                    }
-                                } catch (_) {}
-                            }
-                        }}
+                        onLoadedMetadata={() => setIsLoaded(true)}
                         onTimeUpdate={(e) => {
                             const v = e.currentTarget;
-                            if (v.duration) {
-                                setVideoProgress((v.currentTime / v.duration) * 100);
+                            if (v.duration && progressBarRef.current) {
+                                const pct = (v.currentTime / v.duration) * 100;
+                                progressBarRef.current.style.width = `${pct}%`;
                             }
                         }}
                         onMouseEnter={() => {
-                            if (!isPlayingMode && videoRef.current) {
+                            if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
                                 videoRef.current.muted = true;
                                 videoRef.current.play().catch(() => {});
                             }
                         }}
                         onMouseLeave={() => {
-                            if (!isPlayingMode && videoRef.current) {
+                            if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
                                 videoRef.current.pause();
-                                try {
-                                    videoRef.current.currentTime = 0.1;
-                                } catch (_) {}
                             }
                         }}
                     />
@@ -642,12 +637,15 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             zIndex: 20,
                             pointerEvents: 'none',
                         }}>
-                            <div style={{
-                                height: '100%',
-                                width: `${videoProgress}%`,
-                                backgroundColor: '#f5a524',
-                                transition: 'width 0.15s linear',
-                            }} />
+                            <div
+                                ref={progressBarRef}
+                                style={{
+                                    height: '100%',
+                                    width: '0%',
+                                    backgroundColor: '#f5a524',
+                                    transition: 'width 0.1s linear',
+                                }}
+                            />
                         </div>
                     )}
                 </>

@@ -22,40 +22,22 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
     const [activePostId, setActivePostId] = useState<string | null>(targetPost?.id || null);
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [isGlobalMuted, setIsGlobalMuted] = useState(() => getFeedMutedPreference());
-    const [snapEnabled, setSnapEnabled] = useState(false);
     const isInitialMountRef = useRef(true);
 
-    // Immediate layout positioning to guarantee target reel is active and visible without snap fighting
+    // Immediate positioning to guarantee target reel is active without layout jump
     useLayoutEffect(() => {
-        if (!scrollRef.current || !targetPost) return;
-        const targetEl = itemRefs.current[targetPost.id];
+        if (!scrollRef.current) return;
+        const container = scrollRef.current;
+        const targetEl = targetPost ? itemRefs.current[targetPost.id] : null;
         if (targetEl) {
-            scrollRef.current.scrollTop = targetEl.offsetTop;
+            container.scrollTop = targetEl.offsetTop;
         } else {
-            scrollRef.current.scrollTop = scrollRef.current.clientHeight * initialIndex;
+            container.scrollTop = container.clientHeight * initialIndex;
         }
-    }, [initialIndex, targetPost]);
-
-    // Secondary alignment and snap engagement
-    useEffect(() => {
-        const scrollToInitial = () => {
-            if (!scrollRef.current || !targetPost) return;
-            const targetEl = itemRefs.current[targetPost.id];
-            if (targetEl) {
-                scrollRef.current.scrollTop = targetEl.offsetTop;
-            } else {
-                scrollRef.current.scrollTop = scrollRef.current.clientHeight * initialIndex;
-            }
-        };
-
-        scrollToInitial();
-        const timer = setTimeout(() => {
-            scrollToInitial();
-            setSnapEnabled(true);
+        const t = setTimeout(() => {
             isInitialMountRef.current = false;
-        }, 60);
-
-        return () => clearTimeout(timer);
+        }, 100);
+        return () => clearTimeout(t);
     }, [initialIndex, targetPost]);
 
     // Responsive IntersectionObserver for swiping/scrolling between reels
@@ -63,25 +45,33 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         if (!scrollRef.current) return;
         
         const observer = new IntersectionObserver((entries) => {
-            // Do not let initial rendering overrides the clicked reel
             if (isInitialMountRef.current) return;
 
-            entries.forEach(entry => {
-                const postId = entry.target.getAttribute('data-postid');
-                const category = entry.target.getAttribute('data-category') || 'General';
-                if (!postId) return;
-
-                if (entry.isIntersecting) {
+            const intersecting = entries.filter(e => e.isIntersecting);
+            if (intersecting.length > 0) {
+                const dominant = intersecting.reduce((prev, curr) => 
+                    curr.intersectionRatio > prev.intersectionRatio ? curr : prev
+                );
+                const postId = dominant.target.getAttribute('data-postid');
+                const category = dominant.target.getAttribute('data-category') || 'General';
+                
+                if (postId && postId !== activePostId) {
                     setActivePostId(postId);
                     const idx = posts.findIndex(p => p.id === postId);
                     if (idx !== -1) setCurrentIndex(idx);
-                    
+
                     if (user) {
                         watchTimers.current[postId] = Date.now();
                         trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
                     }
-                } else {
-                    if (user) {
+                }
+            }
+
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) {
+                    const postId = entry.target.getAttribute('data-postid');
+                    const category = entry.target.getAttribute('data-category') || 'General';
+                    if (postId && user) {
                         const startTime = watchTimers.current[postId];
                         if (startTime) {
                             const durationSeconds = (Date.now() - startTime) / 1000;
@@ -95,7 +85,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
             });
         }, {
             root: scrollRef.current,
-            threshold: 0.6
+            threshold: [0.4, 0.7, 0.9]
         });
 
         Object.values(itemRefs.current).forEach(el => {
@@ -113,7 +103,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                 });
             }
         };
-    }, [user?.id, posts]);
+    }, [user?.id, posts, activePostId]);
 
     // Unconditionally silence any playing audios when closing or leaving feed viewer
     useEffect(() => {
@@ -133,16 +123,17 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
     return createPortal(
         <div 
             className="post-modal-backdrop post-modal-backdrop--fullscreen" 
-            onClick={onClose} 
             style={{ 
                 position: 'fixed',
-                inset: 0,
-                width: '100vw',
-                height: '100dvh',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: '100%',
+                height: '100%',
                 zIndex: 99999, 
-                overflowY: 'auto', 
-                scrollSnapType: snapEnabled ? 'y mandatory' : 'none', 
-                scrollBehavior: 'auto',
+                overflowY: 'scroll', 
+                scrollSnapType: 'y mandatory', 
                 WebkitOverflowScrolling: 'touch',
                 overscrollBehaviorY: 'contain',
                 background: '#000',
@@ -152,7 +143,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         >
             {posts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNear = Math.abs(index - currentIndex) <= 2;
+                const isNear = Math.abs(index - currentIndex) <= 3;
                 return (
                     <div 
                         key={post.id} 
@@ -160,10 +151,8 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                         data-postid={post.id}
                         data-category={post.category || 'General'}
                         style={{ 
-                            height: '100dvh', 
-                            minHeight: '100dvh',
-                            maxHeight: '100dvh',
-                            width: '100vw',
+                            height: '100%', 
+                            width: '100%',
                             scrollSnapAlign: 'start', 
                             scrollSnapStop: 'always', 
                             position: 'relative',
@@ -186,7 +175,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                                 }}
                             />
                         ) : (
-                            <div style={{ width: '100vw', height: '100dvh', minHeight: '100dvh', background: '#000' }} />
+                            <div style={{ width: '100%', height: '100%', background: '#000' }} />
                         )}
                     </div>
                 );
