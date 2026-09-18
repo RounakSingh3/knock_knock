@@ -28,6 +28,8 @@ interface PostMediaProps {
 
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
 const itunesCache = new Map<string, string>();
+// In-memory poster frame cache for video thumbnails to eliminate hardware video decoder churn
+const videoPosterCache = new Map<string, string>();
 
 const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
@@ -82,6 +84,14 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         return isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth);
     });
 
+    const cleanUrl = post.image_url ? post.image_url.split('#')[0] : '';
+    const [capturedPoster, setCapturedPoster] = useState<string | undefined>(() => {
+        if (isVideo && thumbnail && !isPlayingMode && cleanUrl) {
+            return videoPosterCache.get(cleanUrl);
+        }
+        return undefined;
+    });
+
     useEffect(() => {
         setHasError(false);
         setIsAudioBlocked(false);
@@ -89,7 +99,34 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
         setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth));
-    }, [post.image_url, isVideo, targetWidth]);
+        if (isVideo && thumbnail && !isPlayingMode && cleanUrl) {
+            const cached = videoPosterCache.get(cleanUrl);
+            if (cached) setCapturedPoster(cached);
+        }
+    }, [post.image_url, isVideo, targetWidth, thumbnail, isPlayingMode, cleanUrl]);
+
+    const captureFrame = useCallback(() => {
+        if (!thumbnail || isPlayingMode) return;
+        const video = videoRef.current;
+        if (!video || !video.videoWidth || !video.videoHeight) return;
+        try {
+            const canvas = document.createElement('canvas');
+            const scale = Math.min(1, 360 / video.videoWidth);
+            canvas.width = Math.round(video.videoWidth * scale);
+            canvas.height = Math.round(video.videoHeight * scale);
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                if (dataUrl && dataUrl.length > 200) {
+                    videoPosterCache.set(cleanUrl, dataUrl);
+                    setCapturedPoster(dataUrl);
+                }
+            }
+        } catch (_) {
+            // Keep video element as fallback
+        }
+    }, [thumbnail, isPlayingMode, cleanUrl]);
 
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
     const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
@@ -241,7 +278,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             isCancelled = true;
             try {
                 video.pause();
-                if (isPlayingMode) {
+                if (isPlayingMode || thumbnail) {
                     video.removeAttribute('src');
                     video.load();
                 }
@@ -465,9 +502,35 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         >
             {isVideo ? (
                 <>
+                    {thumbnail && !isPlayingMode && capturedPoster ? (
+                        /* ⚡ Captured static poster image — unmounts video element and frees hardware decoder! */
+                        <img
+                            src={capturedPoster}
+                            alt={alt}
+                            className={className}
+                            style={{
+                                ...style,
+                                filter: extractedFilter,
+                                width: '100%',
+                                height: '100%',
+                                objectFit: resolvedObjectFit,
+                                display: 'block',
+                                transform: 'translateZ(0)',
+                                backfaceVisibility: 'hidden',
+                            }}
+                            loading="lazy"
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                            onError={() => {
+                                setCapturedPoster(undefined);
+                                videoPosterCache.delete(cleanUrl);
+                            }}
+                        />
+                    ) : (
                     <video
                         ref={videoRef}
                         src={videoSrc}
+                        crossOrigin="anonymous"
                         className={className}
                         style={{
                             ...style,
@@ -493,15 +556,18 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         disableRemotePlayback={true}
                         preload={isPlayingMode ? "auto" : "metadata"}
                         onError={handleMediaError}
-                        onLoadedData={() => setIsLoaded(true)}
-                        onLoadedMetadata={() => setIsLoaded(true)}
-                        onTimeUpdate={(e) => {
+                        onLoadedData={() => {
+                            setIsLoaded(true);
+                            captureFrame();
+                        }}
+                        onSeeked={captureFrame}
+                        onTimeUpdate={isPlayingMode ? (e) => {
                             const v = e.currentTarget;
                             if (v.duration && progressBarRef.current) {
                                 const pct = (v.currentTime / v.duration) * 100;
                                 progressBarRef.current.style.width = `${pct}%`;
                             }
-                        }}
+                        } : undefined}
                         onMouseEnter={() => {
                             if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
                                 videoRef.current.muted = true;
@@ -514,6 +580,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             }
                         }}
                     />
+                    )}
 
                     {/* Floating 'Tap for sound' pill when unmuted playback was blocked by browser policy */}
                     {isAudioBlocked && isPlayingMode && (
@@ -527,9 +594,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 left: '50%',
                                 transform: 'translateX(-50%)',
                                 zIndex: 35,
-                                background: 'rgba(0, 0, 0, 0.82)',
-                                backdropFilter: 'blur(12px)',
-                                WebkitBackdropFilter: 'blur(12px)',
+                                background: 'rgba(0, 0, 0, 0.88)',
                                 border: '1px solid rgba(245, 165, 36, 0.6)',
                                 color: '#fff',
                                 padding: '8px 18px',
@@ -562,7 +627,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 height: '72px',
                                 borderRadius: '50%',
                                 background: 'rgba(0, 0, 0, 0.65)',
-                                backdropFilter: 'blur(8px)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -596,7 +660,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     height: '100%',
                                     width: '0%',
                                     backgroundColor: '#f5a524',
-                                    transition: 'width 0.1s linear',
                                 }}
                             />
                         </div>

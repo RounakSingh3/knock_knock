@@ -109,4 +109,4 @@ const VoiceReaction: React.FC<VoiceReactionProps> = ({ postId, postCategory, cur
     );
 };
 
-export default VoiceReaction;
+export default React.memo(VoiceReaction);

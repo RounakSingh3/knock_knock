@@ -115,7 +115,6 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                 overflow: 'hidden',
                 borderRadius: '4px',
                 background: '#18181b',
-                transition: 'transform 0.15s ease',
             }}
             onClick={handleClick}
         >
@@ -555,16 +554,18 @@ const Explore = () => {
                             tileTimers.delete(postId);
                             if (dwellMs >= 2000) {
                                 recordImplicitSignal({
+                                    userId: user.id,
+                                    targetId: postId,
                                     type: 'dwell',
-                                    postId,
                                     category: selectedCategory || 'General',
                                     value: dwellMs,
                                     timestamp: now
                                 });
                             } else if (dwellMs > 50 && dwellMs < 800) {
                                 recordImplicitSignal({
+                                    userId: user.id,
+                                    targetId: postId,
                                     type: 'skip',
-                                    postId,
                                     category: selectedCategory || 'General',
                                     value: dwellMs,
                                     timestamp: now

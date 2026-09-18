@@ -105,6 +105,15 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         };
     }, [user?.id, posts, activePostId]);
 
+    // Lock background page scroll while fullscreen viewer is open
+    useEffect(() => {
+        const prevOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = prevOverflow;
+        };
+    }, []);
+
     // Unconditionally silence any playing audios when closing or leaving feed viewer
     useEffect(() => {
         return () => {
@@ -143,6 +152,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
         >
             {posts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
+                const isNearActive = Math.abs(index - currentIndex) <= 2;
                 return (
                     <div 
                         key={post.id} 
@@ -160,21 +170,24 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                             overflow: 'hidden',
                             boxSizing: 'border-box',
                             flexShrink: 0,
+                            background: '#000',
                         }}
                     >
-                        <PostModalContent 
-                            post={post} 
-                            onClose={onClose} 
-                            onCommentClick={onCommentClick} 
-                            onShareClick={onShareClick} 
-                            isEmbedded={true}
-                            isActive={post.id === activePostId}
-                            isMuted={isGlobalMuted}
-                            onMuteToggle={(muted) => {
-                                setIsGlobalMuted(muted);
-                                setFeedMutedPreference(muted);
-                            }}
-                        />
+                        {isNearActive ? (
+                            <PostModalContent 
+                                post={post} 
+                                onClose={onClose} 
+                                onCommentClick={onCommentClick} 
+                                onShareClick={onShareClick} 
+                                isEmbedded={true}
+                                isActive={post.id === activePostId}
+                                isMuted={isGlobalMuted}
+                                onMuteToggle={(muted) => {
+                                    setIsGlobalMuted(muted);
+                                    setFeedMutedPreference(muted);
+                                }}
+                            />
+                        ) : null}
                     </div>
                 );
             })}

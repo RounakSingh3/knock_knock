@@ -69,7 +69,7 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
                 <div style={{
                     position: 'absolute', top: '12px', left: '12px', zIndex: 5,
                     display: 'flex', alignItems: 'center', gap: '5px',
-                    background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)',
+                    background: 'rgba(0,0,0,0.72)',
                     padding: '4px 10px', borderRadius: '14px', color: '#fff',
                     fontSize: '11px', fontWeight: 'bold', maxWidth: '140px',
                     overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
@@ -608,6 +608,17 @@ const Home = () => {
             }
         });
     }, [posts.length, feedMode]);
+
+    // Lock background page scroll while selected post detail modal is open
+    useEffect(() => {
+        if (selectedPost) {
+            const prevOverflow = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+            return () => {
+                document.body.style.overflow = prevOverflow;
+            };
+        }
+    }, [selectedPost]);
 
     useEffect(() => {
         return () => {
