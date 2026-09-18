@@ -29,40 +29,6 @@ interface PostMediaProps {
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
 const itunesCache = new Map<string, string>();
 
-// High-performance shared IntersectionObserver singleton to prevent allocating dozens of observers
-type ViewportCallback = (isIntersecting: boolean) => void;
-const viewportCallbacks = new Map<Element, ViewportCallback>();
-let sharedViewportObserver: IntersectionObserver | null = null;
-
-function getSharedViewportObserver(): IntersectionObserver | null {
-    if (typeof IntersectionObserver === 'undefined') return null;
-    if (!sharedViewportObserver) {
-        sharedViewportObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                const cb = viewportCallbacks.get(entry.target);
-                if (cb) {
-                    cb(entry.isIntersecting);
-                }
-            });
-        }, { rootMargin: '350px' });
-    }
-    return sharedViewportObserver;
-}
-
-function observeViewport(el: Element, cb: ViewportCallback) {
-    const obs = getSharedViewportObserver();
-    if (!obs) {
-        cb(true);
-        return () => {};
-    }
-    viewportCallbacks.set(el, cb);
-    obs.observe(el);
-    return () => {
-        viewportCallbacks.delete(el);
-        obs.unobserve(el);
-    };
-}
-
 const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
     'Memes': 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop',
@@ -96,7 +62,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const audioRef = useRef<HTMLAudioElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const isPlayingMode = autoPlay || soundOn || controls;
-    const [isInViewport, setIsInViewport] = useState(isPlayingMode);
     const [isLoaded, setIsLoaded] = useState(false);
     const [hasError, setHasError] = useState(false);
     const [isAudioBlocked, setIsAudioBlocked] = useState(false);
@@ -110,24 +75,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const retryCountRef = useRef(0);
     const fallbackUsedRef = useRef(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
-
-    useEffect(() => {
-        if (isPlayingMode) {
-            setIsInViewport(true);
-            return;
-        }
-        const el = containerRef.current;
-        if (!el) {
-            setIsInViewport(true);
-            return;
-        }
-
-        const unobserve = observeViewport(el, (isIntersecting) => {
-            setIsInViewport(isIntersecting);
-        });
-
-        return unobserve;
-    }, [isPlayingMode]);
 
     const targetWidth = thumbnail ? 350 : (isPlayingMode ? 650 : 350);
 
@@ -294,9 +241,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             isCancelled = true;
             try {
                 video.pause();
+                if (isPlayingMode) {
+                    video.removeAttribute('src');
+                    video.load();
+                }
             } catch (_) {}
         };
-    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic]);
+    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, isPlayingMode]);
 
     const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!isPlayingMode) return;
@@ -395,8 +346,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         return () => {
             isCancelled = true;
             if (cleanupTap) cleanupTap();
-            audio.pause();
-            audio.currentTime = 0;
+            try {
+                audio.pause();
+                audio.currentTime = 0;
+                audio.removeAttribute('src');
+                audio.load();
+            } catch (_) {}
         };
     }, [autoPlay, soundOn, muted, resolvedMusicUrl]);
 

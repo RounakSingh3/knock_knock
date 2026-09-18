@@ -407,8 +407,6 @@ body::before {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     background: rgba(255, 255, 255, 0.05, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.05);
-    content-visibility: auto;
-    contain-intrinsic-size: 300px;
 }
 
 .masonry-card:active {
@@ -4286,17 +4284,10 @@ select option {
    ─────────────────────────────────────────────────────────── */
 
 /* GPU layer promotion for scrollable feeds — prevents jank during scroll */
-.masonry-grid,
 .connections-page,
 .chat-messages {
     will-change: scroll-position;
     -webkit-overflow-scrolling: touch;
-}
-
-/* Contain layout for feed cards to limit repaint scope */
-.masonry-card,
-.connection-card {
-    contain: layout style paint;
 }
 
 /* Reduce backdrop-filter for scrollable card elements on mobile */
@@ -4308,17 +4299,12 @@ select option {
 }
 
 /* Universal Smooth Scrolling & GPU Hardware Composition */
-.home-page-v2,
 .stories-page-v2,
 .explore-page,
 .boost-container,
 .connections-container,
-.chat-messages,
-.masonry-grid {
-    scroll-behavior: smooth;
+.chat-messages {
     -webkit-overflow-scrolling: touch;
-    transform: translateZ(0);
-    contain: layout style;
 }
 
 /* Respect user preference to reduce motion — disables all infinite animations */

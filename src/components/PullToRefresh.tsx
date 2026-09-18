@@ -30,6 +30,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
         if (contentRef.current) {
             contentRef.current.style.transition = withTransition ? 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
             contentRef.current.style.transform = dist > 0 ? `translate3d(0, ${dist}px, 0)` : '';
+            contentRef.current.style.willChange = dist > 0 ? 'transform' : 'auto';
         }
         if (indicatorRef.current) {
             indicatorRef.current.style.transition = withTransition ? 'height 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
@@ -167,12 +168,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
             </div>
 
             {/* Content wrapped in pull container */}
-            <div 
-                ref={contentRef}
-                style={{ 
-                    willChange: 'transform',
-                }}
-            >
+            <div ref={contentRef}>
                 {children}
             </div>
         </div>

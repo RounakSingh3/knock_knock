@@ -58,7 +58,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
                     onClick={() => onClickPost(item.post!)}
                     onDoubleClick={() => onDoubleTap(item.post!.id)}
                 >
-                    <PostMedia post={item.post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
+                    <PostMedia post={item.post} className="masonry-card-img" muted loop playsInline autoPlay={false} thumbnail={true} />
                     <div className="masonry-card-overlay" />
                     <div className="masonry-connection-badge">
                         <Users size={10} /> Connected

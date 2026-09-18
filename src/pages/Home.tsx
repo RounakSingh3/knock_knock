@@ -64,7 +64,7 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
             onClick={() => onSelect(post)}
             onDoubleClick={() => onDoubleTap(post)}
         >
-            <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} />
+            <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} thumbnail={true} />
             {(post.music_url || post.music_title) && (
                 <div style={{
                     position: 'absolute', top: '12px', left: '12px', zIndex: 5,
@@ -188,6 +188,17 @@ const Home = () => {
     const [error, setError] = useState('');
     const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
     const [isModalMuted, setIsModalMuted] = useState(() => getFeedMutedPreference());
+
+    // Lock background body scroll while fullscreen post detail modal is open
+    useEffect(() => {
+        if (selectedPost) {
+            const originalOverflow = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+            return () => {
+                document.body.style.overflow = originalOverflow;
+            };
+        }
+    }, [selectedPost]);
     const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
@@ -452,10 +463,12 @@ const Home = () => {
                 checkIfLikedBatch(userId, newPostIds).then(likedMap => {
                     setLikedPosts(prev => ({ ...prev, ...likedMap }));
                 });
+                const newCounts: Record<string, number> = {};
                 freshBatch.forEach(p => {
                     trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
-                    setLikeCounts(prev => ({ ...prev, [p.id]: p.likes_count }));
+                    newCounts[p.id] = p.likes_count;
                 });
+                setLikeCounts(prev => ({ ...prev, ...newCounts }));
             }
             setHasMorePosts(true);
         } catch (err) {
@@ -562,16 +575,18 @@ const Home = () => {
                             cardTimersRef.current.delete(postId);
                             if (dwellMs >= 2500) {
                                 recordImplicitSignal({
+                                    userId,
+                                    targetId: postId,
                                     type: 'dwell',
-                                    postId,
                                     category,
                                     value: dwellMs,
                                     timestamp: now,
                                 });
                             } else if (dwellMs > 100 && dwellMs < 1200) {
                                 recordImplicitSignal({
+                                    userId,
+                                    targetId: postId,
                                     type: 'skip',
-                                    postId,
                                     category,
                                     value: dwellMs,
                                     timestamp: now,
