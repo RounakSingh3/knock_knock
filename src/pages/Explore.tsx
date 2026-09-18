@@ -494,7 +494,7 @@ const Explore = () => {
             }
             
             if (nextBatch.length > 0) {
-                setDiscoverPosts(prev => [...prev, ...nextBatch]);
+                setDiscoverPosts(prev => [...(prev || []), ...nextBatch]);
                 setFeedPage(nextPage);
                 feedPageRef.current = nextPage;
             }

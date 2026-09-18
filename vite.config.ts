@@ -9,21 +9,23 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 /**
- * Vite plugin to fix Temporal Dead Zone (TDZ) issues in production builds.
+ * Vite plugin to fix the __vite__mapDeps TDZ (Temporal Dead Zone) bug.
  * 
- * Rewrites ALL `const` to `var` in the generated JS files to completely
- * eliminate any possibility of TDZ errors (like "Cannot access 'm' before
- * initialization"). This is safe because the bundler's output is already
- * correctly scoped — `const` adds no safety benefit in minified output.
+ * Vite 5.x generates self-referencing default parameter on a `const` declaration in dynamic import wrappers:
+ *   const __vite__mapDeps=(i,m=__vite__mapDeps,d=(...))=>i.map(i=>d[i]);
+ * 
+ * Rewriting `const __vite__mapDeps=` to `var __vite__mapDeps=` resolves this cleanly.
+ * NOTE: Replacing ALL `const`/`let` with `var` across minified bundles is dangerous because
+ * minifiers intentionally reuse variable names across block scopes within the same function,
+ * which causes function-scoped variable collision (e.g. "T is not iterable").
  */
-function fixAllTDZ(): Plugin {
+function fixViteMapDepsTDZ(): Plugin {
   return {
-    name: 'fix-all-tdz',
+    name: 'fix-vite-mapdeps-tdz',
     enforce: 'post',
     closeBundle() {
       const distDir = resolve(__dirname, 'dist', 'assets');
       if (!existsSync(distDir)) {
-        process.stdout.write(`[fix-tdz] dist/assets not found at ${distDir}\n`);
         return;
       }
 
@@ -32,19 +34,20 @@ function fixAllTDZ(): Plugin {
       for (const file of files) {
         const filePath = join(distDir, file);
         let code = readFileSync(filePath, 'utf-8');
-        
-        // Replace all `const ` with `var ` to eliminate TDZ risks
-        // We only replace at statement boundaries to avoid touching strings
-        const patched = code
-          .replace(/\bconst\s+/g, 'var ')
-          .replace(/\blet\s+/g, 'var ');
-        
-        if (patched !== code) {
-          writeFileSync(filePath, patched, 'utf-8');
-          patchCount++;
+        if (code.includes('__vite__mapDeps')) {
+          const patched = code.replace(
+            /\bconst\s+__vite__mapDeps\s*=/,
+            'var __vite__mapDeps='
+          );
+          if (patched !== code) {
+            writeFileSync(filePath, patched, 'utf-8');
+            patchCount++;
+          }
         }
       }
-      process.stdout.write(`[fix-tdz] Patched ${patchCount} files (const/let -> var)\n`);
+      if (patchCount > 0) {
+        process.stdout.write(`[fix-vite-mapdeps-tdz] Patched ${patchCount} files\n`);
+      }
     },
   };
 }
@@ -52,7 +55,7 @@ function fixAllTDZ(): Plugin {
 export default defineConfig({
   plugins: [
     react(),
-    fixAllTDZ(),
+    fixViteMapDepsTDZ(),
   ],
   build: {
     rollupOptions: {

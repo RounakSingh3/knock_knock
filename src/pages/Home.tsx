@@ -438,7 +438,7 @@ const Home = () => {
                 });
 
                 if (uniqueMoreDb.length > 0) {
-                    setAllRawPosts(prev => [...prev, ...uniqueMoreDb]);
+                    setAllRawPosts(prev => [...(prev || []), ...uniqueMoreDb]);
                     const rankedMore = rankFeedPosts(uniqueMoreDb, hybridProfile, userId, connIds);
                     freshBatch = [...freshBatch, ...rankedMore.slice(0, 10 - freshBatch.length)];
                 }
@@ -455,7 +455,7 @@ const Home = () => {
             }
 
             if (freshBatch.length > 0) {
-                setPosts(prev => [...prev, ...freshBatch]);
+                setPosts(prev => [...(prev || []), ...freshBatch]);
                 setFeedPage(nextPage);
                 feedPageRef.current = nextPage;
                 // Batch check likes for new posts
