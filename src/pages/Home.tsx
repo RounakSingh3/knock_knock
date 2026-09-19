@@ -893,6 +893,8 @@ const Home = () => {
                         setPosts(prev => prev.filter(p => p.id !== postId));
                         setActiveFeedState(null);
                     }}
+                    likedPosts={likedPosts}
+                    impedPosts={impedPosts}
                 />
             )}
 

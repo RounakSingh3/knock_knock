@@ -37,6 +37,8 @@ export interface PostModalContentProps {
     isActive?: boolean;
     isMuted?: boolean;
     onMuteToggle?: (muted: boolean) => void;
+    initialLiked?: boolean;
+    initialImped?: boolean;
 }
 
 export const PostModalContent: React.FC<PostModalContentProps> = ({
@@ -51,12 +53,14 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     isActive = true,
     isMuted: isMutedProp,
     onMuteToggle,
+    initialLiked,
+    initialImped,
 }) => {
     const { user } = useContext(AppContext);
     const navigate = useNavigate();
-    const [isLiked, setIsLiked] = useState(false);
+    const [isLiked, setIsLiked] = useState(() => initialLiked ?? false);
     const [likeCount, setLikeCount] = useState(post.likes_count || 0);
-    const [isImped, setIsImped] = useState(false);
+    const [isImped, setIsImped] = useState(() => initialImped ?? false);
     const [impCount, setImpCount] = useState(post.imps_count || 0);
     const [localMuted, setLocalMuted] = useState(() => isMutedProp !== undefined ? isMutedProp : getFeedMutedPreference());
 
@@ -69,11 +73,15 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     }, [isMutedProp]);
 
     useEffect(() => {
-        if (user) {
-            checkIfLiked(user.id, post.id).then(setIsLiked);
-            fetchUserImps(user.id).then(imps => setIsImped(imps.includes(post.id)));
+        if (user && isActive) {
+            if (initialLiked === undefined) {
+                checkIfLiked(user.id, post.id).then(setIsLiked);
+            }
+            if (initialImped === undefined) {
+                fetchUserImps(user.id).then(imps => setIsImped(imps.includes(post.id)));
+            }
         }
-    }, [user?.id, post.id]);
+    }, [user?.id, post.id, isActive, initialLiked, initialImped]);
 
     const handleImpToggle = async () => {
         if (!user) return;
@@ -134,6 +142,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     soundOn={isActive && !effectiveMuted}
                     muted={effectiveMuted || !isActive}
                     loop={true}
+                    thumbnail={!isActive}
                     objectFit="contain"
                     onDoubleTapLike={handleLikeToggle}
                     onMuteChange={(muted) => {

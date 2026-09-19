@@ -15,6 +15,8 @@ interface ExploreFeedViewerProps {
     onImpToggle?: (postId: string, imped: boolean) => void;
     onDelete?: (postId: string) => void;
     zIndex?: number;
+    likedPosts?: Record<string, boolean>;
+    impedPosts?: Record<string, boolean>;
 }
 
 const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
@@ -27,6 +29,8 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     onImpToggle,
     onDelete,
     zIndex,
+    likedPosts,
+    impedPosts,
 }) => {
     const { user } = useContext(AppContext);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -34,6 +38,8 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const targetPost = posts[initialIndex] || posts[0];
     const [activePostId, setActivePostId] = useState<string | null>(targetPost?.id || null);
+    const activePostIdRef = useRef<string | null>(targetPost?.id || null);
+    useEffect(() => { activePostIdRef.current = activePostId; }, [activePostId]);
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [isGlobalMuted, setIsGlobalMuted] = useState(() => getFeedMutedPreference());
     const isInitialMountRef = useRef(true);
@@ -60,10 +66,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         } else {
             container.scrollTop = container.clientHeight * initialIndex;
         }
-        const t = setTimeout(() => {
-            isInitialMountRef.current = false;
-        }, 100);
-        return () => clearTimeout(t);
+        isInitialMountRef.current = false;
     }, [initialIndex, targetPost]);
 
     // Responsive IntersectionObserver for swiping/scrolling between reels
@@ -81,7 +84,8 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 const postId = dominant.target.getAttribute('data-postid');
                 const category = dominant.target.getAttribute('data-category') || 'General';
                 
-                if (postId && postId !== activePostId) {
+                if (postId && postId !== activePostIdRef.current) {
+                    activePostIdRef.current = postId;
                     setActivePostId(postId);
                     const idx = posts.findIndex(p => p.id === postId);
                     if (idx !== -1) setCurrentIndex(idx);
@@ -129,7 +133,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 });
             }
         };
-    }, [user?.id, posts, activePostId]);
+    }, [user?.id, posts.length]);
 
     // Lock background page scroll while fullscreen viewer is open
     useEffect(() => {
@@ -172,13 +176,15 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 WebkitOverflowScrolling: 'touch',
                 overscrollBehaviorY: 'contain',
                 background: '#000',
-                display: 'block'
+                display: 'block',
+                willChange: 'scroll-position',
+                transform: 'translateZ(0)',
             }} 
             ref={scrollRef}
         >
             {posts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNearActive = Math.abs(index - currentIndex) <= 2;
+                const isNearActive = Math.abs(index - currentIndex) <= 1;
                 return (
                     <div 
                         key={post.id} 
@@ -197,6 +203,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                             boxSizing: 'border-box',
                             flexShrink: 0,
                             background: '#000',
+                            transform: 'translateZ(0)',
                         }}
                     >
                         {isNearActive ? (
@@ -215,6 +222,8 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                                     setIsGlobalMuted(muted);
                                     setFeedMutedPreference(muted);
                                 }}
+                                initialLiked={likedPosts?.[post.id]}
+                                initialImped={impedPosts?.[post.id]}
                             />
                         ) : null}
                     </div>

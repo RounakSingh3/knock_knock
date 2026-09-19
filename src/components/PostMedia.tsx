@@ -78,7 +78,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const fallbackUsedRef = useRef(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
-    const targetWidth = thumbnail ? 350 : (isPlayingMode ? 650 : 350);
+    // Use consistent 600px width so images rendered in grids/thumbnails hit the exact same browser cache when opened in modal
+    const targetWidth = 600;
 
     const [currentImgSrc, setCurrentImgSrc] = useState<string>(() => {
         return isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth);
@@ -86,7 +87,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
     const cleanUrl = post.image_url ? post.image_url.split('#')[0] : '';
     const [capturedPoster, setCapturedPoster] = useState<string | undefined>(() => {
-        if (isVideo && thumbnail && !isPlayingMode && cleanUrl) {
+        if (isVideo && cleanUrl) {
             return videoPosterCache.get(cleanUrl);
         }
         return undefined;
@@ -99,11 +100,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
         setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth));
-        if (isVideo && thumbnail && !isPlayingMode && cleanUrl) {
+        if (isVideo && cleanUrl) {
             const cached = videoPosterCache.get(cleanUrl);
             if (cached) setCapturedPoster(cached);
         }
-    }, [post.image_url, isVideo, targetWidth, thumbnail, isPlayingMode, cleanUrl]);
+    }, [post.image_url, isVideo, cleanUrl]);
 
     const captureFrame = useCallback(() => {
         if (!thumbnail || isPlayingMode) return;
@@ -530,7 +531,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     <video
                         ref={videoRef}
                         src={videoSrc}
-                        crossOrigin="anonymous"
+                        poster={capturedPoster}
+                        crossOrigin={thumbnail ? "anonymous" : undefined}
                         className={className}
                         style={{
                             ...style,
@@ -554,7 +556,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         disablePictureInPicture={true}
                         // @ts-ignore
                         disableRemotePlayback={true}
-                        preload={isPlayingMode ? "auto" : "metadata"}
+                        preload={isPlayingMode ? "auto" : "none"}
                         onError={handleMediaError}
                         onLoadedData={() => {
                             setIsLoaded(true);
