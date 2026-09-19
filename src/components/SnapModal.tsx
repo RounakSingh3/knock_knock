@@ -62,6 +62,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const nativeCameraInputRef = useRef<HTMLInputElement | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const audioTimerRef = useRef<any>(null);
@@ -80,27 +81,74 @@ export const SnapModal: React.FC<SnapModalProps> = ({
         setIsCameraActive(false);
     }, []);
 
-    // Start Camera Stream
+    // Attach stream to video element whenever element mounts or updates
+    const attachVideoRef = useCallback((el: HTMLVideoElement | null) => {
+        videoRef.current = el;
+        if (el && streamRef.current) {
+            if (el.srcObject !== streamRef.current) {
+                el.srcObject = streamRef.current;
+            }
+            el.play().catch(() => {});
+        }
+    }, []);
+
+    // Start Camera Stream with fallbacks for mobile browsers
     const startCamera = useCallback(async (mode: 'user' | 'environment') => {
-        stopCamera();
         setCameraError(null);
+        if (!navigator?.mediaDevices?.getUserMedia) {
+            setCameraError('Live camera not supported in this browser environment. Tap below to use your device camera or files.');
+            setIsCameraActive(false);
+            return;
+        }
+
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: false,
-            });
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+                streamRef.current = null;
+            }
+
+            let stream: MediaStream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false,
+                });
+            } catch {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: mode },
+                        audio: false,
+                    });
+                } catch {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: true,
+                        audio: false,
+                    });
+                }
+            }
+
             streamRef.current = stream;
+            setIsCameraActive(true);
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
                 videoRef.current.play().catch(() => {});
             }
-            setIsCameraActive(true);
         } catch (err: any) {
             console.warn('Camera access issue:', err);
-            setCameraError('Camera access unavailable. You can pick photos/videos from your files.');
+            setCameraError('Camera access denied or unavailable. You can use your phone camera or pick from gallery below.');
             setIsCameraActive(false);
         }
-    }, [stopCamera]);
+    }, []);
+
+    // Ensure video srcObject stays bound whenever isCameraActive changes
+    useEffect(() => {
+        if (isCameraActive && videoRef.current && streamRef.current) {
+            if (videoRef.current.srcObject !== streamRef.current) {
+                videoRef.current.srcObject = streamRef.current;
+            }
+            videoRef.current.play().catch(() => {});
+        }
+    }, [isCameraActive]);
 
     // Flip Camera (front / back)
     const toggleCameraFacing = () => {
@@ -136,7 +184,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
         }, 'image/jpeg', 0.85);
     };
 
-    // Gallery File Selection
+    // Gallery / Native Camera File Selection
     const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
@@ -146,33 +194,53 @@ export const SnapModal: React.FC<SnapModalProps> = ({
         setMediaType(isVideo ? 'video' : 'image');
         stopCamera();
         if (fileInputRef.current) fileInputRef.current.value = '';
+        if (nativeCameraInputRef.current) nativeCameraInputRef.current.value = '';
     };
 
-    // ── 30-SECOND VOICE RECORDING ENGINE ──
+    // ── 30-SECOND VOICE RECORDING ENGINE (Cross-platform with iOS Safari support) ──
     const startVoiceRecording = async () => {
         try {
+            if (!navigator?.mediaDevices?.getUserMedia) {
+                alert('Microphone access is not supported in this browser environment.');
+                return;
+            }
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
-            let mimeType = 'audio/webm';
+            let mimeType: string | undefined = undefined;
             if (typeof MediaRecorder !== 'undefined') {
-                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-                    mimeType = 'audio/webm;codecs=opus';
-                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-                    mimeType = 'audio/webm';
-                } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-                    mimeType = 'audio/mp4';
-                } else if (MediaRecorder.isTypeSupported('audio/aac')) {
-                    mimeType = 'audio/aac';
+                const preferred = [
+                    'audio/webm;codecs=opus',
+                    'audio/webm',
+                    'audio/mp4',
+                    'audio/aac',
+                    'audio/ogg;codecs=opus'
+                ];
+                for (const cand of preferred) {
+                    try {
+                        if (MediaRecorder.isTypeSupported(cand)) {
+                            mimeType = cand;
+                            break;
+                        }
+                    } catch {
+                        // continue
+                    }
                 }
             }
 
-            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            const options = mimeType ? { mimeType } : undefined;
+            let recorder: MediaRecorder;
+            try {
+                recorder = new MediaRecorder(stream, options);
+            } catch {
+                recorder = new MediaRecorder(stream);
+            }
+
             mediaRecorderRef.current = recorder;
             audioChunksRef.current = [];
             setAudioDuration(0);
 
             recorder.ondataavailable = (e) => {
-                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+                if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
             };
 
             const startTime = Date.now();
@@ -182,7 +250,8 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                 if (audioTimerRef.current) clearInterval(audioTimerRef.current);
                 if (audioHardStopTimerRef.current) clearTimeout(audioHardStopTimerRef.current);
 
-                const recordedBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
+                const finalMime = recorder.mimeType || mimeType || 'audio/webm';
+                const recordedBlob = new Blob(audioChunksRef.current, { type: finalMime });
                 const actualSecs = Math.max(1, Math.min(30, Math.round((Date.now() - startTime) / 1000)));
                 setRecordedAudioBlob(recordedBlob);
                 setAudioDuration(actualSecs);
@@ -190,7 +259,11 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                 setIsRecordingAudio(false);
             };
 
-            recorder.start(100);
+            try {
+                recorder.start(1000);
+            } catch {
+                recorder.start();
+            }
             setIsRecordingAudio(true);
 
             // Live interval counter (caps at 30)
@@ -436,7 +509,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                 {/* 1. Camera Viewfinder */}
                 {isCameraActive && !capturedMediaUrl && (
                     <video
-                        ref={videoRef}
+                        ref={attachVideoRef}
                         autoPlay
                         playsInline
                         muted
@@ -504,41 +577,71 @@ export const SnapModal: React.FC<SnapModalProps> = ({
 
                 {/* Camera Fallback / Error view */}
                 {!isCameraActive && !capturedMediaUrl && (
-                    <div style={{ textAlign: 'center', padding: '24px', color: '#fff' }}>
-                        <Camera size={48} style={{ opacity: 0.5, marginBottom: '12px' }} />
-                        <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', margin: '0 0 16px' }}>
-                            {cameraError || 'Camera inactive. Choose a photo/video or open camera.'}
+                    <div style={{ textAlign: 'center', padding: '24px', color: '#fff', maxWidth: '380px' }}>
+                        <Camera size={48} style={{ opacity: 0.6, marginBottom: '12px', color: '#f5a524' }} />
+                        <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.85)', margin: '0 0 18px', lineHeight: 1.5 }}>
+                            {cameraError || 'Camera inactive. Tap below to use your phone camera or select files.'}
                         </p>
-                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                            <button
-                                onClick={() => startCamera(facingMode)}
-                                style={{
-                                    background: '#f5a524',
-                                    color: '#000',
-                                    border: 'none',
-                                    padding: '10px 18px',
-                                    borderRadius: '16px',
-                                    fontWeight: '700',
-                                    fontSize: '13px',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                Start Camera
-                            </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', width: '100%' }}>
+                                <button
+                                    onClick={() => startCamera(facingMode)}
+                                    style={{
+                                        flex: 1,
+                                        background: '#f5a524',
+                                        color: '#000',
+                                        border: 'none',
+                                        padding: '12px 14px',
+                                        borderRadius: '16px',
+                                        fontWeight: '800',
+                                        fontSize: '13px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <RefreshCw size={16} />
+                                    <span>Try Live Camera</span>
+                                </button>
+                                <button
+                                    onClick={() => nativeCameraInputRef.current?.click()}
+                                    style={{
+                                        flex: 1,
+                                        background: 'linear-gradient(135deg, #ff6b35, #f5a524)',
+                                        color: '#fff',
+                                        border: 'none',
+                                        padding: '12px 14px',
+                                        borderRadius: '16px',
+                                        fontWeight: '800',
+                                        fontSize: '13px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <Camera size={16} />
+                                    <span>Phone Camera</span>
+                                </button>
+                            </div>
                             <button
                                 onClick={() => fileInputRef.current?.click()}
                                 style={{
-                                    background: 'rgba(255,255,255,0.15)',
+                                    width: '100%',
+                                    background: 'rgba(255,255,255,0.12)',
                                     color: '#fff',
-                                    border: 'none',
-                                    padding: '10px 18px',
-                                    borderRadius: '16px',
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    padding: '10px 14px',
+                                    borderRadius: '14px',
                                     fontWeight: '700',
-                                    fontSize: '13px',
+                                    fontSize: '12px',
                                     cursor: 'pointer'
                                 }}
                             >
-                                Pick from Files
+                                Pick from Gallery / Files
                             </button>
                         </div>
                     </div>
@@ -550,6 +653,14 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                     ref={fileInputRef}
                     type="file"
                     accept="image/*,video/*"
+                    style={{ display: 'none' }}
+                    onChange={handleGallerySelect}
+                />
+                <input
+                    ref={nativeCameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
                     style={{ display: 'none' }}
                     onChange={handleGallerySelect}
                 />

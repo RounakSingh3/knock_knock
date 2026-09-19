@@ -359,6 +359,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [isUploadingImage, setIsUploadingImage] = useState(false);
     const [isSnapModalOpen, setIsSnapModalOpen] = useState(false);
     const [viewingSnap, setViewingSnap] = useState<(SnapPayload & { senderName?: string; createdAt?: string }) | null>(null);
+    const viewingAudioRef = useRef<HTMLAudioElement | null>(null);
+    const [isViewingAudioPlaying, setIsViewingAudioPlaying] = useState(false);
 
     // 🌐 Real-Time Multi-Language Translation States (38+ Languages)
     const [myLanguage, setMyLanguage] = useState<string>(() => getUserLanguage());
@@ -1243,6 +1245,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
             if (selectedContact && selectedContact.id === recipientId) {
                 await handleSendDirect(text);
+                const newPoints = (currentUser.points || 0) + 10;
+                await updatePoints(currentUser.id, newPoints).catch(() => {});
+                refreshContacts();
             } else {
                 const partner = allContacts.find(c => c.id === recipientId);
                 if (partner) {
@@ -3103,17 +3108,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     {/* Auto-playing attached 30s audio */}
                     {viewingSnap.audio_url && (
                         <audio
+                            ref={viewingAudioRef}
                             src={viewingSnap.audio_url}
                             autoPlay
                             playsInline
                             style={{ display: 'none' }}
-                            ref={(audioEl) => {
-                                if (audioEl) {
-                                    audioEl.play().catch(err => {
-                                        console.warn('Autoplay waiting for touch:', err);
-                                    });
-                                }
-                            }}
+                            onPlay={() => setIsViewingAudioPlaying(true)}
+                            onPause={() => setIsViewingAudioPlaying(false)}
+                            onEnded={() => setIsViewingAudioPlaying(false)}
                         />
                     )}
 
@@ -3146,13 +3148,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 color: '#f5a524', fontWeight: '800', fontSize: '13px'
                             }}>
                                 <Mic size={16} />
-                                <span>Voice Note Playing 🎙️</span>
+                                <span>{isViewingAudioPlaying ? 'Voice Note Playing 🎙️' : 'Voice Note Paused 🎙️'}</span>
                                 <button
                                     onClick={() => {
-                                        const audio = document.querySelector('audio[src="' + viewingSnap.audio_url + '"]') as HTMLAudioElement;
-                                        if (audio) {
-                                            if (audio.paused) audio.play();
-                                            else audio.pause();
+                                        if (viewingAudioRef.current) {
+                                            if (viewingAudioRef.current.paused) {
+                                                viewingAudioRef.current.play().catch(() => {});
+                                            } else {
+                                                viewingAudioRef.current.pause();
+                                            }
                                         }
                                     }}
                                     style={{
@@ -3161,7 +3165,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         alignItems: 'center', justifyContent: 'center', color: '#000', cursor: 'pointer'
                                     }}
                                 >
-                                    <Play size={12} fill="#000" style={{ marginLeft: '1px' }} />
+                                    {isViewingAudioPlaying ? <Pause size={12} fill="#000" /> : <Play size={12} fill="#000" style={{ marginLeft: '1px' }} />}
                                 </button>
                             </div>
                         )}

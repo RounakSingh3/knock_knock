@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useContext, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock, Eye, HelpCircle, Users, Music } from 'lucide-react';
+import { Camera, Zap, X, Image as ImageIcon, Sparkles, Send, Flame, Trophy, TrendingUp, Clock, Eye, HelpCircle, Users, Music, RefreshCw } from 'lucide-react';
 import type { Track } from '../components/MusicPickerModal';
 import { AppContext } from '../context/AppContext';
 import {
@@ -96,6 +96,10 @@ const Stories = () => {
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const nativeCameraInputRef = useRef<HTMLInputElement>(null);
+    const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+    const [cameraError, setCameraError] = useState<string | null>(null);
 
     // Fetch data on mount
     useEffect(() => {
@@ -123,7 +127,6 @@ const Stories = () => {
     }, [user?.id, blockedIds]);
 
     // Infinite scroll observer for boosted stories
-    // ⚡ Does not re-create observer when visible count changes
     useEffect(() => {
         if (!boostedSentinelRef.current) return;
         const observer = new IntersectionObserver(
@@ -159,24 +162,69 @@ const Stories = () => {
         return nextStreak * 5;
     }, [isStreakAlive, streakCount]);
 
+    // Attach stream to video element whenever it mounts
+    const attachVideoRef = useCallback((el: HTMLVideoElement | null) => {
+        (videoRef as any).current = el;
+        if (el && streamRef.current) {
+            if (el.srcObject !== streamRef.current) {
+                el.srcObject = streamRef.current;
+            }
+            el.play().catch(() => {});
+        }
+    }, []);
+
     // Camera functions
-    const startCamera = async () => {
+    const startCamera = async (mode: 'user' | 'environment' = facingMode) => {
         setIsCameraActive(true);
+        setCameraError(null);
+        if (!navigator?.mediaDevices?.getUserMedia) {
+            setCameraError("Live camera is not supported in this browser environment. Use phone camera or gallery below.");
+            return;
+        }
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
+            }
+
+            let stream: MediaStream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+            } catch {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: mode }
+                    });
+                } catch {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                }
+            }
+
+            streamRef.current = stream;
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(() => {});
             }
         } catch (err) {
             console.error("Error accessing camera: ", err);
-            alert("Could not access camera for AR filters.");
+            setCameraError("Camera access denied or unavailable. Tap below to use your phone camera or gallery.");
         }
     };
 
+    const toggleFacingMode = () => {
+        const next = facingMode === 'user' ? 'environment' : 'user';
+        setFacingMode(next);
+        startCamera(next);
+    };
+
     const stopCamera = () => {
-        if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => track.stop());
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+        if (videoRef.current) {
             videoRef.current.srcObject = null;
         }
         setIsCameraActive(false);
@@ -186,16 +234,34 @@ const Stories = () => {
         setIsGalleryVideo(false);
         setSelectedTrack(null);
         setStoryCaption('');
+        setCameraError(null);
     };
+
+    // Ensure stream is bound if video mounts late
+    useEffect(() => {
+        if (isCameraActive && videoRef.current && streamRef.current) {
+            if (videoRef.current.srcObject !== streamRef.current) {
+                videoRef.current.srcObject = streamRef.current;
+            }
+            videoRef.current.play().catch(() => {});
+        }
+    }, [isCameraActive]);
 
     const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const isVideo = file.type.startsWith('video/');
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
+            }
             setIsGalleryVideo(isVideo);
             setGalleryFile(file);
             setCapturedImageUrl(URL.createObjectURL(file));
             setHasCaptured(true);
+            setIsCameraActive(true);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            if (nativeCameraInputRef.current) nativeCameraInputRef.current.value = '';
         }
     };
 
@@ -203,16 +269,22 @@ const Stories = () => {
         if (videoRef.current && canvasRef.current) {
             const video = videoRef.current;
             const canvas = canvasRef.current;
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            canvas.width = video.videoWidth || 720;
+            canvas.height = video.videoHeight || 1280;
             const ctx = canvas.getContext('2d');
             if (ctx) {
+                if (facingMode === 'user') {
+                    ctx.translate(canvas.width, 0);
+                    ctx.scale(-1, 1);
+                }
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
                 setCapturedImageUrl(dataUrl);
                 setHasCaptured(true);
-                const stream = video.srcObject as MediaStream;
-                if (stream) stream.getTracks().forEach(track => track.stop());
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                }
             }
         }
     };
@@ -372,21 +444,57 @@ const Stories = () => {
                         <Music size={26} />
                     </button>
                     {!hasCaptured && (
-                        <button className="icon-btn text-yellow-400"><Sparkles size={24} /></button>
+                        <button onClick={toggleFacingMode} className="icon-btn" title="Flip Camera">
+                            <RefreshCw size={24} />
+                        </button>
                     )}
                 </div>
 
                 <div className="video-container">
                     <video
-                        ref={videoRef}
+                        ref={attachVideoRef}
                         autoPlay
                         playsInline
+                        muted
                         className="camera-video feed"
                         style={{
                             display: hasCaptured ? 'none' : 'block',
-                            filter: FILTERS[activeFilterIndex].style
+                            filter: FILTERS[activeFilterIndex].style,
+                            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none'
                         }}
                     />
+                    {cameraError && !hasCaptured && (
+                        <div style={{
+                            position: 'absolute', inset: 0, zIndex: 12,
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                            background: 'rgba(0,0,0,0.85)', padding: '24px', textAlign: 'center', color: '#fff'
+                        }}>
+                            <Camera size={44} style={{ color: '#f5a524', marginBottom: '12px' }} />
+                            <p style={{ fontSize: '14px', marginBottom: '16px', color: 'rgba(255,255,255,0.85)', lineHeight: 1.5 }}>
+                                {cameraError}
+                            </p>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button
+                                    onClick={() => startCamera(facingMode)}
+                                    style={{
+                                        background: '#f5a524', color: '#000', border: 'none',
+                                        padding: '10px 18px', borderRadius: '16px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer'
+                                    }}
+                                >
+                                    Try Again
+                                </button>
+                                <button
+                                    onClick={() => nativeCameraInputRef.current?.click()}
+                                    style={{
+                                        background: 'linear-gradient(135deg, #ff6b35, #f5a524)', color: '#fff', border: 'none',
+                                        padding: '10px 18px', borderRadius: '16px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer'
+                                    }}
+                                >
+                                    Phone Camera
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {hasCaptured && isGalleryVideo ? (
                         <video
                             src={capturedImageUrl || ''}
@@ -468,8 +576,20 @@ const Stories = () => {
                 <div className="camera-footer">
                     {!hasCaptured ? (
                         <>
-                            <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Upload photos/videos from gallery">
-                                <ImageIcon size={32} />
+                            <button className="icon-btn" onClick={() => nativeCameraInputRef.current?.click()} title="Open Phone Camera">
+                                <Camera size={30} />
+                            </button>
+                            <input
+                                ref={nativeCameraInputRef}
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={handleGallerySelect}
+                                style={{ display: 'none' }}
+                            />
+                            <button className="shutter-btn" onClick={captureImage} title="Capture Snap"></button>
+                            <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Upload from gallery">
+                                <ImageIcon size={30} />
                             </button>
                             <input
                                 ref={fileInputRef}
@@ -478,8 +598,6 @@ const Stories = () => {
                                 onChange={handleGallerySelect}
                                 style={{ display: 'none' }}
                             />
-                            <button className="shutter-btn" onClick={captureImage}></button>
-                            <button className="icon-btn opacity-0"><ImageIcon size={32} /></button>
                         </>
                     ) : (
                         <div className="capture-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>

@@ -251,6 +251,7 @@ const Boost: React.FC = () => {
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const streamRef = useRef<MediaStream | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const videoChunksRef = useRef<Blob[]>([]);
@@ -258,6 +259,36 @@ const Boost: React.FC = () => {
     const recordingHardStopRef = useRef<any>(null);
     const cardRefs = useRef<Record<string, HTMLElement | null>>({});
     const trackedImpressionsRef = useRef<Set<string>>(new Set());
+
+    // Attach stream to video element whenever it mounts
+    const attachVideoRef = useCallback((el: HTMLVideoElement | null) => {
+        (videoRef as any).current = el;
+        if (el && streamRef.current) {
+            if (el.srcObject !== streamRef.current) {
+                el.srcObject = streamRef.current;
+            }
+            el.play().catch(() => {});
+        }
+    }, []);
+
+    // Ensure stream is bound when isCameraActive changes
+    useEffect(() => {
+        if (isCameraActive && videoRef.current && streamRef.current) {
+            if (videoRef.current.srcObject !== streamRef.current) {
+                videoRef.current.srcObject = streamRef.current;
+            }
+            videoRef.current.play().catch(() => {});
+        }
+    }, [isCameraActive]);
+
+    useEffect(() => {
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+                streamRef.current = null;
+            }
+        };
+    }, []);
 
     useEffect(() => {
         document.title = 'Knockup';
@@ -428,22 +459,40 @@ const Boost: React.FC = () => {
         setIsVideo(false);
         setIsRecordingVideo(false);
         setRecordingSeconds(0);
+        if (!navigator?.mediaDevices?.getUserMedia) {
+            alert('Live camera is not supported in this browser environment. Tap "Upload 30s" to use your device camera or files.');
+            setIsCameraActive(false);
+            return;
+        }
         try {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+                streamRef.current = null;
+            }
+
             let stream: MediaStream;
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user' },
+                    video: { facingMode: 'user', width: { ideal: 1280 } },
                     audio: mode === 'video'
                 });
             } catch (mediaErr) {
-                // Fallback to video only if microphone access is blocked
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user' },
-                    audio: false 
-                });
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: 'user' },
+                        audio: false 
+                    });
+                } catch {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: true,
+                        audio: false 
+                    });
+                }
             }
+            streamRef.current = stream;
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(() => {});
             }
         } catch (err) {
             console.error('Error accessing camera:', err);
@@ -458,9 +507,11 @@ const Boost: React.FC = () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
             try { mediaRecorderRef.current.stop(); } catch (_) {}
         }
-        if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(t => t.stop());
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(t => t.stop());
+            streamRef.current = null;
+        }
+        if (videoRef.current) {
             videoRef.current.srcObject = null;
         }
         setIsCameraActive(false);
@@ -1317,7 +1368,7 @@ const Boost: React.FC = () => {
                                 {isCameraActive ? (
                                     <>
                                         <video
-                                            ref={videoRef}
+                                            ref={attachVideoRef}
                                             autoPlay
                                             playsInline
                                             muted
