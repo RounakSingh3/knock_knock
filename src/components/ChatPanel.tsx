@@ -1583,7 +1583,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             height: visualViewportHeight ? `${visualViewportHeight}px` : '100dvh',
             maxHeight: visualViewportHeight ? `${visualViewportHeight}px` : '100dvh',
             background: 'var(--bg-color)',
-            zIndex: 1000,
+            zIndex: 100010,
             display: 'flex',
             flexDirection: 'column',
             animation: 'slideInRight 0.3s ease-out',

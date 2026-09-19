@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Send, Loader2, Link as LinkIcon, Share, PlusCircle, Download, Mic, Square, Trash2, Play, Pause } from 'lucide-react';
 import { fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, fetchChattedUserIds, sendMessage, uploadMedia, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { supabase } from '../lib/supabase';
@@ -266,10 +267,10 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
         }
     };
 
-    return (
+    return createPortal(
         <div style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.8)', zIndex: 10000, display: 'flex',
+            position: 'fixed', inset: 0, width: '100%', height: '100dvh',
+            background: 'rgba(0,0,0,0.8)', zIndex: 100005, display: 'flex',
             justifyContent: 'center', alignItems: 'flex-end',
             animation: 'fadeIn 0.2s ease-out'
         }} onClick={onClose}>
@@ -277,8 +278,8 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                 background: 'var(--surface-color)', width: '100%', maxWidth: '500px',
                 borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
                 padding: '24px 0 0 0', display: 'flex', flexDirection: 'column',
-                maxHeight: '85%',
-                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                maxHeight: '85dvh',
+                paddingBottom: 'max(16px, env(safe-area-inset-bottom, 0px))',
                 animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
             }} onClick={e => e.stopPropagation()}>
                 
@@ -476,7 +477,8 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
                     to { opacity: 1; }
                 }
             `}</style>
-        </div>
+        </div>,
+        document.body
     );
 };
 

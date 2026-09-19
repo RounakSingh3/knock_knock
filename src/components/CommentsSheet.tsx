@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Send, Mic, Square, Loader2, Trash2 } from 'lucide-react';
 import { fetchComments, addComment, deleteComment, uploadVoiceReaction, type CommentData } from '../lib/database';
 
@@ -130,16 +131,17 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
         setComments(prev => prev.filter(c => c.id !== commentId));
     };
 
-    return (
+    return createPortal(
         <div style={{
-            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-            background: 'rgba(0,0,0,0.7)', zIndex: 10000,
+            position: 'fixed', top: 0, left: 0, width: '100%', height: '100dvh',
+            background: 'rgba(0,0,0,0.7)', zIndex: 100005,
             display: 'flex', justifyContent: 'center', alignItems: 'flex-end',
         }} onClick={onClose}>
             <div style={{
                 background: 'var(--surface-color)', width: '100%', maxWidth: '500px',
                 borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-                display: 'flex', flexDirection: 'column', maxHeight: '70vh',
+                display: 'flex', flexDirection: 'column', maxHeight: '80dvh',
+                paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
                 animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
             }} onClick={e => e.stopPropagation()}>
 
@@ -268,7 +270,8 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
                     to { transform: translateY(0); }
                 }
             `}</style>
-        </div>
+        </div>,
+        document.body
     );
 };
 

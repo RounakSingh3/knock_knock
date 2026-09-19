@@ -31,6 +31,8 @@ export interface PostModalContentProps {
     onDelete?: (postId: string) => void;
     onCommentClick?: (postId: string) => void;
     onShareClick?: (post: PostData) => void;
+    onLikeToggle?: (postId: string, liked: boolean) => void;
+    onImpToggle?: (postId: string, imped: boolean) => void;
     isEmbedded?: boolean;
     isActive?: boolean;
     isMuted?: boolean;
@@ -43,6 +45,8 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     onDelete,
     onCommentClick,
     onShareClick,
+    onLikeToggle: onLikeToggleProp,
+    onImpToggle: onImpToggleProp,
     isEmbedded,
     isActive = true,
     isMuted: isMutedProp,
@@ -76,6 +80,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
         const newImped = !isImped;
         setIsImped(newImped);
         setImpCount(prev => prev + (newImped ? 1 : -1));
+        if (onImpToggleProp) onImpToggleProp(post.id, newImped);
         await toggleImp(user.id, post.id, isImped);
     };
 
@@ -84,6 +89,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
         const newStatus = !isLiked;
         setIsLiked(newStatus);
         setLikeCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
+        if (onLikeToggleProp) onLikeToggleProp(post.id, newStatus);
         await toggleLike(user.id, post.id, newStatus);
     };
 

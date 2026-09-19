@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useContext, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useContext, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, type PostData, type MessageData } from '../lib/database';
@@ -9,6 +9,7 @@ import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
+import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankFeedPosts, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, type ScoredPost } from '../lib/algorithm';
 
@@ -186,19 +187,7 @@ const Home = () => {
         }
     });
     const [error, setError] = useState('');
-    const [selectedPost, setSelectedPost] = useState<PostData | null>(null);
-    const [isModalMuted, setIsModalMuted] = useState(() => getFeedMutedPreference());
-
-    // Lock background body scroll while fullscreen post detail modal is open
-    useEffect(() => {
-        if (selectedPost) {
-            const originalOverflow = document.body.style.overflow;
-            document.body.style.overflow = 'hidden';
-            return () => {
-                document.body.style.overflow = originalOverflow;
-            };
-        }
-    }, [selectedPost]);
+    const [activeFeedState, setActiveFeedState] = useState<{ posts: PostData[]; index: number } | null>(null);
     const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
@@ -534,8 +523,24 @@ const Home = () => {
         }
     }, [handleLikeToggle]);
 
+    const connectionPosts = useMemo(() => {
+        return unifiedConnectionItems
+            .map(item => item.post)
+            .filter((p): p is PostData => Boolean(p));
+    }, [unifiedConnectionItems]);
+
     // ⚡ Stable callback closures for MasonryPostCard props to avoid allocating per-card closures on each render
-    const handleSelectPost = useCallback((p: PostData) => setSelectedPost(normalizePost(p)), []);
+    const handleSelectPost = useCallback((p: PostData) => {
+        const norm = normalizePost(p) || p;
+        const idx = posts.findIndex(item => item.id === norm.id);
+        setActiveFeedState({
+            posts,
+            index: idx !== -1 ? idx : 0,
+        });
+        if (userId) {
+            trackEngagement(userId, norm.id, 'click', 1, norm.category || 'General').catch(() => {});
+        }
+    }, [posts, userId]);
     const handleOpenChat = useCallback((uid: string) => { setChatUserId(uid); setIsChatOpen(true); }, []);
     const handleSharePost = useCallback((p: PostData) => { setPostToShare(p); setIsShareOpen(true); }, []);
     const handleOpenComments = useCallback((pid: string) => { setCommentsPostId(pid); setIsCommentsOpen(true); }, []);
@@ -608,17 +613,6 @@ const Home = () => {
             }
         });
     }, [posts.length, feedMode]);
-
-    // Lock background page scroll while selected post detail modal is open
-    useEffect(() => {
-        if (selectedPost) {
-            const prevOverflow = document.body.style.overflow;
-            document.body.style.overflow = 'hidden';
-            return () => {
-                document.body.style.overflow = prevOverflow;
-            };
-        }
-    }, [selectedPost]);
 
     useEffect(() => {
         return () => {
@@ -762,8 +756,17 @@ const Home = () => {
                                         likeCount={item.post ? (likeCounts[item.post.id] || 0) : 0}
                                         onLikeToggle={(postId) => handleLikeToggle(postId)}
                                         onDoubleTap={(postId) => { if(!likedPosts[postId]) handleLikeToggle(postId); }}
-                                        onClickPost={(post) => setSelectedPost(post)}
+                                        onClickPost={(post) => {
+                                            const norm = normalizePost(post) || post;
+                                            const idx = connectionPosts.findIndex(p => p.id === norm.id);
+                                            setActiveFeedState({
+                                                posts: connectionPosts,
+                                                index: idx !== -1 ? idx : 0,
+                                            });
+                                        }}
                                         onShare={(post) => { setPostToShare(post); setIsShareOpen(true); }}
+                                        isImped={item.post ? !!impedPosts[item.post.id] : false}
+                                        onImpToggle={(postId) => handleImpToggle(postId)}
                                     />
                                 ))}
                             </div>
@@ -859,6 +862,7 @@ const Home = () => {
                         onViewChat={(userId) => {
                             setIsShareOpen(false);
                             setPostToShare(null);
+                            setActiveFeedState(null);
                             setChatUserId(userId);
                             setIsChatOpen(true);
                         }}
@@ -866,139 +870,33 @@ const Home = () => {
                 </Suspense>
             )}
 
-            {/* Post Detail Modal */}
-            {selectedPost && (
-                <div className="post-modal-backdrop post-modal-backdrop--fullscreen" onClick={() => setSelectedPost(null)}>
-                    <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-top-bar">
-                            <div className="modal-user-row">
-                                <img
-                                    src={selectedPost.avatar_url || 'https://i.pravatar.cc/150'}
-                                    alt=""
-                                    className="modal-avatar"
-                                    onClick={() => { setSelectedPost(null); navigate(`/profile/${selectedPost.username}`); }}
-                                />
-                                <div>
-                                    <span
-                                        className="modal-username"
-                                        onClick={() => { setSelectedPost(null); navigate(`/profile/${selectedPost.username}`); }}
-                                    >
-                                        {selectedPost.username}
-                                    </span>
-                                    <span className="modal-time">{getTimeAgo(selectedPost.created_at)}</span>
-                                </div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', pointerEvents: 'auto' }}>
-                                <button
-                                    className="modal-mute-btn"
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        const nextMuted = !isModalMuted;
-                                        setIsModalMuted(nextMuted);
-                                        setFeedMutedPreference(nextMuted);
-                                    }}
-                                    aria-label={isModalMuted ? 'Unmute' : 'Mute'}
-                                    style={{
-                                        width: '34px',
-                                        height: '34px',
-                                        borderRadius: '50%',
-                                        background: 'rgba(0, 0, 0, 0.5)',
-                                        backdropFilter: 'blur(8px)',
-                                        WebkitBackdropFilter: 'blur(8px)',
-                                        border: 'none',
-                                        color: 'white',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    {isModalMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                                </button>
-                                <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
-                                    <X size={22} />
-                                </button>
-                            </div>
-                        </div>
-                        <div className="modal-media-stage" style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
-                            <PostMedia
-                                post={selectedPost}
-                                className="modal-image"
-                                playsInline
-                                autoPlay={true}
-                                soundOn={!isModalMuted}
-                                muted={isModalMuted}
-                                loop={true}
-                                objectFit="contain"
-                                onDoubleTapLike={() => handleLikeToggle(selectedPost.id)}
-                                onMuteChange={(muted) => {
-                                    setIsModalMuted(muted);
-                                    setFeedMutedPreference(muted);
-                                }}
-                            />
-                        </div>
-                        <div className="modal-details modal-details--sheet">
-                            {selectedPost.caption && (
-                                <p className="modal-caption">{selectedPost.caption}</p>
-                            )}
-                            {selectedPost.attached_link && (
-                                <a
-                                    href={selectedPost.attached_link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="modal-link"
-                                >
-                                    <LinkIcon size={14} /> {selectedPost.attached_link}
-                                </a>
-                            )}
-                            <div className="modal-actions">
-                                <button
-                                    className={`modal-action-btn ${likedPosts[selectedPost.id] ? 'liked' : ''}`}
-                                    onClick={() => handleLikeToggle(selectedPost.id)}
-                                >
-                                    <Heart size={22} fill={likedPosts[selectedPost.id] ? '#f5a524' : 'none'} color={likedPosts[selectedPost.id] ? '#f5a524' : 'var(--text-active)'} />
-                                    <span>{likeCounts[selectedPost.id] || 0}</span>
-                                </button>
-                                <button className="modal-action-btn" onClick={() => { setCommentsPostId(selectedPost.id); setIsCommentsOpen(true); }}>
-                                    <MessageCircle size={22} />
-                                    <span>{selectedPost.comments_count || 0}</span>
-                                </button>
-                                <button className="modal-action-btn" onClick={() => { setPostToShare(selectedPost); setIsShareOpen(true); }}>
-                                    <Send size={22} />
-                                </button>
-                                <button
-                                    className={`modal-action-btn ${impedPosts[selectedPost.id] ? 'imped' : ''}`}
-                                    onClick={() => handleImpToggle(selectedPost.id)}
-                                    title="Imp / Boost post"
-                                >
-                                    <Flame size={22} fill={impedPosts[selectedPost.id] ? '#ff4500' : 'none'} color={impedPosts[selectedPost.id] ? '#ff4500' : 'var(--text-active)'} />
-                                    <span>{impCounts[selectedPost.id] || 0}</span>
-                                </button>
-                                {user && selectedPost.user_id === user.id && (
-                                    <button
-                                        className="modal-action-btn"
-                                        style={{ color: '#ff3b30' }}
-                                        onClick={async () => {
-                                            if (confirm('Delete this post?')) {
-                                                const ok = await deletePost(selectedPost.id);
-                                                if (ok) {
-                                                    setPosts(prev => prev.filter(p => p.id !== selectedPost.id));
-                                                    setSelectedPost(null);
-                                                }
-                                            }
-                                        }}
-                                    >
-                                        <Trash2 size={22} />
-                                    </button>
-                                )}
-                                <button className="modal-action-btn modal-action-right">
-                                    <Bookmark size={22} />
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            {/* Fullscreen Video & Photo Feed Viewer (Unified with 3rd Page Explore Viewer) */}
+            {activeFeedState && (
+                <ExploreFeedViewer
+                    posts={activeFeedState.posts}
+                    initialIndex={activeFeedState.index}
+                    onClose={() => setActiveFeedState(null)}
+                    onCommentClick={(postId) => {
+                        setCommentsPostId(postId);
+                        setIsCommentsOpen(true);
+                    }}
+                    onShareClick={(post) => {
+                        setPostToShare(post);
+                        setIsShareOpen(true);
+                    }}
+                    onLikeToggle={(postId, liked) => {
+                        setLikedPosts(prev => ({ ...prev, [postId]: liked }));
+                        setLikeCounts(prev => ({ ...prev, [postId]: Math.max(0, (prev[postId] || 0) + (liked ? 1 : -1)) }));
+                    }}
+                    onImpToggle={(postId, imped) => {
+                        setImpedPosts(prev => ({ ...prev, [postId]: imped }));
+                        setImpCounts(prev => ({ ...prev, [postId]: Math.max(0, (prev[postId] || 0) + (imped ? 1 : -1)) }));
+                    }}
+                    onDelete={(postId) => {
+                        setPosts(prev => prev.filter(p => p.id !== postId));
+                        setActiveFeedState(null);
+                    }}
+                />
             )}
 
             {/* Comments Sheet */}

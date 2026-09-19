@@ -11,9 +11,21 @@ interface ExploreFeedViewerProps {
     onClose: () => void;
     onCommentClick: (postId: string) => void;
     onShareClick: (post: PostData) => void;
+    onLikeToggle?: (postId: string, liked: boolean) => void;
+    onImpToggle?: (postId: string, imped: boolean) => void;
+    onDelete?: (postId: string) => void;
 }
 
-const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialIndex, onClose, onCommentClick, onShareClick }) => {
+const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
+    posts,
+    initialIndex,
+    onClose,
+    onCommentClick,
+    onShareClick,
+    onLikeToggle,
+    onImpToggle,
+    onDelete,
+}) => {
     const { user } = useContext(AppContext);
     const scrollRef = useRef<HTMLDivElement>(null);
     const watchTimers = useRef<Record<string, number>>({});
@@ -23,6 +35,18 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [isGlobalMuted, setIsGlobalMuted] = useState(() => getFeedMutedPreference());
     const isInitialMountRef = useRef(true);
+
+    // Support Android/mobile hardware and gesture back button
+    useEffect(() => {
+        window.history.pushState({ modal: 'explore_feed' }, '');
+        const handlePopState = () => {
+            onClose();
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [onClose]);
 
     // Immediate positioning to guarantee target reel is active without layout jump
     useLayoutEffect(() => {
@@ -139,7 +163,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                 right: 0,
                 bottom: 0,
                 width: '100%',
-                height: '100%',
+                height: '100dvh', 
                 zIndex: 99999, 
                 overflowY: 'scroll', 
                 scrollSnapType: 'y mandatory', 
@@ -160,9 +184,9 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                         data-postid={post.id}
                         data-category={post.category || 'General'}
                         style={{ 
-                            height: '100vh', 
-                            minHeight: '100vh',
-                            maxHeight: '100vh',
+                            height: '100dvh', 
+                            minHeight: '100dvh',
+                            maxHeight: '100dvh',
                             width: '100vw',
                             scrollSnapAlign: 'start', 
                             scrollSnapStop: 'always', 
@@ -179,6 +203,9 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({ posts, initialInd
                                 onClose={onClose} 
                                 onCommentClick={onCommentClick} 
                                 onShareClick={onShareClick} 
+                                onLikeToggle={onLikeToggle}
+                                onImpToggle={onImpToggle}
+                                onDelete={onDelete}
                                 isEmbedded={true}
                                 isActive={post.id === activePostId}
                                 isMuted={isGlobalMuted}
