@@ -4,7 +4,7 @@ import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, type PostData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, LogOut, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
@@ -163,7 +163,7 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
 });
 
 const Home = () => {
-    const { signOut, user, blockedIds } = useContext(AppContext);
+    const { user, blockedIds } = useContext(AppContext);
     const userId = user?.id;
     const navigate = useNavigate();
 
@@ -679,7 +679,7 @@ const Home = () => {
                     </button>
                     <button 
                         onClick={() => { setChatUserId(null); setIsChatOpen(true); }} 
-                        className="signout-btn-v2" 
+                        className="header-icon-btn-v2" 
                         title="Messages" 
                         style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', padding: '8px', position: 'relative' }}
                     >
@@ -696,9 +696,6 @@ const Home = () => {
                                 {unreadCount}
                             </span>
                         )}
-                    </button>
-                    <button onClick={signOut} className="signout-btn-v2" title="Sign Out" type="button" style={{ background: 'none', border: 'none', color: '#ff3b30', cursor: 'pointer', padding: '8px' }}>
-                        <LogOut size={20} />
                     </button>
                 </div>
             </header>
