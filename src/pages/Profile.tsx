@@ -25,6 +25,8 @@ const Profile = () => {
     const { user: currentUser, setUser, points, blockedIds, setBlockedIds } = useContext(AppContext);
 
     const [profile, setProfile] = useState<ProfileData | null>(null);
+    const displayUsername = profile?.username || username || '';
+    const isOwnProfile = Boolean(currentUser && (currentUser.username === profile?.username || currentUser.id === profile?.id));
     const [posts, setPosts] = useState<PostData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -376,9 +378,6 @@ const Profile = () => {
             </div>
         );
     }
-
-    const displayUsername = profile?.username || username;
-    const isOwnProfile = currentUser && (currentUser.username === profile?.username || currentUser.id === profile?.id);
 
     const sendDirectCallsBroadcast = (event: string, payload: any) => {
         const channel = supabase.channel('direct-calls');
