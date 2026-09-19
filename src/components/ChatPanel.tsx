@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX, Globe, ArrowLeftRight, Languages } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, type ProfileData, type MessageData } from '../lib/database';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, fetchDiscoverPosts, type ProfileData, type MessageData, type PostData } from '../lib/database';
 import { supabase } from '../lib/supabase';
-import { compressImage } from '../lib/media';
+import { compressImage, isVideoUrl, isVideoPost } from '../lib/media';
 import { SnapModal, type SnapPayload } from './SnapModal';
+import ExploreFeedViewer from './ExploreFeedViewer';
+import CommentsSheet from './CommentsSheet';
+import ShareModal from './ShareModal';
 import { 
     SUPPORTED_LANGUAGES, 
     getUserLanguage, 
@@ -60,7 +63,7 @@ function isShareReel(content: string) {
     const payload = parseSharePayload(content);
     if (!payload) return false;
     const url = payload.image_url || payload.media_url || '';
-    return payload.media_type === 'video' || /\.(mp4|webm|mov)$/i.test(url);
+    return payload.media_type === 'video' || isVideoUrl(url);
 }
 
 function parseSnapPayload(content: string): SnapPayload | null {
@@ -361,6 +364,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const [viewingSnap, setViewingSnap] = useState<(SnapPayload & { senderName?: string; createdAt?: string }) | null>(null);
     const viewingAudioRef = useRef<HTMLAudioElement | null>(null);
     const [isViewingAudioPlaying, setIsViewingAudioPlaying] = useState(false);
+
+    // ── Fullscreen Reel Viewer & Interest Feed States (Instagram Style) ──
+    const [activeReelFeed, setActiveReelFeed] = useState<{ posts: PostData[]; index: number } | null>(null);
+    const [interestVideos, setInterestVideos] = useState<PostData[]>([]);
+    const [reelCommentsPostId, setReelCommentsPostId] = useState<string | null>(null);
+    const [isReelCommentsOpen, setIsReelCommentsOpen] = useState(false);
+    const [reelPostToShare, setReelPostToShare] = useState<PostData | null>(null);
+    const [isReelShareOpen, setIsReelShareOpen] = useState(false);
 
     // 🌐 Real-Time Multi-Language Translation States (38+ Languages)
     const [myLanguage, setMyLanguage] = useState<string>(() => getUserLanguage());
@@ -735,6 +746,26 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             audio.play().then(() => setPlayingAudioUrl(url)).catch(() => setPlayingAudioUrl(null));
         }
     };
+
+    // Prefetch interest-based video pool for instant reel scroll
+    useEffect(() => {
+        let isMounted = true;
+        async function loadInterestVideos() {
+            try {
+                const raw = await fetchDiscoverPosts(null, 60, 0);
+                const vids = raw.filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+                if (isMounted && vids.length > 0) {
+                    setInterestVideos(vids);
+                }
+            } catch (e) {
+                console.warn('Could not prefetch interest videos for chat:', e);
+            }
+        }
+        if (isOpen) {
+            loadInterestVideos();
+        }
+        return () => { isMounted = false; };
+    }, [isOpen]);
 
     // Hide bottom navigation when ChatPanel is open
     useEffect(() => {
@@ -1437,13 +1468,70 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         }
     };
 
+    const handleOpenSharedReel = async (sharedPost: any) => {
+        if (activeAudioRef.current) {
+            try {
+                activeAudioRef.current.pause();
+                setPlayingAudioUrl(null);
+            } catch (e) {}
+        }
+
+        const mediaUrl = sharedPost.image_url || sharedPost.media_url || '';
+        const isReel = sharedPost.media_type === 'video' || isVideoUrl(mediaUrl);
+
+        const targetPost: PostData = {
+            id: sharedPost.id || `shared-${Date.now()}`,
+            user_id: sharedPost.user_id,
+            username: sharedPost.username || 'user',
+            avatar_url: sharedPost.avatar_url || '',
+            image_url: mediaUrl,
+            caption: sharedPost.caption || '',
+            likes_count: Number(sharedPost.likes_count) || 0,
+            comments_count: Number(sharedPost.comments_count) || 0,
+            imps_count: Number(sharedPost.imps_count) || 0,
+            created_at: sharedPost.created_at || new Date().toISOString(),
+            media_type: isReel ? 'video' : 'image',
+            category: sharedPost.category || 'General',
+            css_filter: sharedPost.css_filter || 'none',
+            music_title: sharedPost.music_title,
+            music_artist: sharedPost.music_artist,
+            music_url: sharedPost.music_url,
+            attached_link: sharedPost.attached_link,
+        };
+
+        let pool = interestVideos;
+        if (pool.length === 0) {
+            try {
+                const raw = await fetchDiscoverPosts(sharedPost.category || null, 60, 0);
+                const vids = raw.filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+                pool = vids;
+                setInterestVideos(vids);
+            } catch (e) {
+                console.warn('Failed to load interest pool on demand:', e);
+            }
+        }
+
+        // Deduplicate against targetPost
+        let remaining = pool.filter(p => p.id !== targetPost.id && p.image_url !== targetPost.image_url);
+
+        // Prioritize videos matching shared post's category (for personalized discovery)
+        if (sharedPost.category && sharedPost.category !== 'General') {
+            remaining = [...remaining].sort((a, b) => {
+                const aMatch = (a.category === sharedPost.category) ? 1 : 0;
+                const bMatch = (b.category === sharedPost.category) ? 1 : 0;
+                return bMatch - aMatch;
+            });
+        }
+
+        setActiveReelFeed({ posts: [targetPost, ...remaining], index: 0 });
+    };
+
     const renderSharedContent = (content: string, isMe: boolean) => {
         const sharedPost = parseSharePayload(content);
         if (!sharedPost) return 'Shared a post';
 
-        const isReel = isShareReel(content);
-        const mediaUrl = sharedPost.image_url || sharedPost.media_url;
-        const isVideo = isReel || (mediaUrl && /\.(mp4|webm|mov)$/i.test(mediaUrl));
+        const mediaUrl = sharedPost.image_url || sharedPost.media_url || '';
+        const isVideo = isShareReel(content) || isVideoUrl(mediaUrl);
 
         let chatFilter = sharedPost.css_filter || 'none';
         try {
@@ -1456,45 +1544,136 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ fontSize: '12px', opacity: 0.8, padding: '0 4px', fontWeight: 'bold' }}>
+                <div style={{ fontSize: '12px', opacity: 0.85, padding: '0 4px', fontWeight: 'bold' }}>
                     {isMe ? 'You shared' : `${selectedContact?.username || 'Shared'}`}{' '}
-                    {sharedPost.username ? `@${sharedPost.username}'s` : 'a'} {isReel ? 'reel' : 'post'}
+                    {sharedPost.username ? `@${sharedPost.username}'s` : 'a'} {isVideo ? 'reel' : 'post'}
                     {sharedPost.audio_url && ' with voice 🎙️'}
                 </div>
-                <div style={{
-                    position: 'relative',
-                    width: '200px',
-                    height: '260px',
-                    borderRadius: '12px',
-                    overflow: 'hidden',
-                    background: 'var(--surface-color)',
-                }}>
+                <div 
+                    onClick={() => handleOpenSharedReel(sharedPost)}
+                    role="button"
+                    tabIndex={0}
+                    style={{
+                        position: 'relative',
+                        width: '210px',
+                        height: '280px',
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        background: '#0a0a0a',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                        userSelect: 'none',
+                    }}
+                >
                     {isVideo ? (
                         <video
                             src={mediaUrl}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', filter: chatFilter }}
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover',
+                                filter: chatFilter,
+                                pointerEvents: 'none',
+                            }}
                             playsInline
-                            controls
+                            muted
                             preload="metadata"
-                            onPlay={(e) => {
-                                if (sharedPost.audio_url) {
-                                    togglePlayVoice(sharedPost.audio_url);
-                                    e.currentTarget.volume = 0.15;
-                                }
-                            }}
-                            onPause={() => {
-                                if (sharedPost.audio_url && playingAudioUrl === sharedPost.audio_url) {
-                                    togglePlayVoice(sharedPost.audio_url);
-                                }
-                            }}
                         />
                     ) : (
                         <img
                             src={mediaUrl}
                             alt=""
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', filter: chatFilter }}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', filter: chatFilter, pointerEvents: 'none' }}
                         />
                     )}
+
+                    {/* Dark gradient overlay */}
+                    <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.7) 100%)',
+                        pointerEvents: 'none',
+                    }} />
+
+                    {/* Top Header Badge */}
+                    <div style={{
+                        position: 'absolute',
+                        top: '8px',
+                        left: '8px',
+                        right: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        pointerEvents: 'none',
+                    }}>
+                        <div style={{
+                            background: 'rgba(0,0,0,0.65)',
+                            backdropFilter: 'blur(8px)',
+                            borderRadius: '12px',
+                            padding: '3px 8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: '800',
+                            color: '#fff',
+                        }}>
+                            <span>{isVideo ? '📹 REEL' : '📸 POST'}</span>
+                            {sharedPost.category && (
+                                <span style={{ opacity: 0.8, fontSize: '9.5px', borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: '4px' }}>
+                                    {sharedPost.category}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Centered Glassmorphic Play Button for Reel */}
+                    {isVideo && (
+                        <div style={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            pointerEvents: 'none',
+                        }}>
+                            <div style={{
+                                width: '46px',
+                                height: '46px',
+                                borderRadius: '50%',
+                                background: 'rgba(0, 0, 0, 0.55)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1.5px solid rgba(255, 255, 255, 0.35)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                            }}>
+                                <Play size={22} fill="#ffffff" color="#ffffff" style={{ marginLeft: '3px' }} />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Bottom Pill: Tap to watch reel */}
+                    <div style={{
+                        position: 'absolute',
+                        bottom: '8px',
+                        left: '8px',
+                        right: '8px',
+                        background: 'rgba(0,0,0,0.65)',
+                        backdropFilter: 'blur(8px)',
+                        borderRadius: '10px',
+                        padding: '6px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        pointerEvents: 'none',
+                    }}>
+                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff', letterSpacing: '0.2px' }}>
+                            {isVideo ? '▶ Tap to watch reel' : '▶ Tap to open post'}
+                        </span>
+                    </div>
                 </div>
 
                 {/* Attached Voice Note Pill */}
@@ -2519,6 +2698,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             groupMessages.map(msg => {
                                 const isMe = msg.sender_id === currentUser.id;
                                 const senderColor = getSenderColor(msg.sender_name);
+                                const isGroupShare = msg.content.startsWith('[SHARE_POST]');
 
                                 return (
                                     <div
@@ -2533,7 +2713,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         <div style={{
                                             background: isMe ? '#f5a524' : 'var(--border-color)',
                                             color: isMe ? '#000' : 'var(--text-active)',
-                                            padding: '10px 14px',
+                                            padding: isGroupShare ? '8px' : '10px 14px',
                                             borderRadius: isMe ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                                             maxWidth: '75%',
                                             fontSize: '15px',
@@ -2545,7 +2725,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                     {msg.sender_name}
                                                 </div>
                                             )}
-                                            {(msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
+                                            {isGroupShare ? renderSharedContent(msg.content, isMe) : (
+                                                (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                     <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
                                                         🎙️ Voice Mail
@@ -2692,7 +2873,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                                             )}
                                                         </div>
                                                     );
-                                                })() : renderTranslatedMessageContent(msg.id, msg.content, isMe)}
+                                                })() : renderTranslatedMessageContent(msg.id, msg.content, isMe))}
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
                                             <span style={{ fontSize: '10px', color: 'var(--text-inactive)' }}>
@@ -3044,7 +3225,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             {viewingSnap && (
                 <div style={{
                     position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-                    backgroundColor: '#000', zIndex: 100000, display: 'flex',
+                    backgroundColor: '#000', zIndex: 100060, display: 'flex',
                     flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
                 }}>
                     {/* Top bar with sender info, audio badge, and close button */}
@@ -3184,6 +3365,50 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 allContacts={allContacts}
                 onSendSnap={handleSendSnap}
             />
+
+            {/* Fullscreen Reel / Video Viewer (Instagram Style Loop & Feed) */}
+            {activeReelFeed && (
+                <ExploreFeedViewer
+                    posts={activeReelFeed.posts}
+                    initialIndex={activeReelFeed.index}
+                    zIndex={100050}
+                    onClose={() => setActiveReelFeed(null)}
+                    onCommentClick={(postId) => {
+                        setReelCommentsPostId(postId);
+                        setIsReelCommentsOpen(true);
+                    }}
+                    onShareClick={(post) => {
+                        setReelPostToShare(post);
+                        setIsReelShareOpen(true);
+                    }}
+                />
+            )}
+
+            {/* Comments Sheet for Fullscreen Reel */}
+            {isReelCommentsOpen && reelCommentsPostId && currentUser && (
+                <CommentsSheet
+                    postId={reelCommentsPostId}
+                    isOpen={isReelCommentsOpen}
+                    currentUser={currentUser}
+                    onClose={() => {
+                        setIsReelCommentsOpen(false);
+                        setReelCommentsPostId(null);
+                    }}
+                />
+            )}
+
+            {/* Share Modal for Fullscreen Reel */}
+            {isReelShareOpen && reelPostToShare && currentUser && (
+                <ShareModal
+                    isOpen={isReelShareOpen}
+                    post={reelPostToShare}
+                    currentUser={currentUser}
+                    onClose={() => {
+                        setIsReelShareOpen(false);
+                        setReelPostToShare(null);
+                    }}
+                />
+            )}
 
             <style>{`
                 @keyframes slideInRight {

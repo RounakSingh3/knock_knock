@@ -193,12 +193,23 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
 
         const sharePayload = {
             id: post.id,
+            user_id: post.user_id,
             image_url: post.image_url,
             media_url: post.image_url,
             media_type: post.media_type,
             caption: post.caption,
             username: post.username,
             avatar_url: post.avatar_url,
+            category: post.category,
+            likes_count: post.likes_count,
+            comments_count: post.comments_count,
+            imps_count: post.imps_count,
+            css_filter: post.css_filter,
+            music_title: post.music_title,
+            music_artist: post.music_artist,
+            music_url: post.music_url,
+            attached_link: post.attached_link,
+            created_at: post.created_at,
             audio_url: attachedAudioUrl,
             audio_duration: attachedAudioDuration,
         };
@@ -270,7 +281,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
     return createPortal(
         <div style={{
             position: 'fixed', inset: 0, width: '100%', height: '100dvh',
-            background: 'rgba(0,0,0,0.8)', zIndex: 100005, display: 'flex',
+            background: 'rgba(0,0,0,0.8)', zIndex: 100060, display: 'flex',
             justifyContent: 'center', alignItems: 'flex-end',
             animation: 'fadeIn 0.2s ease-out'
         }} onClick={onClose}>

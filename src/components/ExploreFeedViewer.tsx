@@ -14,6 +14,7 @@ interface ExploreFeedViewerProps {
     onLikeToggle?: (postId: string, liked: boolean) => void;
     onImpToggle?: (postId: string, imped: boolean) => void;
     onDelete?: (postId: string) => void;
+    zIndex?: number;
 }
 
 const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
@@ -25,6 +26,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     onLikeToggle,
     onImpToggle,
     onDelete,
+    zIndex,
 }) => {
     const { user } = useContext(AppContext);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -164,7 +166,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 bottom: 0,
                 width: '100%',
                 height: '100dvh', 
-                zIndex: 99999, 
+                zIndex: zIndex ?? 100020, 
                 overflowY: 'scroll', 
                 scrollSnapType: 'y mandatory', 
                 WebkitOverflowScrolling: 'touch',
