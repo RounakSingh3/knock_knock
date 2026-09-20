@@ -908,6 +908,7 @@ const Profile = () => {
                                             loop
                                             playsInline
                                             autoPlay={false}
+                                            thumbnail={true}
                                         />
 
                                         {/* Quick Send Reel / Post Button directly on card */}

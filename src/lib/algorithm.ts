@@ -755,12 +755,47 @@ export function rankExploreGrid(
         filtered = interleaved;
     }
 
-    // Apply Variable Reward slot-machine scheduling
+    // Author anti-clustering: disperse posts from the same creator so no single creator monopolizes the grid
+    const authorGrouped: Record<string, PostData[]> = {};
+    for (const p of filtered) {
+        const author = p.username || 'unknown';
+        if (!authorGrouped[author]) authorGrouped[author] = [];
+        authorGrouped[author].push(p);
+    }
+    const authorKeys = Object.keys(authorGrouped);
+    const dispersedByAuthor: PostData[] = [];
+    let authorRound = 0;
+    let hasMoreAuthors = true;
+    while (hasMoreAuthors) {
+        hasMoreAuthors = false;
+        for (const k of authorKeys) {
+            if (authorRound < authorGrouped[k].length) {
+                dispersedByAuthor.push(authorGrouped[k][authorRound]);
+                hasMoreAuthors = true;
+            }
+        }
+        authorRound++;
+    }
+    if (dispersedByAuthor.length > 0) {
+        filtered = dispersedByAuthor;
+    }
+
+    // Apply Variable Reward slot-machine scheduling with recency boost for fresh real uploads
     return scheduleVariableRewards(filtered, (p: PostData) => {
         const likes = p.likes_count || 0;
         const imps = (p.imps_count || 0) * 8;
         const cat = profile.categoryScores[p.category || 'General'] || 0;
-        return likes + imps + cat;
+        
+        // Recency discovery bonus (within last 30 days) to guarantee real creators appear prominently
+        let recencyBonus = 0;
+        if (p.created_at) {
+            const ageHours = (Date.now() - new Date(p.created_at).getTime()) / (1000 * 60 * 60);
+            if (ageHours < 720) { // Within 30 days
+                recencyBonus = Math.max(15, Math.floor(120 - (ageHours / 720) * 90));
+            }
+        }
+
+        return likes + imps + cat + recencyBonus;
     });
 }
 

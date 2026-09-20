@@ -598,6 +598,21 @@ export async function fetchProfile(userId: string): Promise<ProfileData | null> 
     return data;
 }
 
+export const COMMON_TYPOS: Record<string, string[]> = {
+    'aanya': ['anaya'],
+    'anya': ['anaya'],
+    'aanaa': ['anaya'],
+    'ana': ['anaya'],
+    'popcrd': ['popcorn05', 'popcorn'],
+    'popcrn': ['popcorn05', 'popcorn'],
+    'popc': ['popcorn05', 'popcorn'],
+    'popcorn': ['popcorn05'],
+    'tara': ['tara01'],
+    'tar': ['tara01'],
+    'adity': ['aditya'],
+    'adithya': ['aditya'],
+};
+
 export async function fetchProfileByUsername(username: string): Promise<ProfileData | null> {
     if (!username) return null;
     const cleanUsername = username.replace(/^@+/, '').trim();
@@ -637,6 +652,19 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
 
     if (fuzzyUser && !isRemovedUser(fuzzyUser.id, fuzzyUser.username)) {
         return fuzzyUser;
+    }
+
+    // 2.6. Common typo & alias match (e.g. 'aanya' -> 'anaya', 'popcrd' -> 'popcorn05')
+    const aliasCandidate = COMMON_TYPOS[cleanUsername.toLowerCase()]?.[0];
+    if (aliasCandidate) {
+        const { data: aliasData } = await supabase
+            .from('profiles')
+            .select('*')
+            .ilike('username', aliasCandidate)
+            .maybeSingle();
+        if (aliasData && !isRemovedUser(aliasData.id, aliasData.username)) {
+            return aliasData;
+        }
     }
 
     // 3. Check if this user exists in the posts table (e.g. content creators / community pages)
@@ -2283,37 +2311,77 @@ export async function deleteComment(commentId: string): Promise<void> {
 
 // ── Search ─────────────────────────────────────────────────
 
-/** Search users by username or name */
+/** Search users by username or name with typo tolerance */
 export async function searchUsers(query: string): Promise<ProfileData[]> {
     const cleanQuery = query.replace(/^@+/, '').trim();
     if (!cleanQuery) return [];
+
+    const lower = cleanQuery.toLowerCase();
+    const candidateTerms = [cleanQuery];
+    if (COMMON_TYPOS[lower]) {
+        candidateTerms.push(...COMMON_TYPOS[lower]);
+    }
+
+    const orConditions = candidateTerms.flatMap(t => [
+        `username.ilike.%${t}%`,
+        `name.ilike.%${t}%`
+    ]).join(',');
+
     const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .or(`username.ilike.%${cleanQuery}%,name.ilike.%${cleanQuery}%`)
+        .or(orConditions)
         .limit(20);
 
     if (error) {
         console.error('Error searching users:', error);
         return [];
     }
-    return (data || []).filter(u => !isRemovedUser(u.id, u.username));
+
+    const seen = new Set<string>();
+    return (data || []).filter(u => {
+        if (!u.id || seen.has(u.id) || isRemovedUser(u.id, u.username)) return false;
+        seen.add(u.id);
+        return true;
+    });
 }
 
-/** Search posts by caption */
+/** Search posts by caption and creator username with typo tolerance */
 export async function searchPostsByCaption(query: string): Promise<PostData[]> {
+    const cleanQuery = query.replace(/^@+/, '').trim();
+    if (!cleanQuery) return [];
+
+    const lower = cleanQuery.toLowerCase();
+    const candidateTerms = [cleanQuery];
+    if (COMMON_TYPOS[lower]) {
+        candidateTerms.push(...COMMON_TYPOS[lower]);
+    }
+
+    const orConditions = candidateTerms.flatMap(t => [
+        `caption.ilike.%${t}%`,
+        `username.ilike.%${t}%`
+    ]).join(',');
+
     const { data, error } = await supabase
         .from('posts')
         .select('*')
-        .ilike('caption', `%${query}%`)
+        .or(orConditions)
         .order('created_at', { ascending: false })
-        .limit(30);
+        .limit(40);
 
     if (error) {
         console.error('Error searching posts:', error);
         return [];
     }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+
+    const seen = new Set<string>();
+    return (data || [])
+        .map(normalizePost)
+        .filter((p): p is PostData => {
+            if (!p || !p.id || seen.has(p.id)) return false;
+            seen.add(p.id);
+            return true;
+        });
 }
 
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {

@@ -291,7 +291,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_posts_cache_v6');
+                const cached = localStorage.getItem('knock_explore_posts_cache_v7');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -300,8 +300,8 @@ const Explore = () => {
                 }
             } else {
                 // New day detected! Clear stale caches to trigger fresh everyday reshuffle
-                localStorage.removeItem('knock_explore_posts_cache_v6');
-                localStorage.removeItem('knock_explore_trending_cache_v6');
+                localStorage.removeItem('knock_explore_posts_cache_v7');
+                localStorage.removeItem('knock_explore_trending_cache_v7');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
@@ -312,7 +312,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_posts_cache_v6');
+            const cached = localStorage.getItem('knock_explore_posts_cache_v7');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -335,7 +335,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_trending_cache_v6');
+                const cached = localStorage.getItem('knock_explore_trending_cache_v7');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -351,7 +351,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_trending_cache_v6');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v7');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -411,7 +411,7 @@ const Explore = () => {
             const reshuffledTrending = dailyReshuffle(filtered, getTodayKey()).slice(0, 6);
             setTrendingPosts(reshuffledTrending);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v6', JSON.stringify(reshuffledTrending));
+                localStorage.setItem('knock_explore_trending_cache_v7', JSON.stringify(reshuffledTrending));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
@@ -450,7 +450,7 @@ const Explore = () => {
             const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
-                localStorage.setItem('knock_explore_posts_cache_v6', JSON.stringify(fresh));
+                localStorage.setItem('knock_explore_posts_cache_v7', JSON.stringify(fresh));
                 localStorage.setItem('knock_explore_cache_date', getTodayKey());
             } catch (e) {}
             setHasMore(true);

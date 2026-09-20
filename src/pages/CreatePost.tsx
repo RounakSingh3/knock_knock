@@ -148,7 +148,7 @@ const CreatePost = () => {
             // Invalidate feed caches so newly uploaded content appears immediately at top of Home & Explore
             try {
                 localStorage.removeItem('knock_home_posts_cache');
-                localStorage.removeItem('knock_explore_posts_cache_v6');
+                localStorage.removeItem('knock_explore_posts_cache_v7');
             } catch (e) {}
 
             const redirect = queryParams.get('redirect');

@@ -108,7 +108,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     }, [post.image_url, isVideo, cleanUrl]);
 
     const captureFrame = useCallback(() => {
-        if (!thumbnail || isPlayingMode) return;
+        if (isPlayingMode) return;
         const video = videoRef.current;
         if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) return;
         try {
@@ -128,7 +128,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         } catch (_) {
             // Keep video element as fallback
         }
-    }, [thumbnail, isPlayingMode, cleanUrl]);
+    }, [isPlayingMode, cleanUrl]);
 
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
     const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
@@ -563,11 +563,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         disablePictureInPicture={true}
                         // @ts-ignore
                         disableRemotePlayback={true}
-                        preload={isPlayingMode ? "auto" : (thumbnail ? "metadata" : "none")}
+                        preload={isPlayingMode ? "auto" : "metadata"}
                         onError={handleMediaError}
                         onLoadedMetadata={(e) => {
                             const v = e.currentTarget;
-                            if (thumbnail && !isPlayingMode && v.currentTime === 0) {
+                            if (!isPlayingMode && v.currentTime === 0) {
                                 try {
                                     v.currentTime = 0.1;
                                 } catch (_) {}
