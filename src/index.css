@@ -55,6 +55,7 @@ html, body {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: none;
     text-rendering: optimizeLegibility;
+    touch-action: pan-y pinch-zoom;
 }
 
 /* ⚡ Remove 300ms mobile tap delay and guarantee instantaneous touch response */
@@ -4300,11 +4301,70 @@ select option {
     -webkit-overflow-scrolling: touch;
 }
 
-/* Reduce backdrop-filter for scrollable card elements on mobile */
+/* ⚡ 60fps Mobile Performance & GPU Compositing Optimizations */
 @media (max-width: 768px) {
-    .masonry-like-btn {
-        backdrop-filter: none;
-        -webkit-backdrop-filter: none;
+    :root {
+        --glass-blur: none;
+    }
+
+    /* Lighten GPU background compositing during mobile scroll */
+    body::before {
+        background-image:
+            radial-gradient(circle at 50% 0%, rgba(245, 165, 36, 0.12) 0%, transparent 60%),
+            radial-gradient(circle at 90% 90%, rgba(255, 122, 69, 0.06) 0%, transparent 50%);
+    }
+
+    /* Eliminate heavy Gaussian re-rasterization on fixed/sticky surfaces during mobile scroll */
+    .home-header,
+    .home-header-v2,
+    .explore-header,
+    .stories-header-v2,
+    .messages-header,
+    .chat-header {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: rgba(7, 7, 11, 0.96) !important;
+    }
+
+    .bottom-nav {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: rgba(13, 14, 20, 0.96) !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.75) !important;
+    }
+
+    .feed-toggle-pill {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: rgba(255, 255, 255, 0.06) !important;
+    }
+
+    .feed-toggle-pill.active {
+        background: var(--porch-gradient) !important;
+    }
+
+    .masonry-like-btn,
+    .modal-mute-btn,
+    .explore-search-bar,
+    .comments-sheet-header,
+    .chat-header-v2 {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+    /* Isolate paint and layout per card for smooth scrolling */
+    .masonry-card {
+        contain: layout paint;
+    }
+
+    /* Enforce momentum touch scrolling */
+    .masonry-feed-wrapper,
+    .explore-grid-container,
+    .reels-page,
+    .stories-page-v2,
+    .home-page-v2,
+    .post-modal-backdrop--fullscreen {
+        -webkit-overflow-scrolling: touch;
     }
 }
 

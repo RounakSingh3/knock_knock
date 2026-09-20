@@ -431,27 +431,28 @@ const Reels: React.FC = () => {
         const observer = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
-                    // ⚡ O(1) index lookup via data attribute instead of O(N) findIndex
-                    const card = (entry.target as HTMLElement).closest('.reel-card') as HTMLElement;
+                    const card = entry.target as HTMLElement;
                     const idxStr = card?.getAttribute('data-reel-index');
                     const idx = idxStr !== null ? parseInt(idxStr, 10) : -1;
                     if (idx === -1) return;
-                    const video = entry.target as HTMLVideoElement;
                     const reel = reelsList[idx];
                     const hasMusic = Boolean(reel?.musicUrl);
 
                     if (entry.isIntersecting) {
                         setActiveIndex(idx);
-                        video.muted = hasMusic ? true : mutedAll;
-                        const playPromise = video.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch((err) => {
-                                console.warn('[Reels] Intersection autoplay rejected, falling back to muted play:', err);
-                                setMutedAll(true);
-                                setFeedMutedPreference(true);
-                                video.muted = true;
-                                video.play().catch(() => {});
-                            });
+                        const video = videoRefs.current[idx];
+                        if (video) {
+                            video.muted = hasMusic ? true : mutedAll;
+                            const playPromise = video.play();
+                            if (playPromise !== undefined) {
+                                playPromise.catch((err) => {
+                                    console.warn('[Reels] Intersection autoplay rejected, falling back to muted play:', err);
+                                    setMutedAll(true);
+                                    setFeedMutedPreference(true);
+                                    video.muted = true;
+                                    video.play().catch(() => {});
+                                });
+                            }
                         }
                         // Stop all other audios immediately, and play only this reel's audio
                         audioRefs.current.forEach((a, i) => {
@@ -471,7 +472,8 @@ const Reels: React.FC = () => {
                             return next;
                         });
                     } else {
-                        video.pause();
+                        const video = videoRefs.current[idx];
+                        if (video) video.pause();
                         if (audioRefs.current[idx]) {
                             audioRefs.current[idx]?.pause();
                             audioRefs.current[idx]!.currentTime = 0;
@@ -484,13 +486,31 @@ const Reels: React.FC = () => {
                     }
                 });
             },
-            { threshold: 0.6 }
+            { 
+                root: modalScrollRef.current,
+                threshold: 0.6 
+            }
         );
-        videoRefs.current.forEach((video) => {
-            if (video) observer.observe(video);
+
+        const cards = modalScrollRef.current?.querySelectorAll('.reel-card');
+        cards?.forEach((card) => {
+            observer.observe(card);
         });
+
         return () => observer.disconnect();
     }, [selectedReelIndex, mutedAll, reelsList, playReelAudio]);
+
+    // ⚡ Synchronize active video play when sliding window mounts new active video element
+    useEffect(() => {
+        if (selectedReelIndex === null) return;
+        const video = videoRefs.current[activeIndex];
+        if (video) {
+            const reel = reelsList[activeIndex];
+            const hasMusic = Boolean(reel?.musicUrl);
+            video.muted = hasMusic ? true : mutedAll;
+            video.play().catch(() => {});
+        }
+    }, [activeIndex, selectedReelIndex, mutedAll, reelsList]);
 
     // Pillar 4: Instant Gratification — Preload next video buffer for 0ms swipe latency
     useEffect(() => {
@@ -780,16 +800,22 @@ const Reels: React.FC = () => {
                         }}
                         style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
                     >
-                        {isVideoUrl(reel.posterUrl) || isVideoUrl(reel.videoUrl) ? (
+                        {reel.posterUrl && !isVideoUrl(reel.posterUrl) ? (
+                            <img
+                                src={reel.posterUrl}
+                                alt={reel.caption || 'Reel'}
+                                loading="lazy"
+                                decoding="async"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                            />
+                        ) : (
                             <video
-                                src={reel.videoUrl.includes('#t=') ? reel.videoUrl : `${reel.videoUrl}#t=0.001`}
+                                src={reel.videoUrl.includes('#t=') ? reel.videoUrl : `${reel.videoUrl}#t=0.1`}
                                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                 muted
                                 playsInline
                                 preload="none"
                             />
-                        ) : (
-                            <img src={reel.posterUrl} alt={reel.caption || 'Reel'} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                         )}
                         <div style={{
                             position: 'absolute',
@@ -896,7 +922,7 @@ const Reels: React.FC = () => {
                     <div className="reels-page" ref={modalScrollRef}>
                         {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
-                            const isNearby = Math.abs(idx - activeIndex) <= 2;
+                            const isNearby = Math.abs(idx - activeIndex) <= 1;
                             
                             return (
                                 <div 
@@ -906,21 +932,47 @@ const Reels: React.FC = () => {
                                     onTouchStart={handleTouchStart}
                                     onTouchEnd={(e) => handleTouchEnd(reel, e)}
                                 >
-                                    <video
-                                        ref={(el) => {
-                                            videoRefs.current[idx] = el;
-                                        }}
-                                        src={reel.videoUrl}
-                                        poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
-                                        loop
-                                        playsInline
-                                        preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
-                                        autoPlay={idx === selectedReelIndex}
-                                        muted={Boolean(reel.musicUrl) || mutedAll}
-                                        className="reel-video"
-                                        style={{ filter: reel.css_filter || 'none' }}
-                                        onClick={(e) => handleDoubleTap(idx, e)}
-                                    />
+                                    {isNearby ? (
+                                        <video
+                                            ref={(el) => {
+                                                videoRefs.current[idx] = el;
+                                            }}
+                                            src={reel.videoUrl}
+                                            poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
+                                            loop
+                                            playsInline
+                                            preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
+                                            autoPlay={idx === selectedReelIndex}
+                                            muted={Boolean(reel.musicUrl) || mutedAll}
+                                            className="reel-video"
+                                            style={{ filter: reel.css_filter || 'none' }}
+                                            onClick={(e) => handleDoubleTap(idx, e)}
+                                        />
+                                    ) : (
+                                        <div
+                                            className="reel-video"
+                                            style={{
+                                                width: '100%',
+                                                height: '100%',
+                                                background: '#000',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            {reel.posterUrl && !isVideoUrl(reel.posterUrl) ? (
+                                                <img
+                                                    src={reel.posterUrl}
+                                                    alt=""
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.6 }}
+                                                    loading="lazy"
+                                                    decoding="async"
+                                                />
+                                            ) : (
+                                                <div style={{ width: '100%', height: '100%', background: '#121216' }} />
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* Link Indicator */}
                                     {reel.attachedLink && (

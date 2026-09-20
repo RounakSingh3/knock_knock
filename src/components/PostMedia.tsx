@@ -31,6 +31,21 @@ const itunesCache = new Map<string, string>();
 // In-memory poster frame cache for video thumbnails to eliminate hardware video decoder churn
 const videoPosterCache = new Map<string, string>();
 
+// Restore any persisted video posters from sessionStorage to eliminate cold-start decoder spikes
+try {
+    const stored = typeof window !== 'undefined' ? sessionStorage.getItem('knock_video_posters') : null;
+    if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+            Object.entries(parsed).forEach(([k, v]) => {
+                if (typeof v === 'string') videoPosterCache.set(k, v);
+            });
+        }
+    }
+} catch (_) {}
+
+let isGlobalFrameCaptureRunning = false;
+
 const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
     'Memes': 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop',
@@ -78,8 +93,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const fallbackUsedRef = useRef(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
-    // Use consistent 600px width so images rendered in grids/thumbnails hit the exact same browser cache when opened in modal
-    const targetWidth = 600;
+    // ⚡ On mobile devices, request 380px for feed thumbnails to cut GPU texture memory & decoding cost by 50%+
+    const isMobileScreen = typeof window !== 'undefined' && window.innerWidth <= 640;
+    const targetWidth = isMobileScreen && thumbnail ? 380 : 600;
 
     const [currentImgSrc, setCurrentImgSrc] = useState<string>(() => {
         return isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth);
@@ -94,6 +110,32 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     });
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
 
+    // ⚡ Viewport-aware video lazy mounting: do NOT mount native video decoders if thumbnail is off-screen
+    const [isInView, setIsInView] = useState(() => !thumbnail || isPlayingMode || Boolean(videoPosterCache.get(cleanUrl)));
+
+    useEffect(() => {
+        if (!thumbnail || isPlayingMode || capturedPoster) {
+            setIsInView(true);
+            return;
+        }
+        const container = containerRef.current;
+        if (!container) return;
+
+        let observer: IntersectionObserver | null = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                setIsInView(true);
+            } else {
+                setIsInView(false);
+            }
+        }, { rootMargin: '250px' });
+
+        observer.observe(container);
+        return () => {
+            observer?.disconnect();
+            observer = null;
+        };
+    }, [thumbnail, isPlayingMode, capturedPoster]);
+
     useEffect(() => {
         setHasError(false);
         setIsAudioBlocked(false);
@@ -105,29 +147,54 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             const cached = videoPosterCache.get(cleanUrl);
             if (cached) setCapturedPoster(cached);
         }
-    }, [post.image_url, isVideo, cleanUrl]);
+    }, [post.image_url, isVideo, cleanUrl, targetWidth]);
 
     const captureFrame = useCallback(() => {
-        if (isPlayingMode) return;
+        if (isPlayingMode || isGlobalFrameCaptureRunning) return;
         const video = videoRef.current;
         if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) return;
-        try {
-            const canvas = document.createElement('canvas');
-            const scale = Math.min(1, 360 / video.videoWidth);
-            canvas.width = Math.round(video.videoWidth * scale);
-            canvas.height = Math.round(video.videoHeight * scale);
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                if (dataUrl && dataUrl.length > 200) {
-                    videoPosterCache.set(cleanUrl, dataUrl);
-                    setCapturedPoster(dataUrl);
+
+        // ⚡ Defer frame capture to idle callback to avoid interrupting active touch scrolling
+        const deferFn = typeof (window as any).requestIdleCallback === 'function'
+            ? (window as any).requestIdleCallback
+            : (cb: () => void) => setTimeout(cb, 80);
+
+        deferFn(() => {
+            if (isGlobalFrameCaptureRunning) return;
+            const v = videoRef.current;
+            if (!v || !v.videoWidth || !v.videoHeight || v.readyState < 2) return;
+            isGlobalFrameCaptureRunning = true;
+            try {
+                const canvas = document.createElement('canvas');
+                const scale = Math.min(1, 320 / v.videoWidth);
+                canvas.width = Math.round(v.videoWidth * scale);
+                canvas.height = Math.round(v.videoHeight * scale);
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
+                    if (dataUrl && dataUrl.length > 200) {
+                        videoPosterCache.set(cleanUrl, dataUrl);
+                        setCapturedPoster(dataUrl);
+
+                        // Persist up to 25 recent poster frames to sessionStorage
+                        try {
+                            const cacheObj: Record<string, string> = {};
+                            let count = 0;
+                            for (const [k, val] of videoPosterCache.entries()) {
+                                if (count++ > 25) break;
+                                cacheObj[k] = val;
+                            }
+                            sessionStorage.setItem('knock_video_posters', JSON.stringify(cacheObj));
+                        } catch (_) {}
+                    }
                 }
+            } catch (_) {
+                // Keep video element as fallback
+            } finally {
+                isGlobalFrameCaptureRunning = false;
             }
-        } catch (_) {
-            // Keep video element as fallback
-        }
+        });
     }, [isPlayingMode, cleanUrl]);
 
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
@@ -534,6 +601,33 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 videoPosterCache.delete(cleanUrl);
                             }}
                         />
+                    ) : !isInView && thumbnail && !isPlayingMode ? (
+                        /* ⚡ Off-screen thumbnail placeholder: 0 decoders, 0 network bandwidth until scrolled into view! */
+                        <div
+                            className={className}
+                            style={{
+                                ...style,
+                                width: '100%',
+                                height: '100%',
+                                minHeight: style?.minHeight || '160px',
+                                background: 'linear-gradient(135deg, #18181b 0%, #1f1f23 100%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                            }}
+                        >
+                            <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.4)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                            }}>
+                                <Play size={16} fill="rgba(255,255,255,0.4)" color="transparent" style={{ marginLeft: '2px' }} />
+                            </div>
+                        </div>
                     ) : (
                     <video
                         ref={videoRef}
