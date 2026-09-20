@@ -371,8 +371,11 @@ export function normalizePost(post: PostData): PostData {
         music_url = undefined;
     }
 
+    const avatar_url = post.avatar_url || `https://i.pravatar.cc/150?u=${post.username || 'user'}`;
+
     return {
         ...post,
+        avatar_url,
         caption,
         music_url,
         music_title,

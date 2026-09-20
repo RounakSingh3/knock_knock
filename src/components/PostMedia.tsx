@@ -92,6 +92,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
         return undefined;
     });
+    const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
 
     useEffect(() => {
         setHasError(false);
@@ -109,7 +110,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const captureFrame = useCallback(() => {
         if (!thumbnail || isPlayingMode) return;
         const video = videoRef.current;
-        if (!video || !video.videoWidth || !video.videoHeight) return;
+        if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) return;
         try {
             const canvas = document.createElement('canvas');
             const scale = Math.min(1, 360 / video.videoWidth);
@@ -430,6 +431,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             setHasError(false);
             return;
         }
+        if (isVideo && videoCrossOrigin === 'anonymous') {
+            // Retry without crossOrigin restriction in case CORS was rejected
+            setVideoCrossOrigin(undefined);
+            setHasError(false);
+            return;
+        }
         if (retryCountRef.current < 2) {
             retryCountRef.current += 1;
             setTimeout(() => setHasError(false), 1500 * retryCountRef.current);
@@ -532,7 +539,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         ref={videoRef}
                         src={videoSrc}
                         poster={capturedPoster}
-                        crossOrigin={thumbnail ? "anonymous" : undefined}
+                        crossOrigin={videoCrossOrigin}
                         className={className}
                         style={{
                             ...style,
@@ -556,8 +563,16 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         disablePictureInPicture={true}
                         // @ts-ignore
                         disableRemotePlayback={true}
-                        preload={isPlayingMode ? "auto" : "none"}
+                        preload={isPlayingMode ? "auto" : (thumbnail ? "metadata" : "none")}
                         onError={handleMediaError}
+                        onLoadedMetadata={(e) => {
+                            const v = e.currentTarget;
+                            if (thumbnail && !isPlayingMode && v.currentTime === 0) {
+                                try {
+                                    v.currentTime = 0.1;
+                                } catch (_) {}
+                            }
+                        }}
                         onLoadedData={() => {
                             setIsLoaded(true);
                             captureFrame();

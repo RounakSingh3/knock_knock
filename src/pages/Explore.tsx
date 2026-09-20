@@ -96,6 +96,8 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
     const hasMusic = Boolean(post.music_url || post.music_title);
     const hasLikes = (post.likes_count || 0) >= 5 && !isSurprise;
     const isBig = (index % 12 === 0) || (index % 12 === 8);
+    const creatorUsername = post.username || (post as any).user?.username || 'user';
+    const creatorAvatar = post.avatar_url || (post as any).user?.avatar_url || `https://i.pravatar.cc/150?u=${creatorUsername}`;
 
     const handleClick = useCallback(() => {
         onPostClick(post, index);
@@ -167,7 +169,7 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                     <span>{post.music_title || '♪'}</span>
                 </div>
             )}
-            {/* Bottom details: for big cards show creator & likes; for standard cards show likes badge */}
+            {/* Bottom details: for big cards show creator avatar & username & likes; for standard cards show creator avatar, username & likes */}
             {isBig ? (
                 <div style={{
                     position: 'absolute',
@@ -183,15 +185,16 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                     pointerEvents: 'none',
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                        {post.user?.avatar_url && (
-                            <img
-                                src={post.user.avatar_url}
-                                alt=""
-                                style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }}
-                            />
-                        )}
+                        <img
+                            src={creatorAvatar}
+                            alt=""
+                            onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${creatorUsername}`;
+                            }}
+                            style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid rgba(255,255,255,0.4)', flexShrink: 0 }}
+                        />
                         <span style={{ fontSize: '12px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            @{post.user?.username || 'user'}
+                            @{creatorUsername}
                         </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
@@ -203,18 +206,42 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                     </div>
                 </div>
             ) : (
-                hasLikes && (
-                    <div style={{
-                        position: 'absolute', bottom: '6px', left: '6px', zIndex: 4,
-                        background: 'rgba(0,0,0,0.72)',
-                        padding: '2px 6px', borderRadius: '6px',
-                        fontSize: '9px', color: 'rgba(255,255,255,0.85)',
-                        display: 'flex', alignItems: 'center', gap: '3px',
-                        pointerEvents: 'none',
-                    }}>
-                        <Flame size={9} color="#f5a524" /> {post.likes_count}
+                <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 4,
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.82) 100%)',
+                    padding: '16px 6px 5px 6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    pointerEvents: 'none',
+                    gap: '4px',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                        <img
+                            src={creatorAvatar}
+                            alt=""
+                            onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${creatorUsername}`;
+                            }}
+                            style={{ width: '15px', height: '15px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }}
+                        />
+                        <span style={{ fontSize: '10px', fontWeight: '600', color: 'rgba(255,255,255,0.92)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            @{creatorUsername}
+                        </span>
                     </div>
-                )
+                    {hasLikes && (
+                        <div style={{
+                            fontSize: '9px', color: '#f5a524', fontWeight: '700',
+                            display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0
+                        }}>
+                            <Flame size={9} fill="#f5a524" color="#f5a524" /> {post.likes_count}
+                        </div>
+                    )}
+                </div>
             )}
         </div>
     );
@@ -264,7 +291,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_posts_cache_v5');
+                const cached = localStorage.getItem('knock_explore_posts_cache_v6');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -273,8 +300,8 @@ const Explore = () => {
                 }
             } else {
                 // New day detected! Clear stale caches to trigger fresh everyday reshuffle
-                localStorage.removeItem('knock_explore_posts_cache_v5');
-                localStorage.removeItem('knock_explore_trending_cache_v5');
+                localStorage.removeItem('knock_explore_posts_cache_v6');
+                localStorage.removeItem('knock_explore_trending_cache_v6');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
@@ -285,7 +312,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_posts_cache_v5');
+            const cached = localStorage.getItem('knock_explore_posts_cache_v6');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -308,7 +335,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_trending_cache_v5');
+                const cached = localStorage.getItem('knock_explore_trending_cache_v6');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -324,7 +351,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_trending_cache_v5');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v6');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -384,7 +411,7 @@ const Explore = () => {
             const reshuffledTrending = dailyReshuffle(filtered, getTodayKey()).slice(0, 6);
             setTrendingPosts(reshuffledTrending);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v5', JSON.stringify(reshuffledTrending));
+                localStorage.setItem('knock_explore_trending_cache_v6', JSON.stringify(reshuffledTrending));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
@@ -423,7 +450,7 @@ const Explore = () => {
             const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
-                localStorage.setItem('knock_explore_posts_cache_v5', JSON.stringify(fresh));
+                localStorage.setItem('knock_explore_posts_cache_v6', JSON.stringify(fresh));
                 localStorage.setItem('knock_explore_cache_date', getTodayKey());
             } catch (e) {}
             setHasMore(true);
@@ -794,8 +821,8 @@ const Explore = () => {
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 <div style={{
                                                     position: 'absolute', bottom: 0, left: 0, right: 0,
-                                                    background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
-                                                    padding: '24px 8px 8px', display: 'flex', flexDirection: 'column', gap: '2px',
+                                                    background: 'linear-gradient(transparent, rgba(0,0,0,0.85))',
+                                                    padding: '24px 8px 8px', display: 'flex', flexDirection: 'column', gap: '4px',
                                                 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                         <TrendingUp size={12} color="#f5a524" />
@@ -803,7 +830,19 @@ const Explore = () => {
                                                             {post.likes_count} likes
                                                         </span>
                                                     </div>
-                                                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.7)' }}>@{post.username}</span>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>
+                                                        <img
+                                                            src={post.avatar_url || `https://i.pravatar.cc/150?u=${post.username || 'user'}`}
+                                                            alt=""
+                                                            onError={(e) => {
+                                                                (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${post.username || 'user'}`;
+                                                            }}
+                                                            style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }}
+                                                        />
+                                                        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.9)', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            @{post.username}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                                 {isVideoPost(post) && (
                                                     <div style={{ position: 'absolute', top: '8px', right: '8px' }}>
