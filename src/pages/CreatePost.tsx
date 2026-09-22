@@ -2,7 +2,7 @@ import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink } from '../lib/database';
-import { getMediaTypeFromFile, compressImage } from '../lib/media';
+import { getMediaTypeFromFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles } from 'lucide-react';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
@@ -53,11 +53,20 @@ const CreatePost = () => {
     const [rewardPointsEarned, setRewardPointsEarned] = useState(0);
     const [rewardNewBalance, setRewardNewBalance] = useState(0);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const selectedFile = e.target.files[0];
             setFile(selectedFile);
             setPreviewUrl(URL.createObjectURL(selectedFile));
+
+            if (selectedFile.type.startsWith('video/')) {
+                try {
+                    const prepared = await prepareVideoForUpload(selectedFile);
+                    if (prepared.videoFile && prepared.videoFile !== selectedFile) {
+                        setFile(prepared.videoFile);
+                    }
+                } catch (_) {}
+            }
         }
     };
 
@@ -97,6 +106,10 @@ const CreatePost = () => {
                     setLoading(false);
                     return;
                 }
+                try {
+                    const prepared = await prepareVideoForUpload(fileToUpload);
+                    fileToUpload = prepared.videoFile;
+                } catch (_) {}
             }
 
             const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);

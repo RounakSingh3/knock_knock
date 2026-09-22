@@ -47,7 +47,7 @@ import {
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
-import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
@@ -171,6 +171,7 @@ const Boost: React.FC = () => {
     const [isCameraActive, setIsCameraActive] = useState(false);
     const [capturedMediaUrl, setCapturedMediaUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [posterBlob, setPosterBlob] = useState<Blob | null>(null);
     const [isVideo, setIsVideo] = useState(false);
     const [activeFilterIndex, setActiveFilterIndex] = useState(0);
     const [caption, setCaption] = useState('');
@@ -543,51 +544,35 @@ const Boost: React.FC = () => {
         setIsRecordingVideo(false);
     };
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const isVid = isVideoFile(file);
 
             if (isVid) {
                 const objectUrl = URL.createObjectURL(file);
-                const tempVideo = document.createElement('video');
-                tempVideo.preload = 'metadata';
-                tempVideo.src = objectUrl;
+                setSelectedFile(file);
+                setIsVideo(true);
+                setCapturedMediaUrl(objectUrl);
+                stopCamera();
 
-                let hasProcessed = false;
-                const acceptVideo = () => {
-                    if (hasProcessed) return;
-                    hasProcessed = true;
-                    setSelectedFile(file);
-                    setIsVideo(true);
-                    setCapturedMediaUrl(objectUrl);
-                    stopCamera();
-                };
-
-                tempVideo.onloadedmetadata = () => {
-                    const dur = tempVideo.duration;
-                    if (!isFinite(dur) || isNaN(dur) || dur <= 0) {
-                        tempVideo.currentTime = 1e101;
-                        tempVideo.ontimeupdate = () => {
-                            tempVideo.ontimeupdate = null;
-                            acceptVideo();
-                        };
-                        setTimeout(acceptVideo, 500);
-                        return;
+                // Prepare video in background: extract poster and optimize HEVC if needed
+                try {
+                    const prepared = await prepareVideoForUpload(file);
+                    if (prepared.posterBlob) {
+                        setPosterBlob(prepared.posterBlob);
                     }
-                    acceptVideo();
-                };
-
-                tempVideo.onerror = () => {
-                    acceptVideo();
-                };
-
-                // Fallback timeout in case metadata event stalls on some mobile devices
-                setTimeout(acceptVideo, 1000);
+                    if (prepared.videoFile && prepared.videoFile !== file) {
+                        setSelectedFile(prepared.videoFile);
+                    }
+                } catch (e) {
+                    console.warn('Video prep fallback:', e);
+                }
                 return;
             }
 
             setSelectedFile(file);
+            setPosterBlob(null);
             setIsVideo(false);
             setCapturedMediaUrl(URL.createObjectURL(file));
             stopCamera();
@@ -602,6 +587,7 @@ const Boost: React.FC = () => {
         }
         setCapturedMediaUrl(null);
         setSelectedFile(null);
+        setPosterBlob(null);
         setIsVideo(false);
         setCameraMode('photo');
         setIsRecordingVideo(false);
@@ -647,8 +633,20 @@ const Boost: React.FC = () => {
         setUploadProgress(0);
 
         try {
-            // Step 1: Upload media
+            // Step 1: Upload media & optional poster
             let uploadedUrl = '';
+            let uploadedPosterUrl: string | undefined = undefined;
+
+            if (posterBlob) {
+                try {
+                    const posterFile = new File([posterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
+                    uploadedPosterUrl = await uploadMedia(posterFile, pPath);
+                } catch (pe) {
+                    console.warn('Poster upload skipped:', pe);
+                }
+            }
+
             if (selectedFile) {
                 let fileToUpload = selectedFile;
                 const isVid = isVideoFile(selectedFile);
@@ -697,7 +695,8 @@ const Boost: React.FC = () => {
                 selectedTrack?.url,
                 hasAdLink && adLinkUrl.trim() ? adLinkUrl.trim() : undefined,
                 hasAdLink ? adLinkCta : undefined,
-                hasAdLink ? isSponsoredAd : undefined
+                hasAdLink ? isSponsoredAd : undefined,
+                uploadedPosterUrl
             );
 
             if (storyError) {

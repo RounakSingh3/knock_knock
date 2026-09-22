@@ -886,6 +886,7 @@ export interface StoryData {
     user_id: string | null;
     username?: string;
     image_url: string;
+    poster_url?: string;
     filter_name: string;
     is_boosted: boolean;
     created_at: string;
@@ -905,6 +906,7 @@ export interface StoryData {
 export function normalizeStory(story: StoryData): StoryData {
     if (!story) return story;
     let image_url = story.image_url || '';
+    let poster_url = story.poster_url;
     let music_url = story.music_url;
     let music_title = story.music_title;
     let music_artist = story.music_artist;
@@ -912,6 +914,19 @@ export function normalizeStory(story: StoryData): StoryData {
     let link_url = story.link_url;
     let link_cta = story.link_cta || 'Learn More';
     let is_sponsored = story.is_sponsored || false;
+
+    if (image_url.includes('#POSTER:')) {
+        const parts = image_url.split('#POSTER:');
+        image_url = parts[0];
+        const posterData = parts[1]?.split('#')[0];
+        if (posterData) {
+            try {
+                poster_url = decodeURIComponent(posterData);
+            } catch (_) {
+                poster_url = posterData;
+            }
+        }
+    }
 
     if (image_url.includes('#LINK:')) {
         const parts = image_url.split('#LINK:');
@@ -1030,7 +1045,8 @@ export function normalizeStory(story: StoryData): StoryData {
 
     return {
         ...story,
-        image_url,
+        image_url: image_url.split('#')[0],
+        poster_url,
         music_url,
         music_title,
         music_artist,
@@ -1259,7 +1275,8 @@ export async function createBoostedStory(
     musicUrl?: string,
     linkUrl?: string,
     linkCta?: string,
-    isSponsored?: boolean
+    isSponsored?: boolean,
+    posterUrl?: string
 ): Promise<{ error: Error | null; story?: StoryData }> {
     const baseScreens = Math.max(friendsCount, 1);
     const extraScreens = Math.max(pointsSpent, 0);
@@ -1268,6 +1285,9 @@ export async function createBoostedStory(
     // Encode boost metadata into fragment: #BOOST:target|friends|points
     const boostTag = `#BOOST:${targetScreens}|${baseScreens}|${extraScreens}`;
     let finalImageUrl = imageUrl;
+    if (posterUrl) {
+        finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(posterUrl)}`;
+    }
     if (musicUrl) {
         finalImageUrl = `${finalImageUrl}#MUSIC:${encodeURIComponent(musicUrl)}|${encodeURIComponent(musicTitle || '')}|${encodeURIComponent(musicArtist || '')}`;
     }

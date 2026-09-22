@@ -186,3 +186,299 @@ export function getFeedMutedPreference(): boolean {
 export function setFeedMutedPreference(muted: boolean): void {
     _isFeedMuted = muted;
 }
+
+/**
+ * Checks if a video file is encoded with HEVC / H.265 (hvc1/hev1/dvh1)
+ * which desktop Chromium/Firefox and many Android devices cannot decode without software codecs.
+ */
+export async function isHevcVideoFile(file: File): Promise<boolean> {
+    try {
+        const slice = file.slice(0, 131072);
+        const buffer = await slice.arrayBuffer();
+        const text = new TextDecoder('latin1').decode(buffer);
+        return text.includes('hvc1') || text.includes('hev1') || text.includes('dvh1');
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
+ * Extracts a crisp snapshot frame from a video file or URL.
+ * Used as a guaranteed visual poster across all browsers.
+ */
+export async function extractVideoPoster(
+    fileOrUrl: File | string, 
+    atTime = 0.2
+): Promise<{ blob: Blob; dataUrl: string; width: number; height: number } | null> {
+    return new Promise((resolve) => {
+        try {
+            const url = typeof fileOrUrl === 'string' ? fileOrUrl : URL.createObjectURL(fileOrUrl);
+            const video = document.createElement('video');
+            video.preload = 'auto';
+            video.src = url;
+            video.muted = true;
+            video.playsInline = true;
+            (video as any).crossOrigin = 'anonymous';
+
+            let cleanedUp = false;
+            const cleanup = () => {
+                if (cleanedUp) return;
+                cleanedUp = true;
+                if (typeof fileOrUrl !== 'string' && url.startsWith('blob:')) {
+                    try { URL.revokeObjectURL(url); } catch (_) {}
+                }
+                video.pause();
+                video.src = '';
+                video.load();
+            };
+
+            const capture = () => {
+                try {
+                    const w = video.videoWidth || 720;
+                    const h = video.videoHeight || 1280;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.min(w, 1080);
+                    canvas.height = Math.round((h / w) * canvas.width);
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        cleanup();
+                        resolve(null);
+                        return;
+                    }
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    canvas.toBlob((blob) => {
+                        cleanup();
+                        if (blob) {
+                            resolve({ blob, dataUrl, width: canvas.width, height: canvas.height });
+                        } else {
+                            resolve(null);
+                        }
+                    }, 'image/jpeg', 0.85);
+                } catch (e) {
+                    cleanup();
+                    resolve(null);
+                }
+            };
+
+            video.onloadeddata = () => {
+                try {
+                    video.currentTime = Math.min(atTime, (video.duration || 1) / 2);
+                } catch (_) {
+                    capture();
+                }
+            };
+
+            video.onseeked = () => {
+                capture();
+            };
+
+            video.onerror = () => {
+                cleanup();
+                resolve(null);
+            };
+
+            setTimeout(() => {
+                if (!cleanedUp) {
+                    cleanup();
+                    resolve(null);
+                }
+            }, 3500);
+        } catch (_) {
+            resolve(null);
+        }
+    });
+}
+
+/**
+ * Transcodes an HEVC video to standard universal H.264 / WebM using the uploader's hardware decoder.
+ */
+export async function transcodeHevcToUniversalVideo(
+    file: File,
+    onProgress?: (pct: number) => void
+): Promise<File> {
+    return new Promise(async (resolve) => {
+        if (typeof MediaRecorder === 'undefined') {
+            return resolve(file);
+        }
+
+        let mimeType = '';
+        if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"')) {
+            mimeType = 'video/mp4; codecs="avc1.42E01E,mp4a.40.2"';
+        } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+            mimeType = 'video/mp4';
+        } else if (MediaRecorder.isTypeSupported('video/webm; codecs="vp8,opus"')) {
+            mimeType = 'video/webm; codecs="vp8,opus"';
+        } else if (MediaRecorder.isTypeSupported('video/webm')) {
+            mimeType = 'video/webm';
+        }
+
+        if (!mimeType) {
+            return resolve(file);
+        }
+
+        try {
+            const objectUrl = URL.createObjectURL(file);
+            const video = document.createElement('video');
+            video.src = objectUrl;
+            video.muted = false;
+            video.playsInline = true;
+
+            const cleanup = () => {
+                try { URL.revokeObjectURL(objectUrl); } catch (_) {}
+                video.pause();
+                video.src = '';
+                video.load();
+            };
+
+            video.onloadedmetadata = async () => {
+                const duration = video.duration || 10;
+                if (duration > 35) {
+                    cleanup();
+                    return resolve(file);
+                }
+
+                try {
+                    const canvas = document.createElement('canvas');
+                    const w = Math.min(video.videoWidth || 720, 1080);
+                    const h = Math.round(((video.videoHeight || 1280) / (video.videoWidth || 720)) * w);
+                    canvas.width = w % 2 === 0 ? w : w - 1;
+                    canvas.height = h % 2 === 0 ? h : h - 1;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        cleanup();
+                        return resolve(file);
+                    }
+
+                    let combinedStream: MediaStream;
+                    const canvasStream = canvas.captureStream(30);
+
+                    try {
+                        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                        const audioCtx = new AudioCtx();
+                        const source = audioCtx.createMediaElementSource(video);
+                        const dest = audioCtx.createMediaStreamDestination();
+                        source.connect(dest);
+                        const gain = audioCtx.createGain();
+                        gain.gain.value = 0;
+                        source.connect(gain);
+                        gain.connect(audioCtx.destination);
+
+                        combinedStream = new MediaStream([
+                            ...canvasStream.getVideoTracks(),
+                            ...dest.stream.getAudioTracks()
+                        ]);
+                    } catch (_) {
+                        combinedStream = canvasStream;
+                    }
+
+                    const recorder = new MediaRecorder(combinedStream, {
+                        mimeType,
+                        videoBitsPerSecond: 2500000
+                    });
+
+                    const chunks: Blob[] = [];
+                    recorder.ondataavailable = (e) => {
+                        if (e.data && e.data.size > 0) chunks.push(e.data);
+                    };
+
+                    recorder.onstop = () => {
+                        cleanup();
+                        if (chunks.length > 0) {
+                            const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                            const blob = new Blob(chunks, { type: mimeType });
+                            const convertedFile = new File([blob], file.name.replace(/\.[^.]+$/, `.${ext}`), {
+                                type: mimeType
+                            });
+                            resolve(convertedFile);
+                        } else {
+                            resolve(file);
+                        }
+                    };
+
+                    let animationId: number;
+                    const renderFrame = () => {
+                        if (video.paused || video.ended) return;
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        if (onProgress) {
+                            onProgress(Math.min(99, Math.round((video.currentTime / duration) * 100)));
+                        }
+                        animationId = requestAnimationFrame(renderFrame);
+                    };
+
+                    video.onended = () => {
+                        cancelAnimationFrame(animationId);
+                        recorder.stop();
+                    };
+
+                    video.onerror = () => {
+                        cancelAnimationFrame(animationId);
+                        if (recorder.state === 'recording') recorder.stop();
+                        else {
+                            cleanup();
+                            resolve(file);
+                        }
+                    };
+
+                    recorder.start(100);
+                    video.play().then(() => {
+                        renderFrame();
+                    }).catch(() => {
+                        cleanup();
+                        resolve(file);
+                    });
+
+                } catch (e) {
+                    cleanup();
+                    resolve(file);
+                }
+            };
+
+            video.onerror = () => {
+                cleanup();
+                resolve(file);
+            };
+
+            setTimeout(() => {
+                cleanup();
+                resolve(file);
+            }, 40000);
+
+        } catch (_) {
+            resolve(file);
+        }
+    });
+}
+
+/**
+ * Ensures a video file is universally playable across all phones and laptops before upload.
+ * Extracts a high-res poster image and converts HEVC to standard MP4/WebM.
+ */
+export async function prepareVideoForUpload(
+    file: File,
+    onStatus?: (status: string) => void
+): Promise<{ videoFile: File; posterBlob: Blob | null }> {
+    let posterBlob: Blob | null = null;
+    try {
+        if (onStatus) onStatus('Generating preview poster...');
+        const posterRes = await extractVideoPoster(file, 0.2);
+        if (posterRes?.blob) {
+            posterBlob = posterRes.blob;
+        }
+    } catch (_) {}
+
+    const isHevc = await isHevcVideoFile(file);
+    if (!isHevc) {
+        return { videoFile: file, posterBlob };
+    }
+
+    try {
+        if (onStatus) onStatus('Optimizing video for all devices... ⚡');
+        const transcoded = await transcodeHevcToUniversalVideo(file, (pct) => {
+            if (onStatus) onStatus(`Optimizing video: ${pct}% ⚡`);
+        });
+        return { videoFile: transcoded, posterBlob };
+    } catch (_) {
+        return { videoFile: file, posterBlob };
+    }
+}

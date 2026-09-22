@@ -73,7 +73,22 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const { user: authUser } = useContext(AppContext);
     const currentGroup = storyGroups[groupIndex];
     const currentStory = currentGroup?.stories[storyIndex];
-    const isVideo = isVideoUrl(currentStory?.image_url);
+    const cleanMediaUrl = useMemo(() => (currentStory?.image_url || '').split('#')[0], [currentStory?.image_url]);
+    const isVideo = isVideoUrl(cleanMediaUrl);
+
+    const posterUrlFromStory = useMemo(() => {
+        if (!currentStory) return null;
+        if (currentStory.image_url && currentStory.image_url.includes('#POSTER:')) {
+            const parts = currentStory.image_url.split('#POSTER:');
+            const posterData = parts[1]?.split('#')[0];
+            if (posterData) {
+                try { return decodeURIComponent(posterData); } catch (_) { return posterData; }
+            }
+        }
+        return currentStory.poster_url || null;
+    }, [currentStory]);
+
+    const [videoHasVisual, setVideoHasVisual] = useState(true);
 
     const effectiveUserId = currentUserId || authUser?.id;
     const isOwner = Boolean(
@@ -226,6 +241,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         setProgress(0);
         setAudioPlaying(true);
         setIsPaused(false);
+        setVideoHasVisual(true);
         if (storyVideoRef.current) {
             storyVideoRef.current.currentTime = 0;
             storyVideoRef.current.play().catch(() => {});
@@ -295,6 +311,22 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const handleVideoTimeUpdate = () => {
         if (!storyVideoRef.current || isPaused) return;
         const video = storyVideoRef.current;
+
+        // Visual health check: verify if the browser is actually decoding and rendering video frames
+        if (video.currentTime > 0.3) {
+            const hasDimensions = video.videoWidth > 0 && video.videoHeight > 0;
+            const quality = (video as any).getVideoPlaybackQuality?.();
+            const hasRenderedFrames = quality 
+                ? ((quality.totalVideoFrames ?? 0) > 0 || (quality.renderedVideoFrames ?? 0) > 0)
+                : hasDimensions;
+
+            if (!hasDimensions || !hasRenderedFrames) {
+                setVideoHasVisual(false);
+            } else if (!videoHasVisual) {
+                setVideoHasVisual(true);
+            }
+        }
+
         // Enforce 30-second cap on video stories
         const effectiveDuration = Math.min(video.duration && !isNaN(video.duration) && video.duration > 0 ? video.duration : 30, 30);
         const currentTime = Math.min(video.currentTime || 0, effectiveDuration);
@@ -594,25 +626,129 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             </div>
 
             {/* Story Image / Video */}
-            {isVideoUrl(currentStory.image_url) ? (
-                <video
-                    ref={storyVideoRef}
-                    src={currentStory.image_url}
-                    autoPlay
-                    playsInline
-                    muted={Boolean(currentStory.music_url || currentStory.music_title)}
-                    className="story-image"
-                    onTimeUpdate={handleVideoTimeUpdate}
-                    onEnded={handleVideoEnded}
-                    onError={() => {
-                        console.warn('Video failed to load in StoryViewer:', currentStory.id);
-                        handleNextStory();
-                    }}
-                    style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', objectFit: 'contain' }}
-                />
+            {isVideo ? (
+                <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    <video
+                        ref={storyVideoRef}
+                        src={cleanMediaUrl}
+                        autoPlay
+                        playsInline
+                        muted={Boolean(currentStory.music_url || currentStory.music_title)}
+                        className="story-image"
+                        onTimeUpdate={handleVideoTimeUpdate}
+                        onEnded={handleVideoEnded}
+                        onError={() => {
+                            console.warn('Video failed to load in StoryViewer:', currentStory.id);
+                            handleNextStory();
+                        }}
+                        style={{ 
+                            filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', 
+                            objectFit: 'contain',
+                            width: '100%',
+                            height: '100%',
+                            opacity: videoHasVisual ? 1 : 0,
+                            position: videoHasVisual ? 'relative' : 'absolute',
+                            pointerEvents: videoHasVisual ? 'auto' : 'none'
+                        }}
+                    />
+
+                    {/* Fallback Display if Browser Cannot Decode Video Track (Audio Plays Uninterrupted!) */}
+                    {!videoHasVisual && (
+                        <div style={{
+                            position: 'absolute',
+                            inset: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: '#09090b',
+                            overflow: 'hidden',
+                            zIndex: 1
+                        }}>
+                            {/* Ambient Blurred Background from Poster or Avatar */}
+                            <img 
+                                src={posterUrlFromStory || currentGroup.avatarUrl} 
+                                alt="" 
+                                style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover',
+                                    filter: 'blur(30px) brightness(0.35)',
+                                    transform: 'scale(1.2)'
+                                }}
+                            />
+
+                            {/* Centered Sharp Poster Image with Audio Badge */}
+                            <div style={{
+                                position: 'relative',
+                                zIndex: 2,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '16px',
+                                padding: '20px'
+                            }}>
+                                <div style={{
+                                    position: 'relative',
+                                    width: '220px',
+                                    height: '220px',
+                                    borderRadius: '28px',
+                                    overflow: 'hidden',
+                                    boxShadow: '0 16px 45px rgba(0,0,0,0.85), 0 0 30px rgba(245, 165, 36, 0.35)',
+                                    border: '2px solid rgba(245, 165, 36, 0.65)'
+                                }}>
+                                    <img 
+                                        src={posterUrlFromStory || currentGroup.avatarUrl} 
+                                        alt={currentGroup.username}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                    />
+                                    <div style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        background: 'linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.85) 100%)',
+                                        display: 'flex',
+                                        alignItems: 'flex-end',
+                                        justifyContent: 'center',
+                                        paddingBottom: '12px'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            color: '#f5a524',
+                                            fontSize: '11px',
+                                            fontWeight: 800
+                                        }}>
+                                            <Music size={13} className="music-icon-spin" /> High-Quality Audio
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    zIndex: 2,
+                                    textAlign: 'center',
+                                    background: 'rgba(0,0,0,0.7)',
+                                    backdropFilter: 'blur(12px)',
+                                    padding: '8px 20px',
+                                    borderRadius: '20px',
+                                    border: '1px solid rgba(255,255,255,0.12)'
+                                }}>
+                                    <div style={{ color: '#fff', fontWeight: 700, fontSize: '13px' }}>
+                                        {currentGroup.username}
+                                    </div>
+                                    <div style={{ color: '#f5a524', fontSize: '11px', marginTop: '2px' }}>
+                                        🎵 Audio Playing Seamlessly
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             ) : (
                 <img 
-                    src={currentStory.image_url} 
+                    src={cleanMediaUrl} 
                     alt="Story" 
                     className="story-image"
                     onError={() => {
