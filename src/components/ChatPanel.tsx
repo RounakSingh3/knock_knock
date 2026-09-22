@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX, Globe, ArrowLeftRight, Languages } from 'lucide-react';
 import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, fetchDiscoverPosts, type ProfileData, type MessageData, type PostData } from '../lib/database';
