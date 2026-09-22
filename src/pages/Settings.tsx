@@ -68,6 +68,9 @@ const Settings = () => {
 
     // Helper to get rank name based on points
     const getRankName = (pts: number) => {
+        if (pts >= 999999999 || username.toLowerCase() === 'popcorn05' || username.toLowerCase() === 'popcorn') {
+            return 'Unlimited Royalty 👑♾️';
+        }
         if (pts < 100) return 'Bronze Matcher 🥉';
         if (pts < 500) return 'Silver Matcher 🥈';
         if (pts < 2000) return 'Gold Matcher 🥇';
@@ -146,7 +149,7 @@ const Settings = () => {
                         <div className="stat-box-premium">
                             <div className="stat-value-premium" style={{ color: '#fbbf24' }}>
                                 <Star size={16} fill="#fbbf24" style={{ filter: 'drop-shadow(0 0 4px rgba(251,191,36,0.5))' }} />
-                                <span>{points}</span>
+                                <span>{points >= 999999999 || username.toLowerCase() === 'popcorn05' ? '∞ Unlimited' : points}</span>
                             </div>
                             <div className="stat-label-premium">Points</div>
                         </div>

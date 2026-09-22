@@ -568,6 +568,17 @@ export async function toggleImp(userId: string, postId: string, currentlyImped: 
 
 // ── User Profile / Points ──────────────────────────────
 
+export const UNLIMITED_POINTS = 999999999;
+
+export function isUnlimitedPointsUser(userId?: string | null, username?: string | null): boolean {
+    if (userId && userId.toLowerCase() === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8') return true;
+    if (username) {
+        const clean = username.replace(/^@+/, '').trim().toLowerCase();
+        if (clean === 'popcorn05' || clean === 'popcorn') return true;
+    }
+    return false;
+}
+
 export interface ProfileData {
     id: string;
     name: string;
@@ -594,6 +605,9 @@ export async function fetchProfile(userId: string): Promise<ProfileData | null> 
     }
     if (data && isRemovedUser(data.id, data.username)) {
         return null;
+    }
+    if (data && isUnlimitedPointsUser(data.id, data.username)) {
+        data.points = UNLIMITED_POINTS;
     }
     return data;
 }
@@ -627,6 +641,9 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
 
     if (!error && data) {
         if (isRemovedUser(data.id, data.username)) return null;
+        if (isUnlimitedPointsUser(data.id, data.username)) {
+            data.points = UNLIMITED_POINTS;
+        }
         return data;
     }
 
@@ -638,7 +655,12 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
             .select('*')
             .eq('id', cleanUsername)
             .maybeSingle();
-        if (idData && !isRemovedUser(idData.id, idData.username)) return idData;
+        if (idData && !isRemovedUser(idData.id, idData.username)) {
+            if (isUnlimitedPointsUser(idData.id, idData.username)) {
+                idData.points = UNLIMITED_POINTS;
+            }
+            return idData;
+        }
     }
 
     // 2.5. Prefix username match (e.g. 'tara' -> 'tara01') or display name match (e.g. 'Tara')
@@ -651,6 +673,9 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
         .maybeSingle();
 
     if (fuzzyUser && !isRemovedUser(fuzzyUser.id, fuzzyUser.username)) {
+        if (isUnlimitedPointsUser(fuzzyUser.id, fuzzyUser.username)) {
+            fuzzyUser.points = UNLIMITED_POINTS;
+        }
         return fuzzyUser;
     }
 
@@ -663,6 +688,9 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
             .ilike('username', aliasCandidate)
             .maybeSingle();
         if (aliasData && !isRemovedUser(aliasData.id, aliasData.username)) {
+            if (isUnlimitedPointsUser(aliasData.id, aliasData.username)) {
+                aliasData.points = UNLIMITED_POINTS;
+            }
             return aliasData;
         }
     }
@@ -689,7 +717,7 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
             username: postData.username || cleanUsername,
             gender: 'other',
             avatar_url: postData.avatar_url || `https://i.pravatar.cc/150?u=${postData.username || cleanUsername}`,
-            points: 100,
+            points: isUnlimitedPointsUser(postData.user_id, postData.username || cleanUsername) ? UNLIMITED_POINTS : 100,
             bio: `Creator on Knock Knock ✨`,
             is_online: false,
             streak_count: 5,
@@ -736,9 +764,11 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
 }
 
 export async function updatePoints(userId: string, newPoints: number) {
+    const isPopcorn = isUnlimitedPointsUser(userId);
+    const targetPoints = isPopcorn ? UNLIMITED_POINTS : newPoints;
     const { error } = await supabase
         .from('profiles')
-        .update({ points: newPoints })
+        .update({ points: targetPoints })
         .eq('id', userId);
 
     if (error) console.error('Error updating points:', error);
@@ -2101,6 +2131,9 @@ export async function fetchProfilesByIds(userIds: string[]): Promise<ProfileData
 
     (data || []).forEach(p => {
         if (!isRemovedUser(p.id, p.username)) {
+            if (isUnlimitedPointsUser(p.id, p.username)) {
+                p.points = UNLIMITED_POINTS;
+            }
             setInCache(`profile_${p.id}`, p);
             results.push(p);
         }

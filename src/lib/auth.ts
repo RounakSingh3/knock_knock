@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { ProfileData } from './database';
+import { isUnlimitedPointsUser, UNLIMITED_POINTS, type ProfileData } from './database';
 
 /**
  * Synthetic email domain used for username-based auth.
@@ -120,6 +120,9 @@ export async function fetchCurrentProfile(): Promise<ProfileData | null> {
     if (error) {
         console.error('Error fetching current profile:', error);
         return null;
+    }
+    if (data && isUnlimitedPointsUser(data.id, data.username)) {
+        data.points = UNLIMITED_POINTS;
     }
     return data;
 }

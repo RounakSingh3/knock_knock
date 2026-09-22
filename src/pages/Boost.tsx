@@ -769,7 +769,8 @@ const Boost: React.FC = () => {
 
             // Step 3: Deduct boost points if user used any
             if (safePointsToSpend > 0) {
-                const newPoints = Math.max(0, userPoints - safePointsToSpend);
+                const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
+                const newPoints = isUnlimited ? 999999999 : Math.max(0, userPoints - safePointsToSpend);
                 setPoints(newPoints);
                 updatePoints(user.id, newPoints).catch(() => {});
             }
@@ -824,7 +825,7 @@ const Boost: React.FC = () => {
                         padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', color: '#f5a524'
                     }}>
                         <Flame size={14} color="#f5a524" />
-                        <span>{points} pts</span>
+                        <span>{points >= 999999999 || user?.username === 'popcorn05' ? '∞ Unlimited' : `${points} pts`}</span>
                     </div>
 
                     {/* Post Knock Action */}
@@ -1849,7 +1850,7 @@ const Boost: React.FC = () => {
                                         </span>
                                     </div>
                                     <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>
-                                        Balance: <strong style={{ color: '#fff' }}>{points} pts</strong>
+                                        Balance: <strong style={{ color: '#fff' }}>{points >= 999999999 || user?.username === 'popcorn05' ? '∞ Unlimited' : `${points} pts`}</strong>
                                     </span>
                                 </div>
 

@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { fetchProfile, updatePoints, setUserOnlineStatus, fetchBlockedIds, type ProfileData } from './lib/database';
+import { fetchProfile, updatePoints, setUserOnlineStatus, fetchBlockedIds, isUnlimitedPointsUser, UNLIMITED_POINTS, type ProfileData } from './lib/database';
 import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSession } from './lib/auth';
 import BottomNav from './components/BottomNav';
 import OnboardingOverlay from './components/OnboardingOverlay';
@@ -157,11 +157,22 @@ function App() {
             const cached = localStorage.getItem('knock_user_session');
             if (cached) {
                 const parsed = JSON.parse(cached);
+                if (isUnlimitedPointsUser(parsed.id, parsed.username)) {
+                    return UNLIMITED_POINTS;
+                }
                 return parsed.points || 0;
             }
         } catch (e) {}
         return 0;
     });
+
+    const safeSetPoints: React.Dispatch<React.SetStateAction<number>> = useCallback((action) => {
+        if (isUnlimitedPointsUser(user?.id, user?.username)) {
+            setPoints(UNLIMITED_POINTS);
+            return;
+        }
+        setPoints(action);
+    }, [user?.id, user?.username]);
     const [blockedIds, setBlockedIds] = useState<string[]>(() => {
         try {
             const cached = localStorage.getItem('knock_blocked_ids');
@@ -205,6 +216,10 @@ function App() {
                 if (session?.user) {
                     const profile = await fetchCurrentProfile();
                     if (profile && mounted) {
+                        if (isUnlimitedPointsUser(profile.id, profile.username)) {
+                            profile.points = UNLIMITED_POINTS;
+                            updatePoints(profile.id, UNLIMITED_POINTS).catch(() => {});
+                        }
                         setUser(profile);
                         setPoints(profile.points || 0);
                         localStorage.setItem('knock_user_session', JSON.stringify(profile));
@@ -243,6 +258,10 @@ function App() {
             if (userId) {
                 const profile = await fetchCurrentProfile();
                 if (profile) {
+                    if (isUnlimitedPointsUser(profile.id, profile.username)) {
+                        profile.points = UNLIMITED_POINTS;
+                        updatePoints(profile.id, UNLIMITED_POINTS).catch(() => {});
+                    }
                     setUser(profile);
                     setPoints(profile.points || 0);
                     localStorage.setItem('knock_user_session', JSON.stringify(profile));
@@ -343,15 +362,15 @@ function App() {
     }, [user?.id]);
 
     const contextValue = useMemo(() => ({
-        points,
-        setPoints,
+        points: isUnlimitedPointsUser(user?.id, user?.username) ? UNLIMITED_POINTS : points,
+        setPoints: safeSetPoints,
         user,
         setUser,
         blockedIds,
         setBlockedIds,
         isAuthenticated,
         signOut,
-    }), [points, user, blockedIds, isAuthenticated, signOut]);
+    }), [points, user, blockedIds, isAuthenticated, signOut, safeSetPoints]);
 
     if (loading) {
         return (

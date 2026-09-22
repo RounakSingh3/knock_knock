@@ -526,7 +526,7 @@ const Profile = () => {
                 </h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ background: 'rgba(255, 51, 102, 0.15)', color: '#ff3366', padding: '4px 12px', borderRadius: '20px', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Star size={16} fill="#ff3366" /> {isOwnProfile ? points : profile.points} Pts
+                        <Star size={16} fill="#ff3366" /> {(isOwnProfile ? points : profile.points) >= 999999999 || profile.username === 'popcorn05' ? '∞ Unlimited Pts' : `${isOwnProfile ? points : profile.points} Pts`}
                     </div>
                     {isOwnProfile && (
                         <>

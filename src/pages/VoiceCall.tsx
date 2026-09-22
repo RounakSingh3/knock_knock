@@ -4442,7 +4442,7 @@ const VoiceCall = () => {
                             <div className="match-stat-divider" />
                             <div className="match-stat">
                                 <Users size={16} color="#60a5fa" />
-                                <span className="match-stat-value">{currentMatch.profile.points || 0}</span>
+                                <span className="match-stat-value">{(currentMatch.profile.points || 0) >= 999999999 || currentMatch.profile.username === 'popcorn05' ? '∞ Unlimited' : (currentMatch.profile.points || 0)}</span>
                                 <span className="match-stat-label">Points</span>
                             </div>
                         </div>

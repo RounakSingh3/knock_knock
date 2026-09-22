@@ -140,7 +140,8 @@ const CreatePost = () => {
             });
 
             if (boostToSpotlight) {
-                const newPoints = points - boostAmount;
+                const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
+                const newPoints = isUnlimited ? 999999999 : Math.max(0, points - boostAmount);
                 await updatePoints(user.id, newPoints);
                 setPoints(newPoints);
             }
@@ -408,7 +409,7 @@ const CreatePost = () => {
                         <input 
                             type="range" 
                             min="1" 
-                            max={Math.max(1, points)} 
+                            max={points >= 999999999 ? 1000 : Math.max(1, points)} 
                             value={boostAmount} 
                             onChange={(e) => setBoostAmount(parseInt(e.target.value))}
                             style={{ width: '100%', accentColor: '#f5a524' }}
