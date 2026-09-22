@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Sora:wght@600;800&display=swap');
-
 /* ───────────────────────────────────────────────────────────
    Knock Knock — "Midnight Door" Design System
    A porch light glowing through a door at midnight.
@@ -155,6 +153,18 @@ body::before {
     flex-direction: column;
     min-height: 100vh;
     padding-bottom: 96px; /* Space for the floating bottom navigation */
+    width: 100%;
+}
+
+@media (min-width: 768px) {
+    .app-container {
+        max-width: 600px;
+        margin: 0 auto;
+        box-shadow: 0 0 60px rgba(0, 0, 0, 0.75);
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        position: relative;
+    }
 }
 
 /* Premium Floating Bottom Nav */
@@ -177,6 +187,15 @@ body::before {
     box-shadow: 0 10px 35px rgba(0, 0, 0, 0.65), 0 0 20px rgba(245, 165, 36, 0.08);
     will-change: transform;
     contain: layout style;
+}
+
+@media (min-width: 768px) {
+    .bottom-nav {
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+        width: min(520px, calc(100% - 40px));
+    }
 }
 
 .nav-item {
@@ -576,14 +595,21 @@ body::before {
     justify-content: center;
     cursor: pointer;
     z-index: 990;
-    box-shadow: 0 4px 20px rgba(245, 165, 36, 0.4), 0 0 40px rgba(255, 107, 53, 0.15);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px rgba(245, 165, 36, 0.4), 0 0 35px rgba(255, 107, 53, 0.15);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s ease;
     animation: fab-glow 3s ease-in-out infinite;
+    will-change: transform;
+}
+
+@media (min-width: 768px) {
+    .fab-create {
+        right: max(24px, calc(50% - 300px + 20px));
+    }
 }
 
 .fab-create:hover {
-    transform: scale(1.1) rotate(90deg);
-    box-shadow: 0 6px 28px rgba(245, 165, 36, 0.5), 0 0 50px rgba(255, 107, 53, 0.25);
+    transform: scale(1.08) rotate(90deg);
+    box-shadow: 0 6px 28px rgba(245, 165, 36, 0.5), 0 0 45px rgba(255, 107, 53, 0.25);
 }
 
 .fab-create:active {
@@ -591,8 +617,8 @@ body::before {
 }
 
 @keyframes fab-glow {
-    0%, 100% { box-shadow: 0 4px 20px rgba(245, 165, 36, 0.4), 0 0 40px rgba(245, 165, 36, 0.1); }
-    50% { box-shadow: 0 4px 28px rgba(245, 165, 36, 0.6), 0 0 60px rgba(245, 165, 36, 0.2); }
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
 }
 
 /* ═══════════════════════════════════════════
@@ -3708,14 +3734,15 @@ body::before {
                       linear-gradient(135deg, #f5a524, #ff6b35, #34d399) !important;
     background-origin: border-box !important;
     background-clip: padding-box, border-box !important;
-    box-shadow: 0 0 12px rgba(245, 165, 36, 0.3),
+    box-shadow: 0 0 14px rgba(245, 165, 36, 0.35),
                 0 0 24px rgba(255, 107, 53, 0.15);
     animation: connection-ring-glow 3s ease-in-out infinite;
+    will-change: transform, opacity;
 }
 
 @keyframes connection-ring-glow {
-    0%, 100% { box-shadow: 0 0 8px rgba(245, 165, 36, 0.2), 0 0 16px rgba(255, 107, 53, 0.1); }
-    50% { box-shadow: 0 0 16px rgba(245, 165, 36, 0.4), 0 0 32px rgba(255, 107, 53, 0.2); }
+    0%, 100% { opacity: 0.88; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.02); }
 }
 
 
@@ -4385,6 +4412,78 @@ select option {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
+    }
+}
+
+/* ══════════════════════════════════════════════════════
+   LAPTOP & DESKTOP OVERLAY CONTAINMENT & CENTERING
+   ══════════════════════════════════════════════════════ */
+@media (min-width: 768px) {
+    /* Chat Panel Centering on Laptop */
+    .chat-panel-root {
+        max-width: 600px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+        box-shadow: 0 0 60px rgba(0, 0, 0, 0.85) !important;
+    }
+
+    /* Reels Page Centering on Laptop */
+    .reels-page-wrapper {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+    }
+
+    .reels-page {
+        max-width: 480px;
+        margin: 0 auto;
+        border-radius: 20px;
+        box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .reels-modal-controls {
+        max-width: 480px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        width: 100% !important;
+    }
+
+    /* Story Viewer Centering on Laptop */
+    .story-viewer-overlay {
+        max-width: 480px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        box-shadow: 0 0 60px rgba(0, 0, 0, 0.9) !important;
+        border-left: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* Explore Feed Viewer Centering on Laptop */
+    .explore-feed-scroll-container {
+        max-width: 500px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        box-shadow: 0 0 60px rgba(0, 0, 0, 0.9) !important;
+        border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+
+    /* Fullscreen Post Modal Details on Laptop */
+    .post-modal--fullscreen .modal-details--sheet,
+    .post-modal--fullscreen .modal-top-bar {
+        max-width: 500px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        width: 100% !important;
     }
 }
 

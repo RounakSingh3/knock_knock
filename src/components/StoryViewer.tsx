@@ -633,6 +633,17 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         display: flex;
                         flex-direction: column;
                     }
+                    @media (min-width: 768px) {
+                        .story-viewer-overlay {
+                            max-width: 480px;
+                            left: 50%;
+                            right: auto;
+                            transform: translateX(-50%);
+                            border-left: 1px solid rgba(255, 255, 255, 0.1);
+                            border-right: 1px solid rgba(255, 255, 255, 0.1);
+                            box-shadow: 0 0 60px rgba(0, 0, 0, 0.9);
+                        }
+                    }
                     .story-progress-container {
                         position: absolute;
                         top: 10px;

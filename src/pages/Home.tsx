@@ -40,6 +40,7 @@ interface MasonryPostCardProps {
     onOpenChat: (userId: string) => void;
     onShare: (post: PostData) => void;
     onOpenComments: (postId: string) => void;
+    onObserveCard?: (node: HTMLDivElement | null, postId: string, category: string) => void;
 }
 
 const MasonryPostCard = React.memo<MasonryPostCardProps>(({
@@ -56,9 +57,11 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
     onOpenChat,
     onShare,
     onOpenComments,
+    onObserveCard,
 }) => {
     return (
         <div
+            ref={(node) => onObserveCard?.(node, post.id, post.category || 'General')}
             className={`masonry-card ${index % 5 === 0 ? 'masonry-card--tall' : ''}`}
             data-post-id={post.id}
             data-post-cat={post.category || 'General'}
@@ -546,20 +549,12 @@ const Home = () => {
     const handleOpenComments = useCallback((pid: string) => { setCommentsPostId(pid); setIsCommentsOpen(true); }, []);
 
     // Pillar 2: Implicit Signal Tracking for Home Feed Cards (dwell time & fast skips)
-    // ⚡ Persistent observer across infinite scroll appends; does not wipe timers on every load-more
+    // ⚡ Direct callback ref observation with zero document.querySelectorAll churn
     const dwellObserverRef = useRef<IntersectionObserver | null>(null);
     const observedCardIdsRef = useRef<Set<string>>(new Set());
     const cardTimersRef = useRef<Map<string, number>>(new Map());
 
-    useEffect(() => {
-        if (feedMode !== 'foryou') {
-            dwellObserverRef.current?.disconnect();
-            dwellObserverRef.current = null;
-            observedCardIdsRef.current.clear();
-            cardTimersRef.current.clear();
-            return;
-        }
-
+    const initDwellObserver = useCallback(() => {
         if (!dwellObserverRef.current) {
             dwellObserverRef.current = new IntersectionObserver((entries) => {
                 const now = Date.now();
@@ -602,17 +597,25 @@ const Home = () => {
                 });
             }, { threshold: [0.1, 0.5] });
         }
+    }, [userId]);
 
-        // Incrementally observe new cards only
-        const cards = document.querySelectorAll('.masonry-card[data-post-id]');
-        cards.forEach(card => {
-            const id = card.getAttribute('data-post-id');
-            if (id && !observedCardIdsRef.current.has(id)) {
-                observedCardIdsRef.current.add(id);
-                dwellObserverRef.current?.observe(card);
-            }
-        });
-    }, [posts.length, feedMode]);
+    const observeCard = useCallback((node: HTMLDivElement | null, postId: string) => {
+        if (!node || feedMode !== 'foryou') return;
+        initDwellObserver();
+        if (!observedCardIdsRef.current.has(postId)) {
+            observedCardIdsRef.current.add(postId);
+            dwellObserverRef.current?.observe(node);
+        }
+    }, [feedMode, initDwellObserver]);
+
+    useEffect(() => {
+        if (feedMode !== 'foryou') {
+            dwellObserverRef.current?.disconnect();
+            dwellObserverRef.current = null;
+            observedCardIdsRef.current.clear();
+            cardTimersRef.current.clear();
+        }
+    }, [feedMode]);
 
     useEffect(() => {
         return () => {
@@ -811,6 +814,7 @@ const Home = () => {
                                     onOpenChat={handleOpenChat}
                                     onShare={handleSharePost}
                                     onOpenComments={handleOpenComments}
+                                    onObserveCard={observeCard}
                                 />
                             ))}
                         </div>

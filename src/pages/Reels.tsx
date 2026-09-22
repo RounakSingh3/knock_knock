@@ -846,23 +846,29 @@ const Reels: React.FC = () => {
 
             {/* Modal Full-Screen Player */}
             {selectedReelIndex !== null && (
-                <div style={{
-                    position: 'fixed',
-                    inset: 0,
-                    zIndex: 9999,
-                    background: 'var(--bg-color)'
-                }}>
+                <div 
+                    className="reels-page-wrapper"
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 9999,
+                        background: 'var(--bg-color)'
+                    }}
+                >
                     {/* Modal Controls */}
-                    <div style={{
-                        position: 'absolute',
-                        top: 40,
-                        left: 20,
-                        right: 20,
-                        zIndex: 10000,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        pointerEvents: 'none'
-                    }}>
+                    <div 
+                        className="reels-modal-controls"
+                        style={{
+                            position: 'absolute',
+                            top: 40,
+                            left: 20,
+                            right: 20,
+                            zIndex: 10000,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            pointerEvents: 'none'
+                        }}
+                    >
                         <button 
                             onClick={closePlayer}
                             style={{ 
