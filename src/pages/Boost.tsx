@@ -109,93 +109,18 @@ const TRENDING_HASHTAGS = [
     '#Ads'
 ];
 
-const DISCOVERY_EXPLORE_POSTS: StoryData[] = [
-    {
-        id: 'explore-seed-1',
-        user_id: 'seed-creator-1',
-        username: 'tech_future',
-        image_url: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4#LINK:https%3A%2F%2Fstore.apple.com|Explore%20Gadgets|1',
-        filter_name: 'Normal',
-        is_boosted: true,
-        created_at: new Date().toISOString(),
-        caption: '🚀 Next-gen AI gadgets that will blow your mind! #Tech #Future #Viral #Trending',
-        link_url: 'https://store.apple.com',
-        link_cta: 'Explore Gadgets',
-        is_sponsored: true,
-        target_screens: 850,
-        screens_delivered: 620,
-    },
-    {
-        id: 'explore-seed-2',
-        user_id: 'seed-creator-2',
-        username: 'urban_style',
-        image_url: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4#LINK:https%3A%2F%2Fzara.com|Shop%20Collection|1',
-        filter_name: 'Normal',
-        is_boosted: true,
-        created_at: new Date(Date.now() - 3600000).toISOString(),
-        caption: '✨ Fall fashion drop is live now. 40% off this week only! #Fashion #Style #Trending #Ads',
-        link_url: 'https://zara.com',
-        link_cta: 'Shop Collection',
-        is_sponsored: true,
-        target_screens: 1200,
-        screens_delivered: 890,
-    },
-    {
-        id: 'explore-seed-3',
-        user_id: 'seed-creator-3',
-        username: 'comedy_club',
-        image_url: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4',
-        filter_name: 'Normal',
-        is_boosted: false,
-        created_at: new Date(Date.now() - 7200000).toISOString(),
-        caption: '😂 When you try cooking for the first time… wait for it! #Comedy #Reels #Viral',
-        target_screens: 340,
-        screens_delivered: 210,
-    },
-    {
-        id: 'explore-seed-4',
-        user_id: 'seed-creator-4',
-        username: 'fit_life',
-        image_url: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4#LINK:https%3A%2F%2Fgymshark.com|Start%20Workout|1',
-        filter_name: 'Normal',
-        is_boosted: true,
-        created_at: new Date(Date.now() - 10800000).toISOString(),
-        caption: '💪 30-day transformation challenge starts Monday. Tap link! #Fitness #Workout #Viral #Trending',
-        link_url: 'https://gymshark.com',
-        link_cta: 'Start Workout',
-        is_sponsored: true,
-        target_screens: 980,
-        screens_delivered: 750,
-    },
-    {
-        id: 'explore-seed-5',
-        user_id: 'seed-creator-5',
-        username: 'sound_vibes',
-        image_url: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4#LINK:https%3A%2F%2Fspotify.com|Listen%20Now|0',
-        filter_name: 'Normal',
-        is_boosted: false,
-        created_at: new Date(Date.now() - 14400000).toISOString(),
-        caption: '🌊 Sunset waves with the dreamiest lofi beat ever. #Music #Chill #Nature #Reels',
-        link_url: 'https://spotify.com',
-        link_cta: 'Listen Now',
-        is_sponsored: false,
-        target_screens: 500,
-        screens_delivered: 380,
-    }
-];
-
 const Boost: React.FC = () => {
     const { user, points, setPoints, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
 
-    // Explore Feed State with Instant Cache Rehydration
+    // Explore Feed State with Instant Cache Rehydration (filtering out unwanted seed videos)
     const [stories, setStories] = useState<StoryData[]>(() => {
         try {
             const cached = localStorage.getItem('knock_boost_stories_cache_v2');
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    return parsed;
+                    return parsed.filter((s: StoryData) => !s.id?.startsWith('explore-seed-') && !s.user_id?.startsWith('seed-creator-'));
                 }
             }
         } catch (e) {}
@@ -309,8 +234,8 @@ const Boost: React.FC = () => {
 
         try {
             const data = await fetch24HourBoostStories(user?.id);
-            // Filter out blocked users
-            const valid = data.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
+            // Filter out blocked users and unwanted seed videos
+            const valid = data.filter(s => (!s.user_id || !blockedIds.includes(s.user_id)) && !s.id?.startsWith('explore-seed-') && !s.user_id?.startsWith('seed-creator-'));
             setStories(valid);
             try {
                 localStorage.setItem('knock_boost_stories_cache_v2', JSON.stringify(valid));
@@ -363,11 +288,9 @@ const Boost: React.FC = () => {
         [stories, user?.id]
     );
     
-    // Combine real DB stories with discovery seed stories (real DB stories appear first)
+    // Only real authentic 24h stories uploaded by users on the app
     const combinedStories = useMemo(() => {
-        const realIds = new Set(stories.map(s => s.id));
-        const extraSeeds = DISCOVERY_EXPLORE_POSTS.filter(seed => !realIds.has(seed.id));
-        return [...stories, ...extraSeeds];
+        return stories.filter(s => !s.id?.startsWith('explore-seed-') && !s.user_id?.startsWith('seed-creator-'));
     }, [stories]);
 
     // Enhanced Instagram Explore filtering (Filter Tab + #Hashtag + Search Query)
