@@ -2147,9 +2147,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     }, [groupMessages, currentUser.id, playingAudioUrl, translatedMessages, showOriginalMap]);
 
     return (
-        <div 
-            className="chat-panel-root"
-            style={{
+        <div style={{
                 position: 'fixed',
                 top: 0,
                 left: 0,

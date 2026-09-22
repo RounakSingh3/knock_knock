@@ -161,7 +161,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
 
     return createPortal(
         <div 
-            className="post-modal-backdrop post-modal-backdrop--fullscreen explore-feed-scroll-container" 
+            className="post-modal-backdrop post-modal-backdrop--fullscreen" 
             style={{ 
                 position: 'fixed',
                 top: 0,
@@ -195,7 +195,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                             height: '100dvh', 
                             minHeight: '100dvh',
                             maxHeight: '100dvh',
-                            width: '100%',
+                            width: '100vw',
                             scrollSnapAlign: 'start', 
                             scrollSnapStop: 'always', 
                             position: 'relative',
