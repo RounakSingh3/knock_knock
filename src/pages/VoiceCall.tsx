@@ -177,6 +177,8 @@ const VoiceCall = () => {
 
     // Call feature states
     const [requestStatus, setRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
+    const [isExtendedCall, setIsExtendedCall] = useState<boolean>(false);
+    const [isIdentityRevealed, setIsIdentityRevealed] = useState<boolean>(false);
     const [videoRequestStatus, setVideoRequestStatus] = useState<'none' | 'sent' | 'accepted'>('none');
     const [connectionState, setConnectionState] = useState<'none' | 'connecting' | 'connected' | 'already'>('none');
     const [showConnectionToast, setShowConnectionToast] = useState(false);
@@ -406,12 +408,14 @@ const VoiceCall = () => {
         return () => clearInterval(interval);
     }, [inCall]);
 
-    // Check call duration limit (3 minutes default unless extended)
+    // Check call duration limit (3 minutes default unless extended, with 60s grace period for milestone prompt)
     useEffect(() => {
-        if (inCall && callDuration >= 180 && requestStatus !== 'accepted') {
-            endCall();
+        if (inCall && !isExtendedCall && requestStatus !== 'accepted' && videoRequestStatus !== 'accepted') {
+            if (callDuration >= 240) {
+                endCall();
+            }
         }
-    }, [callDuration, inCall, requestStatus]);
+    }, [callDuration, inCall, isExtendedCall, requestStatus, videoRequestStatus]);
 
     // Real-time microphone volume analyzer
     const setupMicAnalyser = (stream: MediaStream) => {
@@ -694,13 +698,34 @@ const VoiceCall = () => {
                 if (payload.receiverId !== user.id) return;
                 setIncomingExtensionRequest(true);
             })
+            .on('broadcast', { event: 'extended-call-request' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                setIncomingExtensionRequest(true);
+            })
             .on('broadcast', { event: 'extend-response' }, ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
                 if (payload.accepted) {
+                    setIsExtendedCall(true);
                     setRequestStatus('accepted');
                 } else {
                     setRequestStatus('none');
                 }
+            })
+            .on('broadcast', { event: 'extended-call-response' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                if (payload.accepted) {
+                    setIsExtendedCall(true);
+                    setRequestStatus('accepted');
+                } else {
+                    setRequestStatus('none');
+                }
+            })
+            .on('broadcast', { event: 'connection-made' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                setConnectionState('connected');
+                setIsIdentityRevealed(true);
+                setShowConnectionToast(true);
+                setTimeout(() => setShowConnectionToast(false), 4000);
             })
             .on('broadcast', { event: 'video-request' }, ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
@@ -1556,8 +1581,23 @@ const VoiceCall = () => {
     };
 
     const handleTalkMore = () => {
+        if (!currentMatch) return;
+        if (isCompanionCall) {
+            setIsExtendedCall(true);
+            setRequestStatus('accepted');
+            speakVoice("Extended call activated! We can talk with unlimited time anonymously without revealing your identity.", 'en-US');
+            return;
+        }
         setRequestStatus('sent');
         if (channelRef.current && currentMatch) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'extended-call-request',
+                payload: {
+                    senderId: user!.id,
+                    receiverId: currentMatch.profile.id
+                }
+            });
             channelRef.current.send({
                 type: 'broadcast',
                 event: 'extend-request',
@@ -1565,6 +1605,40 @@ const VoiceCall = () => {
                     senderId: user!.id,
                     receiverId: currentMatch.profile.id
                 }
+            });
+        }
+    };
+
+    const handleAcceptExtendedCall = () => {
+        setIsExtendedCall(true);
+        setRequestStatus('accepted');
+        setIncomingExtensionRequest(false);
+        if (channelRef.current && currentMatch) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'extended-call-response',
+                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
+            });
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'extend-response',
+                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
+            });
+        }
+    };
+
+    const handleDeclineExtendedCall = () => {
+        setIncomingExtensionRequest(false);
+        if (channelRef.current && currentMatch) {
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'extended-call-response',
+                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
+            });
+            channelRef.current.send({
+                type: 'broadcast',
+                event: 'extend-response',
+                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
             });
         }
     };
@@ -1719,6 +1793,7 @@ const VoiceCall = () => {
         const existing = await checkConnection(user.id, currentMatch.profile.id);
         if (existing) {
             setConnectionState('already');
+            setIsIdentityRevealed(true);
             return;
         }
 
@@ -1732,8 +1807,19 @@ const VoiceCall = () => {
 
         if (!error) {
             setConnectionState('connected');
+            setIsIdentityRevealed(true);
             setShowConnectionToast(true);
             setTimeout(() => setShowConnectionToast(false), 4000);
+            if (channelRef.current) {
+                channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'connection-made',
+                    payload: {
+                        senderId: user.id,
+                        receiverId: currentMatch.profile.id
+                    }
+                });
+            }
         } else {
             setConnectionState('none');
         }
@@ -1890,6 +1976,8 @@ const VoiceCall = () => {
     const resetCallStates = () => {
         setIsMuted(false);
         setCallDuration(0);
+        setIsExtendedCall(false);
+        setIsIdentityRevealed(false);
         setRequestStatus('none');
         setVideoRequestStatus('none');
         setConnectionState('none');
@@ -2201,7 +2289,7 @@ const VoiceCall = () => {
         setFloatingSubtitle(prev => (prev && Date.now() - prev.time < 5500 ? null : prev));
     };
 
-    const isRevealed = isDirectCall || requestStatus === 'accepted';
+    const isRevealed = isDirectCall || isIdentityRevealed || connectionState === 'connected' || connectionState === 'already';
     const displayName = currentMatch ? (isRevealed ? currentMatch.profile.name : "Mystery Match") : "";
     const displayUsername = currentMatch ? (isRevealed ? currentMatch.profile.username : "anonymous") : "";
     const displayAvatar = currentMatch ? (isRevealed ? (currentMatch.profile.avatar_url || `https://i.pravatar.cc/300?u=${currentMatch.profile.username}`) : "https://api.dicebear.com/7.x/avataaars/svg?seed=mystery&backgroundColor=ff3366") : "";
@@ -2500,9 +2588,12 @@ const VoiceCall = () => {
                             border: '1px solid rgba(255,255,255,0.15)',
                             boxShadow: '0 12px 30px rgba(0,0,0,0.6)'
                         }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                                <Clock size={20} color="#facc15" />
-                                <span style={{ color: '#fff', fontWeight: 700 }}>{displayName} requested more time!</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                <Sparkles size={20} color="#facc15" />
+                                <div>
+                                    <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.9rem' }}>⚡ {displayName} requested an Extended Call!</div>
+                                    <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.75rem' }}>Talk unlimited time without showing your ID</div>
+                                </div>
                             </div>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <button
@@ -2510,32 +2601,17 @@ const VoiceCall = () => {
                                     style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem' }}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        setRequestStatus('accepted');
-                                        setIncomingExtensionRequest(false);
-                                        if (channelRef.current) {
-                                            channelRef.current.send({
-                                                type: 'broadcast',
-                                                event: 'extend-response',
-                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
-                                            });
-                                        }
+                                        handleAcceptExtendedCall();
                                     }}
                                 >
-                                    Accept
+                                    Accept Extended Call
                                 </button>
                                 <button
                                     className="pill"
                                     style={{ flex: 1, padding: '8px 12px', fontSize: '0.85rem', backgroundColor: '#333' }}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        setIncomingExtensionRequest(false);
-                                        if (channelRef.current) {
-                                            channelRef.current.send({
-                                                type: 'broadcast',
-                                                event: 'extend-response',
-                                                payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
-                                            });
-                                        }
+                                        handleDeclineExtendedCall();
                                     }}
                                 >
                                     Decline
@@ -2649,13 +2725,14 @@ const VoiceCall = () => {
                                 {connectionState === 'connected' ? 'Connected 🤝' : connectionState === 'already' ? 'Already Connected' : connectionState === 'connecting' ? 'Connecting...' : 'Connect 🤝'}
                             </button>
 
-                            {requestStatus === 'none' && (
+                            {!isExtendedCall && requestStatus !== 'accepted' ? (
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleTalkMore(); }}
+                                    disabled={requestStatus === 'sent'}
                                     style={{
-                                        background: 'rgba(250,204,21,0.25)',
+                                        background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.3), rgba(239, 68, 68, 0.3))',
                                         backdropFilter: 'blur(16px)',
-                                        border: '1px solid rgba(250,204,21,0.4)',
+                                        border: '1px solid rgba(245, 158, 11, 0.5)',
                                         color: '#facc15',
                                         borderRadius: '24px',
                                         padding: '8px 16px',
@@ -2667,8 +2744,25 @@ const VoiceCall = () => {
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    <Clock size={16} /> +Time
+                                    <Sparkles size={16} /> {requestStatus === 'sent' ? 'Requesting...' : '⚡ Extended Call'}
                                 </button>
+                            ) : (
+                                <div
+                                    style={{
+                                        background: 'rgba(52, 199, 89, 0.25)',
+                                        border: '1px solid rgba(52, 199, 89, 0.4)',
+                                        color: '#34c759',
+                                        borderRadius: '24px',
+                                        padding: '8px 14px',
+                                        fontSize: '0.78rem',
+                                        fontWeight: 600,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <Lock size={13} /> Extended (Unlimited)
+                                </div>
                             )}
                         </div>
 
@@ -2905,6 +2999,188 @@ const VoiceCall = () => {
                                     <X size={16} />
                                 </button>
                             </div>
+
+                            {/* In-Chat Call Status Bar */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '6px 12px',
+                                background: (isExtendedCall || requestStatus === 'accepted') ? 'rgba(52, 199, 89, 0.14)' : 'rgba(255, 255, 255, 0.05)',
+                                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                                fontSize: '0.75rem',
+                                gap: '8px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    {(isExtendedCall || requestStatus === 'accepted') ? (
+                                        <span style={{ color: '#34c759', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <Lock size={12} /> Extended Call • Unlimited
+                                        </span>
+                                    ) : (
+                                        <span style={{ color: callDuration >= 150 ? '#ef4444' : '#facc15', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <Clock size={12} className={callDuration >= 150 ? 'animate-pulse' : ''} />
+                                            {callDuration >= 180 ? `3m Over (${Math.max(0, 240 - callDuration)}s)` : `${formatTime(Math.max(0, 180 - callDuration))} left`}
+                                        </span>
+                                    )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {!isExtendedCall && requestStatus !== 'accepted' && (
+                                        <button
+                                            type="button"
+                                            onClick={handleTalkMore}
+                                            disabled={requestStatus === 'sent'}
+                                            style={{
+                                                background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                                                border: 'none',
+                                                borderRadius: '12px',
+                                                padding: '4px 10px',
+                                                color: '#fff',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '3px'
+                                            }}
+                                            title="Extended Call (Talk unlimited without showing ID)"
+                                        >
+                                            <Sparkles size={11} /> {requestStatus === 'sent' ? 'Sent...' : '⚡ Extended Call'}
+                                        </button>
+                                    )}
+                                    {connectionState === 'none' && (
+                                        <button
+                                            type="button"
+                                            onClick={handleConnect}
+                                            style={{
+                                                background: 'rgba(255, 255, 255, 0.1)',
+                                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                                borderRadius: '12px',
+                                                padding: '3px 8px',
+                                                color: '#fff',
+                                                fontSize: '0.7rem',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '3px'
+                                            }}
+                                        >
+                                            <Link2 size={11} /> Connect
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Incoming Extended Call inside Video Chat Drawer */}
+                            {incomingExtensionRequest && (
+                                <div style={{
+                                    margin: '6px 10px',
+                                    padding: '8px 12px',
+                                    background: 'linear-gradient(135deg, rgba(52, 199, 89, 0.2), rgba(0, 122, 255, 0.2))',
+                                    border: '1px solid rgba(52, 199, 89, 0.5)',
+                                    borderRadius: '12px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '6px'
+                                }}>
+                                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fff' }}>
+                                        ⚡ {displayName} requested an Extended Call!
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)' }}>
+                                        Continue talking unlimited without showing your ID.
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={handleAcceptExtendedCall}
+                                            style={{ flex: 1, background: '#34c759', border: 'none', borderRadius: '8px', padding: '4px 8px', color: '#fff', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}
+                                        >
+                                            Accept
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleDeclineExtendedCall}
+                                            style={{ flex: 1, background: '#333', border: 'none', borderRadius: '8px', padding: '4px 8px', color: '#fff', fontSize: '0.72rem', cursor: 'pointer' }}
+                                        >
+                                            Decline
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 3-Minute Milestone inside Video Chat Drawer */}
+                            {callDuration >= 180 && !isExtendedCall && requestStatus !== 'accepted' && (
+                                <div style={{
+                                    margin: '6px 10px',
+                                    padding: '10px 12px',
+                                    background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(239, 68, 68, 0.22))',
+                                    border: '1px solid rgba(245, 158, 11, 0.5)',
+                                    borderRadius: '12px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '6px'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fff' }}>
+                                            ⏱️ 3 Minutes Reached!
+                                        </span>
+                                        <span style={{ fontSize: '0.7rem', color: '#f87171', fontWeight: 700 }}>
+                                            Ends in {Math.max(0, 240 - callDuration)}s
+                                        </span>
+                                    </div>
+                                    <p style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.85)', margin: 0, lineHeight: 1.3 }}>
+                                        Keep talking indefinitely without showing your ID:
+                                    </p>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={handleTalkMore}
+                                            disabled={requestStatus === 'sent'}
+                                            style={{
+                                                flex: '1 1 auto',
+                                                background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                                                border: 'none',
+                                                borderRadius: '10px',
+                                                padding: '6px 10px',
+                                                color: '#fff',
+                                                fontWeight: 700,
+                                                fontSize: '0.74rem',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            <Sparkles size={12} />
+                                            {requestStatus === 'sent' ? 'Waiting...' : '⚡ Extended Call (Hide ID)'}
+                                        </button>
+                                        {connectionState === 'none' && (
+                                            <button
+                                                type="button"
+                                                onClick={handleConnect}
+                                                style={{
+                                                    flex: '1 1 auto',
+                                                    background: 'rgba(255,255,255,0.15)',
+                                                    border: '1px solid rgba(255,255,255,0.25)',
+                                                    borderRadius: '10px',
+                                                    padding: '6px 10px',
+                                                    color: '#fff',
+                                                    fontWeight: 600,
+                                                    fontSize: '0.74rem',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '4px'
+                                                }}
+                                            >
+                                                <Link2 size={12} /> Connect (Reveal ID)
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Language Translation Toolbar */}
                             <div style={{
@@ -3287,39 +3563,98 @@ const VoiceCall = () => {
                         )}
 
                         <div className="mt-8" style={{ textAlign: 'center' }}>
-                            <div className={`text-6xl font-mono tracking-wider ${requestStatus !== 'accepted' && callDuration >= 150 ? 'text-red-500 animate-pulse' : 'text-white'}`} style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
-                                {requestStatus === 'accepted' ? formatTime(callDuration) : formatTime(Math.max(0, 180 - callDuration))}
+                            <div className={`text-6xl font-mono tracking-wider ${!isExtendedCall && requestStatus !== 'accepted' && callDuration >= 150 ? 'text-red-500 animate-pulse' : 'text-white'}`} style={{ textShadow: '0 4px 12px rgba(0,0,0,0.5)', fontWeight: 'bold' }}>
+                                {(isExtendedCall || requestStatus === 'accepted') ? formatTime(callDuration) : formatTime(Math.max(0, 180 - callDuration))}
                             </div>
-                            {requestStatus !== 'accepted' ? (
+                            {(isExtendedCall || requestStatus === 'accepted') ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '1rem', color: '#34d399', marginTop: '12px', fontWeight: 600 }}>
+                                    <Lock size={15} /> Extended Call • Unlimited Time (ID Hidden)
+                                </span>
+                            ) : callDuration >= 180 ? (
+                                <span style={{ display: 'block', fontSize: '1rem', color: '#ef4444', marginTop: '12px', fontWeight: 700 }} className="animate-pulse">
+                                    ⏱️ 3 Min Reached • Auto-ends in {Math.max(0, 240 - callDuration)}s
+                                </span>
+                            ) : (
                                 <span style={{ display: 'block', fontSize: '1rem', color: '#facc15', marginTop: '12px', fontWeight: 600 }}>
                                     Time Remaining
                                 </span>
-                            ) : (
-                                <span style={{ display: 'block', fontSize: '1rem', color: '#34d399', marginTop: '12px', fontWeight: 600 }}>
-                                    Unlimited Time
-                                </span>
                             )}
                         </div>
+
+                        {/* 3-Minute Milestone Prompt on Call Screen */}
+                        {callDuration >= 180 && !isExtendedCall && requestStatus !== 'accepted' && (
+                            <div style={{
+                                width: '92%',
+                                maxWidth: '380px',
+                                margin: '14px auto 0 auto',
+                                padding: '14px 16px',
+                                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.28), rgba(239, 68, 68, 0.28))',
+                                border: '1px solid rgba(245, 158, 11, 0.55)',
+                                borderRadius: '18px',
+                                backdropFilter: 'blur(16px)',
+                                boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Clock size={16} color="#facc15" />
+                                        <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#fff' }}>⏱️ 3 Minutes Reached!</span>
+                                    </div>
+                                    <span style={{ fontSize: '0.72rem', color: '#fca5a5', fontWeight: 700 }}>
+                                        Ends in {Math.max(0, 240 - callDuration)}s
+                                    </span>
+                                </div>
+                                <p style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.9)', margin: 0, textAlign: 'left', lineHeight: 1.35 }}>
+                                    Keep talking indefinitely without showing your ID, or switch to video call:
+                                </p>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <button
+                                        className="pill active"
+                                        style={{
+                                            background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                                            color: '#fff',
+                                            fontWeight: 700,
+                                            fontSize: '0.82rem',
+                                            padding: '8px 14px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                        onClick={handleTalkMore}
+                                        disabled={requestStatus === 'sent'}
+                                    >
+                                        <Sparkles size={14} />
+                                        {requestStatus === 'sent' ? 'Waiting for them to accept...' : '⚡ Extended Call (Talk Unlimited • Hide ID)'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Status and Action Buttons & Call Controls Stacked */}
                 <div style={{ paddingBottom: '24px', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', zIndex: 10, width: '100%' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', width: '100%' }}>
-                        {requestStatus === 'none' && (
-                            <button className="premium-btn" style={{ fontSize: '0.9rem', padding: '10px 20px' }} onClick={handleTalkMore}>
-                                <Clock size={16} style={{ marginRight: '8px' }} /> Request More Time
+                        {!isExtendedCall && requestStatus === 'none' && callDuration < 180 && (
+                            <button className="premium-btn" style={{ fontSize: '0.9rem', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px' }} onClick={handleTalkMore}>
+                                <Sparkles size={16} /> Extended Call (Unlimited • Hide ID)
                             </button>
                         )}
-                        {requestStatus === 'sent' && (
+                        {!isExtendedCall && requestStatus === 'sent' && (
                             <div style={{ color: '#facc15', fontSize: '0.85rem', animation: 'sparkle-pulse 1.5s ease-in-out infinite' }}>
-                                Waiting for them to accept more time...
+                                Waiting for them to accept Extended Call...
                             </div>
                         )}
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', background: 'rgba(0,0,0,0.5)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)' }}>
-                            {requestStatus === 'accepted' && (
-                                <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px' }}>✨ Voice Call Extended (No Time Limit!)</span>
+                            {(isExtendedCall || requestStatus === 'accepted') && (
+                                <span style={{ color: '#34C759', fontSize: '0.85rem', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Lock size={14} /> ✨ Extended Call Active (Unlimited • ID Hidden)
+                                </span>
                             )}
                             
                             {/* Switch to Video Call Button */}
@@ -3384,40 +3719,26 @@ const VoiceCall = () => {
                         <div className="connection-toast" style={{ top: '80px', bottom: 'auto' }}>
                             <div className="connection-toast-inner" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <Clock size={20} color="#facc15" />
-                                    <span><strong>{displayName} wants more time!</strong></span>
+                                    <Sparkles size={20} color="#facc15" />
+                                    <div>
+                                        <strong>⚡ {displayName} requested an Extended Call!</strong>
+                                        <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)' }}>
+                                            Talk unlimited time without showing your ID
+                                        </div>
+                                    </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                                     <button
                                         className="pill active"
                                         style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
-                                        onClick={() => {
-                                            setRequestStatus('accepted');
-                                            setIncomingExtensionRequest(false);
-                                            if (channelRef.current) {
-                                                channelRef.current.send({
-                                                    type: 'broadcast',
-                                                    event: 'extend-response',
-                                                    payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: true }
-                                                });
-                                            }
-                                        }}
+                                        onClick={handleAcceptExtendedCall}
                                     >
-                                        Accept
+                                        Accept Extended Call
                                     </button>
                                     <button
                                         className="pill"
                                         style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', backgroundColor: '#333' }}
-                                        onClick={() => {
-                                            setIncomingExtensionRequest(false);
-                                            if (channelRef.current) {
-                                                channelRef.current.send({
-                                                    type: 'broadcast',
-                                                    event: 'extend-response',
-                                                    payload: { senderId: user!.id, receiverId: currentMatch.profile.id, accepted: false }
-                                                });
-                                            }
-                                        }}
+                                        onClick={handleDeclineExtendedCall}
                                     >
                                         Decline
                                     </button>
@@ -3582,6 +3903,232 @@ const VoiceCall = () => {
                             <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#fff' }}>Chat with {displayName}</span>
                             <button onClick={() => setShowChat(false)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', padding: '6px', color: '#fff', cursor: 'pointer' }}><X size={16} /></button>
                         </div>
+
+                        {/* In-Chat Call Status Bar */}
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '6px 12px',
+                            background: (isExtendedCall || requestStatus === 'accepted') ? 'rgba(52, 199, 89, 0.14)' : 'rgba(255, 255, 255, 0.05)',
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                            fontSize: '0.75rem',
+                            gap: '8px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                {(isExtendedCall || requestStatus === 'accepted') ? (
+                                    <span style={{ color: '#34c759', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <Lock size={12} /> Extended Call • Unlimited
+                                    </span>
+                                ) : (
+                                    <span style={{ color: callDuration >= 150 ? '#ef4444' : '#facc15', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <Clock size={12} className={callDuration >= 150 ? 'animate-pulse' : ''} />
+                                        {callDuration >= 180 ? `3m Over (${Math.max(0, 240 - callDuration)}s)` : `${formatTime(Math.max(0, 180 - callDuration))} left`}
+                                    </span>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                {!isExtendedCall && requestStatus !== 'accepted' && (
+                                    <button
+                                        type="button"
+                                        onClick={handleTalkMore}
+                                        disabled={requestStatus === 'sent'}
+                                        style={{
+                                            background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                                            border: 'none',
+                                            borderRadius: '12px',
+                                            padding: '4px 10px',
+                                            color: '#fff',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                        }}
+                                        title="Extended Call (Talk unlimited without showing ID)"
+                                    >
+                                        <Sparkles size={11} /> {requestStatus === 'sent' ? 'Sent...' : '⚡ Extended Call'}
+                                    </button>
+                                )}
+                                {videoRequestStatus === 'none' && (
+                                    <button
+                                        type="button"
+                                        onClick={handleRequestVideo}
+                                        style={{
+                                            background: 'rgba(59, 130, 246, 0.2)',
+                                            border: '1px solid rgba(59, 130, 246, 0.35)',
+                                            borderRadius: '12px',
+                                            padding: '3px 8px',
+                                            color: '#60a5fa',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                        }}
+                                    >
+                                        <Video size={11} /> Video
+                                    </button>
+                                )}
+                                {connectionState === 'none' && (
+                                    <button
+                                        type="button"
+                                        onClick={handleConnect}
+                                        style={{
+                                            background: 'rgba(255, 255, 255, 0.1)',
+                                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                                            borderRadius: '12px',
+                                            padding: '3px 8px',
+                                            color: '#fff',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                        }}
+                                    >
+                                        <Link2 size={11} /> Connect
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Incoming Extended Call inside Voice Chat Drawer */}
+                        {incomingExtensionRequest && (
+                            <div style={{
+                                margin: '6px 10px',
+                                padding: '8px 12px',
+                                background: 'linear-gradient(135deg, rgba(52, 199, 89, 0.2), rgba(0, 122, 255, 0.2))',
+                                border: '1px solid rgba(52, 199, 89, 0.5)',
+                                borderRadius: '12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px'
+                            }}>
+                                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fff' }}>
+                                    ⚡ {displayName} requested an Extended Call!
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)' }}>
+                                    Continue talking unlimited without showing your ID.
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleAcceptExtendedCall}
+                                        style={{ flex: 1, background: '#34c759', border: 'none', borderRadius: '8px', padding: '4px 8px', color: '#fff', fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer' }}
+                                    >
+                                        Accept
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleDeclineExtendedCall}
+                                        style={{ flex: 1, background: '#333', border: 'none', borderRadius: '8px', padding: '4px 8px', color: '#fff', fontSize: '0.72rem', cursor: 'pointer' }}
+                                    >
+                                        Decline
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 3-Minute Milestone inside Voice Chat Drawer */}
+                        {callDuration >= 180 && !isExtendedCall && requestStatus !== 'accepted' && (
+                            <div style={{
+                                margin: '6px 10px',
+                                padding: '10px 12px',
+                                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(239, 68, 68, 0.22))',
+                                border: '1px solid rgba(245, 158, 11, 0.5)',
+                                borderRadius: '12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fff' }}>
+                                        ⏱️ 3 Minutes Reached!
+                                    </span>
+                                    <span style={{ fontSize: '0.7rem', color: '#f87171', fontWeight: 700 }}>
+                                        Ends in {Math.max(0, 240 - callDuration)}s
+                                    </span>
+                                </div>
+                                <p style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.85)', margin: 0, lineHeight: 1.3 }}>
+                                    Keep talking indefinitely without showing your ID:
+                                </p>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleTalkMore}
+                                        disabled={requestStatus === 'sent'}
+                                        style={{
+                                            flex: '1 1 auto',
+                                            background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                                            border: 'none',
+                                            borderRadius: '10px',
+                                            padding: '6px 10px',
+                                            color: '#fff',
+                                            fontWeight: 700,
+                                            fontSize: '0.74rem',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '4px'
+                                        }}
+                                    >
+                                        <Sparkles size={12} />
+                                        {requestStatus === 'sent' ? 'Waiting...' : '⚡ Extended Call (Hide ID)'}
+                                    </button>
+                                    {videoRequestStatus === 'none' && (
+                                        <button
+                                            type="button"
+                                            onClick={handleRequestVideo}
+                                            style={{
+                                                flex: '1 1 auto',
+                                                background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+                                                border: 'none',
+                                                borderRadius: '10px',
+                                                padding: '6px 10px',
+                                                color: '#fff',
+                                                fontWeight: 600,
+                                                fontSize: '0.74rem',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            <Video size={12} /> Video Call
+                                        </button>
+                                    )}
+                                    {connectionState === 'none' && (
+                                        <button
+                                            type="button"
+                                            onClick={handleConnect}
+                                            style={{
+                                                flex: '1 1 auto',
+                                                background: 'rgba(255,255,255,0.15)',
+                                                border: '1px solid rgba(255,255,255,0.25)',
+                                                borderRadius: '10px',
+                                                padding: '6px 10px',
+                                                color: '#fff',
+                                                fontWeight: 600,
+                                                fontSize: '0.74rem',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '4px'
+                                            }}
+                                        >
+                                            <Link2 size={12} /> Connect (Reveal ID)
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Language Translation Toolbar */}
                         <div style={{
