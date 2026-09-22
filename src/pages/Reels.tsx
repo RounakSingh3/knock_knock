@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
-import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, type PostData, type MessageData } from '../lib/database';
-import { getCleanSongUrl, isVideoUrl, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
+import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, type PostData, type MessageData } from '../lib/database';
+import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream } from '../lib/algorithm';
@@ -238,6 +238,8 @@ function postToReel(post: PostData): ReelData {
 
 const Reels: React.FC = () => {
     const { user, blockedIds } = useContext(AppContext);
+    const [searchParams] = useSearchParams();
+    const targetReelId = searchParams.get('id');
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
@@ -249,6 +251,16 @@ const Reels: React.FC = () => {
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
     // ⚡ Progress stored in ref (NOT state) to avoid re-rendering 3x/sec
     const progressesRef = useRef<number[]>(REELS_DATA.map(() => 0));
+
+    // If targetReelId is present on mount and exists in default REELS_DATA, open immediately
+    useEffect(() => {
+        if (!targetReelId) return;
+        const initialIdx = REELS_DATA.findIndex(r => String(r.id) === String(targetReelId));
+        if (initialIdx !== -1) {
+            setSelectedReelIndex(initialIdx);
+            setActiveIndex(initialIdx);
+        }
+    }, [targetReelId]);
 
 
     // Audio playback logic moved to native <audio> controls.
@@ -330,12 +342,32 @@ const Reels: React.FC = () => {
             const todayKey = new Date().toISOString().slice(0, 10);
             const ranked = rankReels(merged, hybridProfile, user?.id, todayKey);
 
+            if (targetReelId) {
+                let targetIdx = ranked.findIndex(r => String(r.id) === String(targetReelId));
+                if (targetIdx === -1) {
+                    try {
+                        const fetchedPost = await fetchPostById(targetReelId);
+                        if (fetchedPost && isVideoPost(fetchedPost)) {
+                            const newReel = postToReel(fetchedPost);
+                            ranked.unshift(newReel);
+                            targetIdx = 0;
+                        }
+                    } catch (err) {
+                        console.warn('[Reels] Could not fetch target reel by id:', err);
+                    }
+                }
+                if (targetIdx !== -1) {
+                    setSelectedReelIndex(targetIdx);
+                    setActiveIndex(targetIdx);
+                }
+            }
+
             setRawReelPool(ranked);
             setReelsList(ranked);
             setPlayStates(ranked.map(() => true));
             progressesRef.current = ranked.map(() => 0);
         });
-    }, [user?.id, user?.username, blockedIds]);
+    }, [user?.id, user?.username, blockedIds, targetReelId]);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const modalScrollRef = useRef<HTMLDivElement>(null);

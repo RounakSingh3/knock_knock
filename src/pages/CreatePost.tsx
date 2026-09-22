@@ -1,11 +1,13 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { uploadMedia, createNewPost, updatePoints } from '../lib/database';
+import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink } from '../lib/database';
 import { getMediaTypeFromFile, compressImage } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
-import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket } from 'lucide-react';
+import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles } from 'lucide-react';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
+import KnockVideoPickerModal, { type KnockVideoItem } from '../components/KnockVideoPickerModal';
+import UploadRewardModal from '../components/UploadRewardModal';
 
 const CSS_FILTERS = [
     { name: 'Normal', filter: 'none' },
@@ -34,6 +36,8 @@ const CreatePost = () => {
     const [selectedFilter, setSelectedFilter] = useState('none');
     const [caption, setCaption] = useState('');
     const [attachedLink, setAttachedLink] = useState('');
+    const [attachedKnockVideo, setAttachedKnockVideo] = useState<KnockVideoItem | null>(null);
+    const [isVideoPickerOpen, setIsVideoPickerOpen] = useState(false);
     const [category, setCategory] = useState('General');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -43,6 +47,11 @@ const CreatePost = () => {
 
     const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
     const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+
+    // Celebratory upload reward modal
+    const [showRewardModal, setShowRewardModal] = useState(false);
+    const [rewardPointsEarned, setRewardPointsEarned] = useState(0);
+    const [rewardNewBalance, setRewardNewBalance] = useState(0);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -139,11 +148,19 @@ const CreatePost = () => {
                 music_url: selectedTrack?.url
             });
 
+            // Award points for uploading content on Knock Knock!
+            const POST_REWARD_POINTS = 10;
+            let currentBal = points;
+            if (user?.id) {
+                currentBal = await awardUploadPoints(user.id, POST_REWARD_POINTS, points);
+                setPoints(currentBal);
+            }
+
             if (boostToSpotlight) {
                 const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
-                const newPoints = isUnlimited ? 999999999 : Math.max(0, points - boostAmount);
-                await updatePoints(user.id, newPoints);
-                setPoints(newPoints);
+                currentBal = isUnlimited ? 999999999 : Math.max(0, currentBal - boostAmount);
+                await updatePoints(user.id, currentBal);
+                setPoints(currentBal);
             }
 
             // Invalidate feed caches so newly uploaded content appears immediately at top of Home & Explore
@@ -152,14 +169,10 @@ const CreatePost = () => {
                 localStorage.removeItem('knock_explore_posts_cache_v7');
             } catch (e) {}
 
-            const redirect = queryParams.get('redirect');
-            if (redirect === 'boost') {
-                navigate(boostToSpotlight ? '/boost?mode=feed' : '/boost?mode=select');
-            } else if (redirect) {
-                navigate(`/${redirect}`);
-            } else {
-                navigate('/home');
-            }
+            // Trigger celebratory reward congratulation modal
+            setRewardPointsEarned(POST_REWARD_POINTS);
+            setRewardNewBalance(currentBal);
+            setShowRewardModal(true);
         } catch (err: unknown) {
             console.error('Upload Error:', err);
             const message = err instanceof Error ? err.message : 'An error occurred during upload.';
@@ -167,6 +180,18 @@ const CreatePost = () => {
         } finally {
             setLoading(false);
             setUploadProgress(null);
+        }
+    };
+
+    const handleRewardModalClose = () => {
+        setShowRewardModal(false);
+        const redirect = queryParams.get('redirect');
+        if (redirect === 'boost') {
+            navigate(boostToSpotlight ? '/boost?mode=feed' : '/boost?mode=select');
+        } else if (redirect) {
+            navigate(`/${redirect}`);
+        } else {
+            navigate('/home');
         }
     };
 
@@ -311,26 +336,175 @@ const CreatePost = () => {
             </button>
         </div>
 
+            {/* Knock Knock Video Link & Attachment Section */}
             <div style={{ marginBottom: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface-color)', border: '1px solid #2c2c2e', borderRadius: '12px', padding: '12px 16px' }}>
-                    <LinkIcon size={20} color="#8e8e93" style={{ marginRight: '12px' }} />
+                <label style={{ fontSize: '14px', color: 'var(--text-inactive)', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Attached Video or Link</span>
+                    <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: 600 }}>👈 Left Swipe Feature</span>
+                </label>
+
+                {attachedKnockVideo ? (
+                    /* Attached Knock Knock Video Card */
+                    <div style={{
+                        background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.12) 0%, rgba(255, 107, 53, 0.08) 100%)',
+                        border: '1px solid rgba(245, 165, 36, 0.4)',
+                        borderRadius: '16px',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        boxShadow: '0 4px 15px rgba(245, 165, 36, 0.15)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            <div style={{
+                                width: '48px',
+                                height: '48px',
+                                borderRadius: '10px',
+                                background: '#000',
+                                overflow: 'hidden',
+                                position: 'relative',
+                                flexShrink: 0
+                            }}>
+                                <video src={attachedKnockVideo.videoUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                                    <Play size={14} fill="#fff" color="#fff" />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{
+                                        fontSize: '9px',
+                                        background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                                        color: '#000',
+                                        fontWeight: 800,
+                                        padding: '1px 6px',
+                                        borderRadius: '8px',
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        Knock Video
+                                    </span>
+                                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#f5a524' }}>
+                                        @{attachedKnockVideo.username}
+                                    </span>
+                                </div>
+                                <span style={{ fontSize: '11px', color: 'var(--text-inactive)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                                    {attachedKnockVideo.caption || 'Connected Knock Knock Video'}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                            <button
+                                type="button"
+                                onClick={() => setIsVideoPickerOpen(true)}
+                                style={{
+                                    background: 'rgba(255, 255, 255, 0.08)',
+                                    border: 'none',
+                                    borderRadius: '12px',
+                                    padding: '6px 10px',
+                                    color: 'var(--text-active)',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Change
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setAttachedKnockVideo(null);
+                                    setAttachedLink('');
+                                }}
+                                style={{
+                                    background: 'rgba(239, 68, 68, 0.2)',
+                                    border: 'none',
+                                    borderRadius: '50%',
+                                    width: '28px',
+                                    height: '28px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <X size={14} color="#ef4444" />
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    /* Button to open Knock Knock Video Picker */
+                    <button
+                        type="button"
+                        onClick={() => setIsVideoPickerOpen(true)}
+                        style={{
+                            width: '100%',
+                            background: 'rgba(245, 165, 36, 0.08)',
+                            border: '1px dashed rgba(245, 165, 36, 0.4)',
+                            borderRadius: '14px',
+                            padding: '12px 16px',
+                            color: '#f5a524',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            marginBottom: '10px',
+                            transition: 'all 0.15s ease'
+                        }}
+                    >
+                        <Film size={18} color="#f5a524" />
+                        <span>Attach Knock Knock Video 🎥 (Swipe Left to Watch)</span>
+                    </button>
+                )}
+
+                {/* Optional Manual Link Input */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: 'var(--surface-color)',
+                    border: '1px solid #2c2c2e',
+                    borderRadius: '12px',
+                    padding: '10px 14px',
+                    marginTop: '8px'
+                }}>
+                    <LinkIcon size={16} color="#8e8e93" style={{ marginRight: '10px' }} />
                     <input 
                         type="url"
-                        placeholder="Attach Link (Optional)"
+                        placeholder="Or paste external/custom link..."
                         value={attachedLink}
-                        onChange={(e) => setAttachedLink(e.target.value)}
+                        onChange={(e) => {
+                            setAttachedLink(e.target.value);
+                            if (!e.target.value) setAttachedKnockVideo(null);
+                        }}
                         style={{
                             flex: 1,
                             background: 'transparent',
                             border: 'none',
                             color: 'var(--text-active)',
                             outline: 'none',
-                            fontSize: '15px'
+                            fontSize: '13px'
                         }}
                     />
+                    {attachedLink && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setAttachedLink('');
+                                setAttachedKnockVideo(null);
+                            }}
+                            style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer', padding: 0 }}
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
                 </div>
-                <p style={{ fontSize: '12px', color: 'var(--text-inactive)', marginTop: '8px', paddingLeft: '4px' }}>
-                    Users can swipe left on your post to open this link.
+                <p style={{ fontSize: '11px', color: 'var(--text-inactive)', marginTop: '6px', paddingLeft: '4px' }}>
+                    💡 Viewers can swipe left on your post to instantly open and watch this video!
                 </p>
             </div>
 
@@ -537,6 +711,27 @@ const CreatePost = () => {
                 onClose={() => setIsMusicModalOpen(false)}
                 onSelectTrack={(track) => setSelectedTrack(track)}
                 selectedTrackId={selectedTrack?.id}
+            />
+
+            {/* Knock Knock Video Picker Modal */}
+            <KnockVideoPickerModal
+                isOpen={isVideoPickerOpen}
+                onClose={() => setIsVideoPickerOpen(false)}
+                currentUserId={user?.id}
+                currentUsername={user?.username}
+                onSelectVideo={(vid) => {
+                    setAttachedKnockVideo(vid);
+                    setAttachedLink(formatKnockVideoLink(vid));
+                }}
+            />
+
+            {/* Celebratory Upload Reward Congratulatory Modal */}
+            <UploadRewardModal
+                isOpen={showRewardModal}
+                pointsAwarded={rewardPointsEarned}
+                newTotalPoints={rewardNewBalance}
+                uploadType={file?.type.startsWith('video/') ? 'video' : 'post'}
+                onClose={handleRewardModalClose}
             />
         </div>
     );

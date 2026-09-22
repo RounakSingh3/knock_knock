@@ -330,6 +330,95 @@ export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[
     return blended;
 }
 
+export async function fetchPostById(id: string): Promise<PostData | null> {
+    if (!id) return null;
+    try {
+        const { data, error } = await supabase
+            .from('posts')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (error || !data) return null;
+        return normalizePost(data);
+    } catch (e) {
+        return null;
+    }
+}
+
+/** Formats a Knock Knock video attachment into a standardized internal link */
+export function formatKnockVideoLink(video: {
+    id: string | number;
+    videoUrl: string;
+    caption?: string;
+    username?: string;
+}): string {
+    const params = new URLSearchParams();
+    params.set('id', String(video.id));
+    if (video.videoUrl) params.set('v', video.videoUrl);
+    if (video.caption) params.set('caption', video.caption.slice(0, 80));
+    if (video.username) params.set('user', video.username);
+    return `/reels?${params.toString()}`;
+}
+
+/** Checks whether a link URL points to a Knock Knock video or reel */
+export function isKnockVideoLink(url?: string | null): boolean {
+    if (!url) return false;
+    const u = url.toLowerCase();
+    if (u.includes('/reels') || u.includes('kk:video:')) {
+        return true;
+    }
+    if (/\.(mp4|webm|mov)(\?.*)?$/i.test(url)) {
+        return true;
+    }
+    return false;
+}
+
+/** Parses metadata from a Knock Knock video link */
+export function parseKnockVideoLink(url?: string | null): {
+    id?: string;
+    videoUrl?: string;
+    caption?: string;
+    username?: string;
+} | null {
+    if (!url) return null;
+    try {
+        if (url.includes('/reels')) {
+            const queryIndex = url.indexOf('?');
+            const queryString = queryIndex !== -1 ? url.slice(queryIndex + 1) : '';
+            const params = new URLSearchParams(queryString);
+            const id = params.get('id') || undefined;
+            const videoUrl = params.get('v') || undefined;
+            const caption = params.get('caption') || undefined;
+            const username = params.get('user') || undefined;
+            return { id, videoUrl, caption, username };
+        }
+        if (url.startsWith('kk:video:')) {
+            return { id: url.replace('kk:video:', '').trim() };
+        }
+        if (/\.(mp4|webm|mov)(\?.*)?$/i.test(url)) {
+            return { videoUrl: url };
+        }
+    } catch (_) {}
+    return null;
+}
+
+/** Awards points to a user for uploading content and updates database */
+export async function awardUploadPoints(userId: string, pointsAwarded: number, currentPoints: number): Promise<number> {
+    if (!userId) return currentPoints;
+    const isUnlimited = isUnlimitedPointsUser(userId);
+    if (isUnlimited) {
+        return UNLIMITED_POINTS;
+    }
+    const newPoints = Math.max(0, currentPoints + pointsAwarded);
+    try {
+        await updatePoints(userId, newPoints);
+    } catch (e) {
+        console.warn('[awardUploadPoints] Error updating points in DB:', e);
+    }
+    return newPoints;
+}
+
 export function normalizePost(post: PostData): PostData {
     if (!post) return null as any;
     if (BROKEN_POST_IDS.has(post.id)) return null as any;

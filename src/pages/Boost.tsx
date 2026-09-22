@@ -25,7 +25,8 @@ import {
     Globe,
     Eye,
     Zap,
-    Link as LinkIcon
+    Link as LinkIcon,
+    Film
 } from 'lucide-react';
 import PullToRefresh from '../components/PullToRefresh';
 import { AppContext } from '../context/AppContext';
@@ -39,6 +40,10 @@ import {
     updateStreak, 
     uploadMedia, 
     uploadStoryImage, 
+    formatKnockVideoLink,
+    awardUploadPoints,
+    isKnockVideoLink,
+    parseKnockVideoLink,
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
@@ -46,6 +51,8 @@ import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
+import KnockVideoPickerModal, { type KnockVideoItem } from '../components/KnockVideoPickerModal';
+import UploadRewardModal from '../components/UploadRewardModal';
 
 const FILTERS = [
     { name: 'Normal', style: '' },
@@ -149,6 +156,11 @@ const Boost: React.FC = () => {
     const [adLinkCta, setAdLinkCta] = useState('Shop Now');
     const [isSponsoredAd, setIsSponsoredAd] = useState(false);
     const [postType, setPostType] = useState<'explore' | 'snap'>('explore');
+    const [attachedKnockVideo, setAttachedKnockVideo] = useState<KnockVideoItem | null>(null);
+    const [isVideoPickerOpen, setIsVideoPickerOpen] = useState(false);
+    const [showRewardModal, setShowRewardModal] = useState(false);
+    const [rewardPointsEarned, setRewardPointsEarned] = useState(0);
+    const [rewardNewBalance, setRewardNewBalance] = useState(0);
 
     // Story Viewer State
     const [activeViewerGroupIndex, setActiveViewerGroupIndex] = useState<number | null>(null);
@@ -604,6 +616,8 @@ const Boost: React.FC = () => {
         setAdLinkCta('Shop Now');
         setIsSponsoredAd(false);
         setPostType('explore');
+        setAttachedKnockVideo(null);
+        setIsVideoPickerOpen(false);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -691,19 +705,28 @@ const Boost: React.FC = () => {
             }
 
             // Step 3: Deduct boost points if user used any
+            let currentBal = userPoints;
             if (safePointsToSpend > 0) {
                 const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
-                const newPoints = isUnlimited ? 999999999 : Math.max(0, userPoints - safePointsToSpend);
-                setPoints(newPoints);
-                updatePoints(user.id, newPoints).catch(() => {});
+                currentBal = isUnlimited ? 999999999 : Math.max(0, userPoints - safePointsToSpend);
+                setPoints(currentBal);
+                updatePoints(user.id, currentBal).catch(() => {});
             }
 
-            // Step 4: Award streak points for posting a 24h knock
-            updateStreak(user.id, 1, null, userPoints - safePointsToSpend).catch(() => {});
+            // Step 4: Award upload points & streak points for posting a 24h knock!
+            const KNOCK_REWARD_POINTS = 15;
+            currentBal = await awardUploadPoints(user.id, KNOCK_REWARD_POINTS, currentBal);
+            setPoints(currentBal);
+            updateStreak(user.id, 1, null, currentBal).catch(() => {});
 
             // Close modal and reload 24h feed
             closeCreateModal();
             await loadFeed();
+
+            // Congratulate user with reward modal!
+            setRewardPointsEarned(KNOCK_REWARD_POINTS);
+            setRewardNewBalance(currentBal);
+            setShowRewardModal(true);
         } catch (err: any) {
             console.error('Failed to post 24h boost knock:', err);
             setUploadError(err.message || 'Failed to post knock. Please try again.');
@@ -1661,6 +1684,104 @@ const Boost: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* ── 🎬 Attach Knock Knock Video (Swipe Left Feature) ── */}
+                            <div style={{
+                                background: attachedKnockVideo ? 'linear-gradient(135deg, rgba(245,165,36,0.15), rgba(255,107,53,0.08))' : 'rgba(255,255,255,0.04)',
+                                border: attachedKnockVideo ? '1px solid rgba(245,165,36,0.45)' : '1px solid rgba(255,255,255,0.08)',
+                                borderRadius: '16px',
+                                padding: '14px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '10px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Film size={18} color="#f5a524" />
+                                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#f5a524' }}>
+                                            Attach Knock Knock Video
+                                        </span>
+                                    </div>
+                                    <span style={{ fontSize: '10px', background: 'rgba(245,165,36,0.2)', color: '#f5a524', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
+                                        SWIPE LEFT 👈
+                                    </span>
+                                </div>
+
+                                {attachedKnockVideo ? (
+                                    <div style={{
+                                        background: 'rgba(0,0,0,0.4)',
+                                        border: '1px solid rgba(245,165,36,0.3)',
+                                        borderRadius: '12px',
+                                        padding: '10px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: '10px'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                                            <div style={{ width: '42px', height: '42px', borderRadius: '8px', background: '#000', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
+                                                <video src={attachedKnockVideo.videoUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
+                                                    <Play size={12} fill="#fff" color="#fff" />
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                                <span style={{ fontSize: '12px', fontWeight: 800, color: '#f5a524', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    @{attachedKnockVideo.username}
+                                                </span>
+                                                <span style={{ fontSize: '11px', color: 'var(--text-inactive)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {attachedKnockVideo.caption || 'Knock Knock Video'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsVideoPickerOpen(true)}
+                                                style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '10px', padding: '6px 10px', color: '#fff', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                                            >
+                                                Change
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setAttachedKnockVideo(null);
+                                                    setHasAdLink(false);
+                                                    setAdLinkUrl('');
+                                                }}
+                                                style={{ background: 'rgba(239, 68, 68, 0.2)', border: 'none', borderRadius: '50%', width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                                            >
+                                                <X size={14} color="#ef4444" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsVideoPickerOpen(true)}
+                                        style={{
+                                            background: 'rgba(245,165,36,0.1)',
+                                            border: '1px dashed rgba(245,165,36,0.4)',
+                                            borderRadius: '12px',
+                                            padding: '10px 14px',
+                                            color: '#f5a524',
+                                            fontSize: '12px',
+                                            fontWeight: 800,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <Video size={16} />
+                                        <span>Choose Video from Knock Knock</span>
+                                    </button>
+                                )}
+                                <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>
+                                    When people view your 24h Knockup, swiping left will immediately open this Knock Knock video!
+                                </span>
+                            </div>
+
                             {/* ── 📢 Advertisement & External Website Link Section ── */}
                             <div style={{
                                 background: hasAdLink ? 'linear-gradient(135deg, rgba(255,51,102,0.12), rgba(245,165,36,0.08))' : 'rgba(255,255,255,0.04)',
@@ -1902,6 +2023,29 @@ const Boost: React.FC = () => {
                 onClose={() => setIsMusicModalOpen(false)}
                 onSelectTrack={(track) => setSelectedTrack(track)}
                 selectedTrackId={selectedTrack?.id}
+            />
+
+            {/* ── Knock Knock Video Picker Modal ── */}
+            <KnockVideoPickerModal
+                isOpen={isVideoPickerOpen}
+                onClose={() => setIsVideoPickerOpen(false)}
+                currentUserId={user?.id}
+                currentUsername={user?.username}
+                onSelectVideo={(vid) => {
+                    setAttachedKnockVideo(vid);
+                    setHasAdLink(true);
+                    setAdLinkUrl(formatKnockVideoLink(vid));
+                    setAdLinkCta('Watch Full Video 🎥');
+                }}
+            />
+
+            {/* ── Celebratory Upload Reward Congratulatory Modal ── */}
+            <UploadRewardModal
+                isOpen={showRewardModal}
+                pointsAwarded={rewardPointsEarned}
+                newTotalPoints={rewardNewBalance}
+                uploadType="knockup"
+                onClose={() => setShowRewardModal(false)}
             />
         </div>
     );
