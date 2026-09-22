@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap, ExternalLink, Check } from 'lucide-react';
+import { AppContext } from '../context/AppContext';
 import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
@@ -69,9 +70,18 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const storyStartRef = useRef<number>(Date.now());
     const navigate = useNavigate();
 
+    const { user: authUser } = useContext(AppContext);
     const currentGroup = storyGroups[groupIndex];
     const currentStory = currentGroup?.stories[storyIndex];
     const isVideo = isVideoUrl(currentStory?.image_url);
+
+    const effectiveUserId = currentUserId || authUser?.id;
+    const isOwner = Boolean(
+        (effectiveUserId && currentStory?.user_id === effectiveUserId) ||
+        (effectiveUserId && currentGroup?.userId === effectiveUserId) ||
+        (authUser?.username && currentGroup?.username && authUser.username.toLowerCase() === currentGroup.username.toLowerCase()) ||
+        (authUser?.username && currentStory?.username && authUser.username.toLowerCase() === currentStory.username.toLowerCase())
+    );
 
     const [audioPlaying, setAudioPlaying] = useState(true);
     const [musicMuted, setMusicMuted] = useState(false);
@@ -343,60 +353,62 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             <span className="story-username">{currentGroup.username}</span>
                             <span className="story-time">{timeSince(currentStory.created_at)}</span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
-                            <span style={{
-                                fontSize: '10px',
-                                padding: '1px 6px',
-                                borderRadius: '10px',
-                                background: 'rgba(0,0,0,0.6)',
-                                color: '#60a5fa',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                border: '1px solid rgba(96,165,250,0.3)',
-                                backdropFilter: 'blur(4px)'
-                            }}>
-                                <Clock size={10} /> {getTimeLeft24h(currentStory.created_at) || '24h'}
-                            </span>
-                            {currentStory.is_boosted && (
+                        {isOwner && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
                                 <span style={{
                                     fontSize: '10px',
                                     padding: '1px 6px',
                                     borderRadius: '10px',
-                                    background: 'rgba(245,165,36,0.3)',
-                                    color: '#f5a524',
+                                    background: 'rgba(0,0,0,0.6)',
+                                    color: '#60a5fa',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '3px',
-                                    fontWeight: 'bold',
-                                    border: '1px solid rgba(245,165,36,0.5)',
+                                    border: '1px solid rgba(96,165,250,0.3)',
                                     backdropFilter: 'blur(4px)'
                                 }}>
-                                    <Rocket size={10} /> {currentStory.screens_delivered || 0}/{currentStory.target_screens || 24} Screens
+                                    <Clock size={10} /> {getTimeLeft24h(currentStory.created_at) || '24h'}
                                 </span>
-                            )}
-                            {isVideo && (
-                                <span style={{
-                                    fontSize: '10px',
-                                    padding: '1px 6px',
-                                    borderRadius: '10px',
-                                    background: 'rgba(239, 68, 68, 0.25)',
-                                    color: '#f87171',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '3px',
-                                    fontWeight: 'bold',
-                                    border: '1px solid rgba(239, 68, 68, 0.4)',
-                                    backdropFilter: 'blur(4px)'
-                                }}>
-                                    <Play size={9} fill="#f87171" /> 30s Video
-                                </span>
-                            )}
-                        </div>
+                                {currentStory.is_boosted && (
+                                    <span style={{
+                                        fontSize: '10px',
+                                        padding: '1px 6px',
+                                        borderRadius: '10px',
+                                        background: 'rgba(245,165,36,0.3)',
+                                        color: '#f5a524',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        fontWeight: 'bold',
+                                        border: '1px solid rgba(245,165,36,0.5)',
+                                        backdropFilter: 'blur(4px)'
+                                    }}>
+                                        <Rocket size={10} /> {currentStory.screens_delivered || 0}/{currentStory.target_screens || 24} Screens
+                                    </span>
+                                )}
+                                {isVideo && (
+                                    <span style={{
+                                        fontSize: '10px',
+                                        padding: '1px 6px',
+                                        borderRadius: '10px',
+                                        background: 'rgba(239, 68, 68, 0.25)',
+                                        color: '#f87171',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        fontWeight: 'bold',
+                                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                                        backdropFilter: 'blur(4px)'
+                                    }}>
+                                        <Play size={9} fill="#f87171" /> 30s Video
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
                 <div className="story-actions" style={{ display: 'flex', alignItems: 'center' }}>
-                    {currentUserId && currentStory.user_id !== currentUserId && (
+                    {!isOwner && effectiveUserId && (
                         <button
                             onClick={handleConvertToSnap}
                             title="Convert video to your own 24h Knockup"
@@ -423,7 +435,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             <span>Convert Knockup</span>
                         </button>
                     )}
-                    {currentStory.user_id === currentUserId && (
+                    {isOwner && (
                         <button onClick={handleDelete} className="icon-btn" style={{ marginRight: 15 }}>
                             <Trash2 size={24} color="var(--text-active)" />
                         </button>
