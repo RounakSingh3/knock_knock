@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap, ExternalLink, Check, Film, Loader2 } from 'lucide-react';
+import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap, ExternalLink, Check, Film, Loader2, Coins } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
-import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap, isKnockVideoLink, parseKnockVideoLink, fetchPostById } from '../lib/database';
+import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap, isKnockVideoLink, parseKnockVideoLink, fetchPostById, givePointsToContent } from '../lib/database';
 import { audioPlayer } from '../lib/audioPlayer';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 import { recordImplicitSignal } from '../lib/algorithm';
@@ -70,7 +70,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const storyStartRef = useRef<number>(Date.now());
     const navigate = useNavigate();
 
-    const { user: authUser } = useContext(AppContext);
+    const { user: authUser, points, setPoints } = useContext(AppContext);
     const currentGroup = storyGroups[groupIndex];
     const currentStory = currentGroup?.stories[storyIndex];
     const cleanMediaUrl = useMemo(() => (currentStory?.image_url || '').split('#')[0], [currentStory?.image_url]);
@@ -101,6 +101,10 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const [audioPlaying, setAudioPlaying] = useState(true);
     const [musicMuted, setMusicMuted] = useState(false);
     const [snapConvertedToast, setSnapConvertedToast] = useState(false);
+    const [showBoostModal, setShowBoostModal] = useState(false);
+    const [boostPointsAmount, setBoostPointsAmount] = useState(10);
+    const [isBoostingStory, setIsBoostingStory] = useState(false);
+    const [boostStoryToast, setBoostStoryToast] = useState<string | null>(null);
     const [connectedVideoModal, setConnectedVideoModal] = useState<{
         id?: string;
         videoUrl?: string;
@@ -166,6 +170,45 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             alert('Could not convert video to Knockup. Please try again.');
         }
     };
+
+    const handleBoostStory = async () => {
+        if (!currentStory || isBoostingStory || boostPointsAmount <= 0) return;
+        setIsBoostingStory(true);
+        try {
+            const res = await givePointsToContent({
+                giverId: effectiveUserId || authUser?.id || '',
+                targetType: 'story',
+                targetId: currentStory.id,
+                authorId: currentStory.user_id,
+                amount: boostPointsAmount,
+                currentGiverPoints: points,
+            });
+            if (res.success) {
+                setPoints(res.newGiverPoints);
+                currentStory.target_screens = (currentStory.target_screens || 24) + res.extraScreens;
+                currentStory.is_boosted = true;
+                setShowBoostModal(false);
+                setBoostStoryToast(`🎉 Boosted! Story will reach ${res.extraScreens} more screens!`);
+                setTimeout(() => setBoostStoryToast(null), 3500);
+            } else {
+                alert(res.error || 'Failed to boost');
+            }
+        } catch (e) {
+            console.error('Boost story failed:', e);
+            alert('Could not boost story.');
+        } finally {
+            setIsBoostingStory(false);
+        }
+    };
+
+    // Pause story playback when boost modal is open
+    useEffect(() => {
+        if (showBoostModal) {
+            setIsPaused(true);
+            if (bgAudioRef.current) bgAudioRef.current.pause();
+            if (storyVideoRef.current) storyVideoRef.current.pause();
+        }
+    }, [showBoostModal]);
 
     const handleNextStory = useCallback(() => {
         if (!currentGroup || !currentStory) return;
@@ -312,17 +355,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         if (!storyVideoRef.current || isPaused) return;
         const video = storyVideoRef.current;
 
-        // Visual health check: verify if the browser is actually decoding and rendering video frames
+        // Visual health check
         if (video.currentTime > 0.3) {
-            const hasDimensions = video.videoWidth > 0 && video.videoHeight > 0;
-            const quality = (video as any).getVideoPlaybackQuality?.();
-            const hasRenderedFrames = quality 
-                ? ((quality.totalVideoFrames ?? 0) > 0 || (quality.renderedVideoFrames ?? 0) > 0)
-                : hasDimensions;
-
-            if (!hasDimensions || !hasRenderedFrames) {
-                setVideoHasVisual(false);
-            } else if (!videoHasVisual) {
+            if (!videoHasVisual) {
                 setVideoHasVisual(true);
             }
         }
@@ -587,6 +622,36 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     </div>
                 </div>
                 <div className="story-actions" style={{ display: 'flex', alignItems: 'center' }}>
+                    {effectiveUserId && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowBoostModal(true);
+                            }}
+                            title="Give points to boost this story to reach more screens"
+                            style={{
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                border: 'none',
+                                borderRadius: '16px',
+                                padding: '4px 10px',
+                                color: '#fff',
+                                fontWeight: 800,
+                                fontSize: '11px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                marginRight: '8px',
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
+                                transition: 'transform 0.1s ease'
+                            }}
+                            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.95)'}
+                            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                        >
+                            <Coins size={13} fill="#fff" />
+                            <span>Boost (+Screens)</span>
+                        </button>
+                    )}
                     {!isOwner && effectiveUserId && (
                         <button
                             onClick={handleConvertToSnap}
@@ -631,6 +696,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     <video
                         ref={storyVideoRef}
                         src={cleanMediaUrl}
+                        poster={posterUrlFromStory || undefined}
                         autoPlay
                         playsInline
                         muted={Boolean(currentStory.music_url || currentStory.music_title)}
@@ -639,16 +705,13 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         onEnded={handleVideoEnded}
                         onError={() => {
                             console.warn('Video failed to load in StoryViewer:', currentStory.id);
-                            handleNextStory();
                         }}
                         style={{ 
                             filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', 
                             objectFit: 'contain',
                             width: '100%',
                             height: '100%',
-                            opacity: videoHasVisual ? 1 : 0,
-                            position: videoHasVisual ? 'relative' : 'absolute',
-                            pointerEvents: videoHasVisual ? 'auto' : 'none'
+                            position: 'relative'
                         }}
                     />
 
@@ -942,6 +1005,170 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 </>
                 );
             })()}
+
+            {/* ⚡ Boost Story Screens (+Points) Modal */}
+            {showBoostModal && currentStory && (
+                <div 
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 10005,
+                        background: 'rgba(0,0,0,0.8)',
+                        backdropFilter: 'blur(10px)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '20px'
+                    }}
+                >
+                    <div style={{
+                        background: 'var(--surface-color)',
+                        border: '1.5px solid rgba(16, 185, 129, 0.4)',
+                        borderRadius: '24px',
+                        width: '100%',
+                        maxWidth: '360px',
+                        padding: '24px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '16px',
+                        boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
+                        position: 'relative'
+                    }}>
+                        <button
+                            onClick={() => setShowBoostModal(false)}
+                            style={{
+                                position: 'absolute', top: '16px', right: '16px',
+                                background: 'rgba(255,255,255,0.08)', border: 'none',
+                                borderRadius: '50%', width: '30px', height: '30px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'var(--text-inactive)', cursor: 'pointer'
+                            }}
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{
+                                width: '44px', height: '44px', borderRadius: '50%',
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)'
+                            }}>
+                                <Coins size={24} color="#fff" />
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: 'var(--text-active)' }}>
+                                    Boost Screen Reach
+                                </h3>
+                                <span style={{ fontSize: '12px', color: '#6ee7b7' }}>
+                                    Send this Knockup to more screens!
+                                </span>
+                            </div>
+                        </div>
+
+                        <p style={{ margin: 0, fontSize: '13px', color: 'rgba(255,255,255,0.85)', lineHeight: 1.45 }}>
+                            Every 1 point awards the creator and guarantees this Knockup is delivered to <strong>1 more friend's screen</strong> automatically!
+                        </p>
+
+                        {/* Balance display */}
+                        <div style={{
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '14px',
+                            padding: '10px 14px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-inactive)' }}>Your Balance:</span>
+                            <span style={{ fontSize: '14px', fontWeight: '800', color: '#10b981' }}>
+                                {authUser?.username === 'popcorn05' ? 'Unlimited' : `${points} Points`}
+                            </span>
+                        </div>
+
+                        {/* Preset options */}
+                        <div>
+                            <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-inactive)', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
+                                Boost Amount
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                {[5, 10, 25, 50].map(amt => (
+                                    <button
+                                        key={amt}
+                                        type="button"
+                                        onClick={() => setBoostPointsAmount(amt)}
+                                        style={{
+                                            flex: '1 0 20%',
+                                            padding: '10px 0',
+                                            borderRadius: '12px',
+                                            border: boostPointsAmount === amt ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.1)',
+                                            background: boostPointsAmount === amt ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.03)',
+                                            color: boostPointsAmount === amt ? '#10b981' : 'var(--text-active)',
+                                            fontWeight: '800',
+                                            fontSize: '13px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        +{amt} Screens
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Boost Button */}
+                        <button
+                            type="button"
+                            onClick={handleBoostStory}
+                            disabled={isBoostingStory || (authUser?.username !== 'popcorn05' && points < boostPointsAmount)}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                borderRadius: '16px',
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                border: 'none',
+                                color: '#fff',
+                                fontWeight: '800',
+                                fontSize: '15px',
+                                cursor: (authUser?.username !== 'popcorn05' && points < boostPointsAmount) ? 'not-allowed' : 'pointer',
+                                opacity: (authUser?.username !== 'popcorn05' && points < boostPointsAmount) ? 0.5 : 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                boxShadow: '0 4px 16px rgba(16, 185, 129, 0.45)'
+                            }}
+                        >
+                            <Rocket size={18} />
+                            <span>{isBoostingStory ? 'Boosting...' : `Boost (+${boostPointsAmount} Screens)`}</span>
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Boost Success Toast */}
+            {boostStoryToast && (
+                <div style={{
+                    position: 'absolute',
+                    top: '75px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: 'rgba(16, 185, 129, 0.95)',
+                    backdropFilter: 'blur(10px)',
+                    color: '#fff',
+                    padding: '8px 20px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    zIndex: 10006,
+                    boxShadow: '0 4px 20px rgba(16, 185, 129, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                }}>
+                    <Check size={16} /> {boostStoryToast}
+                </div>
+            )}
             
             {useMemo(() => (
                 <style>{`

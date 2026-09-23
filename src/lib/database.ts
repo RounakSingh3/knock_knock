@@ -863,6 +863,233 @@ export async function updatePoints(userId: string, newPoints: number) {
     if (error) console.error('Error updating points:', error);
 }
 
+/**
+ * Transfers points from a sender to a recipient in direct chat.
+ * Deducts from sender (unless unlimited popcorn05) and credits recipient.
+ */
+export async function giftPointsToUser(
+    senderId: string,
+    recipientId: string,
+    amount: number,
+    currentSenderPoints: number
+): Promise<{ success: boolean; newSenderPoints: number; newRecipientPoints: number; error?: string }> {
+    if (!senderId || !recipientId || amount <= 0) {
+        return { success: false, newSenderPoints: currentSenderPoints, newRecipientPoints: 0, error: 'Invalid parameters' };
+    }
+
+    const isPopcorn = isUnlimitedPointsUser(senderId);
+    if (!isPopcorn && currentSenderPoints < amount) {
+        return { success: false, newSenderPoints: currentSenderPoints, newRecipientPoints: 0, error: 'Insufficient points' };
+    }
+
+    // Deduct from sender (unless popcorn05/unlimited)
+    const newSenderPoints = isPopcorn ? UNLIMITED_POINTS : Math.max(0, currentSenderPoints - amount);
+    await updatePoints(senderId, newSenderPoints);
+
+    // Fetch recipient's current points
+    let recipientPoints = 0;
+    try {
+        const { data } = await supabase.from('profiles').select('points').eq('id', recipientId).maybeSingle();
+        if (data && typeof data.points === 'number') {
+            recipientPoints = data.points;
+        }
+    } catch (_) {}
+
+    const isRecipientPopcorn = isUnlimitedPointsUser(recipientId);
+    const newRecipientPoints = isRecipientPopcorn ? UNLIMITED_POINTS : recipientPoints + amount;
+    await updatePoints(recipientId, newRecipientPoints);
+
+    return {
+        success: true,
+        newSenderPoints,
+        newRecipientPoints
+    };
+}
+
+/**
+ * Awards points to a video or photo creator, automatically boosting the video's reach.
+ * 1 point = 1 extra guaranteed screen delivery for stories / 1 extra impression for posts.
+ */
+export async function givePointsToContent({
+    giverId,
+    targetType,
+    targetId,
+    authorId,
+    amount,
+    currentGiverPoints
+}: {
+    giverId: string;
+    targetType: 'post' | 'story';
+    targetId: string;
+    authorId: string;
+    amount: number;
+    currentGiverPoints: number;
+}): Promise<{ success: boolean; newGiverPoints: number; extraScreens: number; error?: string }> {
+    if (!giverId || !targetId || !authorId || amount <= 0) {
+        return { success: false, newGiverPoints: currentGiverPoints, extraScreens: 0, error: 'Invalid parameters' };
+    }
+
+    const isPopcorn = isUnlimitedPointsUser(giverId);
+    if (!isPopcorn && currentGiverPoints < amount) {
+        return { success: false, newGiverPoints: currentGiverPoints, extraScreens: 0, error: 'Insufficient points' };
+    }
+
+    // Deduct from giver (unless popcorn05/unlimited)
+    const newGiverPoints = isPopcorn ? UNLIMITED_POINTS : Math.max(0, currentGiverPoints - amount);
+    await updatePoints(giverId, newGiverPoints);
+
+    // Award points to the creator!
+    try {
+        const { data } = await supabase.from('profiles').select('points').eq('id', authorId).maybeSingle();
+        const currentAuthorPoints = data?.points || 0;
+        const isAuthorPopcorn = isUnlimitedPointsUser(authorId);
+        await updatePoints(authorId, isAuthorPopcorn ? UNLIMITED_POINTS : currentAuthorPoints + amount);
+    } catch (_) {}
+
+    // 1 point = 1 extra guaranteed screen delivery / impression!
+    const extraScreens = amount;
+
+    if (targetType === 'story') {
+        try {
+            // Update story's target_screens and points_spent in Supabase
+            const { data: storyRow } = await supabase.from('stories').select('target_screens, points_spent, image_url').eq('id', targetId).maybeSingle();
+            const currentTarget = storyRow?.target_screens || 24;
+            const currentSpent = storyRow?.points_spent || 0;
+            const newTarget = currentTarget + extraScreens;
+            const newSpent = currentSpent + amount;
+
+            // Also update image_url boost tag if present: #BOOST:target|friends|points
+            let updatedImageUrl = storyRow?.image_url;
+            if (updatedImageUrl && updatedImageUrl.includes('#BOOST:')) {
+                updatedImageUrl = updatedImageUrl.replace(/#BOOST:\d+\|\d+\|\d+/, `#BOOST:${newTarget}|14|${newSpent}`);
+            }
+
+            await supabase.from('stories').update({
+                target_screens: newTarget,
+                points_spent: newSpent,
+                is_boosted: true,
+                ...(updatedImageUrl ? { image_url: updatedImageUrl } : {})
+            }).eq('id', targetId);
+
+            // Invalidate 24h boost caches so new targetScreens takes effect immediately
+            invalidateCache('recent_stories');
+            invalidateCache('24h_boost_stories');
+        } catch (e) {
+            console.warn('Error boosting story in Supabase:', e);
+        }
+    } else if (targetType === 'post') {
+        try {
+            const { data: postRow } = await supabase.from('posts').select('boost_impressions_remaining').eq('id', targetId).maybeSingle();
+            const currentImp = postRow?.boost_impressions_remaining || 0;
+            const expiresAt = new Date();
+            expiresAt.setHours(expiresAt.getHours() + 48);
+
+            await supabase.from('posts').update({
+                boost_impressions_remaining: currentImp + extraScreens,
+                boost_expires_at: expiresAt.toISOString()
+            }).eq('id', targetId);
+
+            invalidateCache('all_scoring_posts_all');
+        } catch (e) {
+            console.warn('Error boosting post in Supabase:', e);
+        }
+    }
+
+    return {
+        success: true,
+        newGiverPoints,
+        extraScreens
+    };
+}
+
+export interface AddMentionPayload {
+    storyId?: string;
+    postId?: string;
+    mediaUrl: string;
+    caption?: string;
+    addedAt: string;
+    customizedCaption?: string;
+}
+
+/**
+ * Sends an "Add" (mention) notification to a friend in chat.
+ * Allows the added user to edit and customize the mention.
+ */
+export async function sendAddMentionNotification({
+    senderId,
+    recipientId,
+    storyId,
+    postId,
+    mediaUrl,
+    caption
+}: {
+    senderId: string;
+    recipientId: string;
+    storyId?: string;
+    postId?: string;
+    mediaUrl: string;
+    caption?: string;
+}) {
+    const payload: AddMentionPayload = {
+        storyId,
+        postId,
+        mediaUrl,
+        caption: caption || '',
+        addedAt: new Date().toISOString()
+    };
+    const messageText = `[ADD_MENTION] ${JSON.stringify(payload)}`;
+    return await sendMessage(senderId, recipientId, messageText);
+}
+
+export function parseAddMentionPayload(content: string): AddMentionPayload | null {
+    if (!content.startsWith('[ADD_MENTION]')) return null;
+    try {
+        return JSON.parse(content.replace('[ADD_MENTION] ', ''));
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Automatically parses any @username mentions in text and notifies those users with an AddMention card in chat.
+ */
+export async function notifyMentionedUsersInText({
+    senderId,
+    text,
+    mediaUrl,
+    storyId,
+    postId
+}: {
+    senderId: string;
+    text: string;
+    mediaUrl: string;
+    storyId?: string;
+    postId?: string;
+}) {
+    if (!text || !senderId) return;
+    const matches = text.match(/@([a-zA-Z0-9_\.]+)/g);
+    if (!matches || matches.length === 0) return;
+
+    const uniqueUsernames = Array.from(new Set(matches.map(m => m.slice(1))));
+    for (const uname of uniqueUsernames) {
+        try {
+            const profile = await fetchProfileByUsername(uname);
+            if (profile && profile.id && profile.id !== senderId) {
+                await sendAddMentionNotification({
+                    senderId,
+                    recipientId: profile.id,
+                    mediaUrl,
+                    caption: text,
+                    storyId,
+                    postId
+                });
+            }
+        } catch (e) {
+            console.warn(`Failed to notify @${uname} mention:`, e);
+        }
+    }
+}
+
 export async function setUserOnlineStatus(userId: string, isOnline: boolean) {
     const { error } = await supabase
         .from('profiles')

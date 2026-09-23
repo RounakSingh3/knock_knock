@@ -4,6 +4,7 @@ import { Phone, X, Video, BellRing, Check } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { supabase } from '../lib/supabase';
 import { fetchProfilesByIds, updateCallRequestStatus, getPendingCallRequestForUser, type ProfileData } from '../lib/database';
+import { isCallingAllowedNow } from '../lib/callingWindow';
 
 interface IncomingCall {
     callerId: string;
@@ -49,6 +50,14 @@ const GlobalCallListener: React.FC = () => {
         channel.on('broadcast', { event: 'call-invite' }, async (payload) => {
             const { callerId, receiverId, type, room } = payload.payload;
             if (receiverId === userId) {
+                if (!isCallingAllowedNow()) {
+                    channel.send({
+                        type: 'broadcast',
+                        event: 'call-decline',
+                        payload: { callerId, receiverId: userId }
+                    });
+                    return;
+                }
                 const profiles = await fetchProfilesByIds([callerId]);
                 const callerProfile = profiles.length > 0 ? profiles[0] : null;
                 

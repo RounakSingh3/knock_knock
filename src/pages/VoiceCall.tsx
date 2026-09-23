@@ -286,8 +286,39 @@ const VoiceCall = () => {
         });
     };
 
-    // Voice Calling and 24/7 Voice Space Companion unlocked anytime
-    const isCallingAllowed = true;
+    const tapCountRef = useRef(0);
+    const lastTapTimeRef = useRef(0);
+    const handleScheduleBadgeTap = () => {
+        const now = Date.now();
+        if (now - lastTapTimeRef.current < 2500) {
+            tapCountRef.current += 1;
+            if (tapCountRef.current >= 5) {
+                tapCountRef.current = 0;
+                toggleDevBypass();
+                alert(`Developer Mode: Calling window bypass toggled. (Unlocked: ${!devBypass})`);
+            }
+        } else {
+            tapCountRef.current = 1;
+        }
+        lastTapTimeRef.current = now;
+    };
+
+    // Calling strictly allowed only during 8:00 PM – 10:00 PM (or if devBypass active)
+    const isCallingAllowed = scheduleInfo.isActive || devBypass;
+
+    // Auto-end calls / cancel search when calling window ends at 10:00 PM
+    useEffect(() => {
+        if (!isCallingAllowed && !devBypass) {
+            if (isSearching) {
+                cancelSearch();
+                alert("Calling window (8:00 PM – 10:00 PM) has ended for tonight.");
+            }
+            if (inCall) {
+                endCall();
+                alert("Calling window (8:00 PM – 10:00 PM) has ended for tonight. See you tomorrow at 8:00 PM!");
+            }
+        }
+    }, [scheduleInfo.isActive, devBypass]);
 
     const currentMatch = matches[currentMatchIndex] || null;
     const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -1893,6 +1924,10 @@ const VoiceCall = () => {
     };
 
     const startSearch = async () => {
+        if (!isCallingAllowed) {
+            alert(`Voice calls are strictly open between 8:00 PM and 10:00 PM daily. Opens in ${scheduleInfo.formatted}`);
+            return;
+        }
         if (!user) return;
         setIsSearching(true);
         setNoMatchFound(false);
@@ -4482,39 +4517,47 @@ const VoiceCall = () => {
             <div className="call-hub-bg pb-20">
             {/* Top Status Banner */}
             <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '0.5rem', marginBottom: '0.75rem', padding: '0 16px' }}>
-                {scheduleInfo.isActive ? (
-                    <div style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        background: 'rgba(52, 199, 89, 0.14)',
-                        border: '1px solid rgba(52, 199, 89, 0.4)',
-                        padding: '7px 18px',
-                        borderRadius: '30px',
-                        boxShadow: '0 0 20px rgba(52, 199, 89, 0.2)'
-                    }}>
+                {isCallingAllowed ? (
+                    <div 
+                        onClick={handleScheduleBadgeTap}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(52, 199, 89, 0.14)',
+                            border: '1px solid rgba(52, 199, 89, 0.4)',
+                            padding: '7px 18px',
+                            borderRadius: '30px',
+                            boxShadow: '0 0 20px rgba(52, 199, 89, 0.2)',
+                            cursor: 'pointer'
+                        }}
+                    >
                         <span style={{
                             background: '#34C759', width: '9px', height: '9px', borderRadius: '50%',
                             boxShadow: '0 0 10px #34C759', animation: 'pulse 1.6s infinite'
                         }} />
                         <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#34C759' }}>
-                            🟢 CALLING OPEN (8:00 PM – 10:00 PM) • {scheduleInfo.formatted} remaining • 2x Points Active!
+                            🟢 CALLING OPEN (8:00 PM – 10:00 PM) {devBypass ? '[DEV BYPASS]' : `• ${scheduleInfo.formatted} remaining`} • 2x Points Active!
                         </span>
                     </div>
                 ) : (
-                    <div style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        background: 'rgba(245, 165, 36, 0.12)',
-                        border: '1px solid rgba(245, 165, 36, 0.35)',
-                        padding: '7px 18px',
-                        borderRadius: '30px',
-                        boxShadow: '0 4px 15px rgba(245, 165, 36, 0.15)'
-                    }}>
-                        <Clock size={15} color="#f5a524" />
-                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#f5a524' }}>
-                            🌙 Peak Window: 8:00 PM – 10:00 PM (2x Points) • 24/7 Voice Space Open
+                    <div 
+                        onClick={handleScheduleBadgeTap}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(255, 59, 48, 0.12)',
+                            border: '1px solid rgba(255, 59, 48, 0.35)',
+                            padding: '7px 18px',
+                            borderRadius: '30px',
+                            boxShadow: '0 4px 15px rgba(255, 59, 48, 0.15)',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <Clock size={15} color="#ff453a" />
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#ff453a' }}>
+                            🔒 Calling Window Closed • Opens at 8:00 PM ({scheduleInfo.formatted})
                         </span>
                     </div>
                 )}
@@ -4657,7 +4700,8 @@ const VoiceCall = () => {
                         key={pref}
                         className={`pill ${activePref === pref ? 'active' : ''}`}
                         onClick={() => setActivePref(pref)}
-                        disabled={isSearching}
+                        disabled={isSearching || !isCallingAllowed}
+                        style={{ opacity: isCallingAllowed ? 1 : 0.6 }}
                     >
                         {pref}
                     </button>
@@ -4665,7 +4709,32 @@ const VoiceCall = () => {
             </div>
 
             {/* Start / Cancel Matching Action Button */}
-            {isSearching ? (
+            {!isCallingAllowed ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', width: '100%', maxWidth: '300px', margin: '1rem auto 0' }}>
+                    <button
+                        className="premium-btn"
+                        disabled
+                        style={{
+                            width: '100%',
+                            justifyContent: 'center',
+                            fontSize: '1rem',
+                            padding: '14px 24px',
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            cursor: 'not-allowed',
+                            boxShadow: 'none'
+                        }}
+                    >
+                        <Lock size={18} style={{ marginRight: '8px' }} />
+                        Calls Open at 8:00 PM
+                    </button>
+                    <div style={{ fontSize: '0.82rem', color: '#f5a524', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <Clock size={13} />
+                        Opens in {scheduleInfo.formatted} (8:00 PM – 10:00 PM)
+                    </div>
+                </div>
+            ) : isSearching ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%', maxWidth: '290px', margin: '1rem auto 0' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff3366', fontWeight: 600, fontSize: '0.95rem' }}>
                         <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />

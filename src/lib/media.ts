@@ -208,7 +208,7 @@ export async function isHevcVideoFile(file: File): Promise<boolean> {
  */
 export async function extractVideoPoster(
     fileOrUrl: File | string, 
-    atTime = 0.2
+    atTime = 0.05
 ): Promise<{ blob: Blob; dataUrl: string; width: number; height: number } | null> {
     return new Promise((resolve) => {
         try {
@@ -232,10 +232,14 @@ export async function extractVideoPoster(
                 video.load();
             };
 
+            let captured = false;
             const capture = () => {
+                if (captured) return;
                 try {
                     const w = video.videoWidth || 720;
                     const h = video.videoHeight || 1280;
+                    if (w === 0 || h === 0) return;
+                    captured = true;
                     const canvas = document.createElement('canvas');
                     canvas.width = Math.min(w, 1080);
                     canvas.height = Math.round((h / w) * canvas.width);
@@ -262,6 +266,9 @@ export async function extractVideoPoster(
             };
 
             video.onloadeddata = () => {
+                if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    capture();
+                }
                 try {
                     video.currentTime = Math.min(atTime, (video.duration || 1) / 2);
                 } catch (_) {
@@ -279,11 +286,14 @@ export async function extractVideoPoster(
             };
 
             setTimeout(() => {
+                if (!captured) {
+                    capture();
+                }
                 if (!cleanedUp) {
                     cleanup();
                     resolve(null);
                 }
-            }, 3500);
+            }, 1200);
         } catch (_) {
             resolve(null);
         }
@@ -461,24 +471,11 @@ export async function prepareVideoForUpload(
     let posterBlob: Blob | null = null;
     try {
         if (onStatus) onStatus('Generating preview poster...');
-        const posterRes = await extractVideoPoster(file, 0.2);
+        const posterRes = await extractVideoPoster(file, 0.05);
         if (posterRes?.blob) {
             posterBlob = posterRes.blob;
         }
     } catch (_) {}
 
-    const isHevc = await isHevcVideoFile(file);
-    if (!isHevc) {
-        return { videoFile: file, posterBlob };
-    }
-
-    try {
-        if (onStatus) onStatus('Optimizing video for all devices... ⚡');
-        const transcoded = await transcodeHevcToUniversalVideo(file, (pct) => {
-            if (onStatus) onStatus(`Optimizing video: ${pct}% ⚡`);
-        });
-        return { videoFile: transcoded, posterBlob };
-    } catch (_) {
-        return { videoFile: file, posterBlob };
-    }
+    return { videoFile: file, posterBlob };
 }

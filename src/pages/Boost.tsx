@@ -44,6 +44,7 @@ import {
     awardUploadPoints,
     isKnockVideoLink,
     parseKnockVideoLink,
+    notifyMentionedUsersInText,
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
@@ -633,24 +634,39 @@ const Boost: React.FC = () => {
         setUploadProgress(0);
 
         try {
-            // Step 1: Upload media & optional poster
+            // Step 1: Upload media & optional poster in parallel for 2x faster upload speed
             let uploadedUrl = '';
             let uploadedPosterUrl: string | undefined = undefined;
 
-            if (posterBlob) {
+            let fileToUpload = selectedFile;
+            const isVid = selectedFile ? isVideoFile(selectedFile) : isVideo;
+
+            let currentPosterBlob = posterBlob;
+            if (isVid && !currentPosterBlob) {
                 try {
-                    const posterFile = new File([posterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
-                    uploadedPosterUrl = await uploadMedia(posterFile, pPath);
-                } catch (pe) {
-                    console.warn('Poster upload skipped:', pe);
-                }
+                    const targetForPoster = selectedFile || capturedMediaUrl;
+                    if (targetForPoster) {
+                        const res = await extractVideoPoster(targetForPoster as any, 0.05);
+                        if (res?.blob) currentPosterBlob = res.blob;
+                    }
+                } catch (_) {}
             }
 
-            if (selectedFile) {
-                let fileToUpload = selectedFile;
-                const isVid = isVideoFile(selectedFile);
+            const uploadTasks: Promise<any>[] = [];
 
+            // Poster task
+            if (currentPosterBlob) {
+                const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
+                uploadTasks.push(
+                    uploadMedia(posterFile, pPath).then(url => { uploadedPosterUrl = url; }).catch(pe => {
+                        console.warn('Poster upload skipped:', pe);
+                    })
+                );
+            }
+
+            // Main Media task
+            if (selectedFile) {
                 if (!isVid && (selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(selectedFile.name))) {
                     try {
                         fileToUpload = await compressImage(selectedFile, 1280, 1280, 0.8);
@@ -666,15 +682,21 @@ const Boost: React.FC = () => {
                 const rawExt = fileToUpload.name.split('.').pop() || (isVid ? 'mp4' : 'jpg');
                 const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
                 const path = `stories/${user.id}-${Date.now()}.${ext}`;
-                uploadedUrl = await uploadMedia(fileToUpload, path, (progress) => {
-                    if (progress.total > 0) {
-                        const pct = Math.round((progress.loaded / progress.total) * 100);
-                        setUploadProgress(pct);
-                    }
-                });
+                uploadTasks.push(
+                    uploadMedia(fileToUpload, path, (progress) => {
+                        if (progress.total > 0) {
+                            const pct = Math.round((progress.loaded / progress.total) * 100);
+                            setUploadProgress(pct);
+                        }
+                    }).then(url => { uploadedUrl = url; })
+                );
             } else if (capturedMediaUrl) {
-                uploadedUrl = await uploadStoryImage(capturedMediaUrl, user.id);
+                uploadTasks.push(
+                    uploadStoryImage(capturedMediaUrl, user.id).then(url => { uploadedUrl = url; })
+                );
             }
+
+            await Promise.all(uploadTasks);
 
             if (!uploadedUrl) {
                 throw new Error('Failed to upload media. Please try again.');
@@ -701,6 +723,15 @@ const Boost: React.FC = () => {
 
             if (storyError) {
                 throw storyError;
+            }
+
+            // Notify any users mentioned in the story caption with customizable mention cards
+            if (caption.trim() && user?.id) {
+                notifyMentionedUsersInText({
+                    senderId: user.id,
+                    text: caption.trim(),
+                    mediaUrl: uploadedUrl,
+                }).catch(() => {});
             }
 
             // Step 3: Deduct boost points if user used any

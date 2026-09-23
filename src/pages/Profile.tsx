@@ -14,6 +14,7 @@ import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
 import { supabase } from '../lib/supabase';
 import { audioPlayer } from '../lib/audioPlayer';
+import { isCallingAllowedNow, getCallingScheduleInfo } from '../lib/callingWindow';
 
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
 const ShareModal = lazy(() => import('../components/ShareModal'));
@@ -448,6 +449,11 @@ const Profile = () => {
     };
 
     const handleDirectCall = () => {
+        if (!isCallingAllowedNow()) {
+            const sched = getCallingScheduleInfo();
+            alert(`Voice calls are strictly available between 8:00 PM and 10:00 PM daily. Calling window opens in ${sched.formatted}.`);
+            return;
+        }
         if (!currentUser || !profile) return;
         
         const room = `direct-${currentUser.id}-${profile.id}-${Date.now()}`;

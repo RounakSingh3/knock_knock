@@ -392,14 +392,20 @@ export function blendFeed(
         blended.push(own);
     }
 
-    const candidates = [...mainPool];
-    let surpriseIdx = 0;
+    const usedIds = new Set<string>();
+    for (const b of blended) {
+        if (b.post.id) usedIds.add(b.post.id);
+    }
 
+    let surpriseIdx = 0;
     const recentAuthors: string[] = blended.map(s => s.post.username || s.post.user_id || 'anon').slice(-2);
     const recentFormats: ('video' | 'image')[] = blended.map(s => isVideoPost(s.post) ? 'video' : 'image').slice(-2);
     const recentCategories: string[] = blended.map(s => s.post.category || 'General').slice(-2);
 
-    while (candidates.length > 0) {
+    let remainingCount = mainPool.length;
+    let candidatePointer = 0;
+
+    while (remainingCount > 0 && candidatePointer < mainPool.length) {
         const nextIndex = blended.length;
 
         // Inject surprise post (every 5th item)
@@ -408,6 +414,7 @@ export function blendFeed(
             const author = surprise.post.username || surprise.post.user_id || 'anon';
             if (recentAuthors.length === 0 || recentAuthors[recentAuthors.length - 1] !== author) {
                 blended.push(surprise);
+                if (surprise.post.id) usedIds.add(surprise.post.id);
                 recentAuthors.push(author);
                 if (recentAuthors.length > 3) recentAuthors.shift();
                 recentFormats.push(isVideoPost(surprise.post) ? 'video' : 'image');
@@ -421,15 +428,19 @@ export function blendFeed(
 
         const wantImage = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'video');
         const wantVideo = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'image');
-
         const lastAuthor = recentAuthors.length > 0 ? recentAuthors[recentAuthors.length - 1] : '';
         const lastCategory = recentCategories.length > 0 ? recentCategories[recentCategories.length - 1] : '';
 
+        // Windowed lookahead (top 15 available candidates) for lightning-fast O(N) selection
         let bestCandidateIdx = -1;
         let bestCandidateScore = -Infinity;
+        let checked = 0;
 
-        for (let i = 0; i < candidates.length; i++) {
-            const c = candidates[i];
+        for (let i = candidatePointer; i < mainPool.length && checked < 15; i++) {
+            const c = mainPool[i];
+            if (usedIds.has(c.post.id)) continue;
+            checked++;
+
             const author = c.post.username || c.post.user_id || 'anon';
             const isVid = isVideoPost(c.post);
             const format = isVid ? 'video' : 'image';
@@ -453,24 +464,28 @@ export function blendFeed(
         }
 
         if (bestCandidateIdx === -1) {
-            for (let i = 0; i < candidates.length; i++) {
-                const c = candidates[i];
-                const author = c.post.username || c.post.user_id || 'anon';
-                if (!lastAuthor || author !== lastAuthor) {
-                    if (c.score > bestCandidateScore) {
-                        bestCandidateScore = c.score;
-                        bestCandidateIdx = i;
-                    }
+            // Pick first unused candidate
+            for (let i = candidatePointer; i < mainPool.length; i++) {
+                if (!usedIds.has(mainPool[i].post.id)) {
+                    bestCandidateIdx = i;
+                    break;
                 }
             }
         }
 
         if (bestCandidateIdx === -1) {
-            bestCandidateIdx = 0;
+            break;
         }
 
-        const [chosen] = candidates.splice(bestCandidateIdx, 1);
+        const chosen = mainPool[bestCandidateIdx];
+        usedIds.add(chosen.post.id);
         blended.push(chosen);
+        remainingCount--;
+
+        // Advance candidatePointer past used items
+        while (candidatePointer < mainPool.length && usedIds.has(mainPool[candidatePointer].post.id)) {
+            candidatePointer++;
+        }
 
         const author = chosen.post.username || chosen.post.user_id || 'anon';
         recentAuthors.push(author);

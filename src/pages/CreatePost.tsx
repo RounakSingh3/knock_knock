@@ -1,10 +1,10 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink } from '../lib/database';
+import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, type ProfileData } from '../lib/database';
 import { getMediaTypeFromFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { CONTENT_CATEGORIES } from '../lib/algorithm';
-import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles } from 'lucide-react';
+import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles, AtSign, UserPlus, Search, Check } from 'lucide-react';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 import KnockVideoPickerModal, { type KnockVideoItem } from '../components/KnockVideoPickerModal';
 import UploadRewardModal from '../components/UploadRewardModal';
@@ -48,6 +48,35 @@ const CreatePost = () => {
     const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
     const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
 
+    // 🏷️ Add / Mention Friend State
+    const [taggedFriend, setTaggedFriend] = useState<ProfileData | null>(null);
+    const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
+    const [friendsList, setFriendsList] = useState<ProfileData[]>([]);
+    const [friendSearchQuery, setFriendSearchQuery] = useState('');
+    const [loadingFriends, setLoadingFriends] = useState(false);
+
+    const loadFriendsToMention = async () => {
+        if (!user) return;
+        setLoadingFriends(true);
+        try {
+            const [connIds, followingProfiles] = await Promise.all([
+                fetchConnectionUserIds(user.id),
+                fetchFollowing(user.id)
+            ]);
+            const idSet = new Set(connIds);
+            const profiles = await fetchProfilesByIds(Array.from(idSet));
+            const map = new Map<string, ProfileData>();
+            profiles.forEach(p => map.set(p.id, p));
+            followingProfiles.forEach(p => map.set(p.id, p));
+            map.delete(user.id);
+            setFriendsList(Array.from(map.values()));
+        } catch (e) {
+            console.error('Failed to load friends:', e);
+        } finally {
+            setLoadingFriends(false);
+        }
+    };
+
     // Celebratory upload reward modal
     const [showRewardModal, setShowRewardModal] = useState(false);
     const [rewardPointsEarned, setRewardPointsEarned] = useState(0);
@@ -58,15 +87,6 @@ const CreatePost = () => {
             const selectedFile = e.target.files[0];
             setFile(selectedFile);
             setPreviewUrl(URL.createObjectURL(selectedFile));
-
-            if (selectedFile.type.startsWith('video/')) {
-                try {
-                    const prepared = await prepareVideoForUpload(selectedFile);
-                    if (prepared.videoFile && prepared.videoFile !== selectedFile) {
-                        setFile(prepared.videoFile);
-                    }
-                } catch (_) {}
-            }
         }
     };
 
@@ -160,6 +180,16 @@ const CreatePost = () => {
                 music_artist: selectedTrack?.artist,
                 music_url: selectedTrack?.url
             });
+
+            // Send mention notification to tagged friend so they can customize & repost in chat
+            if (taggedFriend && user?.id) {
+                sendAddMentionNotification({
+                    senderId: user.id,
+                    recipientId: taggedFriend.id,
+                    mediaUrl: finalUrl,
+                    caption: caption,
+                }).catch(e => console.warn('Failed to send add mention notification:', e));
+            }
 
             // Award points for uploading content on Knock Knock!
             const POST_REWARD_POINTS = 10;
@@ -475,6 +505,95 @@ const CreatePost = () => {
                     </button>
                 )}
 
+                {/* 🏷️ Add Friend (@Mention) Section */}
+                {taggedFriend ? (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%)',
+                        border: '1.5px solid rgba(99, 102, 241, 0.4)',
+                        borderRadius: '14px',
+                        padding: '10px 14px',
+                        marginBottom: '10px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <img
+                                src={taggedFriend.avatar_url || 'https://i.pravatar.cc/150'}
+                                alt=""
+                                style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
+                            />
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{
+                                        fontSize: '9px',
+                                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                                        color: '#fff',
+                                        fontWeight: 800,
+                                        padding: '1px 6px',
+                                        borderRadius: '8px',
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        Added Friend
+                                    </span>
+                                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#a5b4fc' }}>
+                                        @{taggedFriend.username}
+                                    </span>
+                                </div>
+                                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)', display: 'block', marginTop: '2px' }}>
+                                    They will receive this in chat to customize & repost!
+                                </span>
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setTaggedFriend(null)}
+                            style={{
+                                background: 'rgba(239, 68, 68, 0.2)',
+                                border: 'none',
+                                borderRadius: '50%',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <X size={14} color="#ef4444" />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setIsAddFriendModalOpen(true);
+                            loadFriendsToMention();
+                        }}
+                        style={{
+                            width: '100%',
+                            background: 'rgba(99, 102, 241, 0.08)',
+                            border: '1px dashed rgba(99, 102, 241, 0.4)',
+                            borderRadius: '14px',
+                            padding: '12px 16px',
+                            color: '#a5b4fc',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            marginBottom: '10px',
+                            transition: 'all 0.15s ease'
+                        }}
+                    >
+                        <AtSign size={18} color="#a5b4fc" />
+                        <span>Add Friend / Mention (@Tag)</span>
+                    </button>
+                )}
+
                 {/* Optional Manual Link Input */}
                 <div style={{
                     display: 'flex',
@@ -746,6 +865,160 @@ const CreatePost = () => {
                 uploadType={file?.type.startsWith('video/') ? 'video' : 'post'}
                 onClose={handleRewardModalClose}
             />
+
+            {/* 🏷️ Add Friend Modal */}
+            {isAddFriendModalOpen && (
+                <div 
+                    onClick={() => setIsAddFriendModalOpen(false)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 100060,
+                        background: 'rgba(0,0,0,0.8)',
+                        backdropFilter: 'blur(8px)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '20px'
+                    }}
+                >
+                    <div 
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            background: 'var(--surface-color)',
+                            border: '1px solid rgba(99, 102, 241, 0.4)',
+                            borderRadius: '24px',
+                            width: '100%',
+                            maxWidth: '380px',
+                            maxHeight: '75vh',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
+                            overflow: 'hidden'
+                        }}
+                    >
+                        {/* Modal Header */}
+                        <div style={{
+                            padding: '16px 20px',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <AtSign size={20} color="#a5b4fc" />
+                                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--text-active)' }}>
+                                    Add Friend
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setIsAddFriendModalOpen(false)}
+                                style={{
+                                    background: 'rgba(255,255,255,0.08)', border: 'none',
+                                    borderRadius: '50%', width: '28px', height: '28px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: 'var(--text-inactive)', cursor: 'pointer'
+                                }}
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Search Input */}
+                        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                background: 'rgba(255,255,255,0.05)',
+                                borderRadius: '12px',
+                                padding: '8px 12px',
+                                gap: '8px'
+                            }}>
+                                <Search size={16} color="var(--text-inactive)" />
+                                <input
+                                    type="text"
+                                    value={friendSearchQuery}
+                                    onChange={(e) => setFriendSearchQuery(e.target.value)}
+                                    placeholder="Search friend username or name..."
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'var(--text-active)',
+                                        fontSize: '13px',
+                                        outline: 'none',
+                                        flex: 1
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Friends List */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+                            {loadingFriends ? (
+                                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-inactive)', fontSize: '13px' }}>
+                                    Loading friends...
+                                </div>
+                            ) : friendsList.filter(f => (f.username || '').toLowerCase().includes(friendSearchQuery.toLowerCase()) || (f.name || '').toLowerCase().includes(friendSearchQuery.toLowerCase())).length === 0 ? (
+                                <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-inactive)' }}>
+                                    <p style={{ margin: 0, fontSize: '13px' }}>No friends found</p>
+                                </div>
+                            ) : (
+                                friendsList
+                                    .filter(f => (f.username || '').toLowerCase().includes(friendSearchQuery.toLowerCase()) || (f.name || '').toLowerCase().includes(friendSearchQuery.toLowerCase()))
+                                    .map(friend => (
+                                        <div
+                                            key={friend.id}
+                                            onClick={() => {
+                                                setTaggedFriend(friend);
+                                                setIsAddFriendModalOpen(false);
+                                            }}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: '10px 12px',
+                                                borderRadius: '12px',
+                                                cursor: 'pointer',
+                                                background: taggedFriend?.id === friend.id ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                                                transition: 'background 0.15s ease'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <img
+                                                    src={friend.avatar_url || 'https://i.pravatar.cc/150'}
+                                                    alt=""
+                                                    style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover' }}
+                                                />
+                                                <div>
+                                                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-active)' }}>
+                                                        {friend.name || friend.username}
+                                                    </div>
+                                                    <div style={{ fontSize: '12px', color: '#a5b4fc' }}>
+                                                        @{friend.username}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                style={{
+                                                    background: taggedFriend?.id === friend.id ? '#6366f1' : 'rgba(255,255,255,0.08)',
+                                                    color: taggedFriend?.id === friend.id ? '#fff' : 'var(--text-active)',
+                                                    border: 'none',
+                                                    borderRadius: '10px',
+                                                    padding: '6px 12px',
+                                                    fontSize: '12px',
+                                                    fontWeight: 700
+                                                }}
+                                            >
+                                                {taggedFriend?.id === friend.id ? 'Added' : '+ Add'}
+                                            </button>
+                                        </div>
+                                    ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

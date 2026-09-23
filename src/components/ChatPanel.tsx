@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX, Globe, ArrowLeftRight, Languages } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, fetchDiscoverPosts, type ProfileData, type MessageData, type PostData } from '../lib/database';
+import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX, Globe, ArrowLeftRight, Languages, Gift, Coins, Edit3, AtSign } from 'lucide-react';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, fetchDiscoverPosts, giftPointsToUser, parseAddMentionPayload, convertToPersonalSnap, createStory, type AddMentionPayload, type ProfileData, type MessageData, type PostData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { compressImage, isVideoUrl, isVideoPost } from '../lib/media';
 import { SnapModal, type SnapPayload } from './SnapModal';
 import ExploreFeedViewer from './ExploreFeedViewer';
 import CommentsSheet from './CommentsSheet';
 import ShareModal from './ShareModal';
+import { AppContext } from '../context/AppContext';
 import { 
     SUPPORTED_LANGUAGES, 
     getUserLanguage, 
@@ -86,6 +87,12 @@ function parseSnapPayload(content: string): SnapPayload | null {
 }
 
 function getSharePreview(content: string, isMe: boolean, contactName: string) {
+    if (content.startsWith('[GIFT_POINTS]')) {
+        return isMe ? '🎁 You gifted points' : `🎁 ${contactName} gifted you points!`;
+    }
+    if (content.startsWith('[ADD_MENTION]')) {
+        return isMe ? '🏷️ You added them in a Knockup' : `🏷️ ${contactName} added you in a Knockup`;
+    }
     if (content.startsWith('[VOICE_REACTION]') || content.startsWith('[VOICE]')) {
         return isMe ? 'You sent a voice mail 🎙️' : `🎙️ ${contactName} sent a voice mail`;
     }
@@ -301,6 +308,20 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     pendingShare = null,
 }) => {
     const navigate = useNavigate();
+    const { points, setPoints } = useContext(AppContext);
+
+    // 🎁 Gift Points States
+    const [showGiftPointsModal, setShowGiftPointsModal] = useState(false);
+    const [giftPointsAmount, setGiftPointsAmount] = useState<number>(10);
+    const [giftPointsNote, setGiftPointsNote] = useState<string>('');
+    const [isSendingGiftPoints, setIsSendingGiftPoints] = useState(false);
+    const [giftSuccessToast, setGiftSuccessToast] = useState<string | null>(null);
+
+    // 🏷️ Add (Mention) Customization States
+    const [editingMention, setEditingMention] = useState<{ msgId: string; payload: AddMentionPayload } | null>(null);
+    const [customMentionCaption, setCustomMentionCaption] = useState<string>('');
+    const [isSavingCustomMention, setIsSavingCustomMention] = useState(false);
+    const [mentionSuccessToast, setMentionSuccessToast] = useState<string | null>(null);
 
     // ── Navigation & Views ──
     const [view, setView] = useState<'list' | 'chat' | 'group_chat'>('list');
@@ -1231,6 +1252,89 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         }
     };
 
+    // ── Send Gift Points to 1-on-1 Contact ──
+    const handleSendGiftPoints = async () => {
+        if (!selectedContact || isSendingGiftPoints || giftPointsAmount <= 0) return;
+        setIsSendingGiftPoints(true);
+        try {
+            const res = await giftPointsToUser(currentUser.id, selectedContact.id, giftPointsAmount, points);
+            if (res.success) {
+                setPoints(res.newSenderPoints);
+                const payload = {
+                    amount: giftPointsAmount,
+                    note: giftPointsNote.trim() || undefined,
+                    senderName: currentUser.name || currentUser.username,
+                    recipientName: selectedContact.name || selectedContact.username,
+                    timestamp: new Date().toISOString()
+                };
+                await handleSendDirect(`[GIFT_POINTS] ${JSON.stringify(payload)}`);
+                setShowGiftPointsModal(false);
+                setGiftPointsNote('');
+                setGiftSuccessToast(`🎁 Sent ${giftPointsAmount} points to ${selectedContact.name || selectedContact.username}!`);
+                setTimeout(() => setGiftSuccessToast(null), 3500);
+            } else {
+                alert(res.error || 'Failed to send points');
+            }
+        } catch (e) {
+            console.error('Failed to gift points:', e);
+            alert('Could not complete point gift.');
+        } finally {
+            setIsSendingGiftPoints(false);
+        }
+    };
+
+    // ── Customize Mention & Repost to Own 24h Knockup (Story) ──
+    const handleRepostMentionToKnockup = async () => {
+        if (!editingMention || isSavingCustomMention) return;
+        setIsSavingCustomMention(true);
+        try {
+            const { payload } = editingMention;
+            const newCaption = customMentionCaption.trim() || payload.caption || 'Mentioned by friend';
+            const res = await createStory(
+                currentUser.id,
+                payload.mediaUrl,
+                'Normal',
+                true,
+                currentUser.username,
+                newCaption
+            );
+            if (!res.error) {
+                setMentionSuccessToast('🎉 Customized & added to your 24h Knockup!');
+                setTimeout(() => setMentionSuccessToast(null), 3500);
+                setEditingMention(null);
+            } else {
+                alert('Failed to add to your Knockup.');
+            }
+        } catch (e) {
+            console.error('Repost mention failed:', e);
+            alert('Could not repost mention.');
+        } finally {
+            setIsSavingCustomMention(false);
+        }
+    };
+
+    // ── Customize Mention & Reply Back in Chat ──
+    const handleReplyWithCustomMention = async () => {
+        if (!editingMention || !selectedContact || isSavingCustomMention) return;
+        setIsSavingCustomMention(true);
+        try {
+            const { payload } = editingMention;
+            const newCaption = customMentionCaption.trim() || payload.caption || '';
+            const updatedPayload: AddMentionPayload = {
+                ...payload,
+                customizedCaption: newCaption,
+            };
+            await handleSendDirect(`[ADD_MENTION] ${JSON.stringify(updatedPayload)}`);
+            setMentionSuccessToast('💬 Shared customized mention in chat!');
+            setTimeout(() => setMentionSuccessToast(null), 3500);
+            setEditingMention(null);
+        } catch (e) {
+            console.error('Reply with custom mention failed:', e);
+        } finally {
+            setIsSavingCustomMention(false);
+        }
+    };
+
     // ── Send Group Message ──
     const handleSendGroup = async (text: string) => {
         if (!text.trim() || !selectedGroup) return;
@@ -1752,6 +1856,171 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         g.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
+    // 🎁 Render Gift Points Celebration Message Bubble
+    const renderGiftPointsMessage = (content: string, isMe: boolean) => {
+        let payload: any = null;
+        try {
+            payload = JSON.parse(content.replace('[GIFT_POINTS] ', ''));
+        } catch (e) {}
+
+        const amount = payload?.amount || 10;
+        const note = payload?.note;
+
+        return (
+            <div style={{
+                background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.3) 0%, rgba(255, 107, 53, 0.25) 100%)',
+                border: '1.5px solid #f5a524',
+                borderRadius: '16px',
+                padding: '12px 14px',
+                maxWidth: '280px',
+                boxShadow: '0 4px 16px rgba(245, 165, 36, 0.3)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                        width: '38px', height: '38px', borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #f5a524, #ff8c00)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 10px rgba(245, 165, 36, 0.5)',
+                        flexShrink: 0
+                    }}>
+                        <Coins size={22} color="#000" />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#f5a524', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            🎁 POINT GIFT
+                        </span>
+                        <span style={{ fontSize: '17px', fontWeight: '900', color: '#fff', letterSpacing: '-0.3px' }}>
+                            +{amount} Points!
+                        </span>
+                    </div>
+                </div>
+
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.95)', lineHeight: 1.4 }}>
+                    {isMe ? (
+                        <span>You gifted <strong>{amount} points</strong> to {selectedContact?.name || selectedContact?.username || 'your friend'}!</span>
+                    ) : (
+                        <span><strong>{selectedContact?.name || selectedContact?.username || 'Your friend'}</strong> gifted you <strong>{amount} points</strong>! 🎉</span>
+                    )}
+                </div>
+
+                {note && (
+                    <div style={{
+                        fontSize: '12px',
+                        fontStyle: 'italic',
+                        background: 'rgba(0,0,0,0.35)',
+                        padding: '6px 10px',
+                        borderRadius: '10px',
+                        color: 'rgba(255,255,255,0.85)',
+                        border: '1px solid rgba(255,255,255,0.08)'
+                    }}>
+                        "{note}"
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    // 🏷️ Render Add/Mention Message Bubble with In-Chat Customization
+    const renderAddMentionMessage = (msgId: string, content: string, isMe: boolean) => {
+        const mention = parseAddMentionPayload(content);
+        if (!mention) return content;
+
+        const isVideo = isVideoUrl(mention.mediaUrl);
+        const displayCaption = mention.customizedCaption || mention.caption;
+
+        return (
+            <div style={{
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%)',
+                border: '1.5px solid #818cf8',
+                borderRadius: '16px',
+                padding: '12px 14px',
+                maxWidth: '280px',
+                boxShadow: '0 4px 16px rgba(99, 102, 241, 0.3)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '800', color: '#a5b4fc', textTransform: 'uppercase' }}>
+                        <AtSign size={13} color="#a5b4fc" />
+                        <span>Added In Knockup</span>
+                    </div>
+                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)' }}>
+                        {isMe ? 'You tagged' : 'Tagged you'}
+                    </span>
+                </div>
+
+                {mention.mediaUrl && (
+                    <div style={{
+                        position: 'relative',
+                        width: '100%',
+                        height: '140px',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        background: '#0a0a0a',
+                        border: '1px solid rgba(255,255,255,0.1)'
+                    }}>
+                        {isVideo ? (
+                            <video src={mention.mediaUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+                        ) : (
+                            <img src={mention.mediaUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        )}
+                        <div style={{
+                            position: 'absolute', top: '6px', right: '6px',
+                            background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+                            padding: '2px 6px', borderRadius: '8px', fontSize: '10px', fontWeight: '700', color: '#fff'
+                        }}>
+                            {isVideo ? '🎬 Video' : '📷 Photo'}
+                        </div>
+                    </div>
+                )}
+
+                {displayCaption && (
+                    <div style={{ fontSize: '12.5px', color: '#fff', lineHeight: 1.4 }}>
+                        {mention.customizedCaption ? (
+                            <div>
+                                <span style={{ color: '#818cf8', fontWeight: '700' }}>✏️ Edited: </span>
+                                {mention.customizedCaption}
+                            </div>
+                        ) : (
+                            displayCaption
+                        )}
+                    </div>
+                )}
+
+                <button
+                    type="button"
+                    onClick={() => {
+                        setEditingMention({ msgId, payload: mention });
+                        setCustomMentionCaption(mention.customizedCaption || mention.caption || '');
+                    }}
+                    style={{
+                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '12px',
+                        padding: '8px 12px',
+                        fontWeight: '700',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 10px rgba(99, 102, 241, 0.45)',
+                        transition: 'transform 0.1s ease'
+                    }}
+                >
+                    <Edit3 size={14} />
+                    <span>✏️ Customize & Repost</span>
+                </button>
+            </div>
+        );
+    };
+
     // ⚡ Memoized message streams: Prevents typing keystrokes from re-rendering message bubbles
     const renderedDirectMessages = useMemo(() => {
         return messages.map(msg => {
@@ -1779,7 +2048,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
                     }}>
                         {isShare ? renderSharedContent(msg.content, isMe) : (
-                            (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
+                            msg.content.startsWith('[GIFT_POINTS]') ? (
+                                renderGiftPointsMessage(msg.content, isMe)
+                            ) : msg.content.startsWith('[ADD_MENTION]') ? (
+                                renderAddMentionMessage(msg.id, msg.content, isMe)
+                            ) : (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
                                         🎙️ Voice Mail
@@ -1986,7 +2259,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             </div>
                         )}
                         {isGroupShare ? renderSharedContent(msg.content, isMe) : (
-                            (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
+                            msg.content.startsWith('[GIFT_POINTS]') ? (
+                                renderGiftPointsMessage(msg.content, isMe)
+                            ) : msg.content.startsWith('[ADD_MENTION]') ? (
+                                renderAddMentionMessage(msg.id, msg.content, isMe)
+                            ) : (msg.content.startsWith('[VOICE_REACTION]') || msg.content.startsWith('[VOICE]')) ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                 <div style={{ fontSize: '12px', opacity: 0.8, fontWeight: 'bold' }}>
                                     🎙️ Voice Mail
@@ -2371,6 +2648,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                         const isMe = lastMsg.sender_id === currentUser.id;
 
                                         const getMessagePreview = () => {
+                                            if (lastMsg.content.startsWith('[GIFT_POINTS]')) {
+                                                return isMe ? '🎁 You gifted points' : `🎁 ${contact.username} gifted you points!`;
+                                            }
+                                            if (lastMsg.content.startsWith('[ADD_MENTION]')) {
+                                                return isMe ? '🏷️ You added them in a Knockup' : `🏷️ ${contact.username} added you in a Knockup`;
+                                            }
                                             if (lastMsg.content.startsWith('[SHARE_POST]')) {
                                                 return getSharePreview(lastMsg.content, isMe, contact.username);
                                             }
@@ -2644,6 +2927,28 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <span style={{ fontSize: '12px', color: '#10b981', fontWeight: '500' }}>Online</span>
                             </div>
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowGiftPointsModal(true)}
+                            title="Gift Points to Friend"
+                            style={{
+                                background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.2), rgba(255, 69, 0, 0.2))',
+                                border: '1px solid #f5a524',
+                                borderRadius: '16px',
+                                padding: '6px 12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                color: '#f5a524',
+                                fontWeight: 'bold',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                flexShrink: 0
+                            }}
+                        >
+                            <Gift size={16} color="#f5a524" />
+                            <span>Gift</span>
+                        </button>
                     </header>
 
                     {/* 🌐 Real-Time International Translation Toolbar (Direct Chat) */}
@@ -2766,6 +3071,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                                             disabled={isUploadingImage || isUploadingVoice}
                                         >
                                             <Mic size={22} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowGiftPointsModal(true)}
+                                            title="Gift Points"
+                                            style={{ background: 'none', border: 'none', color: '#f5a524', padding: '6px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            disabled={isUploadingImage || isUploadingVoice}
+                                        >
+                                            <Gift size={22} />
                                         </button>
                                     </>
                                 ) : (
@@ -3418,6 +3732,344 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                         setReelPostToShare(null);
                     }}
                 />
+            )}
+
+            {/* 🎁 Gift Points Modal */}
+            {showGiftPointsModal && selectedContact && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 100060,
+                    background: 'rgba(0,0,0,0.75)',
+                    backdropFilter: 'blur(8px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        background: 'var(--surface-color)',
+                        border: '1px solid rgba(245, 165, 36, 0.4)',
+                        borderRadius: '24px',
+                        width: '100%',
+                        maxWidth: '360px',
+                        padding: '24px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '16px',
+                        boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+                        position: 'relative'
+                    }}>
+                        <button
+                            onClick={() => setShowGiftPointsModal(false)}
+                            style={{
+                                position: 'absolute', top: '16px', right: '16px',
+                                background: 'rgba(255,255,255,0.08)', border: 'none',
+                                borderRadius: '50%', width: '30px', height: '30px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'var(--text-inactive)', cursor: 'pointer'
+                            }}
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{
+                                width: '44px', height: '44px', borderRadius: '50%',
+                                background: 'linear-gradient(135deg, #f5a524, #ff8c00)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                boxShadow: '0 4px 15px rgba(245, 165, 36, 0.45)'
+                            }}>
+                                <Gift size={24} color="#000" />
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: 'var(--text-active)' }}>
+                                    Gift Points
+                                </h3>
+                                <span style={{ fontSize: '13px', color: 'var(--text-inactive)' }}>
+                                    To {selectedContact.name || selectedContact.username}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Current Balance Banner */}
+                        <div style={{
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '14px',
+                            padding: '10px 14px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <span style={{ fontSize: '13px', color: 'var(--text-inactive)' }}>Your Balance:</span>
+                            <span style={{ fontSize: '14px', fontWeight: '800', color: '#f5a524' }}>
+                                {currentUser.username === 'popcorn05' ? 'Unlimited' : `${points} Points`}
+                            </span>
+                        </div>
+
+                        {/* Preset Amount Pills */}
+                        <div>
+                            <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-inactive)', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>
+                                Select Amount
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                {[5, 10, 20, 50, 100].map(amt => (
+                                    <button
+                                        key={amt}
+                                        type="button"
+                                        onClick={() => setGiftPointsAmount(amt)}
+                                        style={{
+                                            flex: '1 0 25%',
+                                            padding: '10px 0',
+                                            borderRadius: '12px',
+                                            border: giftPointsAmount === amt ? '2px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                            background: giftPointsAmount === amt ? 'rgba(245, 165, 36, 0.2)' : 'rgba(255,255,255,0.03)',
+                                            color: giftPointsAmount === amt ? '#f5a524' : 'var(--text-active)',
+                                            fontWeight: '800',
+                                            fontSize: '14px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.15s ease'
+                                        }}
+                                    >
+                                        +{amt}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Optional Note */}
+                        <div>
+                            <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-inactive)', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
+                                Add a Note (Optional)
+                            </label>
+                            <input
+                                type="text"
+                                value={giftPointsNote}
+                                onChange={(e) => setGiftPointsNote(e.target.value)}
+                                placeholder="e.g. Thanks for being awesome! 🎉"
+                                style={{
+                                    width: '100%',
+                                    background: 'var(--border-color)',
+                                    border: 'none',
+                                    borderRadius: '12px',
+                                    padding: '10px 14px',
+                                    color: 'var(--text-active)',
+                                    fontSize: '14px',
+                                    outline: 'none',
+                                    boxSizing: 'border-box'
+                                }}
+                            />
+                        </div>
+
+                        {/* Send Button */}
+                        <button
+                            type="button"
+                            onClick={handleSendGiftPoints}
+                            disabled={isSendingGiftPoints || (currentUser.username !== 'popcorn05' && points < giftPointsAmount)}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                borderRadius: '16px',
+                                background: 'linear-gradient(135deg, #f5a524, #ff8c00)',
+                                border: 'none',
+                                color: '#000',
+                                fontWeight: '800',
+                                fontSize: '15px',
+                                cursor: (currentUser.username !== 'popcorn05' && points < giftPointsAmount) ? 'not-allowed' : 'pointer',
+                                opacity: (currentUser.username !== 'popcorn05' && points < giftPointsAmount) ? 0.5 : 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                boxShadow: '0 4px 16px rgba(245, 165, 36, 0.45)'
+                            }}
+                        >
+                            <Coins size={18} color="#000" />
+                            <span>{isSendingGiftPoints ? 'Sending Points...' : `Send ${giftPointsAmount} Points`}</span>
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* 🏷️ Customize Mention Modal */}
+            {editingMention && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 100060,
+                    background: 'rgba(0,0,0,0.8)',
+                    backdropFilter: 'blur(10px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        background: 'var(--surface-color)',
+                        border: '1px solid rgba(99, 102, 241, 0.4)',
+                        borderRadius: '24px',
+                        width: '100%',
+                        maxWidth: '380px',
+                        padding: '24px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '14px',
+                        boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
+                        position: 'relative'
+                    }}>
+                        <button
+                            onClick={() => setEditingMention(null)}
+                            style={{
+                                position: 'absolute', top: '16px', right: '16px',
+                                background: 'rgba(255,255,255,0.08)', border: 'none',
+                                borderRadius: '50%', width: '30px', height: '30px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'var(--text-inactive)', cursor: 'pointer'
+                            }}
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{
+                                width: '40px', height: '40px', borderRadius: '50%',
+                                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                                <Edit3 size={20} color="#fff" />
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800', color: 'var(--text-active)' }}>
+                                    Customize Mention
+                                </h3>
+                                <span style={{ fontSize: '12px', color: '#a5b4fc' }}>
+                                    Edit how this looks in your Knockup & Chat
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Media thumbnail */}
+                        {editingMention.payload.mediaUrl && (
+                            <div style={{
+                                width: '100%',
+                                height: '160px',
+                                borderRadius: '14px',
+                                overflow: 'hidden',
+                                background: '#0a0a0a',
+                                border: '1px solid rgba(255,255,255,0.1)'
+                            }}>
+                                {isVideoUrl(editingMention.payload.mediaUrl) ? (
+                                    <video src={editingMention.payload.mediaUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+                                ) : (
+                                    <img src={editingMention.payload.mediaUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                )}
+                            </div>
+                        )}
+
+                        {/* Textarea for editing caption */}
+                        <div>
+                            <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-inactive)', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
+                                Your Custom Caption
+                            </label>
+                            <textarea
+                                rows={3}
+                                value={customMentionCaption}
+                                onChange={(e) => setCustomMentionCaption(e.target.value)}
+                                placeholder="Change the text or write your thoughts..."
+                                style={{
+                                    width: '100%',
+                                    background: 'var(--border-color)',
+                                    border: 'none',
+                                    borderRadius: '12px',
+                                    padding: '10px 14px',
+                                    color: 'var(--text-active)',
+                                    fontSize: '14px',
+                                    outline: 'none',
+                                    boxSizing: 'border-box',
+                                    resize: 'none'
+                                }}
+                            />
+                        </div>
+
+                        {/* Action Buttons: Repost to Knockup OR Send in Chat */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <button
+                                type="button"
+                                onClick={handleRepostMentionToKnockup}
+                                disabled={isSavingCustomMention}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    borderRadius: '14px',
+                                    background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                                    border: 'none',
+                                    color: '#000',
+                                    fontWeight: '800',
+                                    fontSize: '14px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                    boxShadow: '0 4px 14px rgba(245, 165, 36, 0.4)'
+                                }}
+                            >
+                                <Sparkles size={16} />
+                                <span>{isSavingCustomMention ? 'Adding...' : '🌟 Add to My 24h Knockup'}</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleReplyWithCustomMention}
+                                disabled={isSavingCustomMention}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '14px',
+                                    background: 'rgba(255,255,255,0.08)',
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    color: 'var(--text-active)',
+                                    fontWeight: '700',
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <Send size={15} />
+                                <span>💬 Share Customized in Chat</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Toasts */}
+            {giftSuccessToast && (
+                <div style={{
+                    position: 'fixed', top: '30px', left: '50%', transform: 'translateX(-50%)',
+                    background: 'rgba(245, 165, 36, 0.95)', backdropFilter: 'blur(10px)',
+                    color: '#000', padding: '10px 22px', borderRadius: '24px',
+                    fontWeight: '800', fontSize: '13px', zIndex: 100070,
+                    boxShadow: '0 4px 20px rgba(245, 165, 36, 0.5)'
+                }}>
+                    {giftSuccessToast}
+                </div>
+            )}
+
+            {mentionSuccessToast && (
+                <div style={{
+                    position: 'fixed', top: '30px', left: '50%', transform: 'translateX(-50%)',
+                    background: 'rgba(99, 102, 241, 0.95)', backdropFilter: 'blur(10px)',
+                    color: '#fff', padding: '10px 22px', borderRadius: '24px',
+                    fontWeight: '800', fontSize: '13px', zIndex: 100070,
+                    boxShadow: '0 4px 20px rgba(99, 102, 241, 0.5)'
+                }}>
+                    {mentionSuccessToast}
+                </div>
             )}
 
             <style>{`
