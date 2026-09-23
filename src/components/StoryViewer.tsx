@@ -360,10 +360,18 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         if (!storyVideoRef.current || isPaused) return;
         const video = storyVideoRef.current;
 
-        // Visual health check
-        if (video.currentTime > 0.3) {
-            if (!videoHasVisual) {
-                setVideoHasVisual(true);
+        // Visual health check: detect if video frames are not decoding (e.g. HEVC on Windows Chrome)
+        if (video.currentTime > 0.4) {
+            const quality = typeof video.getVideoPlaybackQuality === 'function' ? video.getVideoPlaybackQuality() : null;
+            const decoded = quality?.totalVideoFrames ?? (video as any).webkitDecodedFrameCount;
+            if (decoded !== undefined && decoded === 0) {
+                if (videoHasVisual) {
+                    setVideoHasVisual(false);
+                }
+            } else if (decoded && decoded > 0) {
+                if (!videoHasVisual) {
+                    setVideoHasVisual(true);
+                }
             }
         }
 
@@ -710,6 +718,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         onEnded={handleVideoEnded}
                         onError={() => {
                             console.warn('Video failed to load in StoryViewer:', currentStory.id);
+                            setVideoHasVisual(false);
                         }}
                         style={{ 
                             filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', 
@@ -720,18 +729,17 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         }}
                     />
 
-                    {/* Fallback Display if Browser Cannot Decode Video Track (Audio Plays Uninterrupted!) */}
+                    {/* Fallback Display if Browser Cannot Decode Video Track (Audio Plays Uninterrupted with Full-Screen Picture!) */}
                     {!videoHasVisual && (
                         <div style={{
                             position: 'absolute',
                             inset: 0,
                             display: 'flex',
-                            flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
                             background: '#09090b',
                             overflow: 'hidden',
-                            zIndex: 1
+                            zIndex: 2
                         }}>
                             {/* Ambient Blurred Background from Poster or Avatar */}
                             <img 
@@ -748,69 +756,18 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                                 }}
                             />
 
-                            {/* Centered Sharp Poster Image with Audio Badge */}
-                            <div style={{
-                                position: 'relative',
-                                zIndex: 2,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: '16px',
-                                padding: '20px'
-                            }}>
-                                <div style={{
+                            {/* Full-Screen Sharp Picture Fitting Story View */}
+                            <img 
+                                src={posterUrlFromStory || currentGroup.avatarUrl} 
+                                alt={currentGroup.username}
+                                style={{ 
+                                    width: '100%', 
+                                    height: '100%', 
+                                    objectFit: 'contain',
                                     position: 'relative',
-                                    width: '220px',
-                                    height: '220px',
-                                    borderRadius: '28px',
-                                    overflow: 'hidden',
-                                    boxShadow: '0 16px 45px rgba(0,0,0,0.85), 0 0 30px rgba(245, 165, 36, 0.35)',
-                                    border: '2px solid rgba(245, 165, 36, 0.65)'
-                                }}>
-                                    <img 
-                                        src={posterUrlFromStory || currentGroup.avatarUrl} 
-                                        alt={currentGroup.username}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                                    />
-                                    <div style={{
-                                        position: 'absolute',
-                                        inset: 0,
-                                        background: 'linear-gradient(180deg, transparent 55%, rgba(0,0,0,0.85) 100%)',
-                                        display: 'flex',
-                                        alignItems: 'flex-end',
-                                        justifyContent: 'center',
-                                        paddingBottom: '12px'
-                                    }}>
-                                        <div style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '5px',
-                                            color: '#f5a524',
-                                            fontSize: '11px',
-                                            fontWeight: 800
-                                        }}>
-                                            <Music size={13} className="music-icon-spin" /> High-Quality Audio
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div style={{
-                                    zIndex: 2,
-                                    textAlign: 'center',
-                                    background: 'rgba(0,0,0,0.7)',
-                                    backdropFilter: 'blur(12px)',
-                                    padding: '8px 20px',
-                                    borderRadius: '20px',
-                                    border: '1px solid rgba(255,255,255,0.12)'
-                                }}>
-                                    <div style={{ color: '#fff', fontWeight: 700, fontSize: '13px' }}>
-                                        {currentGroup.username}
-                                    </div>
-                                    <div style={{ color: '#f5a524', fontSize: '11px', marginTop: '2px' }}>
-                                        🎵 Audio Playing Seamlessly
-                                    </div>
-                                </div>
-                            </div>
+                                    zIndex: 3
+                                }} 
+                            />
                         </div>
                     )}
                 </div>

@@ -1000,6 +1000,13 @@ const Boost: React.FC = () => {
                                                 <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                                                     <video 
                                                         src={`${knock.image_url.split('#')[0]}#t=0.001`}
+                                                        poster={
+                                                            knock.image_url.includes('#POSTER:')
+                                                                ? decodeURIComponent(knock.image_url.split('#POSTER:')[1]?.split('#')[0] || '')
+                                                                : (knock.image_url.includes('/stories/') && knock.image_url.endsWith('.mp4')
+                                                                    ? knock.image_url.split('#')[0].replace('/stories/', '/stories/posters/').replace(/\.mp4$/i, '.jpg')
+                                                                    : undefined)
+                                                        }
                                                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                         muted playsInline preload="metadata"
                                                     />

@@ -58,6 +58,25 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
     'Food': 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&auto=format&fit=crop',
 };
 
+export const extractPosterFromUrl = (url?: string): string | undefined => {
+    if (!url) return undefined;
+    if (url.includes('#POSTER:')) {
+        try {
+            return decodeURIComponent(url.split('#POSTER:')[1]?.split('#')[0] || '');
+        } catch (_) {
+            return url.split('#POSTER:')[1]?.split('#')[0];
+        }
+    }
+    const clean = url.split('#')[0].split('?')[0];
+    if (clean.includes('/stories/') && clean.endsWith('.mp4')) {
+        return clean.replace('/stories/', '/stories/posters/').replace(/\.mp4$/i, '.jpg');
+    }
+    if (clean.includes('/posts/') && clean.endsWith('.mp4')) {
+        return clean.replace('/posts/', '/posts/posters/').replace(/\.mp4$/i, '.jpg');
+    }
+    return undefined;
+};
+
 const PostMediaComponent: React.FC<PostMediaProps> = ({
     post,
     className,
@@ -101,17 +120,19 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         return isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth);
     });
 
-    const cleanUrl = post.image_url ? post.image_url.split('#')[0] : '';
+    const cleanUrl = post.image_url ? post.image_url.split('#')[0].split('?')[0] : '';
+    const resolvedPosterFromUrl = extractPosterFromUrl(post.image_url);
     const [capturedPoster, setCapturedPoster] = useState<string | undefined>(() => {
         if (isVideo && cleanUrl) {
-            return videoPosterCache.get(cleanUrl);
+            return videoPosterCache.get(cleanUrl) || resolvedPosterFromUrl;
         }
-        return undefined;
+        return resolvedPosterFromUrl;
     });
+    const [videoHasVisual, setVideoHasVisual] = useState<boolean>(true);
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
 
     // ⚡ Viewport-aware video lazy mounting: do NOT mount native video decoders if thumbnail is off-screen
-    const [isInView, setIsInView] = useState(() => !thumbnail || isPlayingMode || Boolean(videoPosterCache.get(cleanUrl)));
+    const [isInView, setIsInView] = useState(() => !thumbnail || isPlayingMode || Boolean(videoPosterCache.get(cleanUrl)) || Boolean(resolvedPosterFromUrl));
 
     useEffect(() => {
         if (!thumbnail || isPlayingMode || capturedPoster) {
@@ -140,10 +161,15 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         setHasError(false);
         setIsAudioBlocked(false);
         setIsLoaded(false);
+        setVideoHasVisual(true);
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
         setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth));
-        if (isVideo && cleanUrl) {
+        const posterFromUrl = extractPosterFromUrl(post.image_url);
+        if (posterFromUrl && cleanUrl) {
+            videoPosterCache.set(cleanUrl, posterFromUrl);
+            setCapturedPoster(posterFromUrl);
+        } else if (isVideo && cleanUrl) {
             const cached = videoPosterCache.get(cleanUrl);
             if (cached) setCapturedPoster(cached);
         }
@@ -577,10 +603,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         >
             {isVideo ? (
                 <>
-                    {thumbnail && !isPlayingMode && capturedPoster ? (
+                    {thumbnail && !isPlayingMode && (capturedPoster || resolvedPosterFromUrl) ? (
                         /* ⚡ Captured static poster image — unmounts video element and frees hardware decoder! */
                         <img
-                            src={capturedPoster}
+                            src={capturedPoster || resolvedPosterFromUrl}
                             alt={alt}
                             className={className}
                             style={{
@@ -629,68 +655,108 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             </div>
                         </div>
                     ) : (
-                    <video
-                        ref={videoRef}
-                        src={videoSrc}
-                        poster={capturedPoster}
-                        crossOrigin={videoCrossOrigin}
-                        className={className}
-                        style={{
-                            ...style,
-                            filter: extractedFilter,
-                            width: '100%',
-                            height: '100%',
-                            objectFit: resolvedObjectFit,
-                            display: 'block',
-                            transform: 'translateZ(0)',
-                            backfaceVisibility: 'hidden',
-                        }}
-                        muted={domMuted}
-                        controls={controls}
-                        autoPlay={autoPlay || soundOn}
-                        loop={loop}
-                        playsInline={playsInline}
-                        // @ts-ignore
-                        webkit-playsinline="true"
-                        x5-playsinline="true"
-                        // @ts-ignore
-                        disablePictureInPicture={true}
-                        // @ts-ignore
-                        disableRemotePlayback={true}
-                        preload={isPlayingMode ? "auto" : "metadata"}
-                        onError={handleMediaError}
-                        onLoadedMetadata={(e) => {
-                            const v = e.currentTarget;
-                            if (!isPlayingMode && v.currentTime === 0) {
-                                try {
-                                    v.currentTime = 0.1;
-                                } catch (_) {}
-                            }
-                        }}
-                        onLoadedData={() => {
-                            setIsLoaded(true);
-                            captureFrame();
-                        }}
-                        onSeeked={captureFrame}
-                        onTimeUpdate={isPlayingMode ? (e) => {
-                            const v = e.currentTarget;
-                            if (v.duration && progressBarRef.current) {
-                                const pct = (v.currentTime / v.duration) * 100;
-                                progressBarRef.current.style.width = `${pct}%`;
-                            }
-                        } : undefined}
-                        onMouseEnter={() => {
-                            if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
-                                videoRef.current.muted = true;
-                                videoRef.current.play().catch(() => {});
-                            }
-                        }}
-                        onMouseLeave={() => {
-                            if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
-                                videoRef.current.pause();
-                            }
-                        }}
-                    />
+                        <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                            <video
+                                ref={videoRef}
+                                src={videoSrc}
+                                poster={capturedPoster || resolvedPosterFromUrl}
+                                crossOrigin={videoCrossOrigin}
+                                className={className}
+                                style={{
+                                    ...style,
+                                    filter: extractedFilter,
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: resolvedObjectFit,
+                                    display: 'block',
+                                    transform: 'translateZ(0)',
+                                    backfaceVisibility: 'hidden',
+                                }}
+                                muted={domMuted}
+                                controls={controls}
+                                autoPlay={autoPlay || soundOn}
+                                loop={loop}
+                                playsInline={playsInline}
+                                // @ts-ignore
+                                webkit-playsinline="true"
+                                x5-playsinline="true"
+                                // @ts-ignore
+                                disablePictureInPicture={true}
+                                // @ts-ignore
+                                disableRemotePlayback={true}
+                                preload={isPlayingMode ? "auto" : "metadata"}
+                                onError={() => {
+                                    setVideoHasVisual(false);
+                                    handleMediaError();
+                                }}
+                                onLoadedMetadata={(e) => {
+                                    const v = e.currentTarget;
+                                    if (!isPlayingMode && v.currentTime === 0) {
+                                        try {
+                                            v.currentTime = 0.1;
+                                        } catch (_) {}
+                                    }
+                                }}
+                                onLoadedData={() => {
+                                    setIsLoaded(true);
+                                    captureFrame();
+                                }}
+                                onSeeked={captureFrame}
+                                onTimeUpdate={(e) => {
+                                    const v = e.currentTarget;
+                                    if (isPlayingMode && v.duration && progressBarRef.current) {
+                                        const pct = (v.currentTime / v.duration) * 100;
+                                        progressBarRef.current.style.width = `${pct}%`;
+                                    }
+                                    if (v.currentTime > 0.4) {
+                                        const quality = typeof (v as any).getVideoPlaybackQuality === 'function' ? (v as any).getVideoPlaybackQuality() : null;
+                                        const decoded = quality?.totalVideoFrames ?? (v as any).webkitDecodedFrameCount;
+                                        if (decoded !== undefined && decoded === 0) {
+                                            if (videoHasVisual) setVideoHasVisual(false);
+                                        } else if (decoded && decoded > 0) {
+                                            if (!videoHasVisual) setVideoHasVisual(true);
+                                        }
+                                    }
+                                }}
+                                onMouseEnter={() => {
+                                    if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
+                                        videoRef.current.muted = true;
+                                        videoRef.current.play().catch(() => {});
+                                    }
+                                }}
+                                onMouseLeave={() => {
+                                    if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
+                                        videoRef.current.pause();
+                                    }
+                                }}
+                            />
+
+                            {/* Fallback Display if Browser Cannot Decode Video Track (Audio Plays Uninterrupted with Sharp Picture!) */}
+                            {!videoHasVisual && (capturedPoster || resolvedPosterFromUrl) && (
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: '#09090b',
+                                    overflow: 'hidden',
+                                    zIndex: 10,
+                                    pointerEvents: 'none'
+                                }}>
+                                    <img 
+                                        src={capturedPoster || resolvedPosterFromUrl} 
+                                        alt={alt || "Video preview"}
+                                        style={{ 
+                                            width: '100%', 
+                                            height: '100%', 
+                                            objectFit: resolvedObjectFit,
+                                            filter: extractedFilter
+                                        }} 
+                                    />
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     {/* Floating 'Tap for sound' pill when unmuted playback was blocked by browser policy */}

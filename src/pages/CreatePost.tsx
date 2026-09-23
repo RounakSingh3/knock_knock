@@ -111,6 +111,7 @@ const CreatePost = () => {
             const mediaType = getMediaTypeFromFile(file);
             let fileToUpload = file;
 
+            let videoPosterBlob: Blob | null = null;
             if (mediaType === 'image') {
                 try {
                     setError('Compressing image for fast upload...');
@@ -129,6 +130,9 @@ const CreatePost = () => {
                 try {
                     const prepared = await prepareVideoForUpload(fileToUpload);
                     fileToUpload = prepared.videoFile;
+                    if (prepared.posterBlob) {
+                        videoPosterBlob = prepared.posterBlob;
+                    }
                 } catch (_) {}
             }
 
@@ -137,6 +141,17 @@ const CreatePost = () => {
             const fileExt = fileToUpload.name.split('.').pop();
             const fileName = `${user.id}-${Date.now()}.${fileExt}`;
             const path = `posts/${fileName}`;
+
+            let uploadedPosterUrl: string | undefined = undefined;
+            if (videoPosterBlob) {
+                try {
+                    const posterFile = new File([videoPosterBlob], `${fileName.replace(/\.[^.]+$/, '')}.jpg`, { type: 'image/jpeg' });
+                    const posterPath = `posts/posters/${fileName.replace(/\.[^.]+$/, '')}.jpg`;
+                    uploadedPosterUrl = await uploadMedia(posterFile, posterPath);
+                } catch (pe) {
+                    console.warn('Failed to upload video poster:', pe);
+                }
+            }
 
             const publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
                 const total = progress.total || fileToUpload.size || 1;
@@ -147,15 +162,18 @@ const CreatePost = () => {
             });
 
             let finalUrl = publicUrl;
+            if (uploadedPosterUrl) {
+                finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
+            }
             if (selectedFilter !== 'none') {
                 try {
-                    const u = new URL(publicUrl);
+                    const u = new URL(finalUrl);
                     u.searchParams.set('filter', selectedFilter);
                     finalUrl = u.toString();
                 } catch (e) {
-                    finalUrl = publicUrl.includes('?') 
-                        ? `${publicUrl}&filter=${encodeURIComponent(selectedFilter)}`
-                        : `${publicUrl}?filter=${encodeURIComponent(selectedFilter)}`;
+                    finalUrl = finalUrl.includes('?') 
+                        ? `${finalUrl}&filter=${encodeURIComponent(selectedFilter)}`
+                        : `${finalUrl}?filter=${encodeURIComponent(selectedFilter)}`;
                 }
             }
 
