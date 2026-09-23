@@ -183,7 +183,7 @@ const Boost: React.FC = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
 
-    // 30-second camera video recording state
+    // 1-minute (60s) camera video recording state
     const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
     const [isRecordingVideo, setIsRecordingVideo] = useState(false);
     const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -387,7 +387,7 @@ const Boost: React.FC = () => {
         setActiveViewerGroupIndex(groupIdx);
     };
 
-    // Camera Controls & 30-Second Video Recording
+    // Camera Controls & 1-Minute Video Recording
     const startCamera = async (mode: 'photo' | 'video' = cameraMode) => {
         setCameraMode(mode);
         setIsCameraActive(true);
@@ -397,7 +397,7 @@ const Boost: React.FC = () => {
         setIsRecordingVideo(false);
         setRecordingSeconds(0);
         if (!navigator?.mediaDevices?.getUserMedia) {
-            alert('Live camera is not supported in this browser environment. Tap "Upload 30s" to use your device camera or files.');
+            alert('Live camera is not supported in this browser environment. Tap "Upload 1m" to use your device camera or files.');
             setIsCameraActive(false);
             return;
         }
@@ -515,20 +515,20 @@ const Boost: React.FC = () => {
             recorder.start(100);
             setIsRecordingVideo(true);
 
-            // Real-time counter up to 30 seconds
+            // Real-time counter up to 60 seconds (1 minute)
             const start = Date.now();
             recordingIntervalRef.current = setInterval(() => {
                 const secs = Math.floor((Date.now() - start) / 1000);
-                setRecordingSeconds(Math.min(30, secs));
-                if (secs >= 30) {
+                setRecordingSeconds(Math.min(60, secs));
+                if (secs >= 60) {
                     stopVideoRecording();
                 }
             }, 250);
 
-            // Hard stop at 30 seconds
+            // Hard stop at 60 seconds (1 minute)
             recordingHardStopRef.current = setTimeout(() => {
                 stopVideoRecording();
-            }, 30000);
+            }, 60000);
 
         } catch (err) {
             console.error('Failed to start video recording:', err);
@@ -1030,7 +1030,7 @@ const Boost: React.FC = () => {
                                                     padding: '1px 4px', fontSize: '8px', color: '#fff', fontWeight: 'bold',
                                                     display: 'flex', alignItems: 'center', gap: '2px'
                                                 }}>
-                                                    30s
+                                                    1m
                                                 </div>
                                             )}
                                         </div>
@@ -1370,7 +1370,7 @@ const Boost: React.FC = () => {
                                             <X size={18} />
                                         </button>
 
-                                        {/* Camera Mode Switcher: Photo vs Video (30s) */}
+                                        {/* Camera Mode Switcher: Photo vs Video (1m) */}
                                         <div style={{
                                             position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
                                             display: 'flex', background: 'rgba(0,0,0,0.7)', borderRadius: '20px', padding: '3px',
@@ -1406,11 +1406,11 @@ const Boost: React.FC = () => {
                                                     fontSize: '11px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s ease'
                                                 }}
                                             >
-                                                Video (30s)
+                                                Video (1m)
                                             </button>
                                         </div>
 
-                                        {/* 30s Recording Timer Badge */}
+                                        {/* 1m Recording Timer Badge */}
                                         {cameraMode === 'video' && (
                                             <div style={{
                                                 position: 'absolute', top: '48px', left: '50%', transform: 'translateX(-50%)',
@@ -1423,7 +1423,7 @@ const Boost: React.FC = () => {
                                                 {isRecordingVideo && (
                                                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }} />
                                                 )}
-                                                <span>{`0:${recordingSeconds.toString().padStart(2, '0')} / 0:30`}</span>
+                                                <span>{`${Math.floor(recordingSeconds / 60)}:${(recordingSeconds % 60).toString().padStart(2, '0')} / 1:00`}</span>
                                             </div>
                                         )}
 
@@ -1484,7 +1484,7 @@ const Boost: React.FC = () => {
                                                     fontWeight: '700', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px',
                                                     zIndex: 10
                                                 }}>
-                                                    <Play size={10} fill="#fff" /> 30s Video
+                                                    <Play size={10} fill="#fff" /> 1m Video
                                                 </div>
                                             </>
                                         ) : (
@@ -1545,7 +1545,7 @@ const Boost: React.FC = () => {
                                                 }}
                                             >
                                                 <Video size={24} />
-                                                <span>Record 30s</span>
+                                                <span>Record 1m</span>
                                             </button>
 
                                             <button
@@ -1559,12 +1559,12 @@ const Boost: React.FC = () => {
                                                 }}
                                             >
                                                 <ImageIcon size={24} />
-                                                <span>Upload 30s</span>
+                                                <span>Upload 1m</span>
                                             </button>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f5a524', fontSize: '11px', fontWeight: '600' }}>
                                             <Play size={12} fill="#f5a524" />
-                                            <span>Videos on KnockUp play for 30 seconds with sound</span>
+                                            <span>Videos on KnockUp play for up to 1 minute with sound</span>
                                         </div>
                                     </div>
                                 )}

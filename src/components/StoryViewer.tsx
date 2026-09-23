@@ -350,7 +350,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         return () => clearInterval(interval);
     }, [currentStory, isPaused, isVideo]);
 
-    // Video playback progress handler (capped at 30 seconds max)
+    // Video playback progress handler (capped at 60 seconds / 1 min max)
     const handleVideoTimeUpdate = () => {
         if (!storyVideoRef.current || isPaused) return;
         const video = storyVideoRef.current;
@@ -362,8 +362,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             }
         }
 
-        // Enforce 30-second cap on video stories
-        const effectiveDuration = Math.min(video.duration && !isNaN(video.duration) && video.duration > 0 ? video.duration : 30, 30);
+        // Enforce 60-second (1 min) cap on video stories
+        const effectiveDuration = Math.min(video.duration && !isNaN(video.duration) && video.duration > 0 ? video.duration : 60, 60);
         const currentTime = Math.min(video.currentTime || 0, effectiveDuration);
         const pct = (currentTime / effectiveDuration) * 100;
         setProgress(pct);
@@ -376,12 +376,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         handleNextStory();
     };
 
-    // Watchdog timer for videos: ensures transitions if video stalls (max 30.5s)
+    // Watchdog timer for videos: ensures transitions if video stalls (max 60.5s)
     useEffect(() => {
         if (!isVideo || isPaused || !currentStory) return;
         const watchdog = setTimeout(() => {
             handleNextStory();
-        }, 30500);
+        }, 60500);
         return () => clearTimeout(watchdog);
     }, [currentStory, isVideo, isPaused, handleNextStory]);
 
@@ -614,7 +614,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                                         border: '1px solid rgba(239, 68, 68, 0.4)',
                                         backdropFilter: 'blur(4px)'
                                     }}>
-                                        <Play size={9} fill="#f87171" /> 30s Video
+                                        <Play size={9} fill="#f87171" /> 1m Video
                                     </span>
                                 )}
                             </div>

@@ -343,7 +343,7 @@ export async function transcodeHevcToUniversalVideo(
 
             video.onloadedmetadata = async () => {
                 const duration = video.duration || 10;
-                if (duration > 35) {
+                if (duration > 65) {
                     cleanup();
                     return resolve(file);
                 }
@@ -452,7 +452,7 @@ export async function transcodeHevcToUniversalVideo(
             setTimeout(() => {
                 cleanup();
                 resolve(file);
-            }, 40000);
+            }, 70000);
 
         } catch (_) {
             resolve(file);
