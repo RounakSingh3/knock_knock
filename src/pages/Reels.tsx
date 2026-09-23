@@ -6,6 +6,7 @@ import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFe
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream } from '../lib/algorithm';
+import { extractPosterFromUrl } from '../components/PostMedia';
 
 // ⚡ Lazy-load heavy modals so Reels renders instantly
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
@@ -217,10 +218,12 @@ function postToReel(post: PostData): ReelData {
         }
     } catch(e) {}
 
+    const resolvedPoster = extractPosterFromUrl(post.image_url);
+
     return {
         id: post.id,
         videoUrl: post.image_url,
-        posterUrl: post.image_url,
+        posterUrl: resolvedPoster || post.image_url,
         creator: post.username,
         creatorAvatar: post.avatar_url || `https://i.pravatar.cc/150?u=${post.username}`,
         caption: post.caption || '',
@@ -243,6 +246,7 @@ const Reels: React.FC = () => {
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
+    const [failedVisuals, setFailedVisuals] = useState<Set<string | number>>(new Set());
     const [mutedAll, setMutedAll] = useState(() => getFeedMutedPreference());
     const [activeIndex, setActiveIndex] = useState(0);
     const [selectedReelIndex, setSelectedReelIndex] = useState<number | null>(null);
@@ -965,21 +969,59 @@ const Reels: React.FC = () => {
                                     onTouchEnd={(e) => handleTouchEnd(reel, e)}
                                 >
                                     {isNearby ? (
-                                        <video
-                                            ref={(el) => {
-                                                videoRefs.current[idx] = el;
-                                            }}
-                                            src={reel.videoUrl}
-                                            poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
-                                            loop
-                                            playsInline
-                                            preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
-                                            autoPlay={idx === selectedReelIndex}
-                                            muted={Boolean(reel.musicUrl) || mutedAll}
-                                            className="reel-video"
-                                            style={{ filter: reel.css_filter || 'none' }}
-                                            onClick={(e) => handleDoubleTap(idx, e)}
-                                        />
+                                        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                                            <video
+                                                ref={(el) => {
+                                                    videoRefs.current[idx] = el;
+                                                }}
+                                                src={reel.videoUrl}
+                                                poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
+                                                loop
+                                                playsInline
+                                                preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
+                                                autoPlay={idx === selectedReelIndex}
+                                                muted={Boolean(reel.musicUrl) || mutedAll}
+                                                className="reel-video"
+                                                style={{ filter: reel.css_filter || 'none' }}
+                                                onClick={(e) => handleDoubleTap(idx, e)}
+                                                onError={() => {
+                                                    setFailedVisuals(prev => new Set(prev).add(reel.id));
+                                                }}
+                                                onTimeUpdate={(e) => {
+                                                    const v = e.currentTarget;
+                                                    if (v.currentTime > 0.4) {
+                                                        const quality = typeof (v as any).getVideoPlaybackQuality === 'function' ? (v as any).getVideoPlaybackQuality() : null;
+                                                        const decoded = quality?.totalVideoFrames ?? (v as any).webkitDecodedFrameCount;
+                                                        if (decoded !== undefined && decoded === 0) {
+                                                            setFailedVisuals(prev => {
+                                                                if (prev.has(reel.id)) return prev;
+                                                                const next = new Set(prev);
+                                                                next.add(reel.id);
+                                                                return next;
+                                                            });
+                                                        }
+                                                    }
+                                                }}
+                                            />
+                                            {failedVisuals.has(reel.id) && reel.posterUrl && !isVideoUrl(reel.posterUrl) && (
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    inset: 0,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    background: '#000',
+                                                    zIndex: 2,
+                                                    pointerEvents: 'none'
+                                                }}>
+                                                    <img
+                                                        src={reel.posterUrl}
+                                                        alt={reel.caption || ''}
+                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
                                     ) : (
                                         <div
                                             className="reel-video"
