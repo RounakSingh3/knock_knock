@@ -85,7 +85,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 try { return decodeURIComponent(posterData); } catch (_) { return posterData; }
             }
         }
-        return currentStory.poster_url || null;
+        if (currentStory.poster_url) return currentStory.poster_url;
+        const clean = (currentStory.image_url || '').split('#')[0];
+        if (clean.includes('/stories/') && clean.endsWith('.mp4')) {
+            return clean.replace('/stories/', '/stories/posters/').replace(/\.mp4$/i, '.jpg');
+        }
+        return null;
     }, [currentStory]);
 
     const [videoHasVisual, setVideoHasVisual] = useState(true);
