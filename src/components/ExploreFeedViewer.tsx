@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useLayoutEffect, useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { type PostData, trackEngagement, normalizePost } from '../lib/database';
+import { type PostData, trackEngagement, normalizePost, fetchAllPostsForScoring, recordPostScreenDelivery } from '../lib/database';
 import { PostModalContent } from './PostModal';
 import { AppContext } from '../context/AppContext';
 import { getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
@@ -36,7 +36,34 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     const scrollRef = useRef<HTMLDivElement>(null);
     const watchTimers = useRef<Record<string, number>>({});
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
-    const targetPost = posts[initialIndex] || posts[0];
+
+    // Keep active stream in state with auto-replenish to guarantee next video is ALWAYS available
+    const [displayPosts, setDisplayPosts] = useState<PostData[]>(posts);
+    useEffect(() => {
+        setDisplayPosts(prev => {
+            const existingIds = new Set(prev.map(p => p.id));
+            const newOnes = posts.filter(p => !existingIds.has(p.id));
+            return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+        });
+    }, [posts]);
+
+    // Auto-replenish feed if short (e.g. from single-post search) or approaching end
+    useEffect(() => {
+        if (displayPosts.length < 5 || currentIndex >= displayPosts.length - 2) {
+            fetchAllPostsForScoring(user?.id).then(extra => {
+                if (extra && extra.length > 0) {
+                    setDisplayPosts(current => {
+                        const currentIds = new Set(current.map(p => p.id));
+                        const toAdd = extra.filter(p => !currentIds.has(p.id));
+                        if (toAdd.length === 0) return current;
+                        return [...current, ...toAdd];
+                    });
+                }
+            }).catch(() => {});
+        }
+    }, [currentIndex, displayPosts.length, user?.id]);
+
+    const targetPost = displayPosts[initialIndex] || displayPosts[0] || posts[0];
     const [activePostId, setActivePostId] = useState<string | null>(targetPost?.id || null);
     const activePostIdRef = useRef<string | null>(targetPost?.id || null);
     useEffect(() => { activePostIdRef.current = activePostId; }, [activePostId]);
@@ -87,12 +114,14 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 if (postId && postId !== activePostIdRef.current) {
                     activePostIdRef.current = postId;
                     setActivePostId(postId);
-                    const idx = posts.findIndex(p => p.id === postId);
+                    const idx = displayPosts.findIndex(p => p.id === postId);
                     if (idx !== -1) setCurrentIndex(idx);
 
                     if (user) {
                         watchTimers.current[postId] = Date.now();
                         trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
+                        const currentPost = displayPosts.find(p => p.id === postId);
+                        recordPostScreenDelivery(postId, user.id, currentPost?.boost_impressions_remaining);
                     }
                 }
             }
@@ -182,7 +211,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
             }} 
             ref={scrollRef}
         >
-            {posts.map((rawPost, index) => {
+            {displayPosts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
                 const isNearActive = Math.abs(index - currentIndex) <= 1;
                 return (

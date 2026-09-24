@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, type PostData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, recordPostScreenDelivery, type PostData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX } from 'lucide-react';
@@ -351,9 +351,10 @@ const Home = () => {
                 setImpedPosts(prev => ({ ...prev, ...impMap }));
             });
             
-            // Track view engagements
+            // Track view engagements and screen reach delivery
             firstBatch.forEach(p => {
                 trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
+                recordPostScreenDelivery(p.id, userId, p.boost_impressions_remaining);
             });
             
             setHasMorePosts(true);
@@ -458,6 +459,7 @@ const Home = () => {
                 const newCounts: Record<string, number> = {};
                 freshBatch.forEach(p => {
                     trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
+                    recordPostScreenDelivery(p.id, userId, p.boost_impressions_remaining);
                     newCounts[p.id] = p.likes_count;
                 });
                 setLikeCounts(prev => ({ ...prev, ...newCounts }));

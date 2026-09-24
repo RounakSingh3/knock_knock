@@ -772,9 +772,13 @@ const Explore = () => {
         if (isNewsPost(post)) {
             setSelectedNews(postToNewsItem(post));
         } else {
-            setActiveFeedState({ posts: normalizedSearchPosts, index });
+            // Append broader discovery posts after search results so user can endlessly swipe through next posts!
+            const seenIds = new Set(normalizedSearchPosts.map(p => p.id));
+            const remainingDiscover = normalizedDiscoverPosts.filter(p => !seenIds.has(p.id));
+            const fullFeed = [...normalizedSearchPosts, ...remainingDiscover];
+            setActiveFeedState({ posts: fullFeed, index });
         }
-    }, [normalizedSearchPosts]);
+    }, [normalizedSearchPosts, normalizedDiscoverPosts]);
 
     return (
         <div className="explore-page pb-20" style={{ background: 'var(--bg-color)', minHeight: '100vh' }}>

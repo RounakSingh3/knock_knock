@@ -1488,6 +1488,46 @@ export function recordScreenDelivery(storyId: string, viewerUserId: string): num
     }
 }
 
+/** Record a unique screen delivery for a post/video, decrementing boost impressions if active */
+export function recordPostScreenDelivery(postId: string, viewerUserId: string, currentRemaining?: number): void {
+    if (!postId || !viewerUserId) return;
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) return;
+        const key = `knock_post_screens_${postId}`;
+        const raw = localStorage.getItem(key);
+        const viewers: string[] = raw ? JSON.parse(raw) : [];
+        if (!viewers.includes(viewerUserId)) {
+            viewers.push(viewerUserId);
+            localStorage.setItem(key, JSON.stringify(viewers));
+            trackEngagement(viewerUserId, postId, 'screen_delivery', 1, 'Feed').catch(() => {});
+            if (typeof currentRemaining === 'number' && currentRemaining > 0) {
+                decrementBoostImpressions(postId, currentRemaining);
+            }
+        }
+    } catch (e) {}
+}
+
+/** Check if a post/video is eligible to be shown on a viewer's screen based on screen budget */
+export function isPostEligibleForViewerScreen(post: PostData, viewerUserId?: string): boolean {
+    // Creator can always see their own content
+    if (viewerUserId && post.user_id === viewerUserId) return true;
+
+    // If post has an explicit boost expiration or impression limit
+    if (post.boost_expires_at) {
+        const isExpired = new Date(post.boost_expires_at).getTime() < Date.now();
+        if (isExpired) return false;
+    }
+
+    // If post was boosted to specific screens (e.g. 5 screens) and remaining is exhausted (<=0):
+    if (post.boost_impressions_remaining !== undefined && post.boost_impressions_remaining !== null) {
+        if (post.boost_impressions_remaining <= 0 && post.boost_expires_at) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /** Create a 24h Boosted Snap with Guaranteed Screen Reach */
 export async function createBoostedStory(
     userId: string,

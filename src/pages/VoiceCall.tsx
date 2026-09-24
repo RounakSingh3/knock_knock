@@ -3,7 +3,7 @@ import {
     Phone, Mic, MicOff, PhoneOff, Settings2, Clock, Video, VideoOff, 
     Heart, Zap, Users, Loader2, SkipForward, MessageSquare, Send, X, 
     Link2, Flame, RefreshCw, CameraOff, ChevronLeft, Lock, Bell,
-    Headphones, Globe, ArrowLeftRight, Languages, Trash2, Moon, Sparkles
+    Headphones, Globe, ArrowLeftRight, Languages, Trash2, Moon, Sparkles, Rocket
 } from 'lucide-react';
 import { 
     SUPPORTED_LANGUAGES, 
@@ -4503,6 +4503,112 @@ const VoiceCall = () => {
 
     const searchingUserCount = onlineUsers.filter((u: any) => u.status === 'searching' && u.user_id !== user?.id).length;
     const totalOnlineCount = onlineUsers.filter((u: any) => u.user_id !== user?.id).length;
+
+    // ── Calling Window Lockout Screen (Strictly 8:00 PM – 10:00 PM) ──
+    if (!isCallingAllowed) {
+        return (
+            <div style={{
+                minHeight: '100vh',
+                background: 'linear-gradient(180deg, #09090b 0%, #000000 100%)',
+                color: '#fff',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '24px',
+                paddingBottom: '90px',
+                textAlign: 'center',
+                position: 'relative'
+            }}>
+                <div 
+                    onClick={handleScheduleBadgeTap}
+                    title="Tap 5 times for Developer Bypass"
+                    style={{
+                        width: '84px',
+                        height: '84px',
+                        borderRadius: '50%',
+                        background: 'rgba(255, 59, 48, 0.12)',
+                        border: '2px solid rgba(255, 59, 48, 0.35)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: '20px',
+                        boxShadow: '0 0 35px rgba(255, 59, 48, 0.25)',
+                        cursor: 'pointer'
+                    }}
+                >
+                    <Lock size={40} color="#ff453a" />
+                </div>
+
+                <h1 style={{
+                    fontSize: '1.6rem',
+                    fontWeight: 800,
+                    margin: '0 0 8px 0',
+                    background: 'linear-gradient(135deg, #fff 0%, #a1a1aa 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    letterSpacing: '-0.5px'
+                }}>
+                    First Page Locked
+                </h1>
+
+                <p style={{
+                    color: '#a1a1aa',
+                    fontSize: '0.92rem',
+                    maxWidth: '320px',
+                    lineHeight: 1.5,
+                    margin: '0 0 24px 0'
+                }}>
+                    Voice calls operate strictly between <strong style={{ color: '#f5a524' }}>8:00 PM and 10:00 PM</strong> daily. In between, this page is blocked from your screen.
+                </p>
+
+                {/* Countdown Card */}
+                <div style={{
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '16px',
+                    padding: '16px 24px',
+                    marginBottom: '28px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                }}>
+                    <Clock size={22} color="#f5a524" />
+                    <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: '0.72rem', color: '#71717a', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>
+                            Door Opens In
+                        </div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '1.3rem', fontWeight: 800, color: '#f5a524', letterSpacing: '1px' }}>
+                            {scheduleInfo.formatted}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Direct Action to 2nd Page */}
+                <button
+                    onClick={() => navigate('/boost')}
+                    style={{
+                        background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                        color: '#000',
+                        border: 'none',
+                        borderRadius: '14px',
+                        padding: '14px 28px',
+                        fontSize: '1rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: '0 8px 24px rgba(245, 165, 36, 0.4)',
+                        transition: 'transform 0.15s ease'
+                    }}
+                >
+                    <Rocket size={18} />
+                    <span>Explore 24h Knocks (Boost Feed)</span>
+                </button>
+            </div>
+        );
+    }
 
     // ── Main Calling Screen (Voice Space 24/7 & Peak Hours) ──
     return (

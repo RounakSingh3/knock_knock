@@ -674,8 +674,23 @@ export function rankFeedPosts(
 
     const followingSet = new Set(followingIds);
 
+    // Screen budget filter: if a post was boosted for extra screens and remaining quota is exhausted, exclude from other viewers' screens
+    const eligiblePosts = posts.filter(post => {
+        if (currentUserId && post.user_id === currentUserId) return true;
+        if (post.boost_expires_at) {
+            const isExpired = new Date(post.boost_expires_at).getTime() < Date.now();
+            if (isExpired) return false;
+        }
+        if (post.boost_impressions_remaining !== undefined && post.boost_impressions_remaining !== null) {
+            if (post.boost_impressions_remaining <= 0 && post.boost_expires_at) {
+                return false;
+            }
+        }
+        return true;
+    });
+
     // Score posts
-    const scored: ScoredPost[] = posts.map(post => {
+    const scored: ScoredPost[] = eligiblePosts.map(post => {
         let base = calculatePostScore(post, profile, currentUserId);
         // Social Graph bonus: following
         if (post.user_id && followingSet.has(post.user_id)) {
@@ -1189,7 +1204,22 @@ export function rankBoostLoopStories(
     const interestState = getBoostInterestState();
     const now = Date.now();
 
-    const scored = stories.map(story => {
+    // Screen Reach Quota Enforcement:
+    // If a boosted story reached its target screens, only the creator can still see it.
+    // To other viewers, it has fulfilled its reach and is removed from the feed.
+    const eligibleStories = stories.filter(story => {
+        if (currentUserId && story.user_id === currentUserId) return true;
+        if (story.boost_meta) {
+            const target = story.boost_meta.targetScreens || 24;
+            const delivered = story.boost_meta.screensDelivered || 0;
+            if (delivered >= target) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    const scored = eligibleStories.map(story => {
         let score = 0;
 
         // 1. Freshness & Upload Frequency (Huge boost for videos uploaded in last 1-6 hours)

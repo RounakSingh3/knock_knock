@@ -5,6 +5,7 @@ import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSess
 import BottomNav from './components/BottomNav';
 import OnboardingOverlay from './components/OnboardingOverlay';
 import GlobalCallListener from './components/GlobalCallListener';
+import { isCallingAllowedNow } from './lib/callingWindow';
 
 // ⚡ Lazy-load pages so only the page you visit is downloaded (huge speed boost).
 // Login is loaded eagerly because it's the first thing unauthenticated users see.
@@ -398,7 +399,7 @@ function App() {
                             </>
                         ) : (
                             <>
-                                <Route path="/" element={<Navigate to="/call" />} />
+                                <Route path="/" element={<Navigate to={isCallingAllowedNow() ? "/call" : "/boost"} />} />
                                 <Route path="/home" element={<Suspense fallback={<PageLoader message="Loading home..." />}><Home /></Suspense>} />
                                 <Route path="/stories" element={<Suspense fallback={<PageLoader />}><Stories /></Suspense>} />
                                 <Route path="/explore" element={<Suspense fallback={<PageLoader />}><Explore /></Suspense>} />
@@ -411,7 +412,7 @@ function App() {
                                 <Route path="/profile" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/profile/:username" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/notifications" element={<Suspense fallback={<PageLoader />}><Notifications /></Suspense>} />
-                                <Route path="/login" element={<Navigate to="/call" />} />
+                                <Route path="/login" element={<Navigate to={isCallingAllowedNow() ? "/call" : "/boost"} />} />
                             </>
                         )}
                     </Routes>
