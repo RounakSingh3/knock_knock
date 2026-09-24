@@ -9,7 +9,7 @@
  */
 
 import { isVideoPost } from './media';
-import { trackEngagement, type PostData, type UserStoryGroup } from './database';
+import { trackEngagement, type PostData, type UserStoryGroup, type StoryData } from './database';
 
 // ── Weight Configuration ───────────────────────────────────
 export const ENGAGEMENT_WEIGHTS: Record<string, number> = {
@@ -1111,3 +1111,151 @@ export function getConversationStarters(sharedCategories: string[]): string[] {
     
     return starters;
 }
+
+// ── 24-Hour Boost Addictive Loop Algorithm ───────────────────
+
+export interface BoostInterestState {
+    hashtags: Record<string, number>;
+    creators: Record<string, number>;
+    lastActive: number;
+}
+
+const BOOST_INTEREST_KEY = 'knock_boost_loop_interests_v1';
+
+export function getBoostInterestState(): BoostInterestState {
+    try {
+        const stored = localStorage.getItem(BOOST_INTEREST_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed && typeof parsed === 'object') {
+                return {
+                    hashtags: parsed.hashtags || {},
+                    creators: parsed.creators || {},
+                    lastActive: parsed.lastActive || Date.now(),
+                };
+            }
+        }
+    } catch (_) {}
+    return { hashtags: {}, creators: {}, lastActive: Date.now() };
+}
+
+export function recordBoostSignal(signal: {
+    storyId?: string;
+    hashtags?: string[];
+    creatorId?: string;
+    type: 'view' | 'dwell' | 'loop' | 'hashtag_click' | 'convert_snap' | 'boost';
+}): void {
+    try {
+        const state = getBoostInterestState();
+        const weight = signal.type === 'convert_snap' ? 5.0
+            : signal.type === 'boost' ? 4.0
+            : signal.type === 'hashtag_click' ? 3.5
+            : signal.type === 'loop' ? 3.0
+            : signal.type === 'dwell' ? 2.0
+            : 1.0;
+
+        if (signal.hashtags && Array.isArray(signal.hashtags)) {
+            signal.hashtags.forEach(tag => {
+                const clean = tag.replace(/^#+/, '').toLowerCase().trim();
+                if (clean) {
+                    state.hashtags[clean] = (state.hashtags[clean] || 0) + weight;
+                }
+            });
+        }
+
+        if (signal.creatorId) {
+            state.creators[signal.creatorId] = (state.creators[signal.creatorId] || 0) + weight;
+        }
+
+        state.lastActive = Date.now();
+        localStorage.setItem(BOOST_INTEREST_KEY, JSON.stringify(state));
+    } catch (_) {}
+}
+
+/**
+ * Adaptive 24-Hour Boost Discovery Loop:
+ * - Surfaces newly uploaded videos frequently (recency boost).
+ * - Real-time chasing of what content the viewer wants to see (hashtag & creator affinities).
+ * - Fulfills delivery guarantee duty for boosted content with remaining screen deficits.
+ * - Anti-fatigue slot-machine interleaving with infinite circular replay loop.
+ */
+export function rankBoostLoopStories(
+    stories: StoryData[],
+    currentUserId?: string,
+    userFriends: string[] = []
+): StoryData[] {
+    if (!stories || stories.length === 0) return [];
+
+    const interestState = getBoostInterestState();
+    const now = Date.now();
+
+    const scored = stories.map(story => {
+        let score = 0;
+
+        // 1. Freshness & Upload Frequency (Huge boost for videos uploaded in last 1-6 hours)
+        const ageHours = (now - new Date(story.created_at).getTime()) / (1000 * 60 * 60);
+        if (ageHours <= 1) score += 60;
+        else if (ageHours <= 3) score += 45;
+        else if (ageHours <= 6) score += 30;
+        else if (ageHours <= 12) score += 15;
+
+        // 2. Real-Time Affinity Chaser: Match hashtags the user engages with
+        const tags = extractHashtags(story.caption);
+        let tagAffinity = 0;
+        tags.forEach(t => {
+            if (interestState.hashtags[t]) {
+                tagAffinity += interestState.hashtags[t];
+            }
+        });
+        score += Math.min(60, tagAffinity * 12);
+
+        // 3. Creator Affinity: Boost creators the user watches frequently
+        if (story.user_id && interestState.creators[story.user_id]) {
+            score += Math.min(45, interestState.creators[story.user_id] * 10);
+        }
+
+        // 4. Delivery Guarantee Duty: Boosted stories with screen deficits
+        if (story.is_boosted) {
+            const deficit = (story.target_screens || 24) - (story.screens_delivered || 0);
+            if (deficit > 0) {
+                score += Math.min(50, deficit * 2.5);
+            }
+        }
+
+        // 5. Friends connection boost
+        if (story.user_id && userFriends.includes(story.user_id)) {
+            score += 35;
+        }
+
+        // 6. User's own story at top
+        if (currentUserId && story.user_id === currentUserId) {
+            score += 1000;
+        }
+
+        // Subtle stochastic jitter for dopamine unpredictability
+        const jitter = Math.sin(story.id.charCodeAt(0) + (now % 1000)) * 4;
+        score += jitter;
+
+        return { story, score };
+    });
+
+    // Sort by adaptive score DESC
+    scored.sort((a, b) => b.score - a.score);
+
+    // Slot-machine dopamine interleaving:
+    // Avoid showing 5 items from the same user back-to-back
+    const result: StoryData[] = [];
+    const pool = [...scored];
+    let lastUserId: string | null = null;
+
+    while (pool.length > 0) {
+        let pickedIdx = pool.findIndex(item => item.story.user_id !== lastUserId);
+        if (pickedIdx === -1) pickedIdx = 0;
+        const [picked] = pool.splice(pickedIdx, 1);
+        result.push(picked.story);
+        lastUserId = picked.story.user_id || null;
+    }
+
+    return result;
+}
+

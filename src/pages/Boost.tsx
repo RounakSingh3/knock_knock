@@ -49,6 +49,7 @@ import {
     type UserStoryGroup 
 } from '../lib/database';
 import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
+import { rankBoostLoopStories, recordBoostSignal, extractHashtags } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
@@ -307,38 +308,60 @@ const Boost: React.FC = () => {
         return stories.filter(s => !s.id?.startsWith('explore-seed-') && !s.user_id?.startsWith('seed-creator-'));
     }, [stories]);
 
-    // Enhanced Instagram Explore filtering (Filter Tab + #Hashtag + Search Query)
+    // ⚡ Adaptive Addictive Loop Engine: real-time taste chasing & recency frequency boost
+    const rankedStories = useMemo(() => {
+        return rankBoostLoopStories(combinedStories, user?.id, userFriends);
+    }, [combinedStories, user?.id, userFriends]);
+
+    // Enhanced 24h Discovery filtering (Filter Tab + #Hashtag + Search Query)
     const filteredStories = useMemo(() => {
-        return combinedStories.filter(s => {
+        return rankedStories.filter(s => {
             // 1. Tab filter
             if (filterTab === 'boosted' && !s.is_boosted && !s.is_sponsored) return false;
             if (filterTab === 'friends' && (!s.user_id || !userFriends.includes(s.user_id))) return false;
             if (filterTab === 'videos' && !isVideoUrl(s.image_url)) return false;
 
-            // 2. Hashtag filter
+            // 2. Hashtag filter — connects all 24h videos sharing this hashtag!
             if (selectedHashtag) {
-                const tagClean = selectedHashtag.replace('#', '').toLowerCase();
+                const tagClean = selectedHashtag.replace(/^#+/, '').toLowerCase().trim();
+                const tags = extractHashtags(s.caption);
                 const captionLower = (s.caption || '').toLowerCase();
                 const usernameLower = (s.username || '').toLowerCase();
-                if (!captionLower.includes(tagClean) && !usernameLower.includes(tagClean)) {
+                if (!tags.includes(tagClean) && !captionLower.includes(tagClean) && !usernameLower.includes(tagClean)) {
                     return false;
                 }
             }
 
             // 3. Search query filter
             if (searchQuery.trim()) {
-                const q = searchQuery.toLowerCase().trim().replace(/^#/, '');
+                const q = searchQuery.toLowerCase().trim().replace(/^#+/, '');
+                const tags = extractHashtags(s.caption);
                 const captionLower = (s.caption || '').toLowerCase();
                 const usernameLower = (s.username || '').toLowerCase();
                 const ctaLower = (s.link_cta || '').toLowerCase();
-                if (!captionLower.includes(q) && !usernameLower.includes(q) && !ctaLower.includes(q)) {
+                if (!tags.includes(q) && !captionLower.includes(q) && !usernameLower.includes(q) && !ctaLower.includes(q)) {
                     return false;
                 }
             }
 
             return true;
         });
-    }, [combinedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
+    }, [rankedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
+
+    // Dynamically derive all active hashtags from the current 24-hour stories
+    const dynamicHashtags = useMemo(() => {
+        const tagMap = new Map<string, number>();
+        combinedStories.forEach(s => {
+            const tags = extractHashtags(s.caption);
+            tags.forEach(t => {
+                const formatted = '#' + t;
+                tagMap.set(formatted, (tagMap.get(formatted) || 0) + 1);
+            });
+        });
+        const sorted = Array.from(tagMap.entries()).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+        const set = new Set([...sorted, ...TRENDING_HASHTAGS]);
+        return Array.from(set).slice(0, 16);
+    }, [combinedStories]);
 
     // Convert to Knockup handler
     const handleConvertToSnap = async (story: StoryData, e: React.MouseEvent) => {
@@ -349,6 +372,12 @@ const Boost: React.FC = () => {
         }
 
         try {
+            recordBoostSignal({
+                storyId: story.id,
+                creatorId: story.user_id,
+                hashtags: extractHashtags(story.caption),
+                type: 'convert_snap'
+            });
             const { error } = await convertToPersonalSnap(user.id, story, user.username || user.name);
             if (error) throw error;
             setSnapToast('🎉 Video converted to your 24h Knockup!');
@@ -365,6 +394,12 @@ const Boost: React.FC = () => {
         if (user && story.id) {
             recordScreenDelivery(story.id, user.id);
         }
+        recordBoostSignal({
+            storyId: story.id,
+            creatorId: story.user_id,
+            hashtags: extractHashtags(story.caption),
+            type: 'view'
+        });
 
         let groups = groupStoriesByUser(filteredStories);
         let groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
@@ -917,12 +952,18 @@ const Boost: React.FC = () => {
                         >
                             #All
                         </button>
-                        {TRENDING_HASHTAGS.map(tag => {
+                        {dynamicHashtags.map(tag => {
                             const isSelected = selectedHashtag === tag;
                             return (
                                 <button
                                     key={tag}
-                                    onClick={() => setSelectedHashtag(isSelected ? null : tag)}
+                                    onClick={() => {
+                                        const next = isSelected ? null : tag;
+                                        setSelectedHashtag(next);
+                                        if (next) {
+                                            recordBoostSignal({ hashtags: [next.replace('#', '')], type: 'hashtag_click' });
+                                        }
+                                    }}
                                     style={{
                                         background: isSelected ? 'linear-gradient(135deg, #f5a524, #ff3366)' : 'rgba(255,255,255,0.06)',
                                         border: isSelected ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
@@ -996,33 +1037,15 @@ const Boost: React.FC = () => {
                                     >
                                         {/* Thumbnail */}
                                         <div style={{ width: '64px', height: '90px', borderRadius: '10px', overflow: 'hidden', background: '#121212', position: 'relative', flexShrink: 0 }}>
-                                            {isVideoUrl(knock.image_url) ? (
-                                                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                                                    <video 
-                                                        src={`${knock.image_url.split('#')[0]}#t=0.001`}
-                                                        poster={
-                                                            knock.image_url.includes('#POSTER:')
-                                                                ? decodeURIComponent(knock.image_url.split('#POSTER:')[1]?.split('#')[0] || '')
-                                                                : (knock.image_url.includes('/stories/') && knock.image_url.endsWith('.mp4')
-                                                                    ? knock.image_url.split('#')[0].replace('/stories/', '/stories/posters/').replace(/\.mp4$/i, '.jpg')
-                                                                    : undefined)
-                                                        }
-                                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                                        muted playsInline preload="metadata"
-                                                    />
-                                                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                                                        <div style={{ background: 'rgba(0,0,0,0.5)', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                            <Play size={11} fill="#fff" color="#fff" style={{ marginLeft: '1px' }} />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <img 
-                                                    src={knock.image_url.split('#')[0]} 
-                                                    alt="" 
-                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                                />
-                                            )}
+                                            <PostMedia
+                                                post={{
+                                                    image_url: knock.image_url,
+                                                    media_type: isVideoUrl(knock.image_url) ? 'video' : 'image',
+                                                    category: (knock as any).category || 'General'
+                                                } as any}
+                                                thumbnail={true}
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            />
                                             <div style={{
                                                 position: 'absolute', bottom: '4px', left: '4px',
                                                 background: 'rgba(0,0,0,0.7)', borderRadius: '4px',
@@ -1221,15 +1244,16 @@ const Boost: React.FC = () => {
                                         {/* Optimized Media Pipeline */}
                                         <PostMedia
                                             post={{
-                                                image_url: story.image_url.split('#')[0],
+                                                image_url: story.image_url,
                                                 css_filter: FILTERS.find(f => f.name === story.filter_name)?.style || 'none',
                                                 media_type: isVideo ? 'video' : 'image',
+                                                category: (story as any).category || 'General'
                                             } as any}
                                             muted
                                             loop
                                             playsInline
                                             autoPlay={false}
-                                            thumbnail={!isBig}
+                                            thumbnail={true}
                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                         />
 
@@ -2046,6 +2070,12 @@ const Boost: React.FC = () => {
                     initialGroupIndex={activeViewerGroupIndex}
                     currentUserId={user?.id}
                     onClose={() => setActiveViewerGroupIndex(null)}
+                    onHashtagClick={(tag) => {
+                        setActiveViewerGroupIndex(null);
+                        const cleanTag = tag.startsWith('#') ? tag : `#${tag}`;
+                        setSelectedHashtag(cleanTag);
+                        recordBoostSignal({ hashtags: [cleanTag.replace('#', '')], type: 'hashtag_click' });
+                    }}
                     onGroupsUpdated={(newGroups) => {
                         setViewerStoryGroups(newGroups);
                         const updatedFlat = newGroups.flatMap(g => g.stories);

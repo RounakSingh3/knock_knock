@@ -67,13 +67,6 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
             return url.split('#POSTER:')[1]?.split('#')[0];
         }
     }
-    const clean = url.split('#')[0].split('?')[0];
-    if (clean.includes('/stories/') && clean.endsWith('.mp4')) {
-        return clean.replace('/stories/', '/stories/posters/').replace(/\.mp4$/i, '.jpg');
-    }
-    if (clean.includes('/posts/') && clean.endsWith('.mp4')) {
-        return clean.replace('/posts/', '/posts/posters/').replace(/\.mp4$/i, '.jpg');
-    }
     return undefined;
 };
 
@@ -129,6 +122,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         return resolvedPosterFromUrl;
     });
     const [videoHasVisual, setVideoHasVisual] = useState<boolean>(true);
+    const [posterFailed, setPosterFailed] = useState<boolean>(false);
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
 
     // ⚡ Viewport-aware video lazy mounting: do NOT mount native video decoders if thumbnail is off-screen
@@ -162,6 +156,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         setIsAudioBlocked(false);
         setIsLoaded(false);
         setVideoHasVisual(true);
+        setPosterFailed(false);
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
         setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth));
@@ -539,6 +534,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     };
 
     if (hasError || !post.image_url) {
+        const fallback = ((post as any)?.category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
         return (
             <div 
                 className={className}
@@ -546,16 +542,22 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     width: '100%',
                     height: style?.height || '100%',
                     minHeight: style?.minHeight || '0px',
-                    background: 'linear-gradient(135deg, #1c1c1e, #2c2c2e)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--text-inactive)',
-                    fontSize: '18px',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    background: '#18181b',
                     ...style
                 }}
             >
-                {isVideo ? '🎬' : '📷'}
+                <img
+                    src={fallback}
+                    alt={alt}
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: resolvedObjectFit,
+                        display: 'block'
+                    }}
+                />
             </div>
         );
     }
@@ -606,7 +608,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     {thumbnail && !isPlayingMode ? (
                         /* ⚡ Static poster image in thumbnail mode — unmounts video element and frees hardware decoder! */
                         <img
-                            src={capturedPoster || resolvedPosterFromUrl || ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE}
+                            src={!posterFailed && (capturedPoster || resolvedPosterFromUrl) ? (capturedPoster || resolvedPosterFromUrl) : (((post as any)?.category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE)}
                             alt={alt}
                             className={className}
                             style={{
@@ -622,13 +624,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             loading="lazy"
                             decoding="async"
                             referrerPolicy="no-referrer"
-                            onError={(e) => {
+                            onError={() => {
+                                setPosterFailed(true);
                                 setCapturedPoster(undefined);
                                 videoPosterCache.delete(cleanUrl);
-                                const fallback = ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
-                                if ((e.currentTarget as HTMLImageElement).src !== fallback) {
-                                    (e.currentTarget as HTMLImageElement).src = fallback;
-                                }
                             }}
                         />
                     ) : !isInView && thumbnail && !isPlayingMode ? (

@@ -43,6 +43,7 @@ interface StoryViewerProps {
     currentUserId?: string;
     onClose: () => void;
     onGroupsUpdated: (groups: UserStoryGroup[]) => void;
+    onHashtagClick?: (hashtag: string) => void;
 }
 
 const StoryViewer: React.FC<StoryViewerProps> = ({ 
@@ -50,7 +51,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     initialGroupIndex, 
     currentUserId,
     onClose,
-    onGroupsUpdated
+    onGroupsUpdated,
+    onHashtagClick
 }) => {
     const [groupIndex, setGroupIndex] = useState(initialGroupIndex);
     const [storyIndex, setStoryIndex] = useState(0);
@@ -760,6 +762,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             <img 
                                 src={posterUrlFromStory || currentGroup.avatarUrl} 
                                 alt={currentGroup.username}
+                                onError={(e) => {
+                                    const fallback = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
+                                    if ((e.currentTarget as HTMLImageElement).src !== fallback) {
+                                        (e.currentTarget as HTMLImageElement).src = fallback;
+                                    }
+                                }}
                                 style={{ 
                                     width: '100%', 
                                     height: '100%', 
@@ -776,9 +784,14 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     src={cleanMediaUrl} 
                     alt="Story" 
                     className="story-image"
-                    onError={() => {
+                    onError={(e) => {
                         console.warn('Image failed to load in StoryViewer:', currentStory.id);
-                        handleNextStory();
+                        const fallback = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
+                        if ((e.currentTarget as HTMLImageElement).src !== fallback) {
+                            (e.currentTarget as HTMLImageElement).src = fallback;
+                        } else {
+                            handleNextStory();
+                        }
                     }}
                     style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
                 />
@@ -808,7 +821,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 </div>
             )}
 
-            {/* Caption with Highlighted #Hashtags */}
+            {/* Caption with Interactive #Hashtags */}
             {currentStory.caption && (
                 <div className="story-caption-overlay" style={{
                     maxHeight: '120px',
@@ -819,9 +832,36 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     {currentStory.caption.split(' ').map((word: string, wIdx: number) => {
                         if (word.startsWith('#') && word.length > 1) {
                             return (
-                                <span key={wIdx} style={{ color: '#f5a524', fontWeight: 700, marginRight: '4px' }}>
-                                    {word}{' '}
-                                </span>
+                                <button
+                                    key={wIdx}
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onHashtagClick) {
+                                            onHashtagClick(word);
+                                        } else {
+                                            onClose();
+                                            navigate(`/explore?q=${encodeURIComponent(word)}&tab=posts`);
+                                        }
+                                    }}
+                                    style={{
+                                        background: 'rgba(245, 165, 36, 0.25)',
+                                        border: '1px solid rgba(245, 165, 36, 0.5)',
+                                        borderRadius: '12px',
+                                        padding: '2px 8px',
+                                        color: '#f5a524',
+                                        fontWeight: 800,
+                                        fontSize: '12px',
+                                        cursor: 'pointer',
+                                        marginRight: '6px',
+                                        marginBottom: '4px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        backdropFilter: 'blur(8px)',
+                                    }}
+                                >
+                                    {word}
+                                </button>
                             );
                         }
                         return word + ' ';
