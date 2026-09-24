@@ -2680,9 +2680,55 @@ export async function deleteComment(commentId: string): Promise<void> {
 
 // ── Search ─────────────────────────────────────────────────
 
-/** Search users by username or name with typo tolerance */
+/** Helper to extract search tokens for resilient hashtag and keyword queries */
+export function extractSearchTokens(query: string): string[] {
+    const raw = query.trim();
+    if (!raw) return [];
+    const tokens = new Set<string>();
+
+    // 1. Raw stripped of leading @ and #
+    const stripped = raw.replace(/^[#@]+/, '').trim();
+    if (stripped.length >= 2) {
+        const safe = stripped.replace(/[%_,():]/g, ' ').trim();
+        if (safe.length >= 2) {
+            tokens.add(safe);
+            // Space-stripped version: 'ananya pandey' -> 'ananyapandey'
+            const noSpaces = safe.replace(/\s+/g, '');
+            if (noSpaces.length >= 2) tokens.add(noSpaces);
+        }
+    }
+
+    // 2. Individual words / hashtags (e.g. "#viral #trending" -> "viral", "trending")
+    const words = raw.split(/[\s,#+]+/);
+    for (const w of words) {
+        const clean = w.replace(/^[#@]+/, '').replace(/[%_,():]/g, '').trim();
+        if (clean.length >= 2) {
+            tokens.add(clean);
+            const lowerW = clean.toLowerCase();
+            if (COMMON_TYPOS[lowerW]) {
+                COMMON_TYPOS[lowerW].forEach(t => {
+                    const safeT = t.replace(/[%_,():]/g, '').trim();
+                    if (safeT.length >= 2) tokens.add(safeT);
+                });
+            }
+        }
+    }
+
+    // 3. Typo expansion on full stripped query
+    const lowerStripped = stripped.toLowerCase();
+    if (COMMON_TYPOS[lowerStripped]) {
+        COMMON_TYPOS[lowerStripped].forEach(t => {
+            const safeT = t.replace(/[%_,():]/g, '').trim();
+            if (safeT.length >= 2) tokens.add(safeT);
+        });
+    }
+
+    return Array.from(tokens).slice(0, 8);
+}
+
+/** Search users by username or name with typo tolerance and hashtag immunity */
 export async function searchUsers(query: string): Promise<ProfileData[]> {
-    const cleanQuery = query.replace(/^@+/, '').trim();
+    const cleanQuery = query.replace(/^[#@]+/, '').trim();
     if (!cleanQuery) return [];
 
     const lower = cleanQuery.toLowerCase();
@@ -2715,16 +2761,10 @@ export async function searchUsers(query: string): Promise<ProfileData[]> {
     });
 }
 
-/** Search posts by caption and creator username with typo tolerance */
+/** Search posts by caption and creator username with resilient hashtag & token matching */
 export async function searchPostsByCaption(query: string): Promise<PostData[]> {
-    const cleanQuery = query.replace(/^@+/, '').trim();
-    if (!cleanQuery) return [];
-
-    const lower = cleanQuery.toLowerCase();
-    const candidateTerms = [cleanQuery];
-    if (COMMON_TYPOS[lower]) {
-        candidateTerms.push(...COMMON_TYPOS[lower]);
-    }
+    const candidateTerms = extractSearchTokens(query);
+    if (candidateTerms.length === 0) return [];
 
     const orConditions = candidateTerms.flatMap(t => [
         `caption.ilike.%${t}%`,
@@ -2736,7 +2776,7 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
         .select('*')
         .or(orConditions)
         .order('created_at', { ascending: false })
-        .limit(40);
+        .limit(60);
 
     if (error) {
         console.error('Error searching posts:', error);

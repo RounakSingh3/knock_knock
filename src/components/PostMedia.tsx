@@ -603,10 +603,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         >
             {isVideo ? (
                 <>
-                    {thumbnail && !isPlayingMode && (capturedPoster || resolvedPosterFromUrl) ? (
-                        /* ⚡ Captured static poster image — unmounts video element and frees hardware decoder! */
+                    {thumbnail && !isPlayingMode ? (
+                        /* ⚡ Static poster image in thumbnail mode — unmounts video element and frees hardware decoder! */
                         <img
-                            src={capturedPoster || resolvedPosterFromUrl}
+                            src={capturedPoster || resolvedPosterFromUrl || ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE}
                             alt={alt}
                             className={className}
                             style={{
@@ -622,9 +622,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             loading="lazy"
                             decoding="async"
                             referrerPolicy="no-referrer"
-                            onError={() => {
+                            onError={(e) => {
                                 setCapturedPoster(undefined);
                                 videoPosterCache.delete(cleanUrl);
+                                const fallback = ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
+                                if ((e.currentTarget as HTMLImageElement).src !== fallback) {
+                                    (e.currentTarget as HTMLImageElement).src = fallback;
+                                }
                             }}
                         />
                     ) : !isInView && thumbnail && !isPlayingMode ? (
@@ -659,7 +663,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
-                                poster={capturedPoster || resolvedPosterFromUrl}
+                                poster={capturedPoster || resolvedPosterFromUrl || ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE}
                                 crossOrigin={videoCrossOrigin}
                                 className={className}
                                 style={{
@@ -732,7 +736,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             />
 
                             {/* Fallback Display if Browser Cannot Decode Video Track (Audio Plays Uninterrupted with Sharp Picture!) */}
-                            {!videoHasVisual && (capturedPoster || resolvedPosterFromUrl) && (
+                            {!videoHasVisual && (
                                 <div style={{
                                     position: 'absolute',
                                     inset: 0,
@@ -745,14 +749,20 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     pointerEvents: 'none'
                                 }}>
                                     <img 
-                                        src={capturedPoster || resolvedPosterFromUrl} 
+                                        src={capturedPoster || resolvedPosterFromUrl || ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE} 
                                         alt={alt || "Video preview"}
                                         style={{ 
                                             width: '100%', 
                                             height: '100%', 
                                             objectFit: resolvedObjectFit,
                                             filter: extractedFilter
-                                        }} 
+                                        }}
+                                        onError={(e) => {
+                                            const fallback = ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
+                                            if ((e.currentTarget as HTMLImageElement).src !== fallback) {
+                                                (e.currentTarget as HTMLImageElement).src = fallback;
+                                            }
+                                        }}
                                     />
                                 </div>
                             )}

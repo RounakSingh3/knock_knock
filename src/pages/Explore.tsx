@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
-import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music } from 'lucide-react';
+import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
@@ -280,7 +280,7 @@ const Explore = () => {
     const [searchParams] = useSearchParams();
     
     const initialQuery = searchParams.get('q') || '';
-    const initialTab = (searchParams.get('tab') as 'people' | 'posts' | 'stories') || (initialQuery ? 'posts' : 'people');
+    const initialTab = (searchParams.get('tab') as 'people' | 'posts' | 'stories') || (initialQuery.startsWith('@') ? 'people' : 'posts');
 
     const [searchTerm, setSearchTerm] = useState(initialQuery);
     const [activeTab, setActiveTab] = useState<'people' | 'posts' | 'stories'>(initialTab);
@@ -291,8 +291,13 @@ const Explore = () => {
         const tab = searchParams.get('tab') as 'people' | 'posts' | 'stories' | null;
         if (q !== null) {
             setSearchTerm(q);
-            if (tab) setActiveTab(tab);
-            else if (q) setActiveTab('posts');
+            if (tab) {
+                setActiveTab(tab);
+            } else if (q.trim().startsWith('@')) {
+                setActiveTab('people');
+            } else {
+                setActiveTab('posts');
+            }
         }
     }, [searchParams]);
 
@@ -648,6 +653,16 @@ const Explore = () => {
         setIsRefreshing(false);
     }, [selectedCategory, blockedIds]);
 
+    const handleSearchChange = (val: string) => {
+        setSearchTerm(val);
+        const trimmed = val.trim();
+        if (trimmed.startsWith('#')) {
+            setActiveTab('posts');
+        } else if (trimmed.startsWith('@')) {
+            setActiveTab('people');
+        }
+    };
+
     // Handle Search Queries
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -664,36 +679,51 @@ const Explore = () => {
                 return;
             }
             performSearch();
-        }, 400);
+        }, 300);
         return () => clearTimeout(timer);
     }, [searchTerm, activeTab, blockedIds]);
 
     const performSearch = async () => {
         setLoadingSearch(true);
         const query = searchTerm.trim();
+        if (!query) {
+            setLoadingSearch(false);
+            return;
+        }
 
-        if (activeTab === 'people' && query.length >= 2) {
-            const results = await searchUsers(query);
-            const filteredResults = results.filter(p => !blockedIds.includes(p.id));
-            setPeopleResults(filteredResults);
-            if (user) {
+        try {
+            const cleanQueryForUsers = query.replace(/^[#@]+/, '').trim();
+            // Parallel search across posts, people, and stories (if active)
+            const [postsRes, usersRes, storiesRes] = await Promise.all([
+                searchPostsByCaption(query),
+                cleanQueryForUsers.length >= 2 ? searchUsers(cleanQueryForUsers) : Promise.resolve([]),
+                activeTab === 'stories' ? searchStoriesByHashtag(query.replace(/^[#@]+/, '')) : Promise.resolve([])
+            ]);
+
+            const validPosts = postsRes.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            setPostResults(validPosts);
+
+            const filteredUsers = usersRes.filter(p => !blockedIds.includes(p.id));
+            setPeopleResults(filteredUsers);
+
+            if (activeTab === 'stories') {
+                setStoryResults(storiesRes.filter(g => !blockedIds.includes(g.userId)));
+            }
+
+            if (user && filteredUsers.length > 0) {
                 const map: Record<string, boolean> = {};
-                await Promise.all(filteredResults.map(async (p) => {
+                await Promise.all(filteredUsers.map(async (p) => {
                     if (p.id !== user.id) {
                         map[p.id] = await checkIfFollowing(user.id, p.id);
                     }
                 }));
                 setFollowingMap(map);
             }
-        } else if (activeTab === 'posts') {
-            const results = await searchPostsByCaption(query || '%');
-            setPostResults(results.filter(p => !p.user_id || !blockedIds.includes(p.user_id)));
-        } else if (activeTab === 'stories') {
-            const term = query.startsWith('#') ? query.substring(1) : query;
-            const data = await searchStoriesByHashtag(term);
-            setStoryResults(data.filter(g => !blockedIds.includes(g.userId)));
+        } catch (e) {
+            console.error('Error performing search:', e);
+        } finally {
+            setLoadingSearch(false);
         }
-        setLoadingSearch(false);
     };
 
     const handleToggleFollow = async (profileId: string) => {
@@ -757,25 +787,39 @@ const Explore = () => {
                     <Search size={20} color="#8e8e93" />
                     <input
                         type="text"
-                        placeholder="Search people, posts, or tags..."
+                        placeholder="Search posts, hashtags (#), or people (@)..."
                         value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
+                        onChange={e => handleSearchChange(e.target.value)}
                         style={{ background: 'transparent', border: 'none', color: 'var(--text-active)', width: '100%', outline: 'none', fontSize: '15px' }}
                     />
+                    {searchTerm && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSearchTerm('');
+                                setPostResults([]);
+                                setPeopleResults([]);
+                                setStoryResults([]);
+                            }}
+                            style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                        >
+                            <X size={18} />
+                        </button>
+                    )}
                 </div>
             </div>
 
             {/* Search Tabs (Only shown when searching) */}
             {isSearching && (
                 <div style={{ display: 'flex', borderBottom: '1px solid #2c2c2e', marginTop: '8px' }}>
-                    <button onClick={() => setActiveTab('people')} style={tabStyle('people')}>
-                        <Users size={16} /> People
-                    </button>
                     <button onClick={() => setActiveTab('posts')} style={tabStyle('posts')}>
-                        <Image size={16} /> Posts
+                        <Image size={16} /> Posts {postResults.length > 0 && `(${postResults.length})`}
+                    </button>
+                    <button onClick={() => setActiveTab('people')} style={tabStyle('people')}>
+                        <Users size={16} /> People {peopleResults.length > 0 && `(${peopleResults.length})`}
                     </button>
                     <button onClick={() => setActiveTab('stories')} style={tabStyle('stories')}>
-                        <BookOpen size={16} /> Stories
+                        <BookOpen size={16} /> Stories {storyResults.length > 0 && `(${storyResults.length})`}
                     </button>
                 </div>
             )}
@@ -991,8 +1035,14 @@ const Explore = () => {
 
                             {activeTab === 'posts' && (
                                 postResults.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: '48px', color: 'var(--text-inactive)' }}>
-                                        No posts found
+                                    <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-inactive)' }}>
+                                        <Hash size={40} style={{ margin: '0 auto 12px', opacity: 0.4, color: '#f5a524' }} />
+                                        <h3 style={{ margin: '0 0 6px', color: 'var(--text-active)', fontSize: '16px', fontWeight: '600' }}>
+                                            No posts found for "{searchTerm}"
+                                        </h3>
+                                        <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-inactive)' }}>
+                                            Try searching for popular tags like #trending, #viral, or #foryou
+                                        </p>
                                     </div>
                                 ) : (
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
