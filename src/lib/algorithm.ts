@@ -9,7 +9,7 @@
  */
 
 import { isVideoPost } from './media';
-import { trackEngagement, type PostData, type UserStoryGroup, type StoryData } from './database';
+import { trackEngagement, isStoryEligibleForViewerScreen, type PostData, type UserStoryGroup, type StoryData } from './database';
 
 // ── Weight Configuration ───────────────────────────────────
 export const ENGAGEMENT_WEIGHTS: Record<string, number> = {
@@ -1204,19 +1204,10 @@ export function rankBoostLoopStories(
     const interestState = getBoostInterestState();
     const now = Date.now();
 
-    // Screen Reach Quota Enforcement:
-    // If a boosted story reached its target screens, only the creator can still see it.
-    // To other viewers, it has fulfilled its reach and is removed from the feed.
+    // Screen Reach Quota & Active User Delivery Enforcement:
+    // If a boosted story reached its target screens, or viewer is not in the active audience, exclude it!
     const eligibleStories = stories.filter(story => {
-        if (currentUserId && story.user_id === currentUserId) return true;
-        if (story.boost_meta) {
-            const target = story.boost_meta.targetScreens || 24;
-            const delivered = story.boost_meta.screensDelivered || 0;
-            if (delivered >= target) {
-                return false;
-            }
-        }
-        return true;
+        return isStoryEligibleForViewerScreen(story, currentUserId, userFriends);
     });
 
     const scored = eligibleStories.map(story => {
@@ -1244,11 +1235,23 @@ export function rankBoostLoopStories(
             score += Math.min(45, interestState.creators[story.user_id] * 10);
         }
 
-        // 4. Delivery Guarantee Duty: Boosted stories with screen deficits
+        // 4. Delivery Guarantee Duty: Boosted stories with screen deficits & extra points
         if (story.is_boosted) {
-            const deficit = (story.target_screens || 24) - (story.screens_delivered || 0);
+            const target = (story.boost_meta?.targetScreens || story.target_screens || 24);
+            const delivered = (story.boost_meta?.screensDelivered || story.screens_delivered || 0);
+            const deficit = target - delivered;
+            const pointsSpent = story.boost_meta?.pointsSpent || story.points_spent || 0;
+
             if (deficit > 0) {
+                // Base 5 points motivation boost
                 score += Math.min(50, deficit * 2.5);
+
+                // If extra points (beyond 5 points) were spent:
+                // Leverage the algorithm to match active users with matching hashtags and creator taste
+                if (pointsSpent > 5) {
+                    const extraPoints = pointsSpent - 5;
+                    score += Math.min(75, extraPoints * 3 + (tagAffinity > 0 ? tagAffinity * 15 : 10));
+                }
             }
         }
 

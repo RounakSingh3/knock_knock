@@ -1533,6 +1533,62 @@ export function isPostEligibleForViewerScreen(post: PostData, viewerUserId?: str
     return true;
 }
 
+/** Determine if a viewer is an active daily user of the app */
+export function isViewerActiveDailyUser(userId?: string): boolean {
+    if (!userId) return false;
+    if (typeof window === 'undefined') return true;
+    try {
+        const today = new Date().toISOString().slice(0, 10);
+        const lastActive = localStorage.getItem('knock_last_active_date');
+        if (lastActive === today) return true;
+        const session = localStorage.getItem('knock_user_session');
+        if (session) return true;
+    } catch (_) {}
+    return true;
+}
+
+/** Check if a 24h story / boosted video is eligible to be shown on a viewer's screen */
+export function isStoryEligibleForViewerScreen(
+    story: StoryData,
+    viewerUserId?: string,
+    userFriends: string[] = []
+): boolean {
+    if (!story || !story.id || !story.image_url) return false;
+
+    // Check media health (don't show broken or unplayable media on laptop/phone)
+    const trimmed = story.image_url.trim();
+    if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'none') {
+        return false;
+    }
+
+    // 1. Creator can always view their own story
+    if (viewerUserId && story.user_id === viewerUserId) return true;
+
+    // 2. Friends of creator can always view (base friends reach)
+    if (story.user_id && userFriends.includes(story.user_id)) return true;
+
+    // 3. For non-friends: MUST be an actively boosted story with remaining screen quota!
+    // Organic/completed stranger stories are strictly forbidden from showing up
+    if (!story.is_boosted || !story.boost_meta) {
+        return false;
+    }
+
+    // 4. Screen quota check (e.g. 5 screens for 5 points)
+    const target = story.boost_meta.targetScreens || story.target_screens || 24;
+    const delivered = story.boost_meta.screensDelivered || story.screens_delivered || 0;
+    if (delivered >= target) {
+        // Target screen quota fulfilled — video is gone for other viewers
+        return false;
+    }
+
+    // 5. Active Daily User Check: points only deliver to active daily users
+    if (!viewerUserId || !isViewerActiveDailyUser(viewerUserId)) {
+        return false;
+    }
+
+    return true;
+}
+
 /** Create a 24h Boosted Snap with Guaranteed Screen Reach */
 export async function createBoostedStory(
     userId: string,
@@ -1648,38 +1704,45 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
     // Delivery Guarantee Ordering:
     // 1. Current user's own active stories (to monitor reach)
     // 2. Stories from user's friends (fulfills friend reach guarantee)
-    // 3. Boosted stories with remaining screen deficit (targetScreens - screensDelivered) DESC
-    //    -> "Our duty to send more 10 if they use 10 point"
-    // 4. Other organic/completed 24h stories
+    // 3. Actively boosted stories with remaining screen quota (only delivered to active daily users)
+    //    -> "Only points that people use to boost go to screens of people who are active"
+    //    -> Completed or organic stranger stories are strictly excluded from other users' screens!
     const ownStories: StoryData[] = [];
     const friendStories: StoryData[] = [];
     const activeBoostedStories: StoryData[] = [];
-    const completedOrOrganicStories: StoryData[] = [];
+
+    const isViewerActive = isViewerActiveDailyUser(currentUserId);
 
     for (const story of stories) {
+        // Media validity check: ignore stories with empty or broken URLs
+        if (!story.image_url || story.image_url === 'undefined' || story.image_url === 'null') {
+            continue;
+        }
+
         if (currentUserId && story.user_id === currentUserId) {
             ownStories.push(story);
         } else if (story.user_id && friendIds.includes(story.user_id)) {
             friendStories.push(story);
-        } else if (story.is_boosted && (story.screens_delivered || 0) < (story.target_screens || 0)) {
+        } else if (isViewerActive && story.is_boosted && (story.screens_delivered || 0) < (story.target_screens || 0)) {
+            // Only non-friend stories that are actively boosted with remaining screen quota
+            // reach active daily users' screens!
             activeBoostedStories.push(story);
-        } else {
-            completedOrOrganicStories.push(story);
         }
     }
 
-    // Active boosted stories that need more screens get highest non-friend injection priority
+    // Active boosted stories that need more screens get priority injection for active users
     activeBoostedStories.sort((a, b) => {
         const deficitA = (a.target_screens || 0) - (a.screens_delivered || 0);
         const deficitB = (b.target_screens || 0) - (b.screens_delivered || 0);
-        return deficitB - deficitA;
+        const pointsA = a.points_spent || 0;
+        const pointsB = b.points_spent || 0;
+        return (deficitB + pointsB) - (deficitA + pointsA);
     });
 
     const result = [
         ...ownStories,
         ...friendStories,
-        ...activeBoostedStories,
-        ...completedOrOrganicStories
+        ...activeBoostedStories
     ];
 
     setInCache(`24h_boost_stories_${currentUserId || 'anon'}`, result);

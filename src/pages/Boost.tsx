@@ -44,6 +44,7 @@ import {
     awardUploadPoints,
     isKnockVideoLink,
     parseKnockVideoLink,
+    isStoryEligibleForViewerScreen,
     notifyMentionedUsersInText,
     type StoryData, 
     type UserStoryGroup 
@@ -307,16 +308,10 @@ const Boost: React.FC = () => {
     const combinedStories = useMemo(() => {
         return stories.filter(s => {
             if (s.id?.startsWith('explore-seed-') || s.user_id?.startsWith('seed-creator-')) return false;
-            // Screen quota fulfillment: if targetScreens reached, video is gone for other viewers
-            if (user && s.user_id === user.id) return true;
-            if (s.boost_meta) {
-                const target = s.boost_meta.targetScreens || 24;
-                const delivered = s.boost_meta.screensDelivered || 0;
-                if (delivered >= target) return false;
-            }
-            return true;
+            // Screen quota, active user delivery, and friendship eligibility check
+            return isStoryEligibleForViewerScreen(s, user?.id, userFriends);
         });
-    }, [stories, user?.id]);
+    }, [stories, user?.id, userFriends]);
 
     // ⚡ Adaptive Addictive Loop Engine: real-time taste chasing & recency frequency boost
     const rankedStories = useMemo(() => {

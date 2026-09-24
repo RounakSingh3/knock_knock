@@ -325,6 +325,10 @@ function App() {
 
         const currentUserId = user.id;
         setUserOnlineStatus(currentUserId, true);
+        try {
+            const today = new Date().toISOString().slice(0, 10);
+            localStorage.setItem('knock_last_active_date', today);
+        } catch (_) {}
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
