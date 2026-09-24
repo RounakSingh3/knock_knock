@@ -305,8 +305,18 @@ const Boost: React.FC = () => {
     
     // Only real authentic 24h stories uploaded by users on the app
     const combinedStories = useMemo(() => {
-        return stories.filter(s => !s.id?.startsWith('explore-seed-') && !s.user_id?.startsWith('seed-creator-'));
-    }, [stories]);
+        return stories.filter(s => {
+            if (s.id?.startsWith('explore-seed-') || s.user_id?.startsWith('seed-creator-')) return false;
+            // Screen quota fulfillment: if targetScreens reached, video is gone for other viewers
+            if (user && s.user_id === user.id) return true;
+            if (s.boost_meta) {
+                const target = s.boost_meta.targetScreens || 24;
+                const delivered = s.boost_meta.screensDelivered || 0;
+                if (delivered >= target) return false;
+            }
+            return true;
+        });
+    }, [stories, user?.id]);
 
     // ⚡ Adaptive Addictive Loop Engine: real-time taste chasing & recency frequency boost
     const rankedStories = useMemo(() => {
@@ -401,10 +411,15 @@ const Boost: React.FC = () => {
             type: 'view'
         });
 
-        let groups = groupStoriesByUser(filteredStories);
+        // Attach full 24h stream so the next video is ALWAYS available without dead-ends
+        const filteredIds = new Set(filteredStories.map(s => s.id));
+        const remaining24h = rankedStories.filter(s => !filteredIds.has(s.id));
+        const fullStream = [...filteredStories, ...remaining24h];
+
+        let groups = groupStoriesByUser(fullStream);
         let groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
         if (groupIdx === -1) {
-            groups = groupStoriesByUser(stories);
+            groups = groupStoriesByUser(rankedStories);
             groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
         }
         if (groupIdx === -1) {
@@ -414,7 +429,7 @@ const Boost: React.FC = () => {
                 avatarUrl: `https://i.pravatar.cc/150?u=${story.username || story.user_id}`,
                 stories: [story],
             };
-            groups = [singleGroup];
+            groups = [singleGroup, ...groupStoriesByUser(rankedStories)];
             groupIdx = 0;
         }
 

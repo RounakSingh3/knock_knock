@@ -244,6 +244,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             setGroupIndex(prev => prev + 1);
             setStoryIndex(0);
             setProgress(0);
+        } else if (storyGroups.length > 0) {
+            // Infinite circular loop: return to first story group so viewer never terminates
+            setGroupIndex(0);
+            setStoryIndex(0);
+            setProgress(0);
         } else {
             onClose();
         }

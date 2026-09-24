@@ -1270,9 +1270,14 @@ export function normalizeStory(story: StoryData): StoryData {
         boost_meta.screensDelivered = Math.min(boost_meta.targetScreens, screensDelivered);
     }
 
+    const cleanBaseUrl = image_url.split('#')[0];
+    const finalImageUrlWithPoster = poster_url
+        ? `${cleanBaseUrl}#POSTER:${encodeURIComponent(poster_url)}`
+        : (image_url.includes('#POSTER:') ? image_url : cleanBaseUrl);
+
     return {
         ...story,
-        image_url: image_url.split('#')[0],
+        image_url: finalImageUrlWithPoster,
         poster_url,
         music_url,
         music_title,
