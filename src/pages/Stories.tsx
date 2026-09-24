@@ -22,7 +22,7 @@ import {
     uploadMedia
 } from '../lib/database';
 import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
-import { rankStoryGroups, getHybridInterestProfile } from '../lib/algorithm';
+import { rankStoryGroups, getHybridInterestProfile, extractHashtags } from '../lib/algorithm';
 
 // ⚡ Lazy load heavy modals
 const StoryViewer = lazy(() => import('../components/StoryViewer'));
@@ -681,33 +681,58 @@ const Stories = () => {
                                 backdropFilter: 'blur(8px)',
                             }}
                         />
-                        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginTop: '6px', paddingBottom: '2px', WebkitOverflowScrolling: 'touch' }}>
-                            {['#vibe', '#today', '#snap', '#viral', '#friends', '#music', '#fun', '#aesthetic'].map(tag => (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>
+                                🏷️ {extractHashtags(storyCaption).length} / 10 hashtags
+                            </span>
+                            {extractHashtags(storyCaption).length > 0 && (
                                 <button
-                                    key={tag}
                                     type="button"
                                     onClick={() => {
-                                        if (!storyCaption.includes(tag)) {
-                                            setStoryCaption(prev => prev ? `${prev.trim()} ${tag}` : tag);
-                                        } else {
-                                            setStoryCaption(prev => prev.replace(tag, '').trim());
-                                        }
+                                        const stripped = storyCaption.replace(/(^|\s)#[a-zA-Z0-9_\u0080-\uFFFF]+\b/gi, '').trim();
+                                        setStoryCaption(stripped);
                                     }}
-                                    style={{
-                                        background: storyCaption.includes(tag) ? 'rgba(245,165,36,0.3)' : 'rgba(255,255,255,0.08)',
-                                        border: storyCaption.includes(tag) ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.15)',
-                                        color: storyCaption.includes(tag) ? '#f5a524' : '#fff',
-                                        padding: '3px 8px',
-                                        borderRadius: '12px',
-                                        fontSize: '11px',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        whiteSpace: 'nowrap'
-                                    }}
+                                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '10px', cursor: 'pointer', padding: 0 }}
                                 >
-                                    {tag}
+                                    Clear
                                 </button>
-                            ))}
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px', WebkitOverflowScrolling: 'touch' }}>
+                            {['#vibe', '#today', '#snap', '#viral', '#friends', '#music', '#fun', '#aesthetic', '#dance', '#comedy', '#reels'].map(tag => {
+                                const clean = tag.replace('#', '');
+                                const isAdded = extractHashtags(storyCaption).includes(clean);
+                                return (
+                                    <button
+                                        key={tag}
+                                        type="button"
+                                        onClick={() => {
+                                            const active = extractHashtags(storyCaption);
+                                            if (active.includes(clean)) {
+                                                const regex = new RegExp(`(^|\\s)#${clean}\\b`, 'gi');
+                                                setStoryCaption(prev => prev.replace(regex, '').trim());
+                                            } else {
+                                                if (active.length < 10) {
+                                                    setStoryCaption(prev => prev ? `${prev.trim()} ${tag}` : tag);
+                                                }
+                                            }
+                                        }}
+                                        style={{
+                                            background: isAdded ? 'rgba(245,165,36,0.3)' : 'rgba(255,255,255,0.08)',
+                                            border: isAdded ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.15)',
+                                            color: isAdded ? '#f5a524' : '#fff',
+                                            padding: '3px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            whiteSpace: 'nowrap'
+                                        }}
+                                    >
+                                        {tag} {isAdded && '✓'}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
                 )}

@@ -416,7 +416,7 @@ export function calculatePostScore(
     const categoryScore = userProfile.categoryScores[postCategory] || 0;
     score += categoryScore * 0.7;
 
-    // 1b. Hashtag / Topic affinity
+    // 1b. Hashtag / Topic affinity (Instagram-style compound multi-hashtag boost)
     const postCaption = (post as any).caption || '';
     const postTags = extractHashtags(postCaption);
     if (postTags.length > 0 && userProfile.hashtagScores) {
@@ -430,8 +430,9 @@ export function calculatePostScore(
             }
         }
         if (matchedCount > 0) {
-            // Strong boost for matching specific interests the user engaged with
-            score += (tagAffinity / matchedCount) * 1.5;
+            // Matching multiple distinct interests multiplies recommendation relevance
+            const compoundMultiplier = 1 + Math.min(1.5, (matchedCount - 1) * 0.35);
+            score += (tagAffinity * 0.9) * compoundMultiplier;
         }
     }
 
@@ -759,12 +760,21 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
         const cat = reel.category || 'General';
         score += (profile.categoryScores[cat] || 0) * 0.8;
 
-        // Hashtag / Topic affinity
-        const reelTags = extractHashtags(reel.caption);
+        // Hashtag / Topic affinity (Instagram-style compound multi-interest boost)
+        const reelTags = extractHashtags((reel as any).caption);
         if (reelTags.length > 0 && profile.hashtagScores) {
+            let matched = 0;
+            let tagScoreTotal = 0;
             for (const t of reelTags) {
                 const tagScore = profile.hashtagScores[t] || 0;
-                if (tagScore > 0) score += tagScore * 1.2;
+                if (tagScore > 0) {
+                    tagScoreTotal += tagScore;
+                    matched++;
+                }
+            }
+            if (matched > 0) {
+                const compoundMult = 1 + Math.min(1.5, (matched - 1) * 0.35);
+                score += (tagScoreTotal * 0.9) * compoundMult;
             }
         }
 
@@ -930,7 +940,19 @@ export function rankExploreGrid(
         let tagScore = 0;
         const tags = extractHashtags(p.caption);
         if (tags.length > 0 && profile.hashtagScores) {
-            for (const t of tags) tagScore += profile.hashtagScores[t] || 0;
+            let matched = 0;
+            let sum = 0;
+            for (const t of tags) {
+                const s = profile.hashtagScores[t] || 0;
+                if (s > 0) {
+                    sum += s;
+                    matched++;
+                }
+            }
+            if (matched > 0) {
+                const compound = 1 + Math.min(1.5, (matched - 1) * 0.35);
+                tagScore = (sum * 0.8) * compound;
+            }
         }
 
         // Recency discovery bonus (within last 30 days) to guarantee real creators appear prominently
