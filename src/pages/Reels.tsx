@@ -989,21 +989,6 @@ const Reels: React.FC = () => {
                                                 onError={() => {
                                                     setFailedVisuals(prev => new Set(prev).add(reel.id));
                                                 }}
-                                                onTimeUpdate={(e) => {
-                                                    const v = e.currentTarget;
-                                                    if (v.currentTime > 0.4) {
-                                                        const quality = typeof (v as any).getVideoPlaybackQuality === 'function' ? (v as any).getVideoPlaybackQuality() : null;
-                                                        const decoded = quality?.totalVideoFrames ?? (v as any).webkitDecodedFrameCount;
-                                                        if (decoded !== undefined && decoded === 0) {
-                                                            setFailedVisuals(prev => {
-                                                                if (prev.has(reel.id)) return prev;
-                                                                const next = new Set(prev);
-                                                                next.add(reel.id);
-                                                                return next;
-                                                            });
-                                                        }
-                                                    }
-                                                }}
                                             />
                                             {failedVisuals.has(reel.id) && reel.posterUrl && !isVideoUrl(reel.posterUrl) && (
                                                 <div style={{

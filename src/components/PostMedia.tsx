@@ -46,17 +46,8 @@ try {
 
 let isGlobalFrameCaptureRunning = false;
 
-const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
-const CATEGORY_FALLBACKS: Record<string, string> = {
-    'Memes': 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&auto=format&fit=crop',
-    'Bollywood': 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=600&auto=format&fit=crop',
-    'Fitness': 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=600&auto=format&fit=crop',
-    'Sports': 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=600&auto=format&fit=crop',
-    'Lifestyle': 'https://images.unsplash.com/photo-1511988617509-a57c8a288659?w=600&auto=format&fit=crop',
-    'Gaming': 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&auto=format&fit=crop',
-    'Nature': 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600&auto=format&fit=crop',
-    'Food': 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&auto=format&fit=crop',
-};
+const UNIVERSAL_FALLBACK_IMAGE = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><rect width="100%" height="100%" fill="%23121214"/></svg>';
+const CATEGORY_FALLBACKS: Record<string, string> = {};
 
 export const extractPosterFromUrl = (url?: string): string | undefined => {
     if (!url) return undefined;
@@ -121,7 +112,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
         return resolvedPosterFromUrl;
     });
-    const [videoHasVisual, setVideoHasVisual] = useState<boolean>(true);
     const [posterFailed, setPosterFailed] = useState<boolean>(false);
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
 
@@ -155,7 +145,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         setHasError(false);
         setIsAudioBlocked(false);
         setIsLoaded(false);
-        setVideoHasVisual(true);
         setPosterFailed(false);
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
@@ -536,7 +525,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     if (hasError || !post.image_url) {
-        const fallback = ((post as any)?.category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
         return (
             <div 
                 className={className}
@@ -546,20 +534,25 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     minHeight: style?.minHeight || '0px',
                     position: 'relative',
                     overflow: 'hidden',
-                    background: '#18181b',
+                    background: '#121214',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     ...style
                 }}
             >
-                <img
-                    src={fallback}
-                    alt={alt}
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: resolvedObjectFit,
-                        display: 'block'
-                    }}
-                />
+                <div style={{
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.06)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'rgba(255,255,255,0.3)'
+                }}>
+                    <Play size={20} fill="currentColor" color="transparent" style={{ marginLeft: '2px' }} />
+                </div>
             </div>
         );
     }
@@ -605,10 +598,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         >
             {isVideo ? (
                 <>
-                    {thumbnail && !isPlayingMode ? (
-                        /* ⚡ Static poster image in thumbnail mode — unmounts video element and frees hardware decoder! */
+                    {thumbnail && !isPlayingMode && (capturedPoster || resolvedPosterFromUrl) && !posterFailed ? (
+                        /* ⚡ Static poster image in thumbnail mode ONLY if an authentic poster frame exists */
                         <img
-                            src={!posterFailed && (capturedPoster || resolvedPosterFromUrl) ? (capturedPoster || resolvedPosterFromUrl) : (((post as any)?.category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE)}
+                            src={capturedPoster || resolvedPosterFromUrl}
                             alt={alt}
                             className={className}
                             style={{
@@ -662,7 +655,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
-                                poster={capturedPoster || resolvedPosterFromUrl || ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE}
+                                poster={capturedPoster || resolvedPosterFromUrl || undefined}
                                 crossOrigin={videoCrossOrigin}
                                 className={className}
                                 style={{
@@ -689,7 +682,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 disableRemotePlayback={true}
                                 preload={isPlayingMode ? "auto" : "metadata"}
                                 onError={() => {
-                                    setVideoHasVisual(false);
                                     handleMediaError();
                                 }}
                                 onLoadedMetadata={(e) => {
@@ -711,15 +703,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         const pct = (v.currentTime / v.duration) * 100;
                                         progressBarRef.current.style.width = `${pct}%`;
                                     }
-                                    if (v.currentTime > 0.4) {
-                                        const quality = typeof (v as any).getVideoPlaybackQuality === 'function' ? (v as any).getVideoPlaybackQuality() : null;
-                                        const decoded = quality?.totalVideoFrames ?? (v as any).webkitDecodedFrameCount;
-                                        if (decoded !== undefined && decoded === 0) {
-                                            if (videoHasVisual) setVideoHasVisual(false);
-                                        } else if (decoded && decoded > 0) {
-                                            if (!videoHasVisual) setVideoHasVisual(true);
-                                        }
-                                    }
                                 }}
                                 onMouseEnter={() => {
                                     if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
@@ -733,38 +716,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     }
                                 }}
                             />
-
-                            {/* Fallback Display if Browser Cannot Decode Video Track (Audio Plays Uninterrupted with Sharp Picture!) */}
-                            {!videoHasVisual && (
-                                <div style={{
-                                    position: 'absolute',
-                                    inset: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    background: '#09090b',
-                                    overflow: 'hidden',
-                                    zIndex: 10,
-                                    pointerEvents: 'none'
-                                }}>
-                                    <img 
-                                        src={capturedPoster || resolvedPosterFromUrl || ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE} 
-                                        alt={alt || "Video preview"}
-                                        style={{ 
-                                            width: '100%', 
-                                            height: '100%', 
-                                            objectFit: resolvedObjectFit,
-                                            filter: extractedFilter
-                                        }}
-                                        onError={(e) => {
-                                            const fallback = ((post as any).category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
-                                            if ((e.currentTarget as HTMLImageElement).src !== fallback) {
-                                                (e.currentTarget as HTMLImageElement).src = fallback;
-                                            }
-                                        }}
-                                    />
-                                </div>
-                            )}
                         </div>
                     )}
 

@@ -367,21 +367,6 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         if (!storyVideoRef.current || isPaused) return;
         const video = storyVideoRef.current;
 
-        // Visual health check: detect if video frames are not decoding (e.g. HEVC on Windows Chrome)
-        if (video.currentTime > 0.4) {
-            const quality = typeof video.getVideoPlaybackQuality === 'function' ? video.getVideoPlaybackQuality() : null;
-            const decoded = quality?.totalVideoFrames ?? (video as any).webkitDecodedFrameCount;
-            if (decoded !== undefined && decoded === 0) {
-                if (videoHasVisual) {
-                    setVideoHasVisual(false);
-                }
-            } else if (decoded && decoded > 0) {
-                if (!videoHasVisual) {
-                    setVideoHasVisual(true);
-                }
-            }
-        }
-
         // Enforce 60-second (1 min) cap on video stories
         const effectiveDuration = Math.min(video.duration && !isNaN(video.duration) && video.duration > 0 ? video.duration : 60, 60);
         const currentTime = Math.min(video.currentTime || 0, effectiveDuration);
@@ -736,8 +721,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         }}
                     />
 
-                    {/* Fallback Display if Browser Cannot Decode Video Track (Audio Plays Uninterrupted with Full-Screen Picture!) */}
-                    {!videoHasVisual && (
+                    {/* Fallback Display if Video Element Failed to Load (Audio Plays Uninterrupted with Sharp Picture!) */}
+                    {!videoHasVisual && (posterUrlFromStory || currentGroup.avatarUrl) && (
                         <div style={{
                             position: 'absolute',
                             inset: 0,
@@ -767,11 +752,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             <img 
                                 src={posterUrlFromStory || currentGroup.avatarUrl} 
                                 alt={currentGroup.username}
-                                onError={(e) => {
-                                    const fallback = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
-                                    if ((e.currentTarget as HTMLImageElement).src !== fallback) {
-                                        (e.currentTarget as HTMLImageElement).src = fallback;
-                                    }
+                                onError={() => {
+                                    handleNextStory();
                                 }}
                                 style={{ 
                                     width: '100%', 
@@ -789,14 +771,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                     src={cleanMediaUrl} 
                     alt="Story" 
                     className="story-image"
-                    onError={(e) => {
+                    onError={() => {
                         console.warn('Image failed to load in StoryViewer:', currentStory.id);
-                        const fallback = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop';
-                        if ((e.currentTarget as HTMLImageElement).src !== fallback) {
-                            (e.currentTarget as HTMLImageElement).src = fallback;
-                        } else {
-                            handleNextStory();
-                        }
+                        handleNextStory();
                     }}
                     style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
                 />

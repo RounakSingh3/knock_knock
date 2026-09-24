@@ -42,7 +42,7 @@ const CATEGORY_IMAGES: Record<string, string[]> = {
         'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=600&auto=format&fit=crop',
     ],
     'Tech & AI': [
-        'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=600&auto=format&fit=crop',
         'https://images.unsplash.com/photo-1677442136019-21780efad99a?w=600&auto=format&fit=crop',
         'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop',
     ],
@@ -131,7 +131,7 @@ export const FALLBACK_NEWS: NewsItem[] = [
         source: 'Wired News',
         publishedAt: '1h ago',
         category: 'Tech & AI',
-        imageUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop',
+        imageUrl: 'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=600&auto=format&fit=crop',
         likesCount: 2950,
     },
     {
@@ -153,7 +153,7 @@ export const FALLBACK_NEWS: NewsItem[] = [
         source: 'The Verge',
         publishedAt: '5h ago',
         category: 'Tech & AI',
-        imageUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop',
+        imageUrl: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=600&auto=format&fit=crop',
         likesCount: 2190,
     },
     {
