@@ -5,7 +5,7 @@ import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, norm
 import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
-import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream } from '../lib/algorithm';
+import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, recordHashtagSignal } from '../lib/algorithm';
 import { extractPosterFromUrl } from '../components/PostMedia';
 
 // ⚡ Lazy-load heavy modals so Reels renders instantly
@@ -604,8 +604,9 @@ const Reels: React.FC = () => {
                     // Positive dwell signal
                     recordImplicitSignal({
                         type: 'dwell',
-                        postId: reelIdStr,
+                        targetId: reelIdStr,
                         category: prevReel.category || 'General',
+                        caption: prevReel.caption,
                         value: watchDuration * 1000,
                         timestamp: Date.now()
                     });
@@ -630,9 +631,10 @@ const Reels: React.FC = () => {
                     replayCountRef.current[idx] = (replayCountRef.current[idx] || 0) + 1;
                     const loops = replayCountRef.current[idx];
                     recordImplicitSignal({
-                        type: 'loop',
-                        postId: String(reel.id),
+                        type: 'replay',
+                        targetId: String(reel.id),
                         category: reel.category || 'General',
+                        caption: reel.caption,
                         value: loops,
                         timestamp: Date.now()
                     });
@@ -1100,7 +1102,33 @@ const Reels: React.FC = () => {
                                             <Music size={12} />
                                             <span className="reel-song-marquee">{reel.song || 'Original Audio'}</span>
                                         </div>
-                                        <p className="reel-caption">{reel.caption}</p>
+                                        <p className="reel-caption">
+                                            {reel.caption.split(/(\s+)/).map((word, wIdx) => {
+                                                if (word.startsWith('#') && word.length > 1) {
+                                                    const cleanTag = word.replace(/[^a-zA-Z0-9_\u0080-\uFFFF#]/g, '');
+                                                    return (
+                                                        <span
+                                                            key={wIdx}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                recordHashtagSignal([cleanTag.replace('#', '')], 3.0);
+                                                                closePlayer();
+                                                                navigate(`/explore?q=${encodeURIComponent(cleanTag)}&tab=posts`);
+                                                            }}
+                                                            style={{
+                                                                color: '#f5a524',
+                                                                fontWeight: 700,
+                                                                cursor: 'pointer',
+                                                                display: 'inline'
+                                                            }}
+                                                        >
+                                                            {word}
+                                                        </span>
+                                                    );
+                                                }
+                                                return word;
+                                            })}
+                                        </p>
                                     </div>
 
                                     {/* Side actions */}

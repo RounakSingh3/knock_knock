@@ -4,6 +4,7 @@ import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, 
 import PostMedia from './PostMedia';
 import { AppContext } from '../context/AppContext';
 import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, type PostData } from '../lib/database';
+import { recordHashtagSignal } from '../lib/algorithm';
 
 // Helper to format time
 function getTimeAgo(dateStr: string) {
@@ -228,7 +229,33 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                 style={isEmbedded ? { pointerEvents: 'none', touchAction: 'pan-y' } : undefined}
             >
                 {post.caption && (
-                    <p className="modal-caption" style={isEmbedded ? { pointerEvents: 'auto' } : undefined}>{post.caption}</p>
+                    <p className="modal-caption" style={isEmbedded ? { pointerEvents: 'auto' } : undefined}>
+                        {post.caption.split(/(\s+)/).map((word, wIdx) => {
+                            if (word.startsWith('#') && word.length > 1) {
+                                const cleanTag = word.replace(/[^a-zA-Z0-9_\u0080-\uFFFF#]/g, '');
+                                return (
+                                    <span
+                                        key={wIdx}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            recordHashtagSignal([cleanTag.replace('#', '')], 3.0);
+                                            onClose();
+                                            navigate(`/explore?q=${encodeURIComponent(cleanTag)}&tab=posts`);
+                                        }}
+                                        style={{
+                                            color: '#f5a524',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline'
+                                        }}
+                                    >
+                                        {word}
+                                    </span>
+                                );
+                            }
+                            return word;
+                        })}
+                    </p>
                 )}
                 {post.attached_link && (
                     <a

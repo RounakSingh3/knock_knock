@@ -5,7 +5,7 @@ import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreG
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import { AppContext } from '../context/AppContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import PullToRefresh from '../components/PullToRefresh';
 import { isVideoPost, isVideoUrl } from '../lib/media';
 import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
@@ -277,9 +277,25 @@ function interleaveCategories(posts: PostData[]): PostData[] {
 const Explore = () => {
     const { user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     
-    const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState<'people' | 'posts' | 'stories'>('people');
+    const initialQuery = searchParams.get('q') || '';
+    const initialTab = (searchParams.get('tab') as 'people' | 'posts' | 'stories') || (initialQuery ? 'posts' : 'people');
+
+    const [searchTerm, setSearchTerm] = useState(initialQuery);
+    const [activeTab, setActiveTab] = useState<'people' | 'posts' | 'stories'>(initialTab);
+
+    // Sync if URL search params change (e.g. user clicks another #hashtag in feed/reels)
+    useEffect(() => {
+        const q = searchParams.get('q');
+        const tab = searchParams.get('tab') as 'people' | 'posts' | 'stories' | null;
+        if (q !== null) {
+            setSearchTerm(q);
+            if (tab) setActiveTab(tab);
+            else if (q) setActiveTab('posts');
+        }
+    }, [searchParams]);
+
     const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
     
     // ⚡ Everyday Reshuffle Date Key (YYYY-MM-DD)

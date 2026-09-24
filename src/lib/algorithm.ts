@@ -46,12 +46,35 @@ export const CONTENT_CATEGORIES = [
 
 export type ContentCategory = typeof CONTENT_CATEGORIES[number];
 
+// ── Hashtags & Topic Extraction ───────────────────────────
+/**
+ * Extracts and normalizes all hashtags from caption or description text.
+ * Strips leading '#', converts to lowercase, removes duplicates.
+ */
+export function extractHashtags(text?: string): string[] {
+    if (!text || typeof text !== 'string') return [];
+    const matches = text.match(/#([a-zA-Z0-9_\u0080-\uFFFF]+)/g);
+    if (!matches) return [];
+    const set = new Set<string>();
+    for (const m of matches) {
+        const clean = m.replace(/^#+/, '').trim().toLowerCase();
+        if (clean.length > 0) {
+            set.add(clean);
+        }
+    }
+    return Array.from(set);
+}
+
 // ── Interest Profile ───────────────────────────────────────
 export interface UserInterestProfile {
     /** Maps category -> total weighted score */
     categoryScores: Record<string, number>;
+    /** Maps hashtag -> total weighted score */
+    hashtagScores: Record<string, number>;
     /** Sorted array of top categories */
     topCategories: string[];
+    /** Sorted array of top hashtags */
+    topHashtags: string[];
     /** Categories the user has rarely or never interacted with */
     unexploredCategories: string[];
 }
@@ -74,7 +97,12 @@ export function buildInterestProfile(
     const exploredSet = new Set(topCategories);
     const unexploredCategories = CONTENT_CATEGORIES.filter(c => !exploredSet.has(c));
 
-    return { categoryScores, topCategories, unexploredCategories };
+    const hashtagScores = getLocalHashtagScores();
+    const topHashtags = Object.entries(hashtagScores)
+        .sort((a, b) => b[1] - a[1])
+        .map(([tag]) => tag);
+
+    return { categoryScores, hashtagScores, topCategories, topHashtags, unexploredCategories };
 }
 
 // ── Implicit Signal Tracking ───────────────────────────────
@@ -83,15 +111,62 @@ export interface ImplicitSignal {
     userId?: string;
     targetId: string;
     category: string;
+    hashtags?: string[];
+    caption?: string;
     type: 'dwell' | 'skip' | 'watch_pct' | 'replay' | 'unmute' | 'comments_open' | 'share_tap' | 'story_complete' | 'story_skip';
     value: number; // duration in ms, watch %, or replay count
     timestamp?: number;
 }
 
 const LOCAL_IMPLICIT_STORAGE_KEY = 'knock_implicit_signals_v1';
+const LOCAL_HASHTAG_STORAGE_KEY = 'knock_hashtag_affinity_v1';
 
 let _implicitBuffer: ImplicitSignal[] = [];
 let _implicitScoresCache: Record<string, number> | null = null;
+let _hashtagScoresCache: Record<string, number> | null = null;
+
+/** Retrieve locally cached implicit hashtag affinity scores */
+export function getLocalHashtagScores(): Record<string, number> {
+    if (_hashtagScoresCache === null) {
+        try {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_HASHTAG_STORAGE_KEY) : null;
+            _hashtagScoresCache = raw ? JSON.parse(raw) : {};
+        } catch {
+            _hashtagScoresCache = {};
+        }
+    }
+    return { ..._hashtagScoresCache! };
+}
+
+/** Record interest signal for specific hashtags (likes, dwell time, video loop, click) */
+export function recordHashtagSignal(hashtags: string[], delta: number): void {
+    if (!hashtags || hashtags.length === 0 || delta === 0) return;
+    const scores = getLocalHashtagScores();
+    let changed = false;
+    for (const rawTag of hashtags) {
+        const clean = rawTag.replace(/^#+/, '').trim().toLowerCase();
+        if (!clean) continue;
+        scores[clean] = Math.max(-20, Math.min(300, (scores[clean] || 0) + delta));
+        changed = true;
+    }
+    if (changed) {
+        _hashtagScoresCache = scores;
+        try {
+            if (typeof window !== 'undefined') {
+                localStorage.setItem(LOCAL_HASHTAG_STORAGE_KEY, JSON.stringify(scores));
+            }
+        } catch {}
+    }
+}
+
+/** Get top ranked hashtag interests for the current user */
+export function getUserHashtagInterests(limit: number = 10): { tag: string; score: number }[] {
+    const scores = getLocalHashtagScores();
+    return Object.entries(scores)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map(([tag, score]) => ({ tag: `#${tag}`, score }));
+}
 
 function _getSignalDelta(signal: ImplicitSignal): number {
     switch (signal.type) {
@@ -141,6 +216,13 @@ function flushImplicitSignals(): void {
         if (delta !== 0) {
             scores[cat] = Math.max(-15, Math.min(250, (scores[cat] || 0) + delta));
             changed = true;
+
+            // Track hashtag affinities from the engaged post
+            const tags = signal.hashtags || extractHashtags(signal.caption);
+            if (tags.length > 0) {
+                recordHashtagSignal(tags, delta * 0.8);
+            }
+
             if (signal.userId && signal.targetId) {
                 try {
                     trackEngagement(signal.userId, signal.targetId, `implicit_${signal.type}`, Math.abs(delta), cat).catch(() => {});
@@ -226,9 +308,20 @@ export function getHybridInterestProfile(
     const exploredSet = new Set(topCategories);
     const unexploredCategories = CONTENT_CATEGORIES.filter(c => !exploredSet.has(c));
 
+    const localHashtags = getLocalHashtagScores();
+    const baseHashtags = explicitProfile?.hashtagScores ? { ...explicitProfile.hashtagScores } : {};
+    for (const [tag, score] of Object.entries(localHashtags)) {
+        baseHashtags[tag] = (baseHashtags[tag] || 0) + score;
+    }
+    const topHashtags = Object.entries(baseHashtags)
+        .sort((a, b) => b[1] - a[1])
+        .map(([t]) => t);
+
     return {
         categoryScores: baseScores,
+        hashtagScores: baseHashtags,
         topCategories,
+        topHashtags,
         unexploredCategories
     };
 }
@@ -312,7 +405,7 @@ export function decayFactor(hoursOld: number): number {
 }
 
 export function calculatePostScore(
-    post: { id?: string; user_id?: string; category?: string; created_at: string; likes_count?: number; shares_count?: number; imps_count?: number; comments_count?: number },
+    post: { id?: string; user_id?: string; category?: string; caption?: string; created_at: string; likes_count?: number; shares_count?: number; imps_count?: number; comments_count?: number },
     userProfile: UserInterestProfile,
     currentUserId?: string
 ): number {
@@ -322,6 +415,25 @@ export function calculatePostScore(
     const postCategory = post.category || 'General';
     const categoryScore = userProfile.categoryScores[postCategory] || 0;
     score += categoryScore * 0.7;
+
+    // 1b. Hashtag / Topic affinity
+    const postCaption = (post as any).caption || '';
+    const postTags = extractHashtags(postCaption);
+    if (postTags.length > 0 && userProfile.hashtagScores) {
+        let tagAffinity = 0;
+        let matchedCount = 0;
+        for (const tag of postTags) {
+            const tagScore = userProfile.hashtagScores[tag] || 0;
+            if (tagScore > 0) {
+                tagAffinity += tagScore;
+                matchedCount++;
+            }
+        }
+        if (matchedCount > 0) {
+            // Strong boost for matching specific interests the user engaged with
+            score += (tagAffinity / matchedCount) * 1.5;
+        }
+    }
 
     // 2. Engagement signals
     score += (post.likes_count || 0) * 0.08;
@@ -647,6 +759,15 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
         const cat = reel.category || 'General';
         score += (profile.categoryScores[cat] || 0) * 0.8;
 
+        // Hashtag / Topic affinity
+        const reelTags = extractHashtags(reel.caption);
+        if (reelTags.length > 0 && profile.hashtagScores) {
+            for (const t of reelTags) {
+                const tagScore = profile.hashtagScores[t] || 0;
+                if (tagScore > 0) score += tagScore * 1.2;
+            }
+        }
+
         // Music / sound affinity
         if (reel.music_url && !reel.music_url.includes('soundhelix')) {
             score += 15;
@@ -689,7 +810,12 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
     // Apply Variable Reward slot-machine scheduling
     return scheduleVariableRewards(dispersed, (r: T) => {
         const catScore = profile.categoryScores[r.category || 'General'] || 0;
-        return (r.likes || 0) + (r.shares || 0) * 2 + catScore;
+        let tagScore = 0;
+        const tags = extractHashtags(r.caption);
+        if (tags.length > 0 && profile.hashtagScores) {
+            for (const t of tags) tagScore += profile.hashtagScores[t] || 0;
+        }
+        return (r.likes || 0) + (r.shares || 0) * 2 + catScore + tagScore;
     });
 }
 
@@ -801,6 +927,12 @@ export function rankExploreGrid(
         const imps = (p.imps_count || 0) * 8;
         const cat = profile.categoryScores[p.category || 'General'] || 0;
         
+        let tagScore = 0;
+        const tags = extractHashtags(p.caption);
+        if (tags.length > 0 && profile.hashtagScores) {
+            for (const t of tags) tagScore += profile.hashtagScores[t] || 0;
+        }
+
         // Recency discovery bonus (within last 30 days) to guarantee real creators appear prominently
         let recencyBonus = 0;
         if (p.created_at) {
@@ -810,7 +942,7 @@ export function rankExploreGrid(
             }
         }
 
-        return likes + imps + cat + recencyBonus;
+        return likes + imps + cat + tagScore + recencyBonus;
     });
 }
 

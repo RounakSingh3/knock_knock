@@ -665,7 +665,7 @@ const Stories = () => {
                     )}
                 </div>
 
-                {/* Caption Input (after capture) */}
+                {/* Caption Input & Hashtags (after capture) */}
                 {hasCaptured && (
                     <div style={{ padding: '0 20px', marginBottom: '8px' }}>
                         <input
@@ -681,6 +681,34 @@ const Stories = () => {
                                 backdropFilter: 'blur(8px)',
                             }}
                         />
+                        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginTop: '6px', paddingBottom: '2px', WebkitOverflowScrolling: 'touch' }}>
+                            {['#vibe', '#today', '#snap', '#viral', '#friends', '#music', '#fun', '#aesthetic'].map(tag => (
+                                <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => {
+                                        if (!storyCaption.includes(tag)) {
+                                            setStoryCaption(prev => prev ? `${prev.trim()} ${tag}` : tag);
+                                        } else {
+                                            setStoryCaption(prev => prev.replace(tag, '').trim());
+                                        }
+                                    }}
+                                    style={{
+                                        background: storyCaption.includes(tag) ? 'rgba(245,165,36,0.3)' : 'rgba(255,255,255,0.08)',
+                                        border: storyCaption.includes(tag) ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.15)',
+                                        color: storyCaption.includes(tag) ? '#f5a524' : '#fff',
+                                        padding: '3px 8px',
+                                        borderRadius: '12px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap'
+                                    }}
+                                >
+                                    {tag}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 )}
 

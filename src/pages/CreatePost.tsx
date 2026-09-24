@@ -1,13 +1,34 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, type ProfileData } from '../lib/database';
 import { getMediaTypeFromFile, compressImage, prepareVideoForUpload } from '../lib/media';
-import { CONTENT_CATEGORIES } from '../lib/algorithm';
-import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles, AtSign, UserPlus, Search, Check } from 'lucide-react';
+import { CONTENT_CATEGORIES, extractHashtags, recordHashtagSignal } from '../lib/algorithm';
+import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles, AtSign, UserPlus, Search, Check, Hash, Plus } from 'lucide-react';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 import KnockVideoPickerModal, { type KnockVideoItem } from '../components/KnockVideoPickerModal';
 import UploadRewardModal from '../components/UploadRewardModal';
+
+const POPULAR_HASHTAGS = [
+    { tag: '#trending', category: 'General' },
+    { tag: '#viral', category: 'General' },
+    { tag: '#reels', category: 'General' },
+    { tag: '#foryou', category: 'General' },
+    { tag: '#tech', category: 'Tech' },
+    { tag: '#gaming', category: 'Gaming' },
+    { tag: '#music', category: 'Music' },
+    { tag: '#dance', category: 'Dance' },
+    { tag: '#comedy', category: 'Comedy' },
+    { tag: '#funny', category: 'Comedy' },
+    { tag: '#fitness', category: 'Lifestyle' },
+    { tag: '#food', category: 'Food' },
+    { tag: '#travel', category: 'Travel' },
+    { tag: '#art', category: 'Art' },
+    { tag: '#fashion', category: 'Fashion' },
+    { tag: '#nature', category: 'Nature' },
+    { tag: '#education', category: 'Education' },
+    { tag: '#lifestyle', category: 'Lifestyle' },
+];
 
 const CSS_FILTERS = [
     { name: 'Normal', filter: 'none' },
@@ -81,6 +102,50 @@ const CreatePost = () => {
     const [showRewardModal, setShowRewardModal] = useState(false);
     const [rewardPointsEarned, setRewardPointsEarned] = useState(0);
     const [rewardNewBalance, setRewardNewBalance] = useState(0);
+
+    // 🏷️ Hashtags & Algorithm Training State
+    const [customHashtag, setCustomHashtag] = useState('');
+
+    // Dynamically track all #hashtags present in caption
+    const activeHashtags = useMemo(() => extractHashtags(caption), [caption]);
+
+    const handleToggleHashtag = (tagWithHash: string, suggestedCategory?: string) => {
+        const cleanTag = tagWithHash.replace(/^#+/, '').trim().toLowerCase();
+        const tagRegex = new RegExp(`(^|\\s)#${cleanTag}\\b`, 'gi');
+        if (tagRegex.test(caption)) {
+            // Remove hashtag from caption
+            const updated = caption.replace(tagRegex, '').trim();
+            setCaption(updated);
+        } else {
+            // Add hashtag to caption
+            const updated = caption ? `${caption.trim()} #${cleanTag}` : `#${cleanTag}`;
+            setCaption(updated);
+            if (suggestedCategory && suggestedCategory !== 'General' && category === 'General') {
+                setCategory(suggestedCategory);
+            }
+        }
+    };
+
+    const handleAddCustomHashtag = (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        const cleanTag = customHashtag.replace(/[^a-zA-Z0-9_\u0080-\uFFFF]/g, '').trim().toLowerCase();
+        if (!cleanTag) return;
+        if (!activeHashtags.includes(cleanTag)) {
+            const updated = caption ? `${caption.trim()} #${cleanTag}` : `#${cleanTag}`;
+            setCaption(updated);
+            const matched = POPULAR_HASHTAGS.find(p => p.tag === `#${cleanTag}`);
+            if (matched && matched.category !== 'General' && category === 'General') {
+                setCategory(matched.category);
+            }
+        }
+        setCustomHashtag('');
+    };
+
+    const handleRemoveHashtag = (tagToRemove: string) => {
+        const clean = tagToRemove.replace(/^#+/, '').trim().toLowerCase();
+        const tagRegex = new RegExp(`(^|\\s)#${clean}\\b`, 'gi');
+        setCaption(prev => prev.replace(tagRegex, '').trim());
+    };
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -215,6 +280,11 @@ const CreatePost = () => {
             if (user?.id) {
                 currentBal = await awardUploadPoints(user.id, POST_REWARD_POINTS, points);
                 setPoints(currentBal);
+            }
+
+            // Immediately train recommendation algorithm for active user's posted topics
+            if (activeHashtags.length > 0) {
+                recordHashtagSignal(activeHashtags, 5.0);
             }
 
             if (boostToSpotlight) {
@@ -396,6 +466,219 @@ const CreatePost = () => {
                 )}
             </button>
         </div>
+
+            {/* 🏷️ Hashtags & Algorithm Topic Training Section */}
+            <div style={{
+                marginBottom: '20px',
+                background: 'rgba(245, 165, 36, 0.05)',
+                border: '1px solid rgba(245, 165, 36, 0.25)',
+                borderRadius: '16px',
+                padding: '14px 16px'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '8px',
+                            background: 'rgba(245, 165, 36, 0.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <Hash size={16} color="#f5a524" />
+                        </div>
+                        <div>
+                            <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-active)' }}>
+                                Hashtags & Topics (#)
+                            </span>
+                        </div>
+                    </div>
+                    <span style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: '#f5a524',
+                        background: 'rgba(245, 165, 36, 0.12)',
+                        padding: '3px 8px',
+                        borderRadius: '10px'
+                    }}>
+                        ⚡ Trains Algorithm
+                    </span>
+                </div>
+
+                <p style={{ fontSize: '12px', color: 'var(--text-inactive)', margin: '0 0 12px 0', lineHeight: 1.4 }}>
+                    Add hashtags to help the recommendation algorithm track viewers' interests and recommend your video to the right audience.
+                </p>
+
+                {/* Active Hashtag Badges */}
+                {activeHashtags.length > 0 && (
+                    <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '6px',
+                        marginBottom: '12px',
+                        padding: '10px',
+                        background: 'rgba(0,0,0,0.25)',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(245, 165, 36, 0.2)'
+                    }}>
+                        {activeHashtags.map(tag => (
+                            <span
+                                key={tag}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.25), rgba(255, 107, 53, 0.18))',
+                                    border: '1px solid #f5a524',
+                                    color: '#f5a524',
+                                    padding: '4px 10px',
+                                    borderRadius: '16px',
+                                    fontSize: '12px',
+                                    fontWeight: 700
+                                }}
+                            >
+                                #{tag}
+                                <button
+                                    type="button"
+                                    onClick={() => handleRemoveHashtag(tag)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#f5a524',
+                                        padding: 0,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center'
+                                    }}
+                                >
+                                    <X size={13} />
+                                </button>
+                            </span>
+                        ))}
+                    </div>
+                )}
+
+                {/* Custom Hashtag Input Bar */}
+                <form
+                    onSubmit={handleAddCustomHashtag}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        marginBottom: '12px'
+                    }}
+                >
+                    <div style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        background: 'var(--surface-color)',
+                        border: '1px solid #2c2c2e',
+                        borderRadius: '12px',
+                        padding: '8px 12px'
+                    }}>
+                        <span style={{ color: '#f5a524', fontWeight: 800, marginRight: '4px', fontSize: '14px' }}>#</span>
+                        <input
+                            type="text"
+                            placeholder="Type custom hashtag (e.g. ai, tutorial)..."
+                            value={customHashtag}
+                            onChange={(e) => {
+                                const val = e.target.value.replace(/\s+/g, '');
+                                setCustomHashtag(val);
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === ' ' || e.key === ',') {
+                                    e.preventDefault();
+                                    handleAddCustomHashtag();
+                                }
+                            }}
+                            style={{
+                                flex: 1,
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'var(--text-active)',
+                                outline: 'none',
+                                fontSize: '13px',
+                                fontFamily: 'inherit'
+                            }}
+                        />
+                        {customHashtag && (
+                            <button
+                                type="button"
+                                onClick={() => setCustomHashtag('')}
+                                style={{ background: 'none', border: 'none', color: '#8e8e93', cursor: 'pointer', padding: 0 }}
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => handleAddCustomHashtag()}
+                        style={{
+                            background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
+                            border: 'none',
+                            color: '#000',
+                            padding: '9px 14px',
+                            borderRadius: '12px',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        <Plus size={14} strokeWidth={3} />
+                        <span>Add</span>
+                    </button>
+                </form>
+
+                {/* 1-Tap Quick Trending & Category Topic Chips */}
+                <div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-inactive)', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+                        🔥 Trending & Topic Suggestions (1-tap to add):
+                    </span>
+                    <div style={{
+                        display: 'flex',
+                        gap: '6px',
+                        overflowX: 'auto',
+                        paddingBottom: '4px',
+                        WebkitOverflowScrolling: 'touch'
+                    }}>
+                        {POPULAR_HASHTAGS.map(({ tag, category: catHint }) => {
+                            const isAdded = activeHashtags.includes(tag.replace('#', ''));
+                            return (
+                                <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => handleToggleHashtag(tag, catHint)}
+                                    style={{
+                                        background: isAdded ? 'rgba(245, 165, 36, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                                        border: isAdded ? '1px solid #f5a524' : '1px solid rgba(255, 255, 255, 0.1)',
+                                        color: isAdded ? '#f5a524' : 'var(--text-inactive)',
+                                        padding: '5px 10px',
+                                        borderRadius: '14px',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        transition: 'all 0.15s ease'
+                                    }}
+                                >
+                                    <span>{tag}</span>
+                                    {isAdded ? <Check size={12} strokeWidth={3} /> : <span style={{ opacity: 0.5, fontSize: '10px' }}>+</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
 
             {/* Knock Knock Video Link & Attachment Section */}
             <div style={{ marginBottom: '24px' }}>
