@@ -39,6 +39,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
 
     // Keep active stream in state with auto-replenish to guarantee next video is ALWAYS available
     const [displayPosts, setDisplayPosts] = useState<PostData[]>(posts);
+    const [currentIndex, setCurrentIndex] = useState(initialIndex);
     useEffect(() => {
         setDisplayPosts(prev => {
             const existingIds = new Set(prev.map(p => p.id));
@@ -67,7 +68,6 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     const [activePostId, setActivePostId] = useState<string | null>(targetPost?.id || null);
     const activePostIdRef = useRef<string | null>(targetPost?.id || null);
     useEffect(() => { activePostIdRef.current = activePostId; }, [activePostId]);
-    const [currentIndex, setCurrentIndex] = useState(initialIndex);
     const [isGlobalMuted, setIsGlobalMuted] = useState(() => getFeedMutedPreference());
     const isInitialMountRef = useRef(true);
 

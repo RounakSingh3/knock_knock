@@ -1087,9 +1087,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                             (m.sender_id === partnerId && m.receiver_id === currentId)
                         );
                         if (cleanPrev.some(m => m.id === newMsg.id || (m.id.startsWith('temp-') && m.content === newMsg.content))) {
-                            const updated = cleanPrev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
-                            try { localStorage.setItem(cacheKey, JSON.stringify(updated)); } catch (e) {}
-                            return updated;
+                            const updatedExisting = cleanPrev.map(m => (m.id.startsWith('temp-') && m.content === newMsg.content) ? newMsg : m);
+                            try { localStorage.setItem(cacheKey, JSON.stringify(updatedExisting)); } catch (e) {}
+                            return updatedExisting;
                         }
                         const updated = [...cleanPrev, newMsg];
                         try { localStorage.setItem(cacheKey, JSON.stringify(updated)); } catch (e) {}

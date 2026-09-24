@@ -533,6 +533,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         setHasError(true);
     };
 
+    const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
+
     if (hasError || !post.image_url) {
         const fallback = ((post as any)?.category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
         return (
@@ -584,8 +586,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             ? cleanImageUrl.replace(/#t=[\d.]+/, '')
             : (cleanImageUrl.includes('#t=') ? cleanImageUrl : `${cleanImageUrl}#t=0.1`))
         : '';
-
-    const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     return (
         <div 
