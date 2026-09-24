@@ -21,7 +21,7 @@ import {
     type ProfileData,
     uploadMedia
 } from '../lib/database';
-import { isVideoUrl, isVideoFile, compressImage } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { rankStoryGroups, getHybridInterestProfile } from '../lib/algorithm';
 
 // ⚡ Lazy load heavy modals
@@ -326,17 +326,41 @@ const Stories = () => {
             if (galleryFile) {
                 let fileToUpload = galleryFile;
                 const isVid = isVideoFile(galleryFile);
+                let posterBlob: Blob | null = null;
                 if (!isVid && (galleryFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(galleryFile.name))) {
                     try {
                         fileToUpload = await compressImage(galleryFile, 1200, 1200, 0.75);
                     } catch (e) {
                         console.error('Compression failed, using original', e);
                     }
+                } else if (isVid) {
+                    try {
+                        const prepared = await prepareVideoForUpload(galleryFile);
+                        fileToUpload = prepared.videoFile;
+                        posterBlob = prepared.posterBlob;
+                    } catch (e) {
+                        console.warn('Video poster preparation failed:', e);
+                    }
                 }
                 const rawExt = fileToUpload.name.split('.').pop() || (isVid ? 'mp4' : 'jpg');
                 const fileExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
                 const path = `stories/${user.id}-${Date.now()}.${fileExt}`;
+
+                let uploadedPosterUrl = '';
+                if (posterBlob) {
+                    try {
+                        const posterPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
+                        const posterFile = new File([posterBlob], `poster.jpg`, { type: 'image/jpeg' });
+                        uploadedPosterUrl = await uploadMedia(posterFile, posterPath);
+                    } catch (pe) {
+                        console.warn('Poster upload skipped:', pe);
+                    }
+                }
+
                 imageUrl = await uploadMedia(fileToUpload, path);
+                if (uploadedPosterUrl) {
+                    imageUrl = `${imageUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
+                }
             } else {
                 imageUrl = await uploadStoryImage(capturedImageUrl, user.id);
             }
