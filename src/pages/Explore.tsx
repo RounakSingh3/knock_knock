@@ -322,7 +322,7 @@ const Explore = () => {
             } else {
                 // New day detected! Clear stale caches to trigger fresh everyday reshuffle
                 localStorage.removeItem('knock_explore_posts_cache_v7');
-                localStorage.removeItem('knock_explore_trending_cache_v7');
+                localStorage.removeItem('knock_explore_trending_cache_v8');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
@@ -339,6 +339,7 @@ const Explore = () => {
             return true;
         }
     });
+    const selectedCategoryRef = useRef<string | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
     // Infinite scroll state
@@ -350,13 +351,13 @@ const Explore = () => {
     const [hasMore, setHasMore] = useState(true);
     const sentinelRef = useRef<HTMLDivElement>(null);
 
-    // Trending posts (FOMO) with instant cache rehydration and everyday reshuffle
+    // Trending posts (FOMO) with instant cache rehydration
     const [trendingPosts, setTrendingPosts] = useState<PostData[]>(() => {
         try {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_trending_cache_v7');
+                const cached = localStorage.getItem('knock_explore_trending_cache_v8');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -372,7 +373,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_trending_cache_v7');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v8');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -423,20 +424,18 @@ const Explore = () => {
         discoverPostsRef.current = discoverPosts;
     }, [discoverPosts]);
 
-    // Load Trending Posts (FOMO banner) with Everyday Reshuffle
+    // Load Trending Posts (FOMO banner)
     useEffect(() => {
         if (trendingPosts.length === 0) setIsTrendingLoading(true);
-        fetchTrendingPosts(20).then(posts => {
-            const filtered = posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)));
-            // ⚡ Everyday reshuffle on trending reels/posts so opening the page each day shows fresh highlights
-            const reshuffledTrending = dailyReshuffle(filtered, getTodayKey()).slice(0, 6);
-            setTrendingPosts(reshuffledTrending);
+        fetchTrendingPosts(50, user?.id).then(posts => {
+            const filtered = posts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            setTrendingPosts(filtered);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v7', JSON.stringify(reshuffledTrending));
+                localStorage.setItem('knock_explore_trending_cache_v8', JSON.stringify(filtered));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
-    }, [blockedIds]);
+    }, [blockedIds, user?.id]);
 
     // Load Discover Feed with Dedicated Explore Discovery Model & Everyday Reshuffle
     const loadDiscoverFeed = async (dateKeyOverride?: string) => {
@@ -645,13 +644,16 @@ const Explore = () => {
         // ⚡ On-demand fresh shuffle on pull-to-refresh
         const refreshSeed = `${getTodayKey()}_pull_${Date.now()}`;
         await loadDiscoverFeed(refreshSeed);
-        // Reload trending with fresh shuffle too
-        fetchTrendingPosts(20).then(posts => {
-            const filtered = posts.filter(p => (p.likes_count || 0) > 0 && (!p.user_id || !blockedIds.includes(p.user_id)));
-            setTrendingPosts(dailyReshuffle(filtered, refreshSeed).slice(0, 6));
+        // Reload trending too
+        fetchTrendingPosts(50, user?.id).then(posts => {
+            const filtered = posts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            setTrendingPosts(filtered);
+            try {
+                localStorage.setItem('knock_explore_trending_cache_v8', JSON.stringify(filtered));
+            } catch (e) {}
         });
         setIsRefreshing(false);
-    }, [selectedCategory, blockedIds]);
+    }, [selectedCategory, blockedIds, user?.id]);
 
     const handleSearchChange = (val: string) => {
         setSearchTerm(val);
@@ -862,10 +864,12 @@ const Explore = () => {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                                         <Flame size={18} color="#f5a524" />
                                         <span style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-active)' }}>Trending Now</span>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-inactive)', marginLeft: 'auto' }}>Last 24h</span>
+                                        <span style={{ fontSize: '12px', color: 'var(--text-inactive)', marginLeft: 'auto' }}>
+                                            {trendingPosts.filter(p => isVideoPost(p)).length > 0 ? `${trendingPosts.filter(p => isVideoPost(p)).length} Videos` : 'Last 24h'}
+                                        </span>
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' }}>
-                                        {trendingPosts.slice(0, 6).map((post, idx) => (
+                                        {trendingPosts.map((post, idx) => (
                                             <div
                                                 key={post.id}
                                                 style={{
@@ -891,7 +895,7 @@ const Explore = () => {
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                         <TrendingUp size={12} color="#f5a524" />
                                                         <span style={{ fontSize: '11px', color: '#f5a524', fontWeight: 'bold' }}>
-                                                            {post.likes_count} likes
+                                                            {(post.likes_count || 0) > 0 ? `${post.likes_count.toLocaleString()} likes` : 'Trending 🔥'}
                                                         </span>
                                                     </div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0 }}>

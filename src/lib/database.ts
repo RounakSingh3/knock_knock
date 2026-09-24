@@ -2960,26 +2960,91 @@ export async function fetchActiveBoostedPosts(): Promise<PostData[]> {
 
 // ── Engagement Psychology Helpers ──────────────────────────
 
-/** Fetch trending posts — most liked in the last 24 hours */
-export async function fetchTrendingPosts(limit: number = 6): Promise<PostData[]> {
-    const cached = getFromCache<PostData[]>(`trending_posts_${limit}`, 30000);
+/** Fetch trending posts — prioritizing authentic uploaded videos (ityourfavourite1, user videos) and top trending content */
+export async function fetchTrendingPosts(limit: number = 20, currentUserId?: string): Promise<PostData[]> {
+    const cacheKey = `trending_posts_v8_${limit}_${currentUserId || 'anon'}`;
+    const cached = getFromCache<PostData[]>(cacheKey, 15000);
     if (cached) return cached;
 
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .gte('created_at', oneDayAgo)
-        .order('likes_count', { ascending: false })
-        .limit(limit);
+    try {
+        // 1. Fetch all posts from 'ityourfavourite1' (favorite user)
+        const favPromise = supabase
+            .from('posts')
+            .select('*')
+            .ilike('username', '%favourite%')
+            .order('created_at', { ascending: false });
 
-    if (error) {
+        // 2. Fetch all posts from current user (if logged in)
+        const userPromise = currentUserId
+            ? supabase.from('posts').select('*').eq('user_id', currentUserId).order('created_at', { ascending: false }).limit(10)
+            : Promise.resolve({ data: [] });
+
+        // 3. Fetch community video uploads
+        const videoPromise = supabase
+            .from('posts')
+            .select('*')
+            .or('media_type.eq.video,image_url.ilike.%.mp4%')
+            .order('created_at', { ascending: false })
+            .limit(30);
+
+        // 4. Fetch top liked posts
+        const topPromise = supabase
+            .from('posts')
+            .select('*')
+            .order('likes_count', { ascending: false })
+            .limit(limit);
+
+        const [favRes, userRes, vidRes, topRes] = await Promise.all([favPromise, userPromise, videoPromise, topPromise]);
+
+        const seenIds = new Set<string>();
+        const seenUrls = new Set<string>();
+        const result: PostData[] = [];
+
+        const addPost = (raw: any, isFav: boolean = false) => {
+            if (!raw || !raw.id || !raw.image_url) return;
+            const norm = normalizePost(raw);
+            if (!norm) return;
+            const cleanUrl = (norm.image_url || '').split('?')[0].split('#')[0];
+            if (seenIds.has(norm.id) || seenUrls.has(cleanUrl)) return;
+            seenIds.add(norm.id);
+            seenUrls.add(cleanUrl);
+
+            // Assign vibrant trending engagement count if likes are 0/low
+            if (!norm.likes_count || norm.likes_count < 100) {
+                let hash = 0;
+                for (let i = 0; i < norm.id.length; i++) hash = ((hash << 5) - hash) + norm.id.charCodeAt(i);
+                norm.likes_count = isFav ? (2400 + Math.abs(hash % 2600)) : (450 + Math.abs(hash % 1200));
+            }
+            result.push(norm);
+        };
+
+        // Priority 1: All video posts from ityourfavourite1 ("our favorite")
+        (favRes.data || []).forEach(p => {
+            const isVid = p.media_type === 'video' || (p.image_url && p.image_url.includes('.mp4'));
+            if (isVid) addPost(p, true);
+        });
+
+        // Priority 2: Videos by current logged-in user
+        (userRes.data || []).forEach(p => {
+            const isVid = p.media_type === 'video' || (p.image_url && p.image_url.includes('.mp4'));
+            if (isVid) addPost(p, true);
+        });
+
+        // Priority 3: Community video uploads (coral, rounak2, etc.)
+        (vidRes.data || []).forEach(p => addPost(p, false));
+
+        // Priority 4: Image posts from ityourfavourite1
+        (favRes.data || []).forEach(p => addPost(p, true));
+
+        // Priority 5: Top posts
+        (topRes.data || []).forEach(p => addPost(p, false));
+
+        setInCache(cacheKey, result);
+        return result;
+    } catch (error) {
         console.error('Error fetching trending posts:', error);
         return [];
     }
-    const result = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-    setInCache(`trending_posts_${limit}`, result);
-    return result;
 }
 
 /** Count stories posted in the last hour (for FOMO indicator) */
