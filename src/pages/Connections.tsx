@@ -2,7 +2,8 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { fetchConnections, removeConnection, updateConnectionStreak, type ConnectionWithProfile } from '../lib/database';
-import { Loader2, Phone, Flame, AlertTriangle, Skull, UserMinus, ChevronRight, Users, Zap, Heart, Sparkles } from 'lucide-react';
+import { getAllKnownProfiles } from '../lib/fallbackData';
+import { Loader2, Phone, Flame, AlertTriangle, Skull, UserMinus, ChevronRight, Users, Zap, Heart, Sparkles, MessageSquare } from 'lucide-react';
 
 const Connections = () => {
     const { user, blockedIds } = useContext(AppContext);
@@ -224,6 +225,141 @@ const Connections = () => {
                         </div>
                     ))
                 )}
+            </div>
+
+            {/* People on Knock Knock (Community & Friends) */}
+            <div style={{ marginTop: '2.5rem', padding: '0 1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Sparkles size={18} style={{ color: '#f5a524' }} />
+                        <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#f8fafc' }}>
+                            People on Knock Knock
+                        </h2>
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8', background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: '12px' }}>
+                        {getAllKnownProfiles().filter(p => p.id !== user?.id && p.username.toLowerCase() !== user?.username?.toLowerCase() && !blockedIds.includes(p.id)).length} Active
+                    </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {getAllKnownProfiles()
+                        .filter(p => p.id !== user?.id && p.username.toLowerCase() !== user?.username?.toLowerCase() && !blockedIds.includes(p.id))
+                        .map((member) => (
+                            <div
+                                key={member.id}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '12px',
+                                    background: 'rgba(255, 255, 255, 0.03)',
+                                    border: '1px solid rgba(255, 255, 255, 0.07)',
+                                    borderRadius: '14px',
+                                    transition: 'all 0.2s ease',
+                                }}
+                            >
+                                <div
+                                    style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', flex: 1, minWidth: 0 }}
+                                    onClick={() => navigate(`/profile/${member.username}`)}
+                                >
+                                    <div style={{ position: 'relative' }}>
+                                        <img
+                                            src={member.avatar_url || `https://i.pravatar.cc/150?u=${member.username}`}
+                                            alt={member.name}
+                                            style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover' }}
+                                        />
+                                        <span
+                                            style={{
+                                                position: 'absolute',
+                                                bottom: 0,
+                                                right: 0,
+                                                width: '12px',
+                                                height: '12px',
+                                                borderRadius: '50%',
+                                                backgroundColor: '#22c55e',
+                                                border: '2px solid #0f172a',
+                                            }}
+                                        />
+                                    </div>
+                                    <div style={{ overflow: 'hidden', flex: 1 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ fontWeight: 600, fontSize: '0.95rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {member.name}
+                                            </span>
+                                            {member.points && member.points > 1000 && (
+                                                <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: 'linear-gradient(135deg, #f59e0b, #ef4444)', color: '#fff' }}>
+                                                    VIP
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>@{member.username}</div>
+                                        {member.bio && (
+                                            <div style={{ fontSize: '0.75rem', color: '#cbd5e1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>
+                                                {member.bio}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '10px' }}>
+                                    <button
+                                        onClick={() => navigate(`/call?partner=${member.id}`)}
+                                        title={`Call ${member.name}`}
+                                        style={{
+                                            width: '36px',
+                                            height: '36px',
+                                            borderRadius: '50%',
+                                            background: 'rgba(34, 197, 94, 0.15)',
+                                            border: '1px solid rgba(34, 197, 94, 0.3)',
+                                            color: '#22c55e',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <Phone size={16} />
+                                    </button>
+                                    <button
+                                        onClick={() => navigate(`/messages?user=${member.username}`)}
+                                        title={`Message ${member.name}`}
+                                        style={{
+                                            width: '36px',
+                                            height: '36px',
+                                            borderRadius: '50%',
+                                            background: 'rgba(245, 165, 36, 0.15)',
+                                            border: '1px solid rgba(245, 165, 36, 0.3)',
+                                            color: '#f5a524',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <MessageSquare size={16} />
+                                    </button>
+                                    <button
+                                        onClick={() => navigate(`/profile/${member.username}`)}
+                                        title="View Profile"
+                                        style={{
+                                            width: '36px',
+                                            height: '36px',
+                                            borderRadius: '50%',
+                                            background: 'rgba(255, 255, 255, 0.05)',
+                                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                                            color: '#cbd5e1',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                </div>
             </div>
         </div>
     );

@@ -11,7 +11,13 @@ import {
     toggleLocalLike,
     getLocalComments,
     saveLocalComment,
-    SEED_POSTS
+    SEED_POSTS,
+    getKnownProfile,
+    getAllKnownProfiles,
+    getLocalConnections,
+    removeLocalConnection,
+    bumpLocalConnectionStreak,
+    getLocalStories
 } from './fallbackData';
 
 const STORAGE_BUCKET =
@@ -822,23 +828,43 @@ export interface ProfileData {
 }
 
 export async function fetchProfile(userId: string): Promise<ProfileData | null> {
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle();
 
-    if (error) {
-        console.error('Error fetching profile:', error);
-        return null;
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            console.error('Error fetching profile:', error);
+        } else if (data) {
+            if (isRemovedUser(data.id, data.username)) {
+                return null;
+            }
+            if (isUnlimitedPointsUser(data.id, data.username)) {
+                data.points = UNLIMITED_POINTS;
+            }
+            return data;
+        }
+    } catch (e: any) {
+        if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
     }
-    if (data && isRemovedUser(data.id, data.username)) {
-        return null;
-    }
-    if (data && isUnlimitedPointsUser(data.id, data.username)) {
-        data.points = UNLIMITED_POINTS;
-    }
-    return data;
+
+    // Resilient fallback for authentic known users
+    const known = getKnownProfile(userId);
+    if (known) return known;
+
+    // Check cached session
+    try {
+        const raw = localStorage.getItem('knock_user_session');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.id === userId || parsed.username === userId) return parsed;
+        }
+    } catch (_) {}
+
+    return null;
 }
 
 export const COMMON_TYPOS: Record<string, string[]> = {
@@ -985,6 +1011,21 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
             streak_count: 7,
         };
     }
+
+    // 5. Authentic registered community profile fallback
+    const known = getKnownProfile(cleanUsername);
+    if (known) return known;
+
+    // 6. Check cached user session
+    try {
+        const raw = localStorage.getItem('knock_user_session');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.username?.toLowerCase() === cleanUsername.toLowerCase() || parsed.id === cleanUsername) {
+                return parsed;
+            }
+        }
+    } catch (_) {}
 
     if (error) {
         console.error('Error fetching profile by username:', error);
@@ -1457,19 +1498,23 @@ export async function fetchBoostedStories(): Promise<StoryData[]> {
 const FALLBACK_STORIES_KEY = 'knock_fallback_stories_v1';
 
 export function getFallbackStories(): StoryData[] {
-    if (typeof window === 'undefined' || !window.localStorage) return [];
+    const local = getLocalStories();
+    if (typeof window === 'undefined' || !window.localStorage) return local;
     try {
         const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
-        if (!raw) return [];
+        if (!raw) return local;
         const parsed: any[] = JSON.parse(raw);
         const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
         const valid = parsed.filter(s => s && s.created_at && new Date(s.created_at).getTime() > twentyFourHoursAgo);
         if (valid.length !== parsed.length) {
             localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(valid));
         }
-        return valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+        const normalized = valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+        const seenIds = new Set(normalized.map(s => s.id));
+        const merged = [...normalized, ...local.filter(s => !seenIds.has(s.id))];
+        return merged;
     } catch (e) {
-        return [];
+        return local;
     }
 }
 
@@ -2288,119 +2333,158 @@ function computeStreakStatus(lastInteractionAt: string): 'active' | 'at_risk' | 
 
 /** Fetch all connections for a user, with the OTHER user's profile attached */
 export async function fetchConnections(userId: string): Promise<ConnectionWithProfile[]> {
-    // Fetch connections where user is either user_a or user_b
-    const { data: connectionsA, error: errA } = await supabase
-        .from('connections')
-        .select('*')
-        .eq('user_a', userId);
-
-    const { data: connectionsB, error: errB } = await supabase
-        .from('connections')
-        .select('*')
-        .eq('user_b', userId);
-
-    if (errA) console.error('Error fetching connections (A):', errA);
-    if (errB) console.error('Error fetching connections (B):', errB);
-
-    const allConnections: ConnectionData[] = [
-        ...(connectionsA || []),
-        ...(connectionsB || []),
-    ];
-
-    if (allConnections.length === 0) return [];
-
-    // For each connection, fetch the OTHER user's profile
-    const results: ConnectionWithProfile[] = [];
-
-    for (const conn of allConnections) {
-        const otherUserId = conn.user_a === userId ? conn.user_b : conn.user_a;
-        const { data: profile } = await supabase
-            .from('profiles')
+    try {
+        // Fetch connections where user is either user_a or user_b
+        const { data: connectionsA, error: errA } = await supabase
+            .from('connections')
             .select('*')
-            .eq('id', otherUserId)
-            .maybeSingle();
+            .eq('user_a', userId);
 
-        if (profile) {
-            results.push({
-                ...conn,
-                profile: profile as ProfileData & { username: string },
-                streakStatus: computeStreakStatus(conn.last_interaction_at),
-            });
+        const { data: connectionsB, error: errB } = await supabase
+            .from('connections')
+            .select('*')
+            .eq('user_b', userId);
+
+        if (errA && isQuotaError(errA)) setSupabaseQuotaRestricted(true);
+        if (errB && isQuotaError(errB)) setSupabaseQuotaRestricted(true);
+
+        const allConnections: ConnectionData[] = [
+            ...(connectionsA || []),
+            ...(connectionsB || []),
+        ];
+
+        if (allConnections.length === 0) {
+            return getLocalConnections(userId);
         }
+
+        // For each connection, fetch the OTHER user's profile
+        const results: ConnectionWithProfile[] = [];
+
+        for (const conn of allConnections) {
+            const otherUserId = conn.user_a === userId ? conn.user_b : conn.user_a;
+            let profile: ProfileData | null = null;
+            try {
+                const { data } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', otherUserId)
+                    .maybeSingle();
+                profile = data;
+            } catch (_) {}
+
+            if (!profile) {
+                profile = getKnownProfile(otherUserId);
+            }
+
+            if (profile) {
+                results.push({
+                    ...conn,
+                    profile: profile as ProfileData & { username: string },
+                    streakStatus: computeStreakStatus(conn.last_interaction_at),
+                });
+            }
+        }
+
+        if (results.length === 0) {
+            return getLocalConnections(userId);
+        }
+
+        // Sort: active streaks first, then by streak count descending
+        results.sort((a, b) => {
+            const statusOrder = { active: 0, at_risk: 1, broken: 2 };
+            const statusDiff = statusOrder[a.streakStatus] - statusOrder[b.streakStatus];
+            if (statusDiff !== 0) return statusDiff;
+            return b.streak_count - a.streak_count;
+        });
+
+        return results;
+    } catch (_) {
+        return getLocalConnections(userId);
     }
-
-    // Sort: active streaks first, then by streak count descending
-    results.sort((a, b) => {
-        const statusOrder = { active: 0, at_risk: 1, broken: 2 };
-        const statusDiff = statusOrder[a.streakStatus] - statusOrder[b.streakStatus];
-        if (statusDiff !== 0) return statusDiff;
-        return b.streak_count - a.streak_count;
-    });
-
-    return results;
 }
 
 /** Update a connection's streak (call when users interact) */
 export async function updateConnectionStreak(connectionId: string): Promise<{ newStreak: number }> {
-    // Get current connection
-    const { data: conn } = await supabase
-        .from('connections')
-        .select('*')
-        .eq('id', connectionId)
-        .single();
-
-    if (!conn) return { newStreak: 0 };
-
-    const status = computeStreakStatus(conn.last_interaction_at);
-    let newStreak = 1;
-
-    if (status === 'active' || status === 'at_risk') {
-        // Check if it's a new day (avoid double-counting same-day interactions)
-        const lastDate = new Date(conn.last_interaction_at).toDateString();
-        const todayDate = new Date().toDateString();
-        newStreak = lastDate === todayDate ? conn.streak_count : conn.streak_count + 1;
+    if (connectionId.startsWith('conn-') || isSupabaseQuotaRestricted()) {
+        const newStreak = bumpLocalConnectionStreak(connectionId);
+        return { newStreak };
     }
 
-    const { error } = await supabase
-        .from('connections')
-        .update({
-            streak_count: newStreak,
-            last_interaction_at: new Date().toISOString(),
-        })
-        .eq('id', connectionId);
+    try {
+        const { data: conn } = await supabase
+            .from('connections')
+            .select('*')
+            .eq('id', connectionId)
+            .single();
 
-    if (error) console.error('Error updating connection streak:', error);
-    return { newStreak };
+        if (!conn) {
+            const newStreak = bumpLocalConnectionStreak(connectionId);
+            return { newStreak };
+        }
+
+        const status = computeStreakStatus(conn.last_interaction_at);
+        let newStreak = 1;
+
+        if (status === 'active' || status === 'at_risk') {
+            const lastDate = new Date(conn.last_interaction_at).toDateString();
+            const todayDate = new Date().toDateString();
+            newStreak = lastDate === todayDate ? conn.streak_count : conn.streak_count + 1;
+        }
+
+        const { error } = await supabase
+            .from('connections')
+            .update({
+                streak_count: newStreak,
+                last_interaction_at: new Date().toISOString(),
+            })
+            .eq('id', connectionId);
+
+        if (error) {
+            console.error('Error updating connection streak:', error);
+            return { newStreak: bumpLocalConnectionStreak(connectionId) };
+        }
+        return { newStreak };
+    } catch (_) {
+        return { newStreak: bumpLocalConnectionStreak(connectionId) };
+    }
 }
 
 /** Remove a connection */
 export async function removeConnection(connectionId: string): Promise<void> {
-    const { error } = await supabase
-        .from('connections')
-        .delete()
-        .eq('id', connectionId);
+    removeLocalConnection(connectionId);
+    try {
+        const { error } = await supabase
+            .from('connections')
+            .delete()
+            .eq('id', connectionId);
 
-    if (error) console.error('Error removing connection:', error);
+        if (error) console.error('Error removing connection:', error);
+    } catch (_) {}
 }
 
 /** Fetch all connection user IDs for a given user (Voice matches) */
 export async function fetchConnectionUserIds(userId: string): Promise<string[]> {
-    const { data: connectionsA } = await supabase
-        .from('connections')
-        .select('user_b')
-        .eq('user_a', userId);
+    try {
+        const { data: connectionsA } = await supabase
+            .from('connections')
+            .select('user_b')
+            .eq('user_a', userId);
 
-    const { data: connectionsB } = await supabase
-        .from('connections')
-        .select('user_a')
-        .eq('user_b', userId);
+        const { data: connectionsB } = await supabase
+            .from('connections')
+            .select('user_a')
+            .eq('user_b', userId);
 
-    const ids = [
-        ...(connectionsA || []).map(c => c.user_b),
-        ...(connectionsB || []).map(c => c.user_a),
-    ];
+        const ids = [
+            ...(connectionsA || []).map(c => c.user_b),
+            ...(connectionsB || []).map(c => c.user_a),
+        ];
 
-    return ids;
+        if (ids.length > 0) return ids;
+    } catch (_) {}
+
+    const local = getLocalConnections(userId);
+    return local.map(c => (c.user_a === userId ? c.user_b : c.user_a));
 }
 
 /** Fetch posts only from connected users */
@@ -2408,37 +2492,43 @@ export async function fetchConnectionPosts(userId: string): Promise<PostData[]> 
     const connectionIds = await fetchConnectionUserIds(userId);
     if (connectionIds.length === 0) return [];
 
-    const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .in('user_id', connectionIds)
-        .order('created_at', { ascending: false });
+    try {
+        const { data, error } = await supabase
+            .from('posts')
+            .select('*')
+            .in('user_id', connectionIds)
+            .order('created_at', { ascending: false });
 
-    if (error) {
-        console.error('Error fetching connection posts:', error);
-        return [];
-    }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+        if (!error && data && data.length > 0) {
+            return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+        }
+    } catch (_) {}
+
+    const localPosts = getLocalPosts().filter(p => p.user_id && connectionIds.includes(p.user_id));
+    return localPosts;
 }
 
 /** Fetch stories only from connected users (last 24h) */
 export async function fetchConnectionStories(userId: string): Promise<StoryData[]> {
     const connectionIds = await fetchConnectionUserIds(userId);
-    if (connectionIds.length === 0) return [];
 
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-        .from('stories')
-        .select('*')
-        .in('user_id', connectionIds)
-        .gte('created_at', twentyFourHoursAgo)
-        .order('created_at', { ascending: false });
+    try {
+        if (connectionIds.length > 0) {
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const { data, error } = await supabase
+                .from('stories')
+                .select('*')
+                .in('user_id', connectionIds)
+                .gte('created_at', twentyFourHoursAgo)
+                .order('created_at', { ascending: false });
 
-    if (error) {
-        console.error('Error fetching connection stories:', error);
-        return [];
-    }
-    return (data || []).map(normalizeStory);
+            if (!error && data && data.length > 0) {
+                return (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+            }
+        }
+    } catch (_) {}
+
+    return getLocalStories();
 }
 
 // ── Chat / Messaging ───────────────────────────────────────
@@ -2695,7 +2785,13 @@ export async function fetchProfilesByIds(userIds: string[]): Promise<ProfileData
         if (cached) {
             results.push(cached);
         } else {
-            missingIds.push(id);
+            const known = getKnownProfile(id);
+            if (known) {
+                results.push(known);
+                setInCache(`profile_${id}`, known);
+            } else {
+                missingIds.push(id);
+            }
         }
     });
 
@@ -2703,25 +2799,36 @@ export async function fetchProfilesByIds(userIds: string[]): Promise<ProfileData
         return results;
     }
     
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .in('id', missingIds);
-        
-    if (error) {
-        console.error('Error fetching profiles by ids:', error);
-        return results;
-    }
-
-    (data || []).forEach(p => {
-        if (!isRemovedUser(p.id, p.username)) {
-            if (isUnlimitedPointsUser(p.id, p.username)) {
-                p.points = UNLIMITED_POINTS;
-            }
-            setInCache(`profile_${p.id}`, p);
-            results.push(p);
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .in('id', missingIds);
+            
+        if (error) {
+            console.error('Error fetching profiles by ids:', error);
+            missingIds.forEach(id => {
+                const k = getKnownProfile(id);
+                if (k) results.push(k);
+            });
+            return results;
         }
-    });
+
+        (data || []).forEach(p => {
+            if (!isRemovedUser(p.id, p.username)) {
+                if (isUnlimitedPointsUser(p.id, p.username)) {
+                    p.points = UNLIMITED_POINTS;
+                }
+                setInCache(`profile_${p.id}`, p);
+                results.push(p);
+            }
+        });
+    } catch (_) {
+        missingIds.forEach(id => {
+            const k = getKnownProfile(id);
+            if (k) results.push(k);
+        });
+    }
 
     return results;
 }

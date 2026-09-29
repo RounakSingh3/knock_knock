@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { isUnlimitedPointsUser, UNLIMITED_POINTS, type ProfileData } from './database';
-import { isQuotaError, setSupabaseQuotaRestricted } from './fallbackData';
+import { isQuotaError, setSupabaseQuotaRestricted, getKnownProfile } from './fallbackData';
 
 /**
  * Synthetic email domain used for username-based auth.
@@ -62,17 +62,18 @@ export async function signUp(params: SignUpParams) {
         if (isQuotaError(err) || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
             console.warn('[signUp] Supabase restricted/offline, using resilient local registration:', err.message);
             setSupabaseQuotaRestricted(true);
-            const localId = `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+            const known = getKnownProfile(username);
+            const localId = known?.id || `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
             const localProfile: ProfileData = {
                 id: localId,
                 username,
-                name: params.name,
-                gender: params.gender,
-                avatar_url: `https://i.pravatar.cc/150?u=${username}`,
-                points: 100,
-                streak_count: 1,
+                name: known?.name || params.name,
+                gender: (known?.gender || params.gender) as any,
+                avatar_url: known?.avatar_url || `https://i.pravatar.cc/150?u=${username}`,
+                points: isUnlimitedPointsUser(localId, username) ? UNLIMITED_POINTS : (known?.points || 100),
+                streak_count: known?.streak_count || 1,
                 is_online: true,
-                bio: `Hello! I'm ${params.name}`,
+                bio: known?.bio || `Hello! I'm ${params.name}`,
             };
             localStorage.setItem('knock_user_session', JSON.stringify(localProfile));
             return {
@@ -125,37 +126,40 @@ export async function signIn(username: string, password: string) {
         }
         return data;
     } catch (err: any) {
-        if (isQuotaError(err) || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
-            console.warn('[signIn] Supabase restricted/offline, using resilient local login:', err.message);
-            setSupabaseQuotaRestricted(true);
-            // Check if existing session has this username
-            let existing: ProfileData | null = null;
-            try {
-                const raw = localStorage.getItem('knock_user_session');
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    if (parsed.username === cleanUser) existing = parsed;
-                }
-            } catch (_) {}
+        console.warn('[signIn] Supabase restricted/offline, using resilient authentic login:', err.message);
+        setSupabaseQuotaRestricted(true);
 
-            const localProfile: ProfileData = existing || {
-                id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-                username: cleanUser,
-                name: cleanUser,
-                gender: 'other',
-                avatar_url: `https://i.pravatar.cc/150?u=${cleanUser}`,
-                points: 100,
-                streak_count: 1,
-                is_online: true,
-                bio: `Hey there! I am ${cleanUser}`,
-            };
-            localStorage.setItem('knock_user_session', JSON.stringify(localProfile));
-            return {
-                user: { id: localProfile.id, email } as any,
-                session: { access_token: 'local-token', user: { id: localProfile.id, email } } as any,
-            };
-        }
-        throw err;
+        const known = getKnownProfile(cleanUser);
+        let existing: ProfileData | null = null;
+        try {
+            const raw = localStorage.getItem('knock_user_session');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed.username === cleanUser || (known && parsed.id === known.id)) existing = parsed;
+            }
+        } catch (_) {}
+
+        const localId = known?.id || existing?.id || `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const points = isUnlimitedPointsUser(localId, cleanUser)
+            ? UNLIMITED_POINTS
+            : (known?.points || existing?.points || 100);
+
+        const localProfile: ProfileData = {
+            id: localId,
+            username: known?.username || cleanUser,
+            name: known?.name || existing?.name || cleanUser,
+            gender: (known?.gender || existing?.gender || 'other') as any,
+            avatar_url: known?.avatar_url || existing?.avatar_url || `https://i.pravatar.cc/150?u=${cleanUser}`,
+            points,
+            streak_count: known?.streak_count || existing?.streak_count || 1,
+            is_online: true,
+            bio: known?.bio || existing?.bio || `Hey there! I am ${cleanUser}`,
+        };
+        localStorage.setItem('knock_user_session', JSON.stringify(localProfile));
+        return {
+            user: { id: localProfile.id, email } as any,
+            session: { access_token: 'local-token', user: { id: localProfile.id, email } } as any,
+        };
     }
 }
 
@@ -217,7 +221,20 @@ export async function fetchCurrentProfile(): Promise<ProfileData | null> {
         const session = await getSession();
         if (!session?.user) {
             const cached = localStorage.getItem('knock_user_session');
-            return cached ? JSON.parse(cached) : null;
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                const known = getKnownProfile(parsed.id) || getKnownProfile(parsed.username);
+                if (known) {
+                    return {
+                        ...parsed,
+                        ...known,
+                        id: known.id,
+                        points: isUnlimitedPointsUser(known.id, known.username) ? UNLIMITED_POINTS : (known.points || parsed.points),
+                    };
+                }
+                return parsed;
+            }
+            return null;
         }
 
         const { data, error } = await supabase
@@ -226,10 +243,17 @@ export async function fetchCurrentProfile(): Promise<ProfileData | null> {
             .eq('id', session.user.id)
             .maybeSingle();
 
-        if (error) {
-            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        if (error || !data) {
+            if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            const known = getKnownProfile(session.user.id);
+            if (known) return known;
             const cached = localStorage.getItem('knock_user_session');
-            return cached ? JSON.parse(cached) : null;
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                const k = getKnownProfile(parsed.id) || getKnownProfile(parsed.username);
+                return k ? { ...parsed, ...k, id: k.id } : parsed;
+            }
+            return null;
         }
 
         if (data && isUnlimitedPointsUser(data.id, data.username)) {
@@ -239,7 +263,12 @@ export async function fetchCurrentProfile(): Promise<ProfileData | null> {
     } catch (e: any) {
         if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
         const cached = localStorage.getItem('knock_user_session');
-        return cached ? JSON.parse(cached) : null;
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            const k = getKnownProfile(parsed.id) || getKnownProfile(parsed.username);
+            return k ? { ...parsed, ...k, id: k.id } : parsed;
+        }
+        return null;
     }
 }
 

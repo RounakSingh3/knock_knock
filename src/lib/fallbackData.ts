@@ -1,4 +1,4 @@
-import type { PostData, StoryData, ProfileData, CommentData } from './database';
+import type { PostData, StoryData, ProfileData, CommentData, ConnectionWithProfile } from './database';
 
 // Global flag tracking if Supabase is currently quota-restricted or offline
 let _isQuotaRestricted = false;
@@ -37,6 +37,257 @@ export function isQuotaError(err: any): boolean {
         msg.includes('egress') ||
         msg.includes('payment required')
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KNOWN PROFILES (All authenticated users and creators on Knock Knock)
+// ─────────────────────────────────────────────────────────────────────────────
+export const KNOWN_PROFILES: ProfileData[] = [
+    {
+        "id": "1369cfe5-42f1-4346-82be-0f616247092d",
+        "username": "ityourfavourite1",
+        "name": "Our Favourite ✨",
+        "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+        "points": 999999999,
+        "streak_count": 14,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Welcome to our favorite space ✨ Trending & Viral reels daily"
+    },
+    {
+        "id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
+        "username": "rounak2",
+        "name": "Rounak Singh ⚡",
+        "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
+        "points": 999999999,
+        "streak_count": 21,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Next-gen AI gadgets, tech & viral moments 🚀"
+    },
+    {
+        "id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "username": "popcorn05",
+        "name": "Popcorn 🍿",
+        "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
+        "points": 999999999,
+        "streak_count": 18,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Movies, music & trending vibes 🍿💃"
+    },
+    {
+        "id": "12a1a487-5dde-4a77-ab36-aee9ce84fa35",
+        "username": "coral",
+        "name": "Coral lia 🪸",
+        "avatar_url": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
+        "points": 500,
+        "streak_count": 9,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Capturing peaceful moments & visual stories 🌊"
+    },
+    {
+        "id": "1d9a782d-6990-4018-9232-6aefe57a3db6",
+        "username": "tara01",
+        "name": "Tara ✨",
+        "avatar_url": "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150",
+        "points": 450,
+        "streak_count": 12,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Loveee lifeeeeee 🎨"
+    },
+    {
+        "id": "8400dfe6-f113-474f-89e2-3150a2c52908",
+        "username": "anaya",
+        "name": "Anaya",
+        "avatar_url": "https://i.pravatar.cc/150?u=anaya",
+        "points": 320,
+        "streak_count": 7,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Coffee, books & sunset walks ☕"
+    },
+    {
+        "id": "db5d5090-0230-4ad7-ac2c-97e704e46687",
+        "username": "aditya",
+        "name": "Aditya",
+        "avatar_url": "https://i.pravatar.cc/150?u=aditya",
+        "points": 280,
+        "streak_count": 5,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Building, coding & gym grind 💪"
+    },
+    {
+        "id": "c51a35d0-2455-401f-9b24-e0c836091bc2",
+        "username": "samarth22",
+        "name": "Samarth",
+        "avatar_url": "https://i.pravatar.cc/150?u=samarth22",
+        "points": 310,
+        "streak_count": 6,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Good vibes only 💫"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000010",
+        "username": "rahul_sharma",
+        "name": "Rahul Sharma",
+        "avatar_url": "https://i.pravatar.cc/150?u=102",
+        "points": 190,
+        "streak_count": 4,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Weekend explorer & photographer 📸"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000011",
+        "username": "priya_patel99",
+        "name": "Priya Patel",
+        "avatar_url": "https://i.pravatar.cc/150?u=103",
+        "points": 220,
+        "streak_count": 6,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Music enthusiast & dancer 💃"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000012",
+        "username": "amit_kumar_vlogs",
+        "name": "Amit Kumar",
+        "avatar_url": "https://i.pravatar.cc/150?u=105",
+        "points": 340,
+        "streak_count": 8,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Vlogger & cricket lover 🏏"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000013",
+        "username": "neha_creates",
+        "name": "Neha Singh",
+        "avatar_url": "https://i.pravatar.cc/150?u=106",
+        "points": 410,
+        "streak_count": 10,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Digital artist & storyteller 🎨"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000014",
+        "username": "rohit_verma",
+        "name": "Rohit Verma",
+        "avatar_url": "https://i.pravatar.cc/150?u=108",
+        "points": 175,
+        "streak_count": 3,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Comedy & lifestyle sketches 😂"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000015",
+        "username": "cricket_fever_in",
+        "name": "Cricket Fever",
+        "avatar_url": "https://i.pravatar.cc/150?u=107",
+        "points": 520,
+        "streak_count": 11,
+        "gender": "other",
+        "is_online": true,
+        "bio": "All cricket updates, stats & sixes 🏏🔥"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000016",
+        "username": "instantbollywood",
+        "name": "Instant Bollywood",
+        "avatar_url": "https://i.pravatar.cc/150?u=101",
+        "points": 890,
+        "streak_count": 15,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Bollywood red carpet, celebrity paparazzi & trailers 🎬"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000017",
+        "username": "viral_bhayani_fan",
+        "name": "Viral Updates",
+        "avatar_url": "https://i.pravatar.cc/150?u=104",
+        "points": 640,
+        "streak_count": 9,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Every celebrity airport look & viral video ⚡"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000018",
+        "username": "bollywood_superstars",
+        "name": "Bollywood Superstars 🎬",
+        "avatar_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
+        "points": 1500,
+        "streak_count": 25,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Celebrating Indian cinema legends 🌟"
+    },
+    {
+        "id": "c1000000-0000-0000-0000-000000000019",
+        "username": "comedy_vault_in",
+        "name": "Comedy Vault 🎭",
+        "avatar_url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150",
+        "points": 820,
+        "streak_count": 14,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Non-stop laughs, memes & reels 🎭😂"
+    },
+    {
+        "id": "creator-nature_vibes",
+        "username": "nature_vibes",
+        "name": "Nature Vibes 🌿",
+        "avatar_url": "https://i.pravatar.cc/150?img=1",
+        "points": 4200,
+        "streak_count": 11,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Capturing the golden hour and coastlines 🌊"
+    },
+    {
+        "id": "creator-city_explorer",
+        "username": "city_explorer",
+        "name": "City Explorer 🏙️",
+        "avatar_url": "https://i.pravatar.cc/150?img=5",
+        "points": 3100,
+        "streak_count": 8,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Neon lights and late-night city walks 🌌"
+    },
+    {
+        "id": "creator-ocean_dreams",
+        "username": "ocean_dreams",
+        "name": "Ocean Dreams 🌊",
+        "avatar_url": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
+        "points": 2800,
+        "streak_count": 7,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Deep blue oceans & coral beauty 🐠"
+    }
+];
+
+export function getKnownProfile(identifier: string): ProfileData | null {
+    if (!identifier) return null;
+    const clean = identifier.replace(/^@+/, '').trim().toLowerCase();
+    const found = KNOWN_PROFILES.find(p => 
+        (p.username && p.username.toLowerCase() === clean) || 
+        (p.id && p.id.toLowerCase() === clean)
+    );
+    return found ? { ...found } : null;
+}
+
+export function getAllKnownProfiles(): ProfileData[] {
+    return [...KNOWN_PROFILES];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1205,7 +1456,323 @@ export const SEED_POSTS: PostData[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOCAL PERSISTENCE HELPERS
+// AUTHENTIC STORIES
+// ─────────────────────────────────────────────────────────────────────────────
+export const SEED_STORIES: StoryData[] = [
+    {
+        "id": "story-fav-1",
+        "user_id": "1369cfe5-42f1-4346-82be-0f616247092d",
+        "username": "ityourfavourite1",
+        "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+        "image_url": "https://images.unsplash.com/photo-1509631179647-0177331693ae?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1509631179647-0177331693ae%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
+        "caption": "✨ Malaika Arora vibes today! #trending #story",
+        "is_boosted": true,
+        "likes_count": 420,
+        "created_at": "2026-09-29T08:03:46.018Z"
+    },
+    {
+        "id": "story-coral-1",
+        "user_id": "12a1a487-5dde-4a77-ab36-aee9ce84fa35",
+        "username": "coral",
+        "avatar_url": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
+        "image_url": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1544551763-46a013bb70d5%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
+        "caption": "🌊 Peaceful ocean waves & coral reefs #boost",
+        "is_boosted": true,
+        "likes_count": 310,
+        "created_at": "2026-09-29T07:18:46.077Z"
+    },
+    {
+        "id": "story-pop-1",
+        "user_id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "username": "popcorn05",
+        "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
+        "image_url": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1489599849927-2ee91cede3ba%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
+        "caption": "Movie night with friends! 🍿🎶",
+        "likes_count": 245,
+        "created_at": "2026-09-29T06:18:46.077Z"
+    },
+    {
+        "id": "story-rounak-1",
+        "user_id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
+        "username": "rounak2",
+        "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
+        "image_url": "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1550745165-9bc0b252726f%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
+        "caption": "Next-gen gadgets test bench 🚀⚡",
+        "likes_count": 512,
+        "created_at": "2026-09-29T05:28:46.077Z"
+    },
+    {
+        "id": "story-tara-1",
+        "user_id": "1d9a782d-6990-4018-9232-6aefe57a3db6",
+        "username": "tara01",
+        "avatar_url": "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150",
+        "image_url": "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1518173946687-a4c8a383392e%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
+        "caption": "Street art in the evening light 🎨✨",
+        "likes_count": 180,
+        "created_at": "2026-09-29T03:48:46.077Z"
+    }
+];
+
+export function getLocalStories(): StoryData[] {
+    const now = Date.now();
+    const refreshTimestamp = (s: StoryData, idx: number): StoryData => {
+        const time = new Date(s.created_at).getTime();
+        if (isNaN(time) || now - time > 23 * 60 * 60 * 1000) {
+            return {
+                ...s,
+                created_at: new Date(now - (idx + 1) * 90 * 60 * 1000).toISOString()
+            };
+        }
+        return s;
+    };
+
+    try {
+        if (typeof window === 'undefined') return SEED_STORIES.map(refreshTimestamp);
+        const stored = localStorage.getItem('knock_local_stories');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                const existingIds = new Set(parsed.map((s: StoryData) => s.id));
+                const missing = SEED_STORIES.filter(s => !existingIds.has(s.id));
+                return [...parsed, ...missing].map(refreshTimestamp);
+            }
+        }
+    } catch (_) {}
+    const refreshed = SEED_STORIES.map(refreshTimestamp);
+    try {
+        localStorage.setItem('knock_local_stories', JSON.stringify(refreshed));
+    } catch (_) {}
+    return refreshed;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTHENTIC CONNECTIONS & FRIENDS
+// ─────────────────────────────────────────────────────────────────────────────
+export const SEED_CONNECTIONS: ConnectionWithProfile[] = [
+    {
+        "id": "conn-fav-1",
+        "user_a": "current_user",
+        "user_b": "1369cfe5-42f1-4346-82be-0f616247092d",
+        "streak_count": 14,
+        "compatibility_percent": 96,
+        "shared_likes": 12,
+        "last_interaction_at": "2026-09-29T08:18:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "1369cfe5-42f1-4346-82be-0f616247092d",
+            "username": "ityourfavourite1",
+            "name": "Our Favourite ✨",
+            "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+            "points": 999999999,
+            "streak_count": 14,
+            "gender": "female",
+            "is_online": true,
+            "bio": "Welcome to our favorite space ✨ Trending & Viral reels daily"
+        }
+    },
+    {
+        "id": "conn-pop-2",
+        "user_a": "current_user",
+        "user_b": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "streak_count": 18,
+        "compatibility_percent": 92,
+        "shared_likes": 9,
+        "last_interaction_at": "2026-09-29T07:48:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+            "username": "popcorn05",
+            "name": "Popcorn 🍿",
+            "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
+            "points": 999999999,
+            "streak_count": 18,
+            "gender": "female",
+            "is_online": true,
+            "bio": "Movies, music & trending vibes 🍿💃"
+        }
+    },
+    {
+        "id": "conn-coral-3",
+        "user_a": "current_user",
+        "user_b": "12a1a487-5dde-4a77-ab36-aee9ce84fa35",
+        "streak_count": 9,
+        "compatibility_percent": 88,
+        "shared_likes": 7,
+        "last_interaction_at": "2026-09-29T06:48:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "12a1a487-5dde-4a77-ab36-aee9ce84fa35",
+            "username": "coral",
+            "name": "Coral lia 🪸",
+            "avatar_url": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
+            "points": 500,
+            "streak_count": 9,
+            "gender": "female",
+            "is_online": true,
+            "bio": "Capturing peaceful moments & visual stories 🌊"
+        }
+    },
+    {
+        "id": "conn-rounak-4",
+        "user_a": "current_user",
+        "user_b": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
+        "streak_count": 21,
+        "compatibility_percent": 94,
+        "shared_likes": 15,
+        "last_interaction_at": "2026-09-29T08:33:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
+            "username": "rounak2",
+            "name": "Rounak Singh ⚡",
+            "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
+            "points": 999999999,
+            "streak_count": 21,
+            "gender": "male",
+            "is_online": true,
+            "bio": "Next-gen AI gadgets, tech & viral moments 🚀"
+        }
+    },
+    {
+        "id": "conn-tara-5",
+        "user_a": "current_user",
+        "user_b": "1d9a782d-6990-4018-9232-6aefe57a3db6",
+        "streak_count": 12,
+        "compatibility_percent": 85,
+        "shared_likes": 8,
+        "last_interaction_at": "2026-09-29T04:48:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "1d9a782d-6990-4018-9232-6aefe57a3db6",
+            "username": "tara01",
+            "name": "Tara ✨",
+            "avatar_url": "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150",
+            "points": 450,
+            "streak_count": 12,
+            "gender": "female",
+            "is_online": true,
+            "bio": "Loveee lifeeeeee 🎨"
+        }
+    },
+    {
+        "id": "conn-aditya-6",
+        "user_a": "current_user",
+        "user_b": "db5d5090-0230-4ad7-ac2c-97e704e46687",
+        "streak_count": 5,
+        "compatibility_percent": 78,
+        "shared_likes": 4,
+        "last_interaction_at": "2026-09-29T02:48:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "db5d5090-0230-4ad7-ac2c-97e704e46687",
+            "username": "aditya",
+            "name": "Aditya",
+            "avatar_url": "https://i.pravatar.cc/150?u=aditya",
+            "points": 280,
+            "streak_count": 5,
+            "gender": "male",
+            "is_online": true,
+            "bio": "Building, coding & gym grind 💪"
+        }
+    },
+    {
+        "id": "conn-anaya-7",
+        "user_a": "current_user",
+        "user_b": "8400dfe6-f113-474f-89e2-3150a2c52908",
+        "streak_count": 7,
+        "compatibility_percent": 81,
+        "shared_likes": 5,
+        "last_interaction_at": "2026-09-29T00:48:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "8400dfe6-f113-474f-89e2-3150a2c52908",
+            "username": "anaya",
+            "name": "Anaya",
+            "avatar_url": "https://i.pravatar.cc/150?u=anaya",
+            "points": 320,
+            "streak_count": 7,
+            "gender": "female",
+            "is_online": true,
+            "bio": "Coffee, books & sunset walks ☕"
+        }
+    },
+    {
+        "id": "conn-rahul-8",
+        "user_a": "current_user",
+        "user_b": "c1000000-0000-0000-0000-000000000010",
+        "streak_count": 4,
+        "compatibility_percent": 74,
+        "shared_likes": 3,
+        "last_interaction_at": "2026-09-28T22:48:46.077Z",
+        "streakStatus": "active",
+        "profile": {
+            "id": "c1000000-0000-0000-0000-000000000010",
+            "username": "rahul_sharma",
+            "name": "Rahul Sharma",
+            "avatar_url": "https://i.pravatar.cc/150?u=102",
+            "points": 190,
+            "streak_count": 4,
+            "gender": "male",
+            "is_online": true,
+            "bio": "Weekend explorer & photographer 📸"
+        }
+    }
+];
+
+export function getLocalConnections(userId?: string): ConnectionWithProfile[] {
+    try {
+        if (typeof window === 'undefined') return SEED_CONNECTIONS;
+        const stored = localStorage.getItem('knock_local_connections');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                const existingIds = new Set(parsed.map((c: ConnectionWithProfile) => c.id));
+                const missing = SEED_CONNECTIONS.filter(c => !existingIds.has(c.id));
+                return [...parsed, ...missing];
+            }
+        }
+    } catch (_) {}
+    try {
+        localStorage.setItem('knock_local_connections', JSON.stringify(SEED_CONNECTIONS));
+    } catch (_) {}
+    return SEED_CONNECTIONS;
+}
+
+export function removeLocalConnection(connectionId: string): void {
+    try {
+        if (typeof window === 'undefined') return;
+        const current = getLocalConnections();
+        const updated = current.filter(c => c.id !== connectionId);
+        localStorage.setItem('knock_local_connections', JSON.stringify(updated));
+    } catch (_) {}
+}
+
+export function bumpLocalConnectionStreak(connectionId: string): number {
+    try {
+        if (typeof window === 'undefined') return 1;
+        const current = getLocalConnections();
+        let newStreak = 1;
+        const updated = current.map(c => {
+            if (c.id === connectionId) {
+                newStreak = (c.streak_count || 1) + 1;
+                return {
+                    ...c,
+                    streak_count: newStreak,
+                    streakStatus: 'active' as const,
+                    last_interaction_at: new Date().toISOString()
+                };
+            }
+            return c;
+        });
+        localStorage.setItem('knock_local_connections', JSON.stringify(updated));
+        return newStreak;
+    } catch (_) {
+        return 1;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOCAL POST PERSISTENCE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'knock_local_posts_v4';
