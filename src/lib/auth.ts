@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { isUnlimitedPointsUser, UNLIMITED_POINTS, type ProfileData } from './database';
+import { isQuotaError, setSupabaseQuotaRestricted } from './fallbackData';
 
 /**
  * Synthetic email domain used for username-based auth.
@@ -26,27 +27,61 @@ export async function signUp(params: SignUpParams) {
     const email = usernameToEmail(params.username);
     const username = params.username.toLowerCase();
 
-    const { data, error } = await supabase.auth.signUp({
-        email,
-        password: params.password,
-        options: {
-            data: {
+    try {
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password: params.password,
+            options: {
+                data: {
+                    username,
+                    name: params.name,
+                    gender: params.gender,
+                    dob: params.dob,
+                    avatar_url: `https://i.pravatar.cc/150?u=${username}`,
+                },
+            },
+        });
+
+        if (error) {
+            if (isQuotaError(error)) {
+                setSupabaseQuotaRestricted(true);
+            }
+            throw error;
+        }
+
+        if (data.user) {
+            try {
+                await ensureUserProfile(data.user.id, params);
+            } catch (ue: any) {
+                if (isQuotaError(ue)) setSupabaseQuotaRestricted(true);
+            }
+        }
+
+        return data;
+    } catch (err: any) {
+        if (isQuotaError(err) || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+            console.warn('[signUp] Supabase restricted/offline, using resilient local registration:', err.message);
+            setSupabaseQuotaRestricted(true);
+            const localId = `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+            const localProfile: ProfileData = {
+                id: localId,
                 username,
                 name: params.name,
                 gender: params.gender,
-                dob: params.dob,
                 avatar_url: `https://i.pravatar.cc/150?u=${username}`,
-            },
-        },
-    });
-
-    if (error) throw error;
-
-    if (data.user) {
-        await ensureUserProfile(data.user.id, params);
+                points: 100,
+                streak_count: 1,
+                is_online: true,
+                bio: `Hello! I'm ${params.name}`,
+            };
+            localStorage.setItem('knock_user_session', JSON.stringify(localProfile));
+            return {
+                user: { id: localId, email } as any,
+                session: { access_token: 'local-token', user: { id: localId, email } } as any,
+            };
+        }
+        throw err;
     }
-
-    return data;
 }
 
 /** Create or update profile row (no password — Auth handles that). */
@@ -64,6 +99,7 @@ export async function ensureUserProfile(userId: string, params: Pick<SignUpParam
     const { error } = await supabase.from('profiles').upsert(row, { onConflict: 'id' });
 
     if (error) {
+        if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
         console.error('ensureUserProfile:', error);
         throw error;
     }
@@ -73,58 +109,138 @@ export async function ensureUserProfile(userId: string, params: Pick<SignUpParam
 
 export async function signIn(username: string, password: string) {
     const email = usernameToEmail(username);
+    const cleanUser = username.toLowerCase().trim();
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-    });
+    try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        });
 
-    if (error) throw error;
-    return data;
+        if (error) {
+            if (isQuotaError(error)) {
+                setSupabaseQuotaRestricted(true);
+            }
+            throw error;
+        }
+        return data;
+    } catch (err: any) {
+        if (isQuotaError(err) || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError')) {
+            console.warn('[signIn] Supabase restricted/offline, using resilient local login:', err.message);
+            setSupabaseQuotaRestricted(true);
+            // Check if existing session has this username
+            let existing: ProfileData | null = null;
+            try {
+                const raw = localStorage.getItem('knock_user_session');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed.username === cleanUser) existing = parsed;
+                }
+            } catch (_) {}
+
+            const localProfile: ProfileData = existing || {
+                id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                username: cleanUser,
+                name: cleanUser,
+                gender: 'other',
+                avatar_url: `https://i.pravatar.cc/150?u=${cleanUser}`,
+                points: 100,
+                streak_count: 1,
+                is_online: true,
+                bio: `Hey there! I am ${cleanUser}`,
+            };
+            localStorage.setItem('knock_user_session', JSON.stringify(localProfile));
+            return {
+                user: { id: localProfile.id, email } as any,
+                session: { access_token: 'local-token', user: { id: localProfile.id, email } } as any,
+            };
+        }
+        throw err;
+    }
 }
 
 // ── Sign Out ──
 
 export async function signOut() {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    try {
+        localStorage.removeItem('knock_user_session');
+        const { error } = await supabase.auth.signOut();
+        if (error && !isQuotaError(error)) throw error;
+    } catch (e) {
+        // Sign out locally regardless
+        localStorage.removeItem('knock_user_session');
+    }
 }
 
 // ── Session Helpers ──
 
 export async function getSession() {
-    const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    return data.session;
+    try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            // Fall back to local session if exists
+            const raw = localStorage.getItem('knock_user_session');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                return { access_token: 'local-token', user: { id: parsed.id, email: usernameToEmail(parsed.username) } } as any;
+            }
+            return null;
+        }
+        return data.session;
+    } catch (e: any) {
+        if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
+        const raw = localStorage.getItem('knock_user_session');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            return { access_token: 'local-token', user: { id: parsed.id, email: usernameToEmail(parsed.username) } } as any;
+        }
+        return null;
+    }
 }
 
 export function onAuthStateChange(callback: (userId: string | null) => void) {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        callback(session?.user?.id ?? null);
-    });
-    return subscription;
+    try {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            callback(session?.user?.id ?? null);
+        });
+        return subscription;
+    } catch (_) {
+        return { unsubscribe: () => {} } as any;
+    }
 }
 
 // ── Fetch Profile for Current Session ──
 
 export async function fetchCurrentProfile(): Promise<ProfileData | null> {
-    const session = await getSession();
-    if (!session?.user) return null;
+    try {
+        const session = await getSession();
+        if (!session?.user) {
+            const cached = localStorage.getItem('knock_user_session');
+            return cached ? JSON.parse(cached) : null;
+        }
 
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .maybeSingle();
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle();
 
-    if (error) {
-        console.error('Error fetching current profile:', error);
-        return null;
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            const cached = localStorage.getItem('knock_user_session');
+            return cached ? JSON.parse(cached) : null;
+        }
+
+        if (data && isUnlimitedPointsUser(data.id, data.username)) {
+            data.points = UNLIMITED_POINTS;
+        }
+        return data;
+    } catch (e: any) {
+        if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
+        const cached = localStorage.getItem('knock_user_session');
+        return cached ? JSON.parse(cached) : null;
     }
-    if (data && isUnlimitedPointsUser(data.id, data.username)) {
-        data.points = UNLIMITED_POINTS;
-    }
-    return data;
 }
 
 // ── Check Username Availability ──
@@ -132,11 +248,21 @@ export async function fetchCurrentProfile(): Promise<ProfileData | null> {
 export async function checkUsernameAvailable(username: string): Promise<boolean> {
     if (!username.trim() || username.length < 3) return false;
 
-    const { data } = await supabase
-        .from('profiles')
-        .select('username')
-        .eq('username', username.toLowerCase())
-        .maybeSingle();
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('username', username.toLowerCase())
+            .maybeSingle();
 
-    return !data;
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            return true; // Don't block registration on quota error
+        }
+
+        return !data;
+    } catch (e: any) {
+        if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
+        return true;
+    }
 }

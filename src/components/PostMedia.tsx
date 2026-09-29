@@ -680,7 +680,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 disablePictureInPicture={true}
                                 // @ts-ignore
                                 disableRemotePlayback={true}
-                                preload={isPlayingMode ? "auto" : "metadata"}
+                                preload={thumbnail ? "none" : (isPlayingMode ? "auto" : "metadata")}
                                 onError={() => {
                                     handleMediaError();
                                 }}

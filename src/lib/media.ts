@@ -469,6 +469,8 @@ export async function prepareVideoForUpload(
     onStatus?: (status: string) => void
 ): Promise<{ videoFile: File; posterBlob: Blob | null }> {
     let posterBlob: Blob | null = null;
+    let finalFile = file;
+
     try {
         if (onStatus) onStatus('Generating preview poster...');
         const posterRes = await extractVideoPoster(file, 0.05);
@@ -477,5 +479,21 @@ export async function prepareVideoForUpload(
         }
     } catch (_) {}
 
-    return { videoFile: file, posterBlob };
+    // ⚡ Pre-compress large videos (>6MB) or MOV files client-side to save bandwidth & prevent egress quota exhaustion
+    const isLarge = file.size > 6 * 1024 * 1024;
+    const isMov = /\.(mov|hevc)$/i.test(file.name) || file.type.includes('quicktime');
+
+    if ((isLarge || isMov) && typeof MediaRecorder !== 'undefined') {
+        try {
+            if (onStatus) onStatus('Optimizing video resolution & compression...');
+            finalFile = await convertVideoToPlayableMp4(file, (progress) => {
+                if (onStatus) onStatus(`Optimizing video (${progress}%)...`);
+            });
+        } catch (e) {
+            console.warn('[prepareVideoForUpload] Pre-compression skipped, using original file:', e);
+            finalFile = file;
+        }
+    }
+
+    return { videoFile: finalFile, posterBlob };
 }

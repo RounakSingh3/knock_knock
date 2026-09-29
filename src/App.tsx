@@ -5,6 +5,7 @@ import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSess
 import BottomNav from './components/BottomNav';
 import OnboardingOverlay from './components/OnboardingOverlay';
 import GlobalCallListener from './components/GlobalCallListener';
+import QuotaWarningBanner from './components/QuotaWarningBanner';
 import { isCallingAllowedNow } from './lib/callingWindow';
 
 // ⚡ Lazy-load pages so only the page you visit is downloaded (huge speed boost).
@@ -425,6 +426,7 @@ function App() {
                     {isAuthenticated && !onboardingDone && (
                         <OnboardingOverlay onComplete={() => setOnboardingDone(true)} />
                     )}
+                    <QuotaWarningBanner />
                     {isAuthenticated && <BottomNav />}
                 </div>
             </Router>

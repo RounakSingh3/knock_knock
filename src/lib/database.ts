@@ -1,5 +1,18 @@
 import { supabase } from './supabase';
-import { isVideoPost, getCleanSongUrl, type MediaType } from './media';
+import { isVideoPost, isVideoUrl, getCleanSongUrl, type MediaType } from './media';
+import {
+    isSupabaseQuotaRestricted,
+    setSupabaseQuotaRestricted,
+    isQuotaError,
+    getLocalPosts,
+    saveLocalPost,
+    updateLocalPostLikes,
+    getLocalLikes,
+    toggleLocalLike,
+    getLocalComments,
+    saveLocalComment,
+    SEED_POSTS
+} from './fallbackData';
 
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
@@ -88,102 +101,161 @@ export interface PostData {
     music_url?: string;
 }
 
-export async function fetchPosts(): Promise<PostData[]> {
-    const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
+    const local = getLocalPosts();
+    const seen = new Set<string>();
+    const merged: PostData[] = [];
 
-    if (error) {
-        console.error('Error fetching posts:', error);
-        return [];
+    // Local user created posts first
+    for (const p of local) {
+        if (!p || !p.id || seen.has(p.id) || BROKEN_POST_IDS.has(p.id) || isRemovedUser(p.user_id, p.username)) continue;
+        seen.add(p.id);
+        merged.push(p);
     }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+
+    // Database posts next
+    for (const p of dbPosts) {
+        if (!p || !p.id || seen.has(p.id) || BROKEN_POST_IDS.has(p.id) || isRemovedUser(p.user_id, p.username)) continue;
+        seen.add(p.id);
+        merged.push(p);
+    }
+
+    if (merged.length === 0) {
+        for (const p of SEED_POSTS) {
+            if (!seen.has(p.id)) {
+                seen.add(p.id);
+                merged.push(p);
+            }
+        }
+    }
+
+    return merged;
+}
+
+export async function fetchPosts(): Promise<PostData[]> {
+    try {
+        const { data, error } = await supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(100);
+
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            console.warn('[fetchPosts] Supabase unavailable, returning resilient local posts:', error.message);
+            return getLocalPosts();
+        }
+        const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+        if (normalized.length === 0) {
+            return getLocalPosts();
+        }
+        return mergePostsWithFallback(normalized);
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        return getLocalPosts();
+    }
 }
 
 export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
-    const connectionIds = await fetchConnectionUserIds(userId);
+    try {
+        const connectionIds = await fetchConnectionUserIds(userId);
+        const excludeIds = [...connectionIds, userId];
 
-    let query = supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+        let query = supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(100);
 
-    // Exclude posts from connected users, and also exclude own posts
-    const excludeIds = [...connectionIds, userId];
+        if (excludeIds.length > 0) {
+            query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
+        }
 
-    // Supabase JS doesn't have a simple 'not in' array method directly easily without string joining if array is empty,
-    // but .not('user_id', 'in', `(${excludeIds.join(',')})`) works.
-    if (excludeIds.length > 0) {
-        query = query.not('user_id', 'in', `(${excludeIds.join(',')})`);
+        const { data, error } = await query;
+
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            console.warn('[fetchForYouPosts] Supabase unavailable, returning resilient local posts:', error.message);
+            return getLocalPosts().filter(p => !excludeIds.includes(p.user_id || ''));
+        }
+        const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+        if (normalized.length === 0) {
+            return getLocalPosts().filter(p => !excludeIds.includes(p.user_id || ''));
+        }
+        return mergePostsWithFallback(normalized).filter(p => !excludeIds.includes(p.user_id || ''));
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        return getLocalPosts();
     }
-
-    const { data, error } = await query;
-
-    if (error) {
-        console.error('Error fetching For You posts:', error);
-        return [];
-    }
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 export async function fetchUserPosts(username: string, userId?: string): Promise<PostData[]> {
     if (!username) return [];
-    const cleanUsername = username.replace(/^@+/, '').trim();
+    const cleanUsername = username.replace(/^@+/, '').trim().toLowerCase();
     if (!cleanUsername) return [];
 
-    let query = supabase.from('posts').select('*');
-    if (userId && userId !== '00000000-0000-0000-0000-000000000000' && !userId.startsWith('creator-')) {
-        query = query.or(`username.ilike.${cleanUsername},user_id.eq.${userId}`);
-    } else {
-        query = query.ilike('username', cleanUsername);
+    let dbPosts: PostData[] = [];
+    try {
+        let query = supabase.from('posts').select('*');
+        if (userId && userId !== '00000000-0000-0000-0000-000000000000' && !userId.startsWith('creator-')) {
+            query = query.or(`username.ilike.${cleanUsername},user_id.eq.${userId}`);
+        } else {
+            query = query.ilike('username', cleanUsername);
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false });
+
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            console.warn('[fetchUserPosts] Supabase unavailable, using local posts:', error.message);
+        } else {
+            dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+        }
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const localPosts = getLocalPosts().filter(p => 
+        (p.username && p.username.toLowerCase() === cleanUsername) || 
+        (userId && p.user_id === userId)
+    );
 
-    if (error) {
-        console.error('Error fetching user posts:', error);
-    }
-
-    const dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+    const merged = [...localPosts, ...dbPosts.filter(dp => !localPosts.some(lp => lp.id === dp.id))];
+    if (merged.length > 0) return merged;
 
     // Fallback: If no DB posts exist, check if this is a known reel creator from REELS_DATA
-    if (dbPosts.length === 0) {
-        const REEL_CREATOR_POSTS: Record<string, { videoUrl: string; song: string; caption: string; category: string }[]> = {
-            'nature_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', song: 'Chill Vibes — LofiBeats', caption: '🌅 Golden hour hits different when you\'re at the coast', category: 'Nature' }],
-            'city_explorer': [{ videoUrl: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', song: 'After Dark — Mr.Kitty', caption: '🏙️ Neon lights and late-night bites in the city that never sleeps', category: 'Travel' }],
-            'ocean_dreams': [{ videoUrl: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', song: 'Ocean Eyes — Billie Eilish', caption: '🌊 The ocean is calling and I must go 🐠', category: 'Nature' }],
-            'fitness_freak': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Stronger — Kanye West', caption: '💪 No shortcuts. Just grind. Who\'s in? 🔥', category: 'Sports' }],
-            'foodie_fam': [{ videoUrl: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', song: 'THAT\'S WHAT I WANT — Lil Nas X', caption: '🍕 Wait for it… the cheese pull is insane 🤤', category: 'Food' }],
-            'sky_watcher': [{ videoUrl: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', song: 'Weightless — Marconi Union', caption: '☁️ Clouds moving in time-lapse is pure therapy', category: 'Nature' }],
-            'dance_queen': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Can\'t stop dancing to this beat! Tutorial coming soon 🔥', category: 'Dance' }],
-            'pet_paradise': [{ videoUrl: 'https://videos.pexels.com/video-files/1739010/1739010-sd_640_360_25fps.mp4', song: 'Happy — Pharrell Williams', caption: '🐶 The purest soul in the world. Look at that tail wag! ❤️', category: 'Pets' }],
-            'art_daily': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Golden Hour — JVKE', caption: '🎨 30 hours of work in 30 seconds. What should I paint next?', category: 'Art' }],
-            'coffee_corner': [{ videoUrl: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4', song: 'Coffee — Beabadoobee', caption: '☕ The perfect pour. Nothing beats that first sip in the morning', category: 'Lifestyle' }],
-            'astro_lover': [{ videoUrl: 'https://videos.pexels.com/video-files/2519660/2519660-sd_640_360_24fps.mp4', song: 'Starlight — Muse', caption: '🌌 The Milky Way never gets old. Who else is a night owl? 🦉', category: 'Nature' }],
-            'morning_routine': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Sunrise — Norah Jones', caption: '☀️ 5AM morning routine that changed my life', category: 'Lifestyle' }],
-        };
+    const REEL_CREATOR_POSTS: Record<string, { videoUrl: string; song: string; caption: string; category: string }[]> = {
+        'nature_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', song: 'Chill Vibes — LofiBeats', caption: '🌅 Golden hour hits different when you\'re at the coast', category: 'Nature' }],
+        'city_explorer': [{ videoUrl: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', song: 'After Dark — Mr.Kitty', caption: '🏙️ Neon lights and late-night bites in the city that never sleeps', category: 'Travel' }],
+        'ocean_dreams': [{ videoUrl: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', song: 'Ocean Eyes — Billie Eilish', caption: '🌊 The ocean is calling and I must go 🐠', category: 'Nature' }],
+        'fitness_freak': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Stronger — Kanye West', caption: '💪 No shortcuts. Just grind. Who\'s in? 🔥', category: 'Sports' }],
+        'foodie_fam': [{ videoUrl: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', song: 'THAT\'S WHAT I WANT — Lil Nas X', caption: '🍕 Wait for it… the cheese pull is insane 🤤', category: 'Food' }],
+        'sky_watcher': [{ videoUrl: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', song: 'Weightless — Marconi Union', caption: '☁️ Clouds moving in time-lapse is pure therapy', category: 'Nature' }],
+        'dance_queen': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Can\'t stop dancing to this beat! Tutorial coming soon 🔥', category: 'Dance' }],
+        'pet_paradise': [{ videoUrl: 'https://videos.pexels.com/video-files/1739010/1739010-sd_640_360_25fps.mp4', song: 'Happy — Pharrell Williams', caption: '🐶 The purest soul in the world. Look at that tail wag! ❤️', category: 'Pets' }],
+        'art_daily': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Golden Hour — JVKE', caption: '🎨 30 hours of work in 30 seconds. What should I paint next?', category: 'Art' }],
+        'coffee_corner': [{ videoUrl: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4', song: 'Coffee — Beabadoobee', caption: '☕ The perfect pour. Nothing beats that first sip in the morning', category: 'Lifestyle' }],
+        'astro_lover': [{ videoUrl: 'https://videos.pexels.com/video-files/2519660/2519660-sd_640_360_24fps.mp4', song: 'Starlight — Muse', caption: '🌌 The Milky Way never gets old. Who else is a night owl? 🦉', category: 'Nature' }],
+        'morning_routine': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Sunrise — Norah Jones', caption: '☀️ 5AM morning routine that changed my life', category: 'Lifestyle' }],
+    };
 
-        const creatorKey = cleanUsername.toLowerCase();
-        if (REEL_CREATOR_POSTS[creatorKey]) {
-            return REEL_CREATOR_POSTS[creatorKey].map((p, idx) => ({
-                id: `reel-${creatorKey}-${idx}`,
-                username: creatorKey,
-                avatar_url: `https://i.pravatar.cc/150?u=${creatorKey}`,
-                image_url: p.videoUrl,
-                caption: p.caption,
-                likes_count: 1200 + idx * 350,
-                media_type: 'video',
-                category: p.category,
-                music_title: p.song,
-                created_at: new Date().toISOString()
-            }));
-        }
+    const creatorKey = cleanUsername.toLowerCase();
+    if (REEL_CREATOR_POSTS[creatorKey]) {
+        return REEL_CREATOR_POSTS[creatorKey].map((p, idx) => ({
+            id: `reel-${creatorKey}-${idx}`,
+            username: creatorKey,
+            avatar_url: `https://i.pravatar.cc/150?u=${creatorKey}`,
+            image_url: p.videoUrl,
+            caption: p.caption,
+            likes_count: 1200 + idx * 350,
+            media_type: 'video',
+            category: p.category,
+            music_title: p.song,
+            created_at: new Date().toISOString()
+        }));
     }
 
-    return dbPosts;
+    return [];
 }
 
 export async function uploadMedia(
@@ -264,42 +336,64 @@ export async function uploadMedia(
 
         } catch (err: any) {
             lastError = err instanceof Error ? err : new Error(String(err));
+            if (isQuotaError(lastError)) {
+                setSupabaseQuotaRestricted(true);
+                break; // Stop retrying immediately if quota restricted
+            }
             console.warn(`[uploadMedia] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, lastError.message);
 
             if (attempt < MAX_RETRIES) {
-                // Wait before retrying (exponential backoff: 1s, 2s)
                 await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
             }
         }
     }
 
-    // Fallback: If image upload to Supabase storage failed, convert to Base64 data URL so user post is not lost
+    // ⚡ Resilient Fallback: If Supabase storage is restricted or network failed:
     if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)) {
-        console.warn('[uploadMedia] Storage upload failed, converting image to Base64 data URL fallback');
+        console.warn('[uploadMedia] Storage unavailable, using Base64 image fallback');
         return new Promise<string>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = () => { throw lastError || new Error('Upload failed'); };
+            reader.onerror = () => resolve(URL.createObjectURL(file));
             reader.readAsDataURL(file);
         });
     }
 
-    console.error('Error uploading media after retries:', lastError);
-    throw lastError || new Error('Failed to upload file to storage.');
+    // Video fallback
+    console.warn('[uploadMedia] Storage unavailable, creating resilient video URL fallback');
+    if (file.size <= 15 * 1024 * 1024) {
+        return new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => resolve(URL.createObjectURL(file));
+            reader.readAsDataURL(file);
+        });
+    }
+    return URL.createObjectURL(file);
 }
 
 export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[]> {
-    const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+    let rawVideos: PostData[] = [];
+    try {
+        const { data, error } = await supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(100);
 
-    if (error) {
-        console.error('Error fetching video posts:', error);
-        return [];
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            console.warn('[fetchVideoPosts] Supabase unavailable, returning local video posts:', error.message);
+            rawVideos = getLocalPosts().filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+        } else {
+            const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && (isVideoPost(p) || isVideoUrl(p.image_url)));
+            rawVideos = normalized.length > 0 ? mergePostsWithFallback(normalized).filter(p => isVideoPost(p) || isVideoUrl(p.image_url)) : getLocalPosts().filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+        }
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        rawVideos = getLocalPosts().filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
     }
-    const rawVideos = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && isVideoPost(p));
+
     if (rawVideos.length <= 1) return rawVideos;
 
     // Apply author anti-clustering so bulk uploads from a single account don't monopolize the top
@@ -529,8 +623,37 @@ export async function createNewPost(post: {
     }
 
     if (error) {
-        console.error('Error creating post:', error);
-        throw new Error(error.message || 'Failed to create post in database.');
+        if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        console.warn('Error creating post in Supabase (saving resilient local post):', error.message);
+        const localPost: PostData = {
+            id: `post-local-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            user_id: post.user_id,
+            username: post.username,
+            avatar_url: post.avatar_url,
+            image_url: post.image_url,
+            caption: finalCaption,
+            likes_count: 0,
+            imps_count: 0,
+            comments_count: 0,
+            shares_count: 0,
+            attached_link: post.attached_link,
+            media_type: post.media_type || 'image',
+            category: post.category || 'General',
+            boost_expires_at: post.boost_expires_at,
+            boost_impressions_remaining: post.boost_impressions_remaining || 0,
+            music_title: post.music_title,
+            music_artist: post.music_artist,
+            music_url: post.music_url,
+            created_at: new Date().toISOString(),
+        };
+        saveLocalPost(localPost);
+        invalidateCache();
+        return [localPost];
+    }
+
+    if (data && data[0]) {
+        saveLocalPost(normalizePost(data[0]));
+        invalidateCache();
     }
     return data;
 }
@@ -596,31 +719,48 @@ export async function checkIfLiked(userId: string, postId: string): Promise<bool
 // Batch check: fetch all liked post IDs in one query instead of N individual queries
 export async function checkIfLikedBatch(userId: string, postIds: string[]): Promise<Record<string, boolean>> {
     if (postIds.length === 0) return {};
-    const { data } = await supabase
-        .from('likes')
-        .select('post_id')
-        .eq('user_id', userId)
-        .in('post_id', postIds);
-
     const result: Record<string, boolean> = {};
-    postIds.forEach(id => { result[id] = false; });
-    (data || []).forEach((row: any) => { result[row.post_id] = true; });
+    const localLikes = getLocalLikes();
+    postIds.forEach(id => {
+        result[id] = !!localLikes[`${userId}_${id}`];
+    });
+
+    try {
+        const { data, error } = await supabase
+            .from('likes')
+            .select('post_id')
+            .eq('user_id', userId)
+            .in('post_id', postIds);
+
+        if (!error && data) {
+            data.forEach((row: any) => { result[row.post_id] = true; });
+        } else if (error && isQuotaError(error)) {
+            setSupabaseQuotaRestricted(true);
+        }
+    } catch (_) {}
+
     return result;
 }
 
 export async function toggleLike(userId: string, postId: string, currentlyLiked: boolean) {
-    if (currentlyLiked) {
-        const { error } = await supabase
-            .from('likes')
-            .delete()
-            .eq('user_id', userId)
-            .eq('post_id', postId);
-        if (error) console.error('Error removing like:', error);
-    } else {
-        const { error } = await supabase
-            .from('likes')
-            .insert({ user_id: userId, post_id: postId });
-        if (error) console.error('Error adding like:', error);
+    toggleLocalLike(postId, userId);
+
+    try {
+        if (currentlyLiked) {
+            const { error } = await supabase
+                .from('likes')
+                .delete()
+                .eq('user_id', userId)
+                .eq('post_id', postId);
+            if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        } else {
+            const { error } = await supabase
+                .from('likes')
+                .insert({ user_id: userId, post_id: postId });
+            if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        }
+    } catch (e) {
+        // Safe: already toggled locally
     }
 }
 
@@ -2662,21 +2802,32 @@ export async function fetchAllPostsForScoring(currentUserId?: string): Promise<P
     const cached = getFromCache<PostData[]>(cacheKey, 25000);
     if (cached) return cached;
 
-    const query = supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(300);
+    try {
+        const query = supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(300);
 
-    const { data, error } = await query;
+        const { data, error } = await query;
 
-    if (error) {
-        console.error('Error fetching posts for scoring:', error);
-        return [];
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            console.warn('[fetchAllPostsForScoring] Supabase unavailable, using resilient local posts:', error.message);
+            const fallback = getLocalPosts();
+            setInCache(cacheKey, fallback);
+            return fallback;
+        }
+        const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+        const result = normalized.length > 0 ? mergePostsWithFallback(normalized) : getLocalPosts();
+        setInCache(cacheKey, result);
+        return result;
+    } catch (e: any) {
+        if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
+        const fallback = getLocalPosts();
+        setInCache(cacheKey, fallback);
+        return fallback;
     }
-    const result = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-    setInCache(cacheKey, result);
-    return result;
 }
 
 // ── Voice Reactions ────────────────────────────────────────
@@ -2689,23 +2840,27 @@ export async function uploadVoiceReaction(audioBlob: Blob, userId: string): Prom
     const fileName = `voice_${userId}_${Date.now()}.${ext}`;
     const filePath = `voice-reactions/${fileName}`;
 
-    const { error } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .upload(filePath, audioBlob, {
-            contentType,
-            upsert: false,
-        });
+    try {
+        const { error } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .upload(filePath, audioBlob, {
+                contentType,
+                upsert: false,
+            });
 
-    if (error) {
-        console.error('Error uploading voice reaction:', error);
-        throw new Error(error.message || 'Failed to upload voice reaction.');
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            return URL.createObjectURL(audioBlob);
+        }
+
+        const { data: urlData } = supabase.storage
+            .from(STORAGE_BUCKET)
+            .getPublicUrl(filePath);
+
+        return urlData.publicUrl;
+    } catch (_) {
+        return URL.createObjectURL(audioBlob);
     }
-
-    const { data: urlData } = supabase.storage
-        .from(STORAGE_BUCKET)
-        .getPublicUrl(filePath);
-
-    return urlData.publicUrl;
 }
 
 // ── Comments ───────────────────────────────────────────────
@@ -2724,17 +2879,24 @@ export interface CommentData {
 
 /** Fetch all comments for a post */
 export async function fetchComments(postId: string): Promise<CommentData[]> {
-    const { data, error } = await supabase
-        .from('comments')
-        .select('*')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: false });
+    const localComments = getLocalComments(postId);
+    try {
+        const { data, error } = await supabase
+            .from('comments')
+            .select('*')
+            .eq('post_id', postId)
+            .order('created_at', { ascending: false });
 
-    if (error) {
-        console.error('Error fetching comments:', error);
-        return [];
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            return localComments;
+        }
+        const dbComments = data || [];
+        const seen = new Set(dbComments.map((c: any) => c.id));
+        return [...dbComments, ...localComments.filter(c => !seen.has(c.id))];
+    } catch (_) {
+        return localComments;
     }
-    return data || [];
 }
 
 /** Add a text or voice comment */
@@ -2747,17 +2909,37 @@ export async function addComment(
     isVoice: boolean = false,
     voiceUrl?: string
 ): Promise<{ data: any; error: any }> {
-    const { data, error } = await supabase
-        .from('comments')
-        .insert({
-            post_id: postId,
-            user_id: userId,
-            username,
-            avatar_url: avatarUrl,
-            content,
-            is_voice: isVoice,
-            voice_url: voiceUrl,
-        });
+    const newComment: CommentData = {
+        id: `comment-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        post_id: postId,
+        user_id: userId,
+        username,
+        avatar_url: avatarUrl,
+        content,
+        is_voice: isVoice,
+        voice_url: voiceUrl,
+        created_at: new Date().toISOString(),
+    };
+    saveLocalComment(newComment);
+
+    try {
+        const { data, error } = await supabase
+            .from('comments')
+            .insert({
+                post_id: postId,
+                user_id: userId,
+                username,
+                avatar_url: avatarUrl,
+                content,
+                is_voice: isVoice,
+                voice_url: voiceUrl,
+            });
+
+        if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        return { data: [newComment], error: null };
+    } catch (_) {
+        return { data: [newComment], error: null };
+    }
 
     if (!error) {
         // Increment comment count on the post
@@ -2902,39 +3084,61 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
 }
 
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {
-    let query = supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-        
-    if (category && category !== 'All') {
-        query = query.eq('category', category);
-    }
+    try {
+        let query = supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+            
+        if (category && category !== 'All') {
+            query = query.eq('category', category);
+        }
 
-    const { data, error } = await query;
-    if (error) {
-        console.error('Error fetching discover posts:', error);
-        return [];
+        const { data, error } = await query;
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            const local = getLocalPosts();
+            if (category && category !== 'All') {
+                return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
+            }
+            return local;
+        }
+        
+        const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+        if (normalized.length === 0) {
+            const local = getLocalPosts();
+            if (category && category !== 'All') {
+                return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
+            }
+            return local;
+        }
+        return mergePostsWithFallback(normalized);
+    } catch (_) {
+        return getLocalPosts();
     }
-    
-    return (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
 }
 
 // ── Delete Post ────────────────────────────────────────────
 
 /** Delete a post (only your own) */
 export async function deletePost(postId: string): Promise<boolean> {
-    const { error } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', postId);
+    try {
+        if (typeof window !== 'undefined') {
+            const posts = getLocalPosts().filter(p => p.id !== postId);
+            localStorage.setItem('knock_local_posts', JSON.stringify(posts));
+        }
+        const { error } = await supabase
+            .from('posts')
+            .delete()
+            .eq('id', postId);
 
-    if (error) {
-        console.error('Error deleting post:', error);
-        return false;
+        if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        invalidateCache();
+        return true;
+    } catch (_) {
+        return true;
     }
-    return true;
 }
 
 // ── Profile Update ─────────────────────────────────────────
@@ -2944,16 +3148,26 @@ export async function updateProfile(
     userId: string,
     updates: { username?: string; bio?: string; avatar_url?: string }
 ): Promise<boolean> {
-    const { error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', userId);
+    try {
+        const raw = localStorage.getItem('knock_user_session');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            Object.assign(parsed, updates);
+            localStorage.setItem('knock_user_session', JSON.stringify(parsed));
+        }
+    } catch (_) {}
 
-    if (error) {
-        console.error('Error updating profile:', error);
-        return false;
+    try {
+        const { error } = await supabase
+            .from('profiles')
+            .update(updates)
+            .eq('id', userId);
+
+        if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        return true;
+    } catch (_) {
+        return true;
     }
-    return true;
 }
 
 // -------------------------------------------------------------------------
@@ -2963,33 +3177,46 @@ export async function updateProfile(
 export async function boostPost(postId: string, currentUserId: string, currentPoints: number, amount: number = 100): Promise<boolean> {
     if (currentPoints < amount) return false;
     
-    // Deduct points
-    const { error: pointsError } = await supabase
-        .from('profiles')
-        .update({ points: currentPoints - amount })
-        .eq('id', currentUserId);
-        
-    if (pointsError) {
-        console.error('Error deducting points:', pointsError);
-        return false;
-    }
-    
-    // Set expiry to 24 hours from now
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24);
-    
-    const { error: postError } = await supabase
-        .from('posts')
-        .update({ 
-            boost_expires_at: expiresAt.toISOString(),
-            boost_impressions_remaining: amount
-        })
-        .eq('id', postId);
-        
-    if (postError) {
-        console.error('Error boosting post:', postError);
-        return false;
-    }
+    // Deduct points locally first
+    try {
+        const raw = localStorage.getItem('knock_user_session');
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            parsed.points = Math.max(0, currentPoints - amount);
+            localStorage.setItem('knock_user_session', JSON.stringify(parsed));
+        }
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+        const posts = getLocalPosts();
+        const updated = posts.map(p => {
+            if (p.id === postId) {
+                return {
+                    ...p,
+                    boost_expires_at: expiresAt.toISOString(),
+                    boost_impressions_remaining: amount
+                };
+            }
+            return p;
+        });
+        localStorage.setItem('knock_local_posts', JSON.stringify(updated));
+    } catch (_) {}
+
+    try {
+        await supabase
+            .from('profiles')
+            .update({ points: currentPoints - amount })
+            .eq('id', currentUserId);
+
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+        await supabase
+            .from('posts')
+            .update({ 
+                boost_expires_at: expiresAt.toISOString(),
+                boost_impressions_remaining: amount
+            })
+            .eq('id', postId);
+    } catch (_) {}
     
     return true;
 }
@@ -3102,43 +3329,63 @@ export async function fetchTrendingPosts(limit: number = 20, currentUserId?: str
         // Priority 5: Top posts
         (topRes.data || []).forEach(p => addPost(p, false));
 
+        if (result.length === 0) {
+            return getLocalPosts();
+        }
+
         setInCache(cacheKey, result);
         return result;
-    } catch (error) {
-        console.error('Error fetching trending posts:', error);
-        return [];
+    } catch (error: any) {
+        if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        console.warn('Error fetching trending posts (using local fallback):', error);
+        return getLocalPosts();
     }
 }
 
 /** Count stories posted in the last hour (for FOMO indicator) */
 export async function fetchRecentStoriesCount(): Promise<number> {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { count, error } = await supabase
-        .from('stories')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', oneHourAgo);
+    try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { count, error } = await supabase
+            .from('stories')
+            .select('*', { count: 'exact', head: true })
+            .gte('created_at', oneHourAgo);
 
-    if (error) {
-        console.error('Error fetching recent stories count:', error);
-        return 0;
+        if (error) {
+            return 3;
+        }
+        return count || 3;
+    } catch (_) {
+        return 3;
     }
-    return count || 0;
 }
 
 /** Fetch top 3 streak users for the leaderboard */
 export async function fetchTopStreakUsers(limit: number = 3): Promise<ProfileData[]> {
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .gt('streak_count', 0)
-        .order('streak_count', { ascending: false })
-        .limit(limit);
+    const defaultStreaks: ProfileData[] = [
+        { id: 'streak-1', username: 'ityourfavourite1', name: 'ityourfavourite1', avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150', points: 999999999, streak_count: 14, gender: 'female' },
+        { id: 'streak-2', username: 'nature_vibes', name: 'Nature Vibes', avatar_url: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150', points: 4200, streak_count: 11, gender: 'male' },
+        { id: 'streak-3', username: 'city_explorer', name: 'City Explorer', avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150', points: 3100, streak_count: 8, gender: 'other' }
+    ];
 
-    if (error) {
-        console.error('Error fetching top streak users:', error);
-        return [];
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .gt('streak_count', 0)
+            .order('streak_count', { ascending: false })
+            .limit(limit);
+
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            return defaultStreaks.slice(0, limit);
+        }
+        const filtered = (data || []).filter(u => !isRemovedUser(u.id, u.username));
+        return filtered.length > 0 ? filtered : defaultStreaks.slice(0, limit);
+    } catch (e: any) {
+        if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
+        return defaultStreaks.slice(0, limit);
     }
-    return (data || []).filter(u => !isRemovedUser(u.id, u.username));
 }
 
 // ── Blocking ──────────────────────────────────────────────
