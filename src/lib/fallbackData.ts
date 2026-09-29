@@ -22,15 +22,20 @@ export function onQuotaStatusChange(listener: (isRestricted: boolean) => void): 
 
 export function isQuotaError(err: any): boolean {
     if (!err) return false;
-    const msg = typeof err === 'string' ? err : (err.message || err.error || JSON.stringify(err));
+    const msg = (typeof err === 'string' ? err : (err.message || err.error || JSON.stringify(err))).toLowerCase();
     const status = err.status || err.statusCode || (err.response && err.response.status);
     return (
         status === 402 ||
         msg.includes('402') ||
         msg.includes('exceed_cached_egress_quota') ||
         msg.includes('restricted due to the following violations') ||
+        msg.includes('used up its quota') ||
+        msg.includes('unable to serve requests') ||
+        msg.includes('billing') ||
         msg.includes('spend caps') ||
-        msg.includes('quota')
+        msg.includes('quota') ||
+        msg.includes('egress') ||
+        msg.includes('payment required')
     );
 }
 
