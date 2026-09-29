@@ -46,8 +46,19 @@ try {
 
 let isGlobalFrameCaptureRunning = false;
 
-const UNIVERSAL_FALLBACK_IMAGE = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><rect width="100%" height="100%" fill="%23121214"/></svg>';
-const CATEGORY_FALLBACKS: Record<string, string> = {};
+const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop';
+const CATEGORY_FALLBACKS: Record<string, string> = {
+    Lifestyle: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop',
+    Music: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
+    Nature: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop',
+    Travel: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop',
+    Sports: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=800&auto=format&fit=crop',
+    Food: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop',
+    Dance: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=800&auto=format&fit=crop',
+    Tech: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop',
+    Entertainment: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop',
+    General: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop'
+};
 
 export const extractPosterFromUrl = (url?: string): string | undefined => {
     if (!url) return undefined;
@@ -56,6 +67,13 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
             return decodeURIComponent(url.split('#POSTER:')[1]?.split('#')[0] || '');
         } catch (_) {
             return url.split('#POSTER:')[1]?.split('#')[0];
+        }
+    }
+    if (url.includes('#FALLBACK:')) {
+        try {
+            return decodeURIComponent(url.split('#FALLBACK:')[1]?.split('#')[0] || '');
+        } catch (_) {
+            return url.split('#FALLBACK:')[1]?.split('#')[0];
         }
     }
     return undefined;
@@ -498,15 +516,35 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     } catch(e) {}
 
-    // Retry handler: automatically switches to high-quality fallback image on failure
+    // ⚡ Fix Coral blue/green & distorted colors: Strip extreme hue shifts or inversions
+    if (post.username === 'coral' || extractedFilter.includes('hue-rotate') || extractedFilter.includes('invert')) {
+        extractedFilter = extractedFilter
+            .replace(/hue-rotate\([^)]+\)/g, '')
+            .replace(/invert\([^)]+\)/g, '')
+            .trim();
+        if (!extractedFilter || extractedFilter === 'none') extractedFilter = 'none';
+    }
+
+    // Retry handler: automatically switches to high-quality fallback image or poster on failure
     const handleMediaError = () => {
         if (!isVideo && !fallbackUsedRef.current) {
             fallbackUsedRef.current = true;
+            const fallbackPoster = extractPosterFromUrl(post.image_url);
             const category = (post as any)?.category;
-            const fallback = (category && CATEGORY_FALLBACKS[category]) || UNIVERSAL_FALLBACK_IMAGE;
+            const fallback = fallbackPoster || (category && CATEGORY_FALLBACKS[category]) || UNIVERSAL_FALLBACK_IMAGE;
             setCurrentImgSrc(fallback);
             setHasError(false);
             return;
+        }
+        if (isVideo && !fallbackUsedRef.current) {
+            fallbackUsedRef.current = true;
+            const poster = extractPosterFromUrl(post.image_url);
+            if (poster) {
+                setCapturedPoster(poster);
+                setPosterFailed(false);
+                setHasError(false);
+                return;
+            }
         }
         if (isVideo && videoCrossOrigin === 'anonymous') {
             // Retry without crossOrigin restriction in case CORS was rejected
@@ -525,6 +563,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     if (hasError || !post.image_url) {
+        const poster = extractPosterFromUrl(post.image_url) || ((post as any)?.category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
         return (
             <div 
                 className={className}
@@ -535,24 +574,42 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     position: 'relative',
                     overflow: 'hidden',
                     background: '#121214',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
                     ...style
                 }}
             >
-                <div style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.06)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'rgba(255,255,255,0.3)'
-                }}>
-                    <Play size={20} fill="currentColor" color="transparent" style={{ marginLeft: '2px' }} />
-                </div>
+                <img
+                    src={poster}
+                    alt={alt}
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: resolvedObjectFit,
+                        display: 'block'
+                    }}
+                />
+                {isVideo && (
+                    <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'rgba(0,0,0,0.25)'
+                    }}>
+                        <div style={{
+                            width: '44px',
+                            height: '44px',
+                            borderRadius: '50%',
+                            background: 'rgba(0,0,0,0.6)',
+                            backdropFilter: 'blur(4px)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <Play size={20} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
