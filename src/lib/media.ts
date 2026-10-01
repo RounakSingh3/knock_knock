@@ -212,19 +212,27 @@ export async function extractVideoPoster(
 ): Promise<{ blob: Blob; dataUrl: string; width: number; height: number } | null> {
     return new Promise((resolve) => {
         try {
-            const url = typeof fileOrUrl === 'string' ? fileOrUrl : URL.createObjectURL(fileOrUrl);
+            const isFile = typeof fileOrUrl !== 'string';
+            const url = isFile ? URL.createObjectURL(fileOrUrl) : fileOrUrl;
             const video = document.createElement('video');
             video.preload = 'auto';
             video.src = url;
             video.muted = true;
             video.playsInline = true;
-            (video as any).crossOrigin = 'anonymous';
+            video.autoplay = true;
+
+            // ONLY set crossOrigin on remote http(s) URLs; NEVER on blob: or data: URLs (causes SecurityError in Safari/Chrome)
+            if (!isFile && (url.startsWith('http://') || url.startsWith('https://'))) {
+                video.crossOrigin = 'anonymous';
+            }
 
             let cleanedUp = false;
+            let captured = false;
+
             const cleanup = () => {
                 if (cleanedUp) return;
                 cleanedUp = true;
-                if (typeof fileOrUrl !== 'string' && url.startsWith('blob:')) {
+                if (isFile && url.startsWith('blob:')) {
                     try { URL.revokeObjectURL(url); } catch (_) {}
                 }
                 video.pause();
@@ -232,9 +240,8 @@ export async function extractVideoPoster(
                 video.load();
             };
 
-            let captured = false;
             const capture = () => {
-                if (captured) return;
+                if (captured || cleanedUp) return;
                 try {
                     const w = video.videoWidth || 720;
                     const h = video.videoHeight || 1280;
@@ -256,7 +263,7 @@ export async function extractVideoPoster(
                         if (blob) {
                             resolve({ blob, dataUrl, width: canvas.width, height: canvas.height });
                         } else {
-                            resolve(null);
+                            resolve({ blob: new Blob([dataUrl], { type: 'image/jpeg' }), dataUrl, width: canvas.width, height: canvas.height });
                         }
                     }, 'image/jpeg', 0.85);
                 } catch (e) {
@@ -276,8 +283,26 @@ export async function extractVideoPoster(
                 }
             };
 
+            video.onloadedmetadata = () => {
+                if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    capture();
+                }
+            };
+
+            video.oncanplay = () => {
+                if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    capture();
+                }
+            };
+
             video.onseeked = () => {
                 capture();
+            };
+
+            video.ontimeupdate = () => {
+                if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    capture();
+                }
             };
 
             video.onerror = () => {
@@ -293,7 +318,7 @@ export async function extractVideoPoster(
                     cleanup();
                     resolve(null);
                 }
-            }, 1200);
+            }, 6000);
         } catch (_) {
             resolve(null);
         }
@@ -467,33 +492,18 @@ export async function transcodeHevcToUniversalVideo(
 export async function prepareVideoForUpload(
     file: File,
     onStatus?: (status: string) => void
-): Promise<{ videoFile: File; posterBlob: Blob | null }> {
+): Promise<{ videoFile: File; posterBlob: Blob | null; posterDataUrl: string | null }> {
     let posterBlob: Blob | null = null;
-    let finalFile = file;
+    let posterDataUrl: string | null = null;
 
     try {
         if (onStatus) onStatus('Generating preview poster...');
         const posterRes = await extractVideoPoster(file, 0.05);
         if (posterRes?.blob) {
             posterBlob = posterRes.blob;
+            posterDataUrl = posterRes.dataUrl;
         }
     } catch (_) {}
 
-    // ⚡ Pre-compress large videos (>6MB) or MOV files client-side to save bandwidth & prevent egress quota exhaustion
-    const isLarge = file.size > 6 * 1024 * 1024;
-    const isMov = /\.(mov|hevc)$/i.test(file.name) || file.type.includes('quicktime');
-
-    if ((isLarge || isMov) && typeof MediaRecorder !== 'undefined') {
-        try {
-            if (onStatus) onStatus('Optimizing video resolution & compression...');
-            finalFile = await convertVideoToPlayableMp4(file, (progress) => {
-                if (onStatus) onStatus(`Optimizing video (${progress}%)...`);
-            });
-        } catch (e) {
-            console.warn('[prepareVideoForUpload] Pre-compression skipped, using original file:', e);
-            finalFile = file;
-        }
-    }
-
-    return { videoFile: finalFile, posterBlob };
+    return { videoFile: file, posterBlob, posterDataUrl };
 }

@@ -29,7 +29,7 @@ interface PostMediaProps {
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
 const itunesCache = new Map<string, string>();
 // In-memory poster frame cache for video thumbnails to eliminate hardware video decoder churn
-const videoPosterCache = new Map<string, string>();
+export const videoPosterCache = new Map<string, string>();
 
 // Restore any persisted video posters from sessionStorage to eliminate cold-start decoder spikes
 try {
@@ -47,7 +47,7 @@ try {
 
 const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
-    Lifestyle: 'https://images.unsplash.com/photo-1511988617509-a57c8a288659?w=800&auto=format&fit=crop',
+    Lifestyle: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=800&auto=format&fit=crop',
     Music: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
     Nature: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop',
     Travel: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop',
@@ -490,8 +490,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     } catch(e) {}
 
-    // ⚡ Fix Coral blue/green & distorted colors: Strip extreme hue shifts or inversions
-    if (post.username === 'coral' || extractedFilter.includes('hue-rotate') || extractedFilter.includes('invert')) {
+    // ⚡ Fix distorted colors: Strip extreme hue shifts or inversions
+    if (extractedFilter.includes('hue-rotate') || extractedFilter.includes('invert')) {
         extractedFilter = extractedFilter
             .replace(/hue-rotate\([^)]+\)/g, '')
             .replace(/invert\([^)]+\)/g, '')
@@ -654,7 +654,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             {isVideo ? (
                 <>
                     {thumbnail && !isPlayingMode ? (
-                        /* ⚡ Ultra-lightweight instant poster for all grid/masonry cards: 0 video decoders, 0 layout shifts, 0 main-thread blocking */
+                        /* ⚡ Ultra-lightweight instant poster for all grid/masonry cards: displays real video picture without opening */
                         <div
                             className={className}
                             style={{
@@ -667,29 +667,71 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 background: '#18181b',
                             }}
                         >
-                            <img
-                                src={capturedPoster || (!posterFailed && resolvedPosterFromUrl ? resolvedPosterFromUrl : undefined) || getFallbackPoster(post)}
-                                alt={alt}
-                                style={{
-                                    ...style,
-                                    filter: extractedFilter,
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: resolvedObjectFit,
-                                    display: 'block',
-                                    transform: 'translateZ(0)',
-                                    backfaceVisibility: 'hidden',
-                                }}
-                                loading="lazy"
-                                decoding="async"
-                                onError={() => {
-                                    if (!posterFailed) {
+                            {(capturedPoster || (!posterFailed && resolvedPosterFromUrl ? resolvedPosterFromUrl : undefined)) ? (
+                                <img
+                                    src={capturedPoster || resolvedPosterFromUrl}
+                                    alt={alt}
+                                    style={{
+                                        ...style,
+                                        filter: extractedFilter,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: resolvedObjectFit,
+                                        display: 'block',
+                                        transform: 'translateZ(0)',
+                                        backfaceVisibility: 'hidden',
+                                    }}
+                                    loading="lazy"
+                                    decoding="async"
+                                    onError={() => {
                                         setPosterFailed(true);
                                         setCapturedPoster(undefined);
-                                        videoPosterCache.delete(cleanUrl);
-                                    }
-                                }}
-                            />
+                                        if (cleanUrl) videoPosterCache.delete(cleanUrl);
+                                    }}
+                                />
+                            ) : (
+                                /* When no static poster image exists, display the REAL video frame picture at #t=0.001 */
+                                <video
+                                    src={`${videoSrc}#t=0.001`}
+                                    preload="metadata"
+                                    muted
+                                    playsInline
+                                    // @ts-ignore
+                                    webkit-playsinline="true"
+                                    x5-playsinline="true"
+                                    style={{
+                                        ...style,
+                                        filter: extractedFilter,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: resolvedObjectFit,
+                                        display: 'block',
+                                        pointerEvents: 'none',
+                                        transform: 'translateZ(0)',
+                                        backfaceVisibility: 'hidden',
+                                    }}
+                                    onLoadedData={(e) => {
+                                        const v = e.currentTarget;
+                                        if (cleanUrl && !videoPosterCache.has(cleanUrl) && v.videoWidth > 0 && v.videoHeight > 0) {
+                                            try {
+                                                const canvas = document.createElement('canvas');
+                                                const scale = Math.min(1, 480 / v.videoWidth);
+                                                canvas.width = Math.round(v.videoWidth * scale);
+                                                canvas.height = Math.round(v.videoHeight * scale);
+                                                const ctx = canvas.getContext('2d');
+                                                if (ctx) {
+                                                    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+                                                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                                                    if (dataUrl && dataUrl.length > 200) {
+                                                        videoPosterCache.set(cleanUrl, dataUrl);
+                                                        setCapturedPoster(dataUrl);
+                                                    }
+                                                }
+                                            } catch (_) {}
+                                        }
+                                    }}
+                                />
+                            )}
                             <div style={{
                                 position: 'absolute',
                                 top: '8px',
@@ -712,7 +754,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
-                                poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined) || (thumbnail ? getFallbackPoster(post) : undefined)}
+                                poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined)}
                                 className={className}
                                 style={{
                                     ...style,

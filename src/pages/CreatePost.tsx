@@ -8,6 +8,7 @@ import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, P
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 import KnockVideoPickerModal, { type KnockVideoItem } from '../components/KnockVideoPickerModal';
 import UploadRewardModal from '../components/UploadRewardModal';
+import { videoPosterCache } from '../components/PostMedia';
 
 const POPULAR_HASHTAGS = [
     { tag: '#trending', category: 'General' },
@@ -299,6 +300,7 @@ const CreatePost = () => {
             let fileToUpload = file;
 
             let videoPosterBlob: Blob | null = null;
+            let videoPosterDataUrl: string | null = null;
             if (mediaType === 'image') {
                 try {
                     setError('Compressing image for fast upload...');
@@ -320,12 +322,15 @@ const CreatePost = () => {
                     if (prepared.posterBlob) {
                         videoPosterBlob = prepared.posterBlob;
                     }
+                    if (prepared.posterDataUrl) {
+                        videoPosterDataUrl = prepared.posterDataUrl;
+                    }
                 } catch (_) {}
             }
 
             const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
             setUploadProgress({ percentage: 0, loadedMB: '0.0', totalMB: initialTotalMB });
-            const fileExt = fileToUpload.name.split('.').pop();
+            const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
             const fileName = `${user.id}-${Date.now()}.${fileExt}`;
             const path = `posts/${fileName}`;
 
@@ -353,8 +358,10 @@ const CreatePost = () => {
             }
 
             let finalUrl = publicUrl;
-            if (uploadedPosterUrl) {
-                finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
+            const effectivePoster = uploadedPosterUrl || (videoPosterDataUrl && videoPosterDataUrl.length < 50000 ? videoPosterDataUrl : undefined);
+            if (effectivePoster) {
+                finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(effectivePoster)}`;
+                videoPosterCache.set(finalUrl.split('#')[0], effectivePoster);
             }
             if (selectedFilter !== 'none') {
                 try {

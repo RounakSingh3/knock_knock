@@ -6,7 +6,7 @@ import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFe
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, recordHashtagSignal } from '../lib/algorithm';
-import { extractPosterFromUrl, getFallbackPoster } from '../components/PostMedia';
+import { extractPosterFromUrl, getFallbackPoster, videoPosterCache } from '../components/PostMedia';
 
 // ⚡ Lazy-load heavy modals so Reels renders instantly
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
@@ -848,19 +848,29 @@ const Reels: React.FC = () => {
                         style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
                     >
                         {(() => {
+                            const clean = reel.videoUrl.split('#')[0].split('?')[0];
+                            const cached = videoPosterCache.get(clean);
                             const posterSrc = (reel.posterUrl && !isVideoUrl(reel.posterUrl))
                                 ? reel.posterUrl
-                                : (extractPosterFromUrl(reel.videoUrl) || getFallbackPoster({ category: reel.category }));
+                                : (cached || extractPosterFromUrl(reel.videoUrl));
+                            if (posterSrc) {
+                                return (
+                                    <img
+                                        src={posterSrc}
+                                        alt={reel.caption || 'Reel'}
+                                        loading="lazy"
+                                        decoding="async"
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                    />
+                                );
+                            }
                             return (
-                                <img
-                                    src={posterSrc}
-                                    alt={reel.caption || 'Reel'}
-                                    loading="lazy"
-                                    decoding="async"
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                                    onError={(e) => {
-                                        (e.currentTarget as HTMLImageElement).src = getFallbackPoster({ category: reel.category });
-                                    }}
+                                <video
+                                    src={`${reel.videoUrl.split('#')[0]}#t=0.001`}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
+                                    muted
+                                    playsInline
+                                    preload="metadata"
                                 />
                             );
                         })()}
