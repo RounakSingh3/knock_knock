@@ -141,6 +141,490 @@ export const KNOWN_PROFILES: ProfileData[] = [
         "gender": "male",
         "is_online": true,
         "bio": "Legit in every verse"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111103",
+        "username": "priya_patel99",
+        "name": "Priya Patel",
+        "avatar_url": "https://i.pravatar.cc/150?u=103",
+        "points": 4200,
+        "streak_count": 8,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Fashion, beauty & daily lifestyle inspirations ✨"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111102",
+        "username": "rahul_sharma",
+        "name": "Rahul Sharma",
+        "avatar_url": "https://i.pravatar.cc/150?u=102",
+        "points": 3800,
+        "streak_count": 11,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Tech enthusiast & digital creator 🚀"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111106",
+        "username": "neha_creates",
+        "name": "Neha Creates",
+        "avatar_url": "https://i.pravatar.cc/150?u=106",
+        "points": 5100,
+        "streak_count": 14,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Art, dance & creative moments 🎨💃"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111104",
+        "username": "viral_bhayani_fan",
+        "name": "Viral Bhayani Fan",
+        "avatar_url": "https://i.pravatar.cc/150?u=104",
+        "points": 6400,
+        "streak_count": 15,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Bollywood updates & celebrity moments 🎬"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111109",
+        "username": "bollywood_gossip",
+        "name": "Bollywood Gossip",
+        "avatar_url": "https://i.pravatar.cc/150?u=109",
+        "points": 5800,
+        "streak_count": 12,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Latest scoops, cinema glamour & trends 🌟"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111107",
+        "username": "cricket_fever_in",
+        "name": "Cricket Fever",
+        "avatar_url": "https://i.pravatar.cc/150?u=107",
+        "points": 4900,
+        "streak_count": 9,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Cricket passion, match highlights & fan banter 🏏"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111110",
+        "username": "anjali_gupta",
+        "name": "Anjali Gupta",
+        "avatar_url": "https://i.pravatar.cc/150?u=110",
+        "points": 3400,
+        "streak_count": 7,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Dance, lifestyle & positive energies 💖"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111108",
+        "username": "rohit_verma",
+        "name": "Rohit Verma",
+        "avatar_url": "https://i.pravatar.cc/150?u=108",
+        "points": 3900,
+        "streak_count": 6,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Comedy, food & travel diaries 🍕✈️"
+    },
+    {
+        "id": "11111111-1111-1111-1111-111111111105",
+        "username": "amit_kumar_vlogs",
+        "name": "Amit Kumar Vlogs",
+        "avatar_url": "https://i.pravatar.cc/150?u=105",
+        "points": 2900,
+        "streak_count": 8,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Daily vlogs, funny reels & gaming moments 🎮"
+    },
+    {
+        "id": "37bcd30b-6313-4f13-bd21-d65d96e2a0c9",
+        "username": "comedy_vault_in",
+        "name": "Comedy Vault",
+        "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop",
+        "points": 7200,
+        "streak_count": 19,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Laughs, hilarious fails & relatable comedy daily 😂"
+    },
+    {
+        "id": "807e1b17-7bb8-41f7-b4fd-aace0172312a",
+        "username": "urban_lifestyle_co",
+        "name": "Urban Lifestyle",
+        "avatar_url": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
+        "points": 4100,
+        "streak_count": 10,
+        "gender": "other",
+        "is_online": true,
+        "bio": "City life, modern aesthetics & urban street vibes 🏙️"
+    },
+    {
+        "id": "a64392c2-c5e8-46ba-9e03-8369641f6936",
+        "username": "world_sports_central",
+        "name": "World Sports Central",
+        "avatar_url": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=150",
+        "points": 6800,
+        "streak_count": 16,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Epic sports moments, football, cricket & triumphs 🏆"
+    },
+    {
+        "id": "b7fd36d8-c1ea-46ce-936c-b9d1ade59273",
+        "username": "iron_pulse_fits",
+        "name": "Iron Pulse Fits",
+        "avatar_url": "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=150",
+        "points": 5300,
+        "streak_count": 13,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Heavy lifting, gym motivation & athletic physique 💪"
+    },
+    {
+        "id": "4e4791ef-b50b-4c5d-b750-8d4d575397a4",
+        "username": "cricket_legend_moments",
+        "name": "Cricket Legend Moments",
+        "avatar_url": "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=150",
+        "points": 6100,
+        "streak_count": 14,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Iconic cricket moments, clutch overs & legendary matches 🏏"
+    },
+    {
+        "id": "43f408d1-9f0e-43a8-b76c-27b2d6afa522",
+        "username": "gaming_lounge_hq",
+        "name": "Gaming Lounge HQ",
+        "avatar_url": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=150",
+        "points": 4700,
+        "streak_count": 10,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Next-gen gaming setups, clips & high-octane gameplay 🎮"
+    },
+    {
+        "id": "272374a8-c58c-43ad-8cdf-5aa5d6a1aec5",
+        "username": "gym_fits_daily",
+        "name": "Gym Fits Daily",
+        "avatar_url": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=150",
+        "points": 5500,
+        "streak_count": 12,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Fitness fits, workout routines & strength daily 🔥"
+    },
+    {
+        "id": "89f9373e-a948-402b-8e52-b2d7ff088047",
+        "username": "shaikh_a",
+        "name": "Shaikh",
+        "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/89f9373e-a948-402b-8e52-b2d7ff088047-1784644146412.jpg",
+        "points": 890,
+        "streak_count": 6,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Living life one reel at a time ✨"
+    },
+    {
+        "id": "89f9373e-a948-402b-8e52-b2d7ff088047-api",
+        "username": "shaikh_AP_I",
+        "name": "Shaikh",
+        "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/89f9373e-a948-402b-8e52-b2d7ff088047-1784644146412.jpg",
+        "points": 890,
+        "streak_count": 6,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Living life one reel at a time ✨"
+    },
+    {
+        "id": "86e6f3aa-47d6-402e-957a-3922968eb4af",
+        "username": "epic_fails_and_laughs",
+        "name": "Epic Fails & Laughs",
+        "avatar_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop",
+        "points": 3100,
+        "streak_count": 8,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Non-stop laughing content & funny memes 🤣"
+    },
+    {
+        "id": "8def6af1-8ce3-405b-a5fb-f14c81d07392",
+        "username": "funny_clips_daily",
+        "name": "Funny Clips Daily",
+        "avatar_url": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=150&auto=format&fit=crop",
+        "points": 3200,
+        "streak_count": 7,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Daily dose of funny clips & hilarious moments 🐶"
+    },
+    {
+        "id": "50ae1390-3f4b-4d1c-b309-f5c996b39f6b",
+        "username": "viral_laugh_zone",
+        "name": "Viral Laugh Zone",
+        "avatar_url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop",
+        "points": 3600,
+        "streak_count": 9,
+        "gender": "other",
+        "is_online": true,
+        "bio": "The internet's funniest reels & trending laughs 🌟"
+    },
+    {
+        "id": "e7967766-460b-4bc0-8eee-59fb233dd100",
+        "username": "godzzz",
+        "name": "Godzzz",
+        "avatar_url": "https://i.pravatar.cc/150?u=godzzz",
+        "points": 750,
+        "streak_count": 4,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Exploring the aesthetic realm ✨"
+    },
+    {
+        "id": "08546f0d-49ea-47fd-8354-022078bdbf46",
+        "username": "bhai786",
+        "name": "Bhai786",
+        "avatar_url": "https://i.pravatar.cc/150?u=bhai786",
+        "points": 680,
+        "streak_count": 3,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Always authentic 💫"
+    },
+    {
+        "id": "db887a40-ceb4-496a-8a7d-613594f5279d",
+        "username": "sophisticated_minde",
+        "name": "Sophisticated Mind",
+        "avatar_url": "https://i.pravatar.cc/150?u=sophisticated_minde",
+        "points": 920,
+        "streak_count": 5,
+        "gender": "other",
+        "is_online": true,
+        "bio": "Mindful moments & deep thoughts 💭"
+    },
+    {
+        "id": "a9540e5e-69e0-4f9a-a638-304c0e45cd61",
+        "username": "youra_22",
+        "name": "Youra",
+        "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/a9540e5e-69e0-4f9a-a638-304c0e45cd61-1784221318424.jpg",
+        "points": 840,
+        "streak_count": 5,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Creative vibes only ✨"
+    },
+    {
+        "id": "ff464f1a-8132-4d5f-bfdf-2aa3e390cb80",
+        "username": "daisy_twang56",
+        "name": "Daisy Twang",
+        "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/ff464f1a-8132-4d5f-bfdf-2aa3e390cb80-1784220915152.jpg",
+        "points": 790,
+        "streak_count": 4,
+        "gender": "female",
+        "is_online": true,
+        "bio": "Sunshine and smiles 🌸"
+    },
+    {
+        "id": "e3445d65-6caa-4e81-a2af-d8413bb13a26",
+        "username": "abhiology",
+        "name": "Abhi",
+        "avatar_url": "https://i.pravatar.cc/150?u=abhiology",
+        "points": 620,
+        "streak_count": 3,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Storyteller & creator 📸"
+    },
+    {
+        "id": "63562444-b096-4ea3-936c-a946eac8b234",
+        "username": "faheemhayat.com",
+        "name": "Faheem Hayat",
+        "avatar_url": "https://i.pravatar.cc/150?u=faheemhayat",
+        "points": 510,
+        "streak_count": 2,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Capturing authentic stories & perspectives 🎥"
+    },
+    {
+        "id": "creator-nature_vibes",
+        "username": "nature_vibes",
+        "name": "Nature Vibes 🌅",
+        "avatar_url": "https://i.pravatar.cc/150?img=1",
+        "points": 1500,
+        "streak_count": 7,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Capturing the golden hour and coastlines 🌊"
+    },
+    {
+        "id": "creator-city_explorer",
+        "username": "city_explorer",
+        "name": "City Explorer 🏙️",
+        "avatar_url": "https://i.pravatar.cc/150?img=5",
+        "points": 1800,
+        "streak_count": 8,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Neon lights and late-night city walks 🌃"
+    },
+    {
+        "id": "creator-ocean_dreams",
+        "username": "ocean_dreams",
+        "name": "Ocean Dreams 🌊",
+        "avatar_url": "https://i.pravatar.cc/150?img=12",
+        "points": 1650,
+        "streak_count": 6,
+        "gender": "other",
+        "is_online": false,
+        "bio": "The ocean is calling and I must go 🐠"
+    },
+    {
+        "id": "creator-fitness_freak",
+        "username": "fitness_freak",
+        "name": "Fitness Freak 💪",
+        "avatar_url": "https://i.pravatar.cc/150?img=8",
+        "points": 2100,
+        "streak_count": 10,
+        "gender": "other",
+        "is_online": false,
+        "bio": "No shortcuts. Just grind. 🔥"
+    },
+    {
+        "id": "creator-foodie_fam",
+        "username": "foodie_fam",
+        "name": "Foodie Fam 🍕",
+        "avatar_url": "https://i.pravatar.cc/150?img=20",
+        "points": 1950,
+        "streak_count": 9,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Food adventures & best culinary spots 🤤"
+    },
+    {
+        "id": "creator-sky_watcher",
+        "username": "sky_watcher",
+        "name": "Sky Watcher ☁️",
+        "avatar_url": "https://i.pravatar.cc/150?img=33",
+        "points": 1400,
+        "streak_count": 5,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Cloud timelapses & stargazing therapy 🌌"
+    },
+    {
+        "id": "creator-dance_queen",
+        "username": "dance_queen",
+        "name": "Dance Queen 💃",
+        "avatar_url": "https://i.pravatar.cc/150?img=44",
+        "points": 2300,
+        "streak_count": 12,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Choreography & rhythm daily ✨"
+    },
+    {
+        "id": "creator-dance_central",
+        "username": "dance_central",
+        "name": "Dance Central 💃",
+        "avatar_url": "https://i.pravatar.cc/150?img=41",
+        "points": 1750,
+        "streak_count": 8,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Dance routines & trending choreography 🎯"
+    },
+    {
+        "id": "creator-pet_paradise",
+        "username": "pet_paradise",
+        "name": "Pet Paradise 🐾",
+        "avatar_url": "https://i.pravatar.cc/150?img=48",
+        "points": 2400,
+        "streak_count": 11,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Cute puppies & cats making your day brighter 🐶"
+    },
+    {
+        "id": "creator-adventure_co",
+        "username": "adventure_co",
+        "name": "Adventure Co 🏔️",
+        "avatar_url": "https://i.pravatar.cc/150?img=55",
+        "points": 1600,
+        "streak_count": 7,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Life begins at the end of your comfort zone 🧗"
+    },
+    {
+        "id": "creator-street_vibes",
+        "username": "street_vibes",
+        "name": "Street Vibes 🎨",
+        "avatar_url": "https://i.pravatar.cc/150?img=60",
+        "points": 1550,
+        "streak_count": 6,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Street art is the voice of the city walls 🖌️"
+    },
+    {
+        "id": "creator-art_daily",
+        "username": "art_daily",
+        "name": "Art Daily 🎨",
+        "avatar_url": "https://i.pravatar.cc/150?img=60",
+        "points": 1850,
+        "streak_count": 8,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Visual art, paintings, and process sketches 🖌️"
+    },
+    {
+        "id": "creator-coffee_corner",
+        "username": "coffee_corner",
+        "name": "Coffee Corner ☕",
+        "avatar_url": "https://i.pravatar.cc/150?img=68",
+        "points": 1450,
+        "streak_count": 5,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Latte art & cozy morning aesthetics ☕"
+    },
+    {
+        "id": "creator-astro_lover",
+        "username": "astro_lover",
+        "name": "Astro Lover 🌌",
+        "avatar_url": "https://i.pravatar.cc/150?img=65",
+        "points": 1900,
+        "streak_count": 9,
+        "gender": "other",
+        "is_online": false,
+        "bio": "The Milky Way never gets old. Night owl 🦉"
+    },
+    {
+        "id": "creator-morning_routine",
+        "username": "morning_routine",
+        "name": "Morning Routine ☀️",
+        "avatar_url": "https://i.pravatar.cc/150?img=22",
+        "points": 1650,
+        "streak_count": 7,
+        "gender": "other",
+        "is_online": false,
+        "bio": "5AM morning routines that change lives ☀️"
+    },
+    {
+        "id": "creator-google_news_daily",
+        "username": "google_news_daily",
+        "name": "Google News Daily 📰",
+        "avatar_url": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=150",
+        "points": 3000,
+        "streak_count": 10,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Trending news from India and around the world 📰"
     }
 ];
 
@@ -151,7 +635,34 @@ export function getKnownProfile(identifier: string): ProfileData | null {
         (p.username && p.username.toLowerCase() === clean) || 
         (p.id && p.id.toLowerCase() === clean)
     );
-    return found ? { ...found } : null;
+    if (found) return { ...found };
+
+    // Dynamic fallback to any post in SEED_POSTS
+    const post = SEED_POSTS.find(p => 
+        (p.username && p.username.toLowerCase() === clean) || 
+        (p.user_id && p.user_id.toLowerCase() === clean)
+    );
+    if (post) {
+        const u = post.username || clean;
+        const name = u
+            .split(/[_\-\s]+/)
+            .filter(Boolean)
+            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ');
+        return {
+            id: post.user_id || `creator-${clean}`,
+            username: u,
+            name: name,
+            avatar_url: post.avatar_url || `https://i.pravatar.cc/150?u=${clean}`,
+            points: 300,
+            streak_count: 5,
+            gender: 'other',
+            is_online: false,
+            bio: 'Creator on Knock Knock ✨'
+        };
+    }
+
+    return null;
 }
 
 export function getAllKnownProfiles(): ProfileData[] {

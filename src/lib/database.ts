@@ -211,6 +211,16 @@ export const CREATOR_CANONICAL_NAMES: Record<string, string> = {
     'corel': 'Coral',
     'ityourfavourite1': 'It Your Favourite',
     'ityourfavourite': 'It Your Favourite',
+    'priya_patel99': 'Priya Patel',
+    'priya_patel': 'Priya Patel',
+    'rahul_sharma': 'Rahul Sharma',
+    'neha_creates': 'Neha Creates',
+    'viral_bhayani_fan': 'Viral Bhayani Fan',
+    'bollywood_gossip': 'Bollywood Gossip',
+    'cricket_fever_in': 'Cricket Fever',
+    'anjali_gupta': 'Anjali Gupta',
+    'rohit_verma': 'Rohit Verma',
+    'amit_kumar_vlogs': 'Amit Kumar Vlogs',
     'funnyreels2': 'Comedy Vault',
     'comedy_vault_in': 'Comedy Vault',
     'lifestylevibes': 'Urban Lifestyle',
@@ -219,6 +229,21 @@ export const CREATOR_CANONICAL_NAMES: Record<string, string> = {
     'world_sports_central': 'World Sports Central',
     'gamingsetup': 'Gaming Lounge HQ',
     'gaming_lounge_hq': 'Gaming Lounge HQ',
+    'fitfits': 'Gym Fits Daily',
+    'gym_fits_daily': 'Gym Fits Daily',
+    'ironphysique': 'Iron Pulse Fits',
+    'iron_pulse_fits': 'Iron Pulse Fits',
+    'cricketzone': 'Cricket Legend Moments',
+    'cricket_legend_moments': 'Cricket Legend Moments',
+    'shaikh_ap_i': 'Shaikh',
+    'shaikh_AP_I': 'Shaikh',
+    'shaikh_a': 'Shaikh',
+    'funnyreels3': 'Epic Fails & Laughs',
+    'epic_fails_and_laughs': 'Epic Fails & Laughs',
+    'funnyreels1': 'Funny Clips Daily',
+    'funny_clips_daily': 'Funny Clips Daily',
+    'funnyreels4': 'Viral Laugh Zone',
+    'viral_laugh_zone': 'Viral Laugh Zone',
     'igmemes1': 'Meme Hub',
     'meme_hub_insta': 'Meme Hub',
     'igmemes2': 'Relatable Posts',
@@ -229,67 +254,59 @@ export const CREATOR_CANONICAL_NAMES: Record<string, string> = {
     'epic_fun_page': 'Epic Fun Page',
     'igmemes5': 'Daily Memes',
     'dailymemes_ig': 'Daily Memes',
-    'funnyreels1': 'Funny Clips Daily',
-    'funny_clips_daily': 'Funny Clips Daily',
-    'funnyreels3': 'Epic Fails & Laughs',
-    'epic_fails_and_laughs': 'Epic Fails & Laughs',
-    'funnyreels4': 'Viral Laugh Zone',
-    'viral_laugh_zone': 'Viral Laugh Zone',
     'bollystars': 'Bollywood Superstars',
     'bollywood_superstars': 'Bollywood Superstars',
     'filmglam': 'Cinema Glamour',
     'cinema_glamour': 'Cinema Glamour',
-    'fitfits': 'Gym Fits Daily',
-    'gym_fits_daily': 'Gym Fits Daily',
-    'ironphysique': 'Iron Pulse Fits',
-    'iron_pulse_fits': 'Iron Pulse Fits',
-    'cricketzone': 'Cricket Legend Moments',
-    'cricket_legend_moments': 'Cricket Legend Moments',
-    'shaikh_ap_i': 'Shaikh',
-    'shaikh_a': 'Shaikh',
+    'godzzz': 'Godzzz',
+    'bhai786': 'Bhai786',
+    'sophisticated_minde': 'Sophisticated Mind',
+    'youra_22': 'Youra',
+    'daisy_twang56': 'Daisy Twang',
+    'samarth22': 'Samarth',
+    'abhiology': 'Abhi',
+    'faheemhayat.com': 'Faheem Hayat',
+    'tara01': 'Tara 💖',
+    'anaya': 'Anaa',
+    'aditya': 'Aditya',
+    'i.m.legit': 'Monu',
+    'nature_vibes': 'Nature Vibes 🌅',
+    'city_explorer': 'City Explorer 🏙️',
+    'ocean_dreams': 'Ocean Dreams 🌊',
+    'fitness_freak': 'Fitness Freak 💪',
+    'foodie_fam': 'Foodie Fam 🍕',
+    'sky_watcher': 'Sky Watcher ☁️',
     'dance_central': 'Dance Central 💃',
     'dance_queen': 'Dance Queen 💃',
+    'pet_paradise': 'Pet Paradise 🐾',
     'adventure_co': 'Adventure Co 🏔️',
     'street_vibes': 'Street Vibes 🎨',
+    'art_daily': 'Art Daily 🎨',
+    'coffee_corner': 'Coffee Corner ☕',
+    'astro_lover': 'Astro Lover 🌌',
+    'morning_routine': 'Morning Routine ☀️',
+    'google_news_daily': 'Google News Daily 📰',
 };
 
 export const CREATOR_USERNAME_PAIRS: Record<string, string> = {
     'funnyreels2': 'comedy_vault_in',
-    'comedy_vault_in': 'funnyreels2',
     'lifestylevibes': 'urban_lifestyle_co',
-    'urban_lifestyle_co': 'lifestylevibes',
     'sportshub': 'world_sports_central',
-    'world_sports_central': 'sportshub',
     'gamingsetup': 'gaming_lounge_hq',
-    'gaming_lounge_hq': 'gamingsetup',
     'igmemes1': 'meme_hub_insta',
-    'meme_hub_insta': 'igmemes1',
     'igmemes2': 'relatable_postss',
-    'relatable_postss': 'igmemes2',
     'igmemes3': 'desi_humor_club',
-    'desi_humor_club': 'igmemes3',
     'igmemes4': 'epic_fun_page',
-    'epic_fun_page': 'igmemes4',
     'igmemes5': 'dailymemes_ig',
-    'dailymemes_ig': 'igmemes5',
     'funnyreels1': 'funny_clips_daily',
-    'funny_clips_daily': 'funnyreels1',
     'funnyreels3': 'epic_fails_and_laughs',
-    'epic_fails_and_laughs': 'funnyreels3',
     'funnyreels4': 'viral_laugh_zone',
-    'viral_laugh_zone': 'funnyreels4',
     'bollystars': 'bollywood_superstars',
-    'bollywood_superstars': 'bollystars',
     'filmglam': 'cinema_glamour',
-    'cinema_glamour': 'filmglam',
     'fitfits': 'gym_fits_daily',
-    'gym_fits_daily': 'fitfits',
     'ironphysique': 'iron_pulse_fits',
-    'iron_pulse_fits': 'ironphysique',
     'cricketzone': 'cricket_legend_moments',
-    'cricket_legend_moments': 'cricketzone',
     'shaikh_ap_i': 'shaikh_a',
-    'shaikh_a': 'shaikh_ap_i',
 };
 
 export const COMMON_TYPOS: Record<string, string[]> = {
@@ -376,10 +393,16 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
             candidateUsernames.add(typo.toLowerCase());
         }
     });
-    // Check creator pairs (e.g. 'funnyreels2' <-> 'comedy_vault_in')
+    // Check creator pairs (e.g. 'funnyreels2' -> 'comedy_vault_in')
     if (CREATOR_USERNAME_PAIRS[cleanUsername]) {
         candidateUsernames.add(CREATOR_USERNAME_PAIRS[cleanUsername].toLowerCase());
     }
+    // Reverse pair check (e.g. if cleanUsername is 'comedy_vault_in', also look for 'funnyreels2')
+    Object.entries(CREATOR_USERNAME_PAIRS).forEach(([alias, canonical]) => {
+        if (canonical.toLowerCase() === cleanUsername) {
+            candidateUsernames.add(alias.toLowerCase());
+        }
+    });
 
     // Collect all candidate user IDs
     const candidateUserIds = new Set<string>();
@@ -394,32 +417,30 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
     }
 
     let dbPosts: PostData[] = [];
-    try {
-        let query = supabase.from('posts').select('*');
-        const orConditions: string[] = [];
-        candidateUsernames.forEach(u => orConditions.push(`username.ilike.${u}`));
-        candidateUserIds.forEach(id => orConditions.push(`user_id.eq.${id}`));
+    if (!isSupabaseQuotaRestricted()) {
+        try {
+            let query = supabase.from('posts').select('*');
+            const orConditions: string[] = [];
+            candidateUsernames.forEach(u => orConditions.push(`username.ilike.${u}`));
+            candidateUserIds.forEach(id => orConditions.push(`user_id.eq.${id}`));
 
-        if (orConditions.length > 0) {
-            query = query.or(orConditions.join(','));
+            if (orConditions.length > 0) {
+                query = query.or(orConditions.join(','));
+            }
+
+            const { data, error } = await query.order('created_at', { ascending: false });
+
+            if (error) {
+                if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            } else {
+                dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+            }
+        } catch (err: any) {
+            if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         }
-
-        const { data, error } = await query.order('created_at', { ascending: false });
-
-        if (error) {
-            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-            console.warn('[fetchUserPosts] Supabase unavailable, using local posts:', error.message);
-        } else {
-            dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-        }
-    } catch (err: any) {
-        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
     }
 
-    if (dbPosts.length > 0) {
-        return dbPosts;
-    }
-
+    // Always fetch matching local posts
     const localPosts = getLocalPosts().filter(p => {
         const pUname = (p.username || '').toLowerCase();
         if (candidateUsernames.has(pUname)) return true;
@@ -427,13 +448,27 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         return false;
     });
 
-    if (localPosts.length > 0) return localPosts;
+    // Merge dbPosts and localPosts, deduplicated by post id
+    const seenPostIds = new Set<string>();
+    const mergedPosts: PostData[] = [];
+
+    for (const p of [...dbPosts, ...localPosts]) {
+        if (p.id && !seenPostIds.has(p.id)) {
+            seenPostIds.add(p.id);
+            mergedPosts.push(p);
+        }
+    }
+
+    if (mergedPosts.length > 0) {
+        return mergedPosts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
 
     // Fallback: If no DB or local posts exist, check if this is a known reel creator from REEL_CREATOR_POSTS
     for (const u of candidateUsernames) {
         if (REEL_CREATOR_POSTS[u]) {
             return REEL_CREATOR_POSTS[u].map((p, idx) => ({
                 id: `reel-${u}-${idx}`,
+                user_id: `creator-${u}`,
                 username: u,
                 avatar_url: `https://i.pravatar.cc/150?u=${u}`,
                 image_url: p.videoUrl,
@@ -1116,94 +1151,19 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
     const aliasCandidate = COMMON_TYPOS[lower]?.[0];
     const pairedCandidate = CREATOR_USERNAME_PAIRS[lower];
     const lookupCandidates = [cleanUsername];
-    if (aliasCandidate && !lookupCandidates.includes(aliasCandidate)) lookupCandidates.push(aliasCandidate);
     if (pairedCandidate && !lookupCandidates.includes(pairedCandidate)) lookupCandidates.push(pairedCandidate);
+    if (aliasCandidate && !lookupCandidates.includes(aliasCandidate)) lookupCandidates.push(aliasCandidate);
 
-    // 1. Try case-insensitive lookup in profiles table for cleanUsername or its alias
+    // 1. Authentic registered community profile fallback (0ms, guarantees instant resolution without glitch)
     for (const candidate of lookupCandidates) {
-        const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .ilike('username', candidate)
-            .maybeSingle();
-
-        if (!error && data) {
-            if (isRemovedUser(data.id, data.username)) return null;
-            return normalizeProfile(data);
+        const known = getKnownProfile(candidate);
+        if (known) {
+            if (isRemovedUser(known.id, known.username)) return null;
+            return normalizeProfile(known);
         }
     }
 
-    // 2. What if cleanUsername is a UUID (user_id)?
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanUsername);
-    if (isUuid) {
-        const { data: idData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', cleanUsername)
-            .maybeSingle();
-        if (idData && !isRemovedUser(idData.id, idData.username)) {
-            return normalizeProfile(idData);
-        }
-    }
-
-    // 2.5. Prefix username match (e.g. 'tara' -> 'tara01') or display name match (e.g. 'Tara')
-    const { data: fuzzyUser } = await supabase
-        .from('profiles')
-        .select('*')
-        .or(`username.ilike.${cleanUsername}%,name.ilike.${cleanUsername},name.ilike.%${cleanUsername}%`)
-        .order('created_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-    if (fuzzyUser && !isRemovedUser(fuzzyUser.id, fuzzyUser.username)) {
-        return normalizeProfile(fuzzyUser);
-    }
-
-    // 3. Check if this user exists in the posts table (e.g. content creators / community pages)
-    for (const candidate of lookupCandidates) {
-        const { data: postData } = await supabase
-            .from('posts')
-            .select('user_id, username, avatar_url, caption')
-            .ilike('username', candidate)
-            .limit(1)
-            .maybeSingle();
-
-        if (postData) {
-            let linkedProfile = null;
-            if (postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' && !postData.user_id.startsWith('creator-')) {
-                const { data: lp } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', postData.user_id)
-                    .maybeSingle();
-                if (lp) linkedProfile = lp;
-            }
-
-            if (linkedProfile) {
-                return normalizeProfile({
-                    ...linkedProfile,
-                    username: postData.username || cleanUsername,
-                    avatar_url: postData.avatar_url || linkedProfile.avatar_url,
-                });
-            }
-
-            return normalizeProfile({
-                id: postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' 
-                    ? postData.user_id 
-                    : `creator-${(postData.username || cleanUsername).toLowerCase()}`,
-                name: formatDisplayNameFromUsername(postData.username || cleanUsername),
-                username: postData.username || cleanUsername,
-                gender: 'other',
-                avatar_url: postData.avatar_url || `https://i.pravatar.cc/150?u=${postData.username || cleanUsername}`,
-                points: isUnlimitedPointsUser(postData.user_id, postData.username || cleanUsername) ? UNLIMITED_POINTS : 100,
-                bio: `Creator on Knock Knock ✨`,
-                is_online: false,
-                streak_count: 5,
-            });
-        }
-    }
-
-    // 4. Check if this is a reel creator (from REELS_DATA in Reels.tsx) or news bot
+    // 2. Check if this is a reel creator (from REEL_CREATOR_MAP) or news bot
     for (const candidate of lookupCandidates) {
         const creatorKey = candidate.toLowerCase();
         if (REEL_CREATOR_MAP[creatorKey]) {
@@ -1222,10 +1182,114 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
         }
     }
 
-    // 5. Authentic registered community profile fallback
-    for (const candidate of lookupCandidates) {
-        const known = getKnownProfile(candidate);
-        if (known) return normalizeProfile(known);
+    // 3. Fallback: Search getLocalPosts() for any matching post
+    const localPost = getLocalPosts().find(p => {
+        const pUname = (p.username || '').toLowerCase();
+        return lookupCandidates.some(c => c.toLowerCase() === pUname || c === p.user_id);
+    });
+    if (localPost) {
+        const u = localPost.username || cleanUsername;
+        return normalizeProfile({
+            id: localPost.user_id || `creator-${u.toLowerCase()}`,
+            name: CREATOR_CANONICAL_NAMES[u.toLowerCase()] || formatDisplayNameFromUsername(u),
+            username: u,
+            gender: 'other',
+            avatar_url: localPost.avatar_url || `https://i.pravatar.cc/150?u=${u}`,
+            points: isUnlimitedPointsUser(localPost.user_id, u) ? UNLIMITED_POINTS : 100,
+            bio: `Creator on Knock Knock ✨`,
+            is_online: false,
+            streak_count: 5,
+        });
+    }
+
+    // 4. Try case-insensitive lookup in Supabase profiles table if not quota restricted
+    if (!isSupabaseQuotaRestricted()) {
+        try {
+            for (const candidate of lookupCandidates) {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .ilike('username', candidate)
+                    .maybeSingle();
+
+                if (!error && data) {
+                    if (isRemovedUser(data.id, data.username)) return null;
+                    return normalizeProfile(data);
+                }
+            }
+
+            // UUID lookup
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanUsername);
+            if (isUuid) {
+                const { data: idData } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', cleanUsername)
+                    .maybeSingle();
+                if (idData && !isRemovedUser(idData.id, idData.username)) {
+                    return normalizeProfile(idData);
+                }
+            }
+
+            // Prefix or fuzzy name match
+            const { data: fuzzyUser } = await supabase
+                .from('profiles')
+                .select('*')
+                .or(`username.ilike.${cleanUsername}%,name.ilike.${cleanUsername},name.ilike.%${cleanUsername}%`)
+                .order('created_at', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+
+            if (fuzzyUser && !isRemovedUser(fuzzyUser.id, fuzzyUser.username)) {
+                return normalizeProfile(fuzzyUser);
+            }
+
+            // Posts table lookup
+            for (const candidate of lookupCandidates) {
+                const { data: postData } = await supabase
+                    .from('posts')
+                    .select('user_id, username, avatar_url, caption')
+                    .ilike('username', candidate)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (postData) {
+                    let linkedProfile = null;
+                    if (postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' && !postData.user_id.startsWith('creator-')) {
+                        const { data: lp } = await supabase
+                            .from('profiles')
+                            .select('*')
+                            .eq('id', postData.user_id)
+                            .maybeSingle();
+                        if (lp) linkedProfile = lp;
+                    }
+
+                    if (linkedProfile) {
+                        return normalizeProfile({
+                            ...linkedProfile,
+                            username: postData.username || cleanUsername,
+                            avatar_url: postData.avatar_url || linkedProfile.avatar_url,
+                        });
+                    }
+
+                    return normalizeProfile({
+                        id: postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' 
+                            ? postData.user_id 
+                            : `creator-${(postData.username || cleanUsername).toLowerCase()}`,
+                        name: CREATOR_CANONICAL_NAMES[(postData.username || cleanUsername).toLowerCase()] || formatDisplayNameFromUsername(postData.username || cleanUsername),
+                        username: postData.username || cleanUsername,
+                        gender: 'other',
+                        avatar_url: postData.avatar_url || `https://i.pravatar.cc/150?u=${postData.username || cleanUsername}`,
+                        points: isUnlimitedPointsUser(postData.user_id, postData.username || cleanUsername) ? UNLIMITED_POINTS : 100,
+                        bio: `Creator on Knock Knock ✨`,
+                        is_online: false,
+                        streak_count: 5,
+                    });
+                }
+            }
+        } catch (err: any) {
+            if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        }
     }
 
     // 6. Check cached user session

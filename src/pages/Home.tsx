@@ -59,6 +59,7 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
     onOpenComments,
     onObserveCard,
 }) => {
+    const navigate = useNavigate();
     return (
         <div
             ref={(node) => onObserveCard?.(node, post.id, post.category || 'General')}
@@ -131,7 +132,16 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
                 </div>
             )}
             <div className="masonry-card-info">
-                <div className="masonry-card-user">
+                <div
+                    className="masonry-card-user"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (post.username) {
+                            navigate(`/profile/${post.username}`);
+                        }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                >
                     <img
                         src={getOptimizedImageUrl(post.avatar_url || 'https://i.pravatar.cc/150', 80)}
                         alt=""

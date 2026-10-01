@@ -358,13 +358,41 @@ export function scheduleVariableRewards<T>(
     let bIdx = 0;
     let cIdx = 0;
 
+    const getAuthor = (item: any): string => {
+        if (!item) return '';
+        if (item.username) return String(item.username).toLowerCase();
+        if (item.user_id) return String(item.user_id).toLowerCase();
+        if (item.post?.username) return String(item.post.username).toLowerCase();
+        if (item.post?.user_id) return String(item.post.user_id).toLowerCase();
+        return '';
+    };
+
+    const pickNext = (tier: T[], startIdx: number, lastAuthor: string): { item: T; newIndex: number } => {
+        if (startIdx >= tier.length) return { item: tier[startIdx], newIndex: startIdx + 1 };
+        if (!lastAuthor || getAuthor(tier[startIdx]) !== lastAuthor) {
+            return { item: tier[startIdx], newIndex: startIdx + 1 };
+        }
+        // Look ahead up to 6 items for a different creator
+        for (let i = startIdx + 1; i < Math.min(tier.length, startIdx + 7); i++) {
+            if (getAuthor(tier[i]) !== lastAuthor) {
+                const [chosen] = tier.splice(i, 1);
+                return { item: chosen, newIndex: startIdx };
+            }
+        }
+        return { item: tier[startIdx], newIndex: startIdx + 1 };
+    };
+
     // Stochastic spacing for next Gem
     let nextGemCountdown = Math.random() < 0.25 ? 1 : Math.floor(Math.random() * 3) + 2;
 
     while (aIdx < tierA.length || bIdx < tierB.length || cIdx < tierC.length) {
+        const lastAuthor = result.length > 0 ? getAuthor(result[result.length - 1]) : '';
+
         if (nextGemCountdown <= 0 && aIdx < tierA.length) {
-            // Drop a Gem!
-            result.push(tierA[aIdx++]);
+            // Drop a Gem with anti-clustering!
+            const picked = pickNext(tierA, aIdx, lastAuthor);
+            result.push(picked.item);
+            aIdx = picked.newIndex;
             // Re-arm countdown with stochastic variance (15% chance of consecutive jackpot)
             nextGemCountdown = Math.random() < 0.15 ? 1 : Math.floor(Math.random() * 3) + 2;
             continue;
@@ -372,11 +400,17 @@ export function scheduleVariableRewards<T>(
 
         // Standard flow: draw from Tier B or Tier C
         if (bIdx < tierB.length && (Math.random() < 0.75 || cIdx >= tierC.length)) {
-            result.push(tierB[bIdx++]);
+            const picked = pickNext(tierB, bIdx, lastAuthor);
+            result.push(picked.item);
+            bIdx = picked.newIndex;
         } else if (cIdx < tierC.length) {
-            result.push(tierC[cIdx++]);
+            const picked = pickNext(tierC, cIdx, lastAuthor);
+            result.push(picked.item);
+            cIdx = picked.newIndex;
         } else if (aIdx < tierA.length) {
-            result.push(tierA[aIdx++]);
+            const picked = pickNext(tierA, aIdx, lastAuthor);
+            result.push(picked.item);
+            aIdx = picked.newIndex;
         } else {
             break;
         }
@@ -510,8 +544,14 @@ export function blendFeed(
         if (b.post.id) usedIds.add(b.post.id);
     }
 
+    const authorCounts = new Map<string, number>();
+    for (const b of blended) {
+        const a = (b.post.username || b.post.user_id || 'anon').toLowerCase();
+        authorCounts.set(a, (authorCounts.get(a) || 0) + 1);
+    }
+
     let surpriseIdx = 0;
-    const recentAuthors: string[] = blended.map(s => s.post.username || s.post.user_id || 'anon').slice(-2);
+    const recentAuthors: string[] = blended.map(s => s.post.username || s.post.user_id || 'anon').slice(-4);
     const recentFormats: ('video' | 'image')[] = blended.map(s => isVideoPost(s.post) ? 'video' : 'image').slice(-2);
     const recentCategories: string[] = blended.map(s => s.post.category || 'General').slice(-2);
 
@@ -524,12 +564,14 @@ export function blendFeed(
         // Inject surprise post (every 5th item)
         if (nextIndex % 5 === 0 && surpriseIdx < surprisePool.length) {
             const surprise = { ...surprisePool[surpriseIdx], isSurprise: true };
-            const author = surprise.post.username || surprise.post.user_id || 'anon';
-            if (recentAuthors.length === 0 || recentAuthors[recentAuthors.length - 1] !== author) {
+            const author = (surprise.post.username || surprise.post.user_id || 'anon').toLowerCase();
+            const recentAuthorWindow = recentAuthors.slice(-3).map(a => a.toLowerCase());
+            if (recentAuthors.length === 0 || !recentAuthorWindow.includes(author)) {
                 blended.push(surprise);
                 if (surprise.post.id) usedIds.add(surprise.post.id);
+                authorCounts.set(author, (authorCounts.get(author) || 0) + 1);
                 recentAuthors.push(author);
-                if (recentAuthors.length > 3) recentAuthors.shift();
+                if (recentAuthors.length > 5) recentAuthors.shift();
                 recentFormats.push(isVideoPost(surprise.post) ? 'video' : 'image');
                 if (recentFormats.length > 3) recentFormats.shift();
                 recentCategories.push(surprise.post.category || 'General');
@@ -541,38 +583,52 @@ export function blendFeed(
 
         const wantImage = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'video');
         const wantVideo = recentFormats.length >= 2 && recentFormats.slice(-2).every(f => f === 'image');
-        const lastAuthor = recentAuthors.length > 0 ? recentAuthors[recentAuthors.length - 1] : '';
+        const lastAuthor = recentAuthors.length > 0 ? recentAuthors[recentAuthors.length - 1].toLowerCase() : '';
         const lastCategory = recentCategories.length > 0 ? recentCategories[recentCategories.length - 1] : '';
 
-        // Windowed lookahead (top 15 available candidates) for lightning-fast O(N) selection
+        // Windowed lookahead (top 45 available candidates) for lightning-fast selection with creator diversity
         let bestCandidateIdx = -1;
         let bestCandidateScore = -Infinity;
         let checked = 0;
 
-        for (let i = candidatePointer; i < mainPool.length && checked < 15; i++) {
+        for (let i = candidatePointer; i < mainPool.length && checked < 45; i++) {
             const c = mainPool[i];
             if (usedIds.has(c.post.id)) continue;
             checked++;
 
-            const author = c.post.username || c.post.user_id || 'anon';
+            const author = (c.post.username || c.post.user_id || 'anon').toLowerCase();
             const isVid = isVideoPost(c.post);
             const format = isVid ? 'video' : 'image';
             const cat = c.post.category || 'General';
+            const count = authorCounts.get(author) || 0;
 
+            // Strict anti-clustering & diversity capping:
             if (lastAuthor && author === lastAuthor) continue;
+            if (blended.length < 10 && count >= 1) continue; // Top 10 are completely distinct creators!
+            if (blended.length < 25 && count >= 2) continue; // Top 25 max 2 per creator
+            if (blended.length < 50 && count >= 3) continue; // Top 50 max 3 per creator
+            if (recentAuthors.slice(-3).map(a => a.toLowerCase()).includes(author)) continue;
 
             let candidateBonus = c.score;
             if (wantImage && format === 'image') candidateBonus += 50;
             if (wantVideo && format === 'video') candidateBonus += 50;
             if (lastCategory && cat !== lastCategory) candidateBonus += 20;
 
-            if (recentAuthors.length >= 2 && recentAuthors[recentAuthors.length - 2] === author) {
-                candidateBonus -= 15;
-            }
-
             if (candidateBonus > bestCandidateScore) {
                 bestCandidateScore = candidateBonus;
                 bestCandidateIdx = i;
+            }
+        }
+
+        if (bestCandidateIdx === -1) {
+            // Relaxed pass: allow candidates who are not the immediate last author
+            for (let i = candidatePointer; i < mainPool.length; i++) {
+                const c = mainPool[i];
+                if (usedIds.has(c.post.id)) continue;
+                const author = (c.post.username || c.post.user_id || 'anon').toLowerCase();
+                if (lastAuthor && author === lastAuthor) continue;
+                bestCandidateIdx = i;
+                break;
             }
         }
 
@@ -600,9 +656,10 @@ export function blendFeed(
             candidatePointer++;
         }
 
-        const author = chosen.post.username || chosen.post.user_id || 'anon';
+        const author = (chosen.post.username || chosen.post.user_id || 'anon').toLowerCase();
+        authorCounts.set(author, (authorCounts.get(author) || 0) + 1);
         recentAuthors.push(author);
-        if (recentAuthors.length > 3) recentAuthors.shift();
+        if (recentAuthors.length > 5) recentAuthors.shift();
 
         recentFormats.push(isVideoPost(chosen.post) ? 'video' : 'image');
         if (recentFormats.length > 3) recentFormats.shift();
@@ -699,18 +756,19 @@ export function rankFeedPosts(
         return { post, score: base, isSurprise: false };
     });
 
-    // Blend for author diversity and format mixing
-    const blended = blendFeed(scored, profile, currentUserId);
-    const rawPosts = blended.map(b => b.post);
-
-    // Apply Variable Reward slot-machine scheduling
-    return scheduleVariableRewards(rawPosts, (p: PostData) => {
+    // 1. Apply Variable Reward slot-machine scheduling to candidate items
+    const rewardScheduled = scheduleVariableRewards(scored, (s: ScoredPost) => {
+        const p = s.post;
         const likes = p.likes_count || 0;
         const imps = (p.imps_count || 0) * 10;
         const comments = ((p as any).comments_count || 0) * 5;
         const catScore = profile.categoryScores[p.category || 'General'] || 0;
         return likes + imps + comments + catScore;
     });
+
+    // 2. Blend for author diversity, creator capping, and format mixing (DEFINITIVE final step)
+    const blended = blendFeed(rewardScheduled, profile, currentUserId);
+    return blended.map(b => b.post);
 }
 
 // ── Everyday Reshuffle Engine ──────────────────────────────

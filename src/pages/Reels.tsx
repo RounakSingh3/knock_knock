@@ -1084,14 +1084,30 @@ const Reels: React.FC = () => {
 
                                     {/* Creator info & caption */}
                                     <div className="reel-info">
-                                        <div className="reel-creator">
+                                        <div
+                                            className="reel-creator"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (reel.creator) {
+                                                    navigate(`/profile/${reel.creator}`);
+                                                }
+                                            }}
+                                            style={{ cursor: 'pointer' }}
+                                        >
                                             <img
                                                 src={reel.creatorAvatar}
                                                 alt={reel.creator}
                                                 className="reel-creator-avatar"
                                             />
                                             <span className="reel-creator-name">@{reel.creator}</span>
-                                            <button className="reel-follow-btn">Friend</button>
+                                            <button
+                                                className="reel-follow-btn"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                }}
+                                            >
+                                                Friend
+                                            </button>
                                         </div>
                                         {reel.musicUrl && isNearby && (
                                             <audio
