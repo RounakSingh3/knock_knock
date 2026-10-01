@@ -1,16 +1,21 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useContext, Suspense, lazy } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { fetchConnections, removeConnection, updateConnectionStreak, type ConnectionWithProfile } from '../lib/database';
 import { getAllKnownProfiles } from '../lib/fallbackData';
 import { Loader2, Phone, Flame, AlertTriangle, Skull, UserMinus, ChevronRight, Users, Zap, Heart, Sparkles, MessageSquare } from 'lucide-react';
 
+const ChatPanel = lazy(() => import('../components/ChatPanel'));
+
 const Connections = () => {
     const { user, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [connections, setConnections] = useState<ConnectionWithProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [removingId, setRemovingId] = useState<string | null>(null);
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatUserId, setChatUserId] = useState<string | null>(null);
 
     useEffect(() => {
         if (!user) return;
@@ -25,6 +30,22 @@ const Connections = () => {
         setConnections(validConnections);
         setLoading(false);
     };
+
+    useEffect(() => {
+        const userParam = searchParams.get('user');
+        const chatParam = searchParams.get('chat');
+        if (chatParam) {
+            setChatUserId(chatParam);
+            setIsChatOpen(true);
+        } else if (userParam) {
+            const clean = userParam.replace(/^@+/, '').trim().toLowerCase();
+            const match = getAllKnownProfiles().find(p => p.username?.toLowerCase() === clean || p.id === userParam);
+            if (match) {
+                setChatUserId(match.id);
+                setIsChatOpen(true);
+            }
+        }
+    }, [searchParams]);
 
     const handleRemove = async (connectionId: string) => {
         setRemovingId(connectionId);
@@ -82,12 +103,36 @@ const Connections = () => {
         <div className="connections-page pb-20">
             {/* Header */}
             <header className="connections-header">
-                <div className="connections-header-top">
-                    <h1 className="connections-title">
-                        <Users size={24} />
-                        Connections
-                    </h1>
-                    <span className="connections-count">{connections.length}</span>
+                <div className="connections-header-top" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h1 className="connections-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                            <Users size={24} />
+                            Connections
+                        </h1>
+                        <span className="connections-count">{connections.length}</span>
+                    </div>
+                    <button
+                        className="connections-chat-btn"
+                        onClick={() => {
+                            setChatUserId(null);
+                            setIsChatOpen(true);
+                        }}
+                        title="Open Messages"
+                        style={{
+                            background: 'rgba(245, 165, 36, 0.15)',
+                            border: '1px solid rgba(245, 165, 36, 0.3)',
+                            color: '#f5a524',
+                            borderRadius: '50%',
+                            width: '38px',
+                            height: '38px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <MessageSquare size={18} />
+                    </button>
                 </div>
                 <p className="connections-subtitle">People you've matched with via Voice Roulette</p>
             </header>
@@ -208,6 +253,21 @@ const Connections = () => {
                                     </button>
                                 )}
                                 <button
+                                    className="conn-action-btn conn-action-chat"
+                                    onClick={() => {
+                                        setChatUserId(conn.profile.id);
+                                        setIsChatOpen(true);
+                                    }}
+                                    title={`Chat with ${conn.profile.name || conn.profile.username}`}
+                                    style={{
+                                        background: 'rgba(245, 165, 36, 0.15)',
+                                        border: '1px solid rgba(245, 165, 36, 0.3)',
+                                        color: '#f5a524',
+                                    }}
+                                >
+                                    <MessageSquare size={14} />
+                                </button>
+                                <button
                                     className="conn-action-btn conn-action-profile"
                                     onClick={() => navigate(`/profile/${conn.profile.username}`)}
                                 >
@@ -321,7 +381,10 @@ const Connections = () => {
                                         <Phone size={16} />
                                     </button>
                                     <button
-                                        onClick={() => navigate(`/messages?user=${member.username}`)}
+                                        onClick={() => {
+                                            setChatUserId(member.id);
+                                            setIsChatOpen(true);
+                                        }}
                                         title={`Message ${member.name}`}
                                         style={{
                                             width: '36px',
@@ -361,6 +424,24 @@ const Connections = () => {
                         ))}
                 </div>
             </div>
+
+            {/* Direct Chat Panel Modal */}
+            {isChatOpen && user && (
+                <Suspense fallback={null}>
+                    <ChatPanel
+                        isOpen={isChatOpen}
+                        onClose={() => {
+                            setIsChatOpen(false);
+                            setChatUserId(null);
+                            if (searchParams.get('chat') || searchParams.get('user')) {
+                                setSearchParams({}, { replace: true });
+                            }
+                        }}
+                        currentUser={{ ...user, username: user.username || 'user' }}
+                        initialOpenUserId={chatUserId}
+                    />
+                </Suspense>
+            )}
         </div>
     );
 };

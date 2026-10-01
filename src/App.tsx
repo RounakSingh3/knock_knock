@@ -431,6 +431,7 @@ function App() {
                                 <Route path="/profile" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/profile/:username" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
                                 <Route path="/notifications" element={<Suspense fallback={<PageLoader />}><Notifications /></Suspense>} />
+                                <Route path="/messages" element={<Navigate to="/connections" replace />} />
                                 <Route path="/login" element={<Navigate to={isCallingAllowedNow() ? "/call" : "/boost"} />} />
                             </>
                         )}

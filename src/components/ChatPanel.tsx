@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, ChevronLeft, Send, Check, CheckCheck, Image as ImageIcon, Trash2, Mic, Users, MessageSquare, Search, Plus, UserPlus, Sparkles, UserCheck, Camera, Play, Pause, Volume2, VolumeX, Globe, ArrowLeftRight, Languages, Gift, Coins, Edit3, AtSign } from 'lucide-react';
-import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, fetchDiscoverPosts, giftPointsToUser, parseAddMentionPayload, convertToPersonalSnap, createStory, type AddMentionPayload, type ProfileData, type MessageData, type PostData } from '../lib/database';
+import { fetchConnectionUserIds, fetchProfilesByIds, fetchMessages, sendMessage, subscribeToMessages, markMessagesAsRead, uploadMedia, deleteMessage, fetchFollowing, fetchFollowers, updatePoints, fetchDiscoverPosts, giftPointsToUser, parseAddMentionPayload, convertToPersonalSnap, createStory, getLocalMessages, saveLocalMessages, toCanonicalUserId, SEED_ROUNAK_POPCORN_MSGS, type AddMentionPayload, type ProfileData, type MessageData, type PostData } from '../lib/database';
+import { getKnownProfile } from '../lib/fallbackData';
 import { supabase } from '../lib/supabase';
 import { compressImage, isVideoUrl, isVideoPost } from '../lib/media';
 import { SnapModal, type SnapPayload } from './SnapModal';
@@ -119,55 +120,25 @@ function getSharePreview(content: string, isMe: boolean, contactName: string) {
 
 // ── Strictly Isolated Local Storage Chat Helpers ──
 function loadLocalChatMessages(myId: string, partnerId: string): MessageData[] {
-    const keys = [
-        `knock_chat_msgs_${myId}_${partnerId}`,
-        `knock_chat_msgs_${partnerId}_${myId}`,
-    ];
-    const idMap = new Map<string, MessageData>();
-
-    keys.forEach(k => {
-        try {
-            const raw = localStorage.getItem(k);
-            if (raw) {
-                const parsed: MessageData[] = JSON.parse(raw);
-                if (Array.isArray(parsed)) {
-                    parsed.forEach(m => {
-                        const isBetween =
-                            (m?.sender_id === myId && m?.receiver_id === partnerId) ||
-                            (m?.sender_id === partnerId && m?.receiver_id === myId);
-                        if (isBetween && m && m.id && m.content) {
-                            idMap.set(m.id, m);
-                        }
-                    });
-                }
-            }
-        } catch (e) {}
-    });
-
-    const clean = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    try {
-        localStorage.setItem(`knock_chat_msgs_${myId}_${partnerId}`, JSON.stringify(clean));
-    } catch (e) {}
-    return clean;
+    return getLocalMessages(myId, partnerId);
 }
 
 function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: MessageData; unreadCount: number }> {
     const map = new Map<string, { lastMessage: MessageData; unreadCount: number }>();
+    const canMyId = toCanonicalUserId(myId);
     try {
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (key && key.startsWith('knock_chat_msgs_')) {
                 const parts = key.replace('knock_chat_msgs_', '').split('_');
-                if (parts.length === 2 && (parts[0] === myId || parts[1] === myId)) {
-                    const otherId = parts[0] === myId ? parts[1] : parts[0];
-                    if (otherId && otherId !== myId) {
-                        try {
-                            const msgs: MessageData[] = JSON.parse(localStorage.getItem(key) || '[]');
-                            if (Array.isArray(msgs) && msgs.length > 0) {
-                                const validMsgs = msgs.filter(m =>
-                                    (m?.sender_id === myId && m?.receiver_id === otherId) ||
-                                    (m?.sender_id === otherId && m?.receiver_id === myId)
-                                );
+                if (parts.length === 2) {
+                    const p0Can = toCanonicalUserId(parts[0]);
+                    const p1Can = toCanonicalUserId(parts[1]);
+                    if (p0Can === canMyId || p1Can === canMyId) {
+                        const otherId = p0Can === canMyId ? p1Can : p0Can;
+                        if (otherId && otherId !== canMyId) {
+                            try {
+                                const validMsgs = getLocalMessages(canMyId, otherId);
                                 if (validMsgs.length > 0) {
                                     const last = validMsgs[validMsgs.length - 1];
                                     const existing = map.get(otherId);
@@ -175,19 +146,32 @@ function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: Messa
                                         map.set(otherId, { lastMessage: last, unreadCount: 0 });
                                     }
                                 }
-                            }
-                        } catch (e) {}
+                            } catch (e) {}
+                        }
                     }
                 }
             }
         }
     } catch (e) {}
+
+    // Ensure Popcorn05 thread is always initialized for Rounak
+    if (canMyId === '794703c5-c695-47bc-864c-60f400ab6fbe' && !map.has('9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8')) {
+        const msgs = getLocalMessages(canMyId, '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8');
+        if (msgs.length > 0) {
+            map.set('9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8', {
+                lastMessage: msgs[msgs.length - 1],
+                unreadCount: 0
+            });
+        }
+    }
+
     return map;
 }
 
 // ── One-time LocalStorage Chat Sanitizer (Purges contaminated cross-chat cache) ──
 function sanitizeLocalStorageChats(myId: string) {
     if (!myId) return;
+    const canMyId = toCanonicalUserId(myId);
     try {
         const keysToInspect: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
@@ -200,27 +184,36 @@ function sanitizeLocalStorageChats(myId: string) {
         keysToInspect.forEach(key => {
             if (key.startsWith('knock_chat_msgs_')) {
                 const parts = key.replace('knock_chat_msgs_', '').split('_');
-                if (parts.length === 2 && (parts[0] === myId || parts[1] === myId)) {
-                    const otherId = parts[0] === myId ? parts[1] : parts[0];
-                    try {
-                        const raw = localStorage.getItem(key);
-                        if (raw) {
-                            const msgs: MessageData[] = JSON.parse(raw);
-                            if (Array.isArray(msgs)) {
-                                const strictlyValid = msgs.filter(m =>
-                                    (m?.sender_id === myId && m?.receiver_id === otherId) ||
-                                    (m?.sender_id === otherId && m?.receiver_id === myId)
-                                );
-                                if (strictlyValid.length !== msgs.length) {
-                                    if (strictlyValid.length === 0) {
-                                        localStorage.removeItem(key);
-                                    } else {
-                                        localStorage.setItem(key, JSON.stringify(strictlyValid));
+                if (parts.length === 2) {
+                    const p0Can = toCanonicalUserId(parts[0]);
+                    const p1Can = toCanonicalUserId(parts[1]);
+                    if (p0Can === canMyId || p1Can === canMyId) {
+                        const otherId = p0Can === canMyId ? p1Can : p0Can;
+                        try {
+                            const raw = localStorage.getItem(key);
+                            if (raw) {
+                                const msgs: MessageData[] = JSON.parse(raw);
+                                if (Array.isArray(msgs)) {
+                                    const strictlyValid = msgs.filter(m => {
+                                        const sCan = toCanonicalUserId(m?.sender_id);
+                                        const rCan = toCanonicalUserId(m?.receiver_id);
+                                        return (sCan === canMyId && rCan === otherId) ||
+                                               (sCan === otherId && rCan === canMyId);
+                                    }).map(m => ({
+                                        ...m,
+                                        sender_id: toCanonicalUserId(m.sender_id),
+                                        receiver_id: toCanonicalUserId(m.receiver_id),
+                                    }));
+                                    if (strictlyValid.length > 0) {
+                                        localStorage.setItem(`knock_chat_msgs_${canMyId}_${otherId}`, JSON.stringify(strictlyValid));
+                                        if (key !== `knock_chat_msgs_${canMyId}_${otherId}` && key !== `knock_chat_msgs_${otherId}_${canMyId}`) {
+                                            localStorage.removeItem(key);
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } catch (e) {}
+                        } catch (e) {}
+                    }
                 }
             } else if (key === `knock_chat_${myId}`) {
                 try { localStorage.removeItem(key); } catch (e) {}
@@ -238,9 +231,12 @@ function sanitizeLocalStorageChats(myId: string) {
                     const cleanedList = list.map(c => {
                         if (c && c.lastMessage) {
                             const lm = c.lastMessage;
+                            const sCan = toCanonicalUserId(lm.sender_id);
+                            const rCan = toCanonicalUserId(lm.receiver_id);
+                            const cCan = toCanonicalUserId(c.id);
                             const isValid =
-                                (lm.sender_id === myId && lm.receiver_id === c.id) ||
-                                (lm.sender_id === c.id && lm.receiver_id === myId);
+                                (sCan === canMyId && rCan === cCan) ||
+                                (sCan === cCan && rCan === canMyId);
                             if (!isValid) {
                                 changed = true;
                                 return { ...c, lastMessage: null, unreadCount: 0 };
@@ -834,26 +830,29 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
     // Fetch Direct Chat Threads
     const fetchChatThreads = async (myId: string) => {
+        const canMyId = toCanonicalUserId(myId);
         const { data: msgs, error } = await supabase
             .from('messages')
             .select('*')
-            .or(`sender_id.eq.${myId},receiver_id.eq.${myId}`)
+            .or(`sender_id.eq.${canMyId},receiver_id.eq.${canMyId}`)
             .order('created_at', { ascending: false });
 
         const threadsMap = scanAllLocalChatThreads(myId);
 
         if (msgs && Array.isArray(msgs)) {
             msgs.forEach((m: MessageData) => {
-                const partnerId = m.sender_id === myId ? m.receiver_id : m.sender_id;
-                if (!partnerId || partnerId === myId) return;
-                const isValid = (m.sender_id === myId && m.receiver_id === partnerId) ||
-                                (m.sender_id === partnerId && m.receiver_id === myId);
+                const sCan = toCanonicalUserId(m.sender_id);
+                const rCan = toCanonicalUserId(m.receiver_id);
+                const partnerId = sCan === canMyId ? rCan : sCan;
+                if (!partnerId || partnerId === canMyId) return;
+                const isValid = (sCan === canMyId && rCan === partnerId) ||
+                                (sCan === partnerId && rCan === canMyId);
                 if (!isValid) return;
 
                 if (!threadsMap.has(partnerId)) {
                     threadsMap.set(partnerId, { lastMessage: m, unreadCount: 0 });
                 }
-                if (m.receiver_id === myId && !m.is_read) {
+                if (rCan === canMyId && !m.is_read) {
                     threadsMap.get(partnerId)!.unreadCount += 1;
                 }
                 if (new Date(m.created_at).getTime() > new Date(threadsMap.get(partnerId)!.lastMessage.created_at).getTime()) {
@@ -872,6 +871,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         if (!currentUser?.id) return;
         setLoadingContacts(true);
 
+        const canMyId = toCanonicalUserId(currentUser.id);
+        const canInitialId = initialOpenUserId ? toCanonicalUserId(initialOpenUserId) : null;
+
         Promise.all([
             fetchConnectionUserIds(currentUser.id),
             fetchFollowing(currentUser.id),
@@ -881,15 +883,24 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         ]).then(([connIds, followingProfiles, followerProfiles, threadData, { data: allDbProfiles }]) => {
             const partnerIds = new Set<string>(threadData.map(t => t.partnerId));
 
-            if (initialOpenUserId) {
-                partnerIds.add(initialOpenUserId);
+            if (canInitialId) {
+                partnerIds.add(canInitialId);
             }
 
             const dbProfilesMap = new Map((allDbProfiles || []).map(p => [p.id, p]));
 
+            // Ensure known seed creators and popcorn05 are always known
+            const popcornProfile = getKnownProfile('popcorn05');
+            if (popcornProfile) {
+                dbProfilesMap.set(popcornProfile.id, popcornProfile as any);
+            }
+
             fetchProfilesByIds(Array.from(partnerIds)).then(fetchedProfiles => {
                 const profilesMap = new Map<string, ProfileData>();
                 (allDbProfiles || []).forEach(p => profilesMap.set(p.id, p as any));
+                if (popcornProfile) {
+                    profilesMap.set(popcornProfile.id, popcornProfile);
+                }
                 fetchedProfiles.forEach(p => profilesMap.set(p.id, p));
 
                 const activeChats: ChatContact[] = threadData
@@ -919,6 +930,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     ...(allDbProfiles || []).map(p => p.id)
                 ]);
                 allFriendIds.delete(currentUser.id);
+                allFriendIds.delete(canMyId);
+
+                // Ensure popcorn05 is always in friend contacts if not own profile
+                if (canMyId !== '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8' && currentUser.username?.toLowerCase() !== 'popcorn05') {
+                    allFriendIds.add('9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8');
+                }
                 
                 const unchattedConnIds = Array.from(allFriendIds).filter(id => !chattedSet.has(id));
 
@@ -934,8 +951,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
                 let merged = [...activeChats, ...unchattedConns];
 
-                if (initialOpenUserId && !merged.some(c => c.id === initialOpenUserId)) {
-                    const p = profilesMap.get(initialOpenUserId) || dbProfilesMap.get(initialOpenUserId);
+                if (canInitialId && !merged.some(c => c.id === canInitialId)) {
+                    const p = profilesMap.get(canInitialId) || dbProfilesMap.get(canInitialId);
                     if (p) {
                         merged = [{ ...p, lastMessage: null, unreadCount: 0 }, ...merged];
                     }
@@ -947,8 +964,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 }
                 setLoadingContacts(false);
 
-                if (initialOpenUserId) {
-                    const targetUser = merged.find(p => p.id === initialOpenUserId);
+                if (canInitialId) {
+                    const targetUser = merged.find(p => p.id === canInitialId || (initialOpenUserId && p.username?.toLowerCase() === initialOpenUserId.toLowerCase()));
                     if (targetUser) {
                         setMessages([]);
                         setSelectedContact(targetUser);
@@ -957,7 +974,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 }
             });
         });
-    }, [currentUser.id, initialOpenUserId]);
+    }, [currentUser.id, currentUser.username, initialOpenUserId]);
 
     useEffect(() => {
         if (!isOpen) {

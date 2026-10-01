@@ -6798,20 +6798,20 @@ export const SEED_CONNECTIONS: ConnectionWithProfile[] = [
     {
         "id": "conn-pop-2",
         "user_a": "current_user",
-        "user_b": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "user_b": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
         "streak_count": 18,
         "compatibility_percent": 92,
         "shared_likes": 9,
         "last_interaction_at": "2026-09-29T07:48:46.077Z",
         "streakStatus": "active",
         "profile": {
-            "id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+            "id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
             "username": "popcorn05",
-            "name": "Popcorn 🍿",
-            "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
+            "name": "Popcorn05",
+            "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8-1783331325942.jpg",
             "points": 999999999,
             "streak_count": 18,
-            "gender": "female",
+            "gender": "male",
             "is_online": true,
             "bio": "Movies, music & trending vibes 🍿💃"
         }
@@ -6840,17 +6840,17 @@ export const SEED_CONNECTIONS: ConnectionWithProfile[] = [
     {
         "id": "conn-rounak-4",
         "user_a": "current_user",
-        "user_b": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
+        "user_b": "794703c5-c695-47bc-864c-60f400ab6fbe",
         "streak_count": 21,
         "compatibility_percent": 94,
         "shared_likes": 15,
         "last_interaction_at": "2026-09-29T08:33:46.077Z",
         "streakStatus": "active",
         "profile": {
-            "id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
+            "id": "794703c5-c695-47bc-864c-60f400ab6fbe",
             "username": "rounak2",
             "name": "Rounak Singh ⚡",
-            "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
+            "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/794703c5-c695-47bc-864c-60f400ab6fbe-1781558656087.jpg",
             "points": 999999999,
             "streak_count": 21,
             "gender": "male",
@@ -6949,11 +6949,54 @@ export function getLocalConnections(userId?: string): ConnectionWithProfile[] {
         if (typeof window === 'undefined') return SEED_CONNECTIONS;
         const stored = localStorage.getItem('knock_local_connections');
         if (stored) {
-            const parsed = JSON.parse(stored);
+            let parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
+                // Auto-repair any inverted UUIDs for popcorn05 / rounak2
+                let repaired = false;
+                parsed = parsed.map((c: ConnectionWithProfile) => {
+                    if (c.profile?.username === 'popcorn05' || (c as any).username === 'popcorn05') {
+                        if (c.user_b !== '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8' || c.profile?.id !== '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8') {
+                            repaired = true;
+                            return {
+                                ...c,
+                                user_b: '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8',
+                                profile: {
+                                    ...c.profile,
+                                    id: '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8',
+                                    username: 'popcorn05',
+                                    name: 'Popcorn05',
+                                    avatar_url: 'https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8-1783331325942.jpg'
+                                }
+                            };
+                        }
+                    }
+                    if (c.profile?.username === 'rounak2' || (c as any).username === 'rounak2') {
+                        if (c.user_b !== '794703c5-c695-47bc-864c-60f400ab6fbe' || c.profile?.id !== '794703c5-c695-47bc-864c-60f400ab6fbe') {
+                            repaired = true;
+                            return {
+                                ...c,
+                                user_b: '794703c5-c695-47bc-864c-60f400ab6fbe',
+                                profile: {
+                                    ...c.profile,
+                                    id: '794703c5-c695-47bc-864c-60f400ab6fbe',
+                                    username: 'rounak2',
+                                    name: 'Rounak Singh',
+                                    avatar_url: 'https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/794703c5-c695-47bc-864c-60f400ab6fbe-1781558656087.jpg'
+                                }
+                            };
+                        }
+                    }
+                    return c;
+                });
                 const existingIds = new Set(parsed.map((c: ConnectionWithProfile) => c.id));
                 const missing = SEED_CONNECTIONS.filter(c => !existingIds.has(c.id));
-                return [...parsed, ...missing];
+                const merged = [...parsed, ...missing];
+                if (repaired || missing.length > 0) {
+                    try {
+                        localStorage.setItem('knock_local_connections', JSON.stringify(merged));
+                    } catch (_) {}
+                }
+                return merged;
             }
         }
     } catch (_) {}

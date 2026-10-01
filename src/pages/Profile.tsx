@@ -36,7 +36,12 @@ const Profile = () => {
         }
         return formatDisplayNameFromUsername(profile.username || displayUsername);
     }, [profile, displayUsername]);
-    const isOwnProfile = Boolean(currentUser && (currentUser.username === profile?.username || currentUser.id === profile?.id));
+    const isOwnProfile = Boolean(
+        currentUser && profile && (
+            (currentUser.username && profile.username && currentUser.username.toLowerCase() === profile.username.toLowerCase()) ||
+            (currentUser.id && profile.id && currentUser.id === profile.id && (!currentUser.username || !profile.username || currentUser.username.toLowerCase() === profile.username.toLowerCase()))
+        )
+    );
     const [posts, setPosts] = useState<PostData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -545,6 +550,15 @@ const Profile = () => {
                     </div>
                     {isOwnProfile && (
                         <>
+                            <button
+                                type="button"
+                                style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', position: 'relative' }}
+                                onClick={() => { setChatUserId(null); setIsChatOpen(true); }}
+                                aria-label="Messages"
+                                title="Messages"
+                            >
+                                <MessageCircle size={24} />
+                            </button>
                             <button
                                 type="button"
                                 style={{ background: 'none', border: 'none', color: 'var(--text-active)', cursor: 'pointer', position: 'relative' }}
