@@ -83,17 +83,55 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         };
     }, [onClose]);
 
-    // Immediate positioning to guarantee target reel is active without layout jump
-    useLayoutEffect(() => {
-        if (!scrollRef.current) return;
+    // Keep isInitialMountRef active until initial scroll settles so initial IntersectionObserver never overrides target reel
+    useEffect(() => {
+        isInitialMountRef.current = true;
+        const timer = setTimeout(() => {
+            isInitialMountRef.current = false;
+        }, 450);
+
+        // Immediate unblock if user explicitly initiates a touch or wheel interaction
         const container = scrollRef.current;
-        const targetEl = targetPost ? itemRefs.current[targetPost.id] : null;
-        if (targetEl) {
-            container.scrollTop = targetEl.offsetTop;
-        } else {
-            container.scrollTop = container.clientHeight * initialIndex;
+        const onUserTouch = () => {
+            isInitialMountRef.current = false;
+        };
+        if (container) {
+            container.addEventListener('touchstart', onUserTouch, { passive: true });
+            container.addEventListener('wheel', onUserTouch, { passive: true });
         }
-        isInitialMountRef.current = false;
+
+        return () => {
+            clearTimeout(timer);
+            if (container) {
+                container.removeEventListener('touchstart', onUserTouch);
+                container.removeEventListener('wheel', onUserTouch);
+            }
+        };
+    }, [initialIndex, targetPost?.id]);
+
+    // Immediate positioning to guarantee target reel is aligned without layout jump
+    useLayoutEffect(() => {
+        const container = scrollRef.current;
+        if (!container) return;
+
+        const scrollToTarget = () => {
+            const targetEl = targetPost ? itemRefs.current[targetPost.id] : null;
+            const targetTop = (targetEl && targetEl.offsetTop > 0)
+                ? targetEl.offsetTop
+                : (container.clientHeight || window.innerHeight) * initialIndex;
+            container.scrollTo({ top: targetTop, behavior: 'instant' as ScrollBehavior });
+        };
+
+        scrollToTarget();
+        const rafId = requestAnimationFrame(scrollToTarget);
+        const t1 = setTimeout(scrollToTarget, 50);
+        const t2 = setTimeout(scrollToTarget, 150);
+
+        return () => {
+            cancelAnimationFrame(rafId);
+            clearTimeout(t1);
+            clearTimeout(t2);
+        };
     }, [initialIndex, targetPost]);
 
     // Responsive IntersectionObserver for swiping/scrolling between reels
@@ -103,7 +141,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         const observer = new IntersectionObserver((entries) => {
             if (isInitialMountRef.current) return;
 
-            const intersecting = entries.filter(e => e.isIntersecting);
+            const intersecting = entries.filter(e => e.isIntersecting && e.intersectionRatio >= 0.5);
             if (intersecting.length > 0) {
                 const dominant = intersecting.reduce((prev, curr) => 
                     curr.intersectionRatio > prev.intersectionRatio ? curr : prev
@@ -144,7 +182,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
             });
         }, {
             root: scrollRef.current,
-            threshold: [0.4, 0.7, 0.9]
+            threshold: [0.5, 0.75, 0.9]
         });
 
         Object.values(itemRefs.current).forEach(el => {
@@ -162,7 +200,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 });
             }
         };
-    }, [user?.id, posts.length]);
+    }, [user?.id, displayPosts.length]);
 
     // Lock background page scroll while fullscreen viewer is open
     useEffect(() => {
@@ -213,7 +251,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         >
             {displayPosts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNearActive = Math.abs(index - currentIndex) <= 1;
+                const isNearActive = Math.abs(index - currentIndex) <= 2;
                 return (
                     <div 
                         key={post.id} 

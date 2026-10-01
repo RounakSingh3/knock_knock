@@ -58,7 +58,7 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
     Tech: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop',
     Entertainment: 'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800&auto=format&fit=crop',
     Comedy: 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=800&auto=format&fit=crop',
-    Fashion: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop',
+    Fashion: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=800&auto=format&fit=crop',
     Animals: 'https://images.unsplash.com/photo-1537151608828-ea2b11777ee8?w=800&auto=format&fit=crop',
     Gaming: 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=800&auto=format&fit=crop',
     Art: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=800&auto=format&fit=crop',
@@ -372,35 +372,31 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     }, [isVideo, domMuted]);
 
-    // Handle video play/pause & sound with resilient dual-stage autoplay
-    useEffect(() => {
+    // Resilient dual-stage playback logic
+    const startPlayback = useCallback(() => {
         if (!isVideo) return;
         const video = videoRef.current;
         if (!video) return;
 
-        let isCancelled = false;
-
         if (autoPlay || soundOn) {
+            video.muted = domMuted;
             const playPromise = video.play();
             if (playPromise !== undefined) {
                 playPromise
                     .then(() => {
-                        if (!isCancelled) {
-                            setIsPlaying(true);
-                            if (!video.muted) {
-                                setIsAudioBlocked(false);
-                            }
+                        setIsPlaying(true);
+                        if (!video.muted) {
+                            setIsAudioBlocked(false);
                         }
                     })
-                    .catch((err) => {
-                        if (isCancelled) return;
-                        // If unmuted autoplay failed due to browser policy, fallback to muted autoplay so video never freezes!
+                    .catch(() => {
+                        // Fallback to muted autoplay so video never freezes on mobile or desktop
                         if (!hasMusic && !video.muted) {
                             setIsAutoplayFallbackMuted(true);
                             setIsAudioBlocked(true);
                             video.muted = true;
                             video.play().then(() => {
-                                if (!isCancelled) setIsPlaying(true);
+                                setIsPlaying(true);
                             }).catch(() => {});
                         }
                     });
@@ -409,14 +405,19 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             video.pause();
             setIsPlaying(false);
         }
+    }, [isVideo, autoPlay, soundOn, domMuted, hasMusic]);
+
+    // Handle video play/pause & sound with resilient dual-stage autoplay
+    useEffect(() => {
+        if (!isVideo) return;
+        startPlayback();
 
         return () => {
-            isCancelled = true;
             try {
-                video.pause();
+                videoRef.current?.pause();
             } catch (_) {}
         };
-    }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, isPlayingMode]);
+    }, [isVideo, startPlayback, post.image_url]);
 
     const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!isPlayingMode) return;
@@ -691,13 +692,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     }
 
-    // When playing mode is active, pure clean URL for seamless progressive streaming
-    // For thumbnails, append #t=0.001 so the browser paints the first frame instead of a blank box
-    const videoSrc = isVideo
-        ? (isPlayingMode
-            ? cleanVideoUrl
-            : (cleanVideoUrl ? `${cleanVideoUrl}#t=0.001` : ''))
-        : '';
+    // Pure clean URL for seamless progressive streaming without pipeline resets
+    const videoSrc = isVideo ? cleanVideoUrl : '';
 
     return (
         <div 
@@ -809,7 +805,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 ref={videoRef}
                                 src={videoSrc}
                                 poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined) || (thumbnail ? getFallbackPoster(post) : undefined)}
-                                crossOrigin={isPlayingMode ? undefined : videoCrossOrigin}
                                 className={className}
                                 style={{
                                     ...style,
@@ -845,15 +840,23 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         try {
                                             v.currentTime = 0.001;
                                         } catch (_) {}
+                                    } else if (isPlayingMode && (autoPlay || soundOn) && v.paused) {
+                                        startPlayback();
                                     }
                                 }}
                                 onLoadedData={() => {
                                     setIsLoaded(true);
                                     captureFrame();
+                                    if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
+                                        startPlayback();
+                                    }
                                 }}
                                 onCanPlay={() => {
                                     setIsLoaded(true);
                                     captureFrame();
+                                    if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
+                                        startPlayback();
+                                    }
                                 }}
                                 onSeeked={captureFrame}
                                 onTimeUpdate={(e) => {
