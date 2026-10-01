@@ -113,19 +113,19 @@ export interface PostData {
 }
 
 export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
-    const local = getLocalPosts();
     const seen = new Set<string>();
     const merged: PostData[] = [];
 
-    // Local user created posts first
-    for (const p of local) {
+    // Live Database posts first (Supabase is the primary source of truth!)
+    for (const p of dbPosts) {
         if (!p || !p.id || seen.has(p.id) || BROKEN_POST_IDS.has(p.id) || isRemovedUser(p.user_id, p.username)) continue;
         seen.add(p.id);
         merged.push(p);
     }
 
-    // Database posts next
-    for (const p of dbPosts) {
+    // Local user created / offline posts next
+    const local = getLocalPosts();
+    for (const p of local) {
         if (!p || !p.id || seen.has(p.id) || BROKEN_POST_IDS.has(p.id) || isRemovedUser(p.user_id, p.username)) continue;
         seen.add(p.id);
         merged.push(p);
@@ -226,13 +226,16 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
     }
 
+    if (dbPosts.length > 0) {
+        return dbPosts;
+    }
+
     const localPosts = getLocalPosts().filter(p => 
         (p.username && p.username.toLowerCase() === cleanUsername) || 
         (userId && p.user_id === userId)
     );
 
-    const merged = [...localPosts, ...dbPosts.filter(dp => !localPosts.some(lp => lp.id === dp.id))];
-    if (merged.length > 0) return merged;
+    if (localPosts.length > 0) return localPosts;
 
     // Fallback: If no DB posts exist, check if this is a known reel creator from REELS_DATA
     const REEL_CREATOR_POSTS: Record<string, { videoUrl: string; song: string; caption: string; category: string }[]> = {
@@ -811,10 +814,21 @@ export async function toggleImp(userId: string, postId: string, currentlyImped: 
 export const UNLIMITED_POINTS = 999999999;
 
 export function isUnlimitedPointsUser(userId?: string | null, username?: string | null): boolean {
-    if (userId && userId.toLowerCase() === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8') return true;
+    if (userId) {
+        const uid = userId.toLowerCase();
+        if (
+            uid === '794703c5-c695-47bc-864c-60f400ab6fbe' || // rounak2 (authentic UUID)
+            uid === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8' || // popcorn05 (authentic UUID)
+            uid === '1369cfe5-42f1-4346-82be-0f616247092d'    // ityourfavourite1 (authentic UUID)
+        ) {
+            return true;
+        }
+    }
     if (username) {
         const clean = username.replace(/^@+/, '').trim().toLowerCase();
-        if (clean === 'popcorn05' || clean === 'popcorn') return true;
+        if (clean === 'rounak2' || clean === 'rounak' || clean === 'popcorn05' || clean === 'popcorn' || clean === 'ityourfavourite1') {
+            return true;
+        }
     }
     return false;
 }

@@ -126,8 +126,10 @@ export async function signIn(username: string, password: string) {
         }
         return data;
     } catch (err: any) {
-        console.warn('[signIn] Supabase restricted/offline, using resilient authentic login:', err.message);
-        setSupabaseQuotaRestricted(true);
+        console.warn('[signIn] Supabase authentication notice:', err.message);
+        if (isQuotaError(err)) {
+            setSupabaseQuotaRestricted(true);
+        }
 
         const known = getKnownProfile(cleanUser);
         let existing: ProfileData | null = null;
