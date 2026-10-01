@@ -154,12 +154,12 @@ function App() {
                 // Auto-repair swapped UUIDs
                 if (parsed.username === 'rounak2' && parsed.id !== '794703c5-c695-47bc-864c-60f400ab6fbe') {
                     parsed.id = '794703c5-c695-47bc-864c-60f400ab6fbe';
-                    parsed.name = 'Rounak Thakur';
+                    parsed.name = 'Rounak Singh';
                     parsed.avatar_url = 'https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/794703c5-c695-47bc-864c-60f400ab6fbe-1781558656087.jpg';
                     localStorage.setItem('knock_user_session', JSON.stringify(parsed));
                 } else if (parsed.username === 'popcorn05' && parsed.id !== '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8') {
                     parsed.id = '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
-                    parsed.name = 'Zack';
+                    parsed.name = 'Popcorn05';
                     parsed.avatar_url = 'https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8-1783331325942.jpg';
                     localStorage.setItem('knock_user_session', JSON.stringify(parsed));
                 }

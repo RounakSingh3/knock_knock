@@ -57,7 +57,25 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
     Dance: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=800&auto=format&fit=crop',
     Tech: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop',
     Entertainment: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop',
+    Comedy: 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=800&auto=format&fit=crop',
+    Fashion: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop',
+    Animals: 'https://images.unsplash.com/photo-1537151608828-ea2b11777ee8?w=800&auto=format&fit=crop',
+    Gaming: 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=800&auto=format&fit=crop',
+    Art: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?w=800&auto=format&fit=crop',
+    Education: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop',
+    Fitness: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=800&auto=format&fit=crop',
+    Memes: 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=800&auto=format&fit=crop',
+    Bollywood: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
     General: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop'
+};
+
+export const getFallbackPoster = (post?: Partial<PostData>): string => {
+    if (!post) return UNIVERSAL_FALLBACK_IMAGE;
+    const cat = post.category || (post as any)?.category;
+    if (cat && CATEGORY_FALLBACKS[cat]) {
+        return CATEGORY_FALLBACKS[cat];
+    }
+    return UNIVERSAL_FALLBACK_IMAGE;
 };
 
 export const extractPosterFromUrl = (url?: string): string | undefined => {
@@ -75,6 +93,18 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
         } catch (_) {
             return url.split('#FALLBACK:')[1]?.split('#')[0];
         }
+    }
+    // Auto-derive Supabase storage poster URL if video is in knock-knock-eight.versel/posts/
+    if (url.includes('/knock-knock-eight.versel/posts/') && (url.includes('.mp4') || url.includes('.webm') || url.includes('.mov'))) {
+        try {
+            const clean = url.split('#')[0].split('?')[0];
+            const parts = clean.split('/posts/');
+            if (parts.length === 2 && parts[1] && !parts[1].startsWith('posters/')) {
+                const filename = parts[1];
+                const posterName = filename.replace(/\.(mp4|webm|mov)$/i, '.jpg');
+                return `${parts[0]}/posts/posters/${posterName}`;
+            }
+        } catch (_) {}
     }
     return undefined;
 };
@@ -150,7 +180,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             } else {
                 setIsInView(false);
             }
-        }, { rootMargin: '250px' });
+        }, { rootMargin: '350px' });
 
         observer.observe(container);
         return () => {
@@ -178,14 +208,23 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     }, [post.image_url, isVideo, cleanUrl, targetWidth]);
 
     const captureFrame = useCallback(() => {
-        if (isPlayingMode || isGlobalFrameCaptureRunning) return;
+        if (isPlayingMode) return;
         const video = videoRef.current;
         if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) return;
+
+        if (isGlobalFrameCaptureRunning) {
+            setTimeout(() => {
+                if (videoRef.current && !capturedPoster) {
+                    captureFrame();
+                }
+            }, 120);
+            return;
+        }
 
         // ⚡ Defer frame capture to idle callback to avoid interrupting active touch scrolling
         const deferFn = typeof (window as any).requestIdleCallback === 'function'
             ? (window as any).requestIdleCallback
-            : (cb: () => void) => setTimeout(cb, 80);
+            : (cb: () => void) => setTimeout(cb, 60);
 
         deferFn(() => {
             if (isGlobalFrameCaptureRunning) return;
@@ -194,23 +233,23 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             isGlobalFrameCaptureRunning = true;
             try {
                 const canvas = document.createElement('canvas');
-                const scale = Math.min(1, 320 / v.videoWidth);
+                const scale = Math.min(1, 360 / v.videoWidth);
                 canvas.width = Math.round(v.videoWidth * scale);
                 canvas.height = Math.round(v.videoHeight * scale);
                 const ctx = canvas.getContext('2d');
                 if (ctx) {
                     ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
                     if (dataUrl && dataUrl.length > 200) {
                         videoPosterCache.set(cleanUrl, dataUrl);
                         setCapturedPoster(dataUrl);
 
-                        // Persist up to 25 recent poster frames to sessionStorage
+                        // Persist up to 60 recent poster frames to sessionStorage
                         try {
                             const cacheObj: Record<string, string> = {};
                             let count = 0;
                             for (const [k, val] of videoPosterCache.entries()) {
-                                if (count++ > 25) break;
+                                if (count++ > 60) break;
                                 cacheObj[k] = val;
                             }
                             sessionStorage.setItem('knock_video_posters', JSON.stringify(cacheObj));
@@ -223,7 +262,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 isGlobalFrameCaptureRunning = false;
             }
         });
-    }, [isPlayingMode, cleanUrl]);
+    }, [isPlayingMode, cleanUrl, capturedPoster]);
 
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
     const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
@@ -624,11 +663,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     }
 
     // When playing mode is active, pure clean URL for seamless progressive streaming
-    // For thumbnails, append #t=0.1 so the browser paints the first frame instead of a blank box
+    // For thumbnails, append #t=0.001 so the browser paints the first frame instead of a blank box
     const videoSrc = isVideo
         ? (isPlayingMode
             ? cleanVideoUrl
-            : (cleanVideoUrl ? `${cleanVideoUrl}#t=0.1` : ''))
+            : (cleanVideoUrl ? `${cleanVideoUrl}#t=0.001` : ''))
         : '';
 
     return (
@@ -675,7 +714,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             }}
                         />
                     ) : !isInView && thumbnail && !isPlayingMode ? (
-                        /* ⚡ Off-screen thumbnail placeholder: 0 decoders, 0 network bandwidth until scrolled into view! */
+                        /* ⚡ Off-screen thumbnail placeholder: Instant rich image, 0 decoders, 0 heavy bandwidth */
                         <div
                             className={className}
                             style={{
@@ -683,30 +722,64 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 width: '100%',
                                 height: '100%',
                                 minHeight: style?.minHeight || '160px',
-                                background: 'linear-gradient(135deg, #18181b 0%, #1f1f23 100%)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                background: '#18181b',
                             }}
                         >
+                            <img
+                                src={getFallbackPoster(post)}
+                                alt={alt}
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: resolvedObjectFit,
+                                    display: 'block',
+                                    filter: extractedFilter,
+                                }}
+                                loading="lazy"
+                                decoding="async"
+                            />
                             <div style={{
-                                width: '32px',
-                                height: '32px',
+                                position: 'absolute',
+                                top: '8px',
+                                right: '8px',
+                                width: '24px',
+                                height: '24px',
                                 borderRadius: '50%',
-                                background: 'rgba(0,0,0,0.4)',
+                                background: 'rgba(0,0,0,0.55)',
+                                backdropFilter: 'blur(4px)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                             }}>
-                                <Play size={16} fill="rgba(255,255,255,0.4)" color="transparent" style={{ marginLeft: '2px' }} />
+                                <Play size={12} fill="#fff" color="#fff" style={{ marginLeft: '1px' }} />
                             </div>
                         </div>
                     ) : (
-                        <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                        <div style={{ width: '100%', height: '100%', position: 'relative', background: '#18181b', overflow: 'hidden' }}>
+                            {/* Layered fallback picture so video tile is visually complete while frame decodes */}
+                            {!isLoaded && !capturedPoster && !resolvedPosterFromUrl && (
+                                <img
+                                    src={getFallbackPoster(post)}
+                                    alt=""
+                                    style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: resolvedObjectFit,
+                                        filter: extractedFilter,
+                                        zIndex: 0,
+                                        display: 'block',
+                                    }}
+                                    loading="eager"
+                                />
+                            )}
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
-                                poster={capturedPoster || resolvedPosterFromUrl || undefined}
+                                poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined) || getFallbackPoster(post)}
                                 crossOrigin={isPlayingMode ? undefined : videoCrossOrigin}
                                 className={className}
                                 style={{
@@ -718,6 +791,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     display: 'block',
                                     transform: 'translateZ(0)',
                                     backfaceVisibility: 'hidden',
+                                    position: 'relative',
+                                    zIndex: 1,
                                 }}
                                 muted={domMuted}
                                 controls={controls}
@@ -731,7 +806,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 disablePictureInPicture={true}
                                 // @ts-ignore
                                 disableRemotePlayback={true}
-                                preload={thumbnail && !isPlayingMode ? "none" : "auto"}
+                                preload={thumbnail && !isPlayingMode ? "metadata" : "auto"}
                                 onError={() => {
                                     handleMediaError();
                                 }}
@@ -739,11 +814,15 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     const v = e.currentTarget;
                                     if (!isPlayingMode && v.currentTime === 0) {
                                         try {
-                                            v.currentTime = 0.1;
+                                            v.currentTime = 0.001;
                                         } catch (_) {}
                                     }
                                 }}
                                 onLoadedData={() => {
+                                    setIsLoaded(true);
+                                    captureFrame();
+                                }}
+                                onCanPlay={() => {
                                     setIsLoaded(true);
                                     captureFrame();
                                 }}
@@ -764,6 +843,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 onMouseLeave={() => {
                                     if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
                                         videoRef.current.pause();
+                                        videoRef.current.currentTime = 0.001;
                                     }
                                 }}
                             />
