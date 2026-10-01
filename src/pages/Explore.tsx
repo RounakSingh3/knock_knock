@@ -428,7 +428,10 @@ const Explore = () => {
     useEffect(() => {
         if (trendingPosts.length === 0) setIsTrendingLoading(true);
         fetchTrendingPosts(50, user?.id).then(posts => {
-            const filtered = posts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            const filtered = posts
+                .filter(p => !p.user_id || !blockedIds.includes(p.user_id))
+                .map(normalizePost)
+                .filter((p): p is PostData => Boolean(p));
             setTrendingPosts(filtered);
             try {
                 localStorage.setItem('knock_explore_trending_cache_v8', JSON.stringify(filtered));
@@ -646,7 +649,10 @@ const Explore = () => {
         await loadDiscoverFeed(refreshSeed);
         // Reload trending too
         fetchTrendingPosts(50, user?.id).then(posts => {
-            const filtered = posts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            const filtered = posts
+                .filter(p => !p.user_id || !blockedIds.includes(p.user_id))
+                .map(normalizePost)
+                .filter((p): p is PostData => Boolean(p));
             setTrendingPosts(filtered);
             try {
                 localStorage.setItem('knock_explore_trending_cache_v8', JSON.stringify(filtered));
@@ -859,17 +865,17 @@ const Explore = () => {
                             />
 
                             {/* 🔥 Trending Now Banner — FOMO */}
-                            {!isTrendingLoading && trendingPosts.length > 0 && (
+                            {!isTrendingLoading && normalizedTrendingPosts.length > 0 && (
                                 <div style={{ marginBottom: '16px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
                                         <Flame size={18} color="#f5a524" />
                                         <span style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-active)' }}>Trending Now</span>
                                         <span style={{ fontSize: '12px', color: 'var(--text-inactive)', marginLeft: 'auto' }}>
-                                            {trendingPosts.filter(p => isVideoPost(p)).length > 0 ? `${trendingPosts.filter(p => isVideoPost(p)).length} Videos` : 'Last 24h'}
+                                            {normalizedTrendingPosts.filter(p => isVideoPost(p)).length > 0 ? `${normalizedTrendingPosts.filter(p => isVideoPost(p)).length} Videos` : 'Last 24h'}
                                         </span>
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' }}>
-                                        {trendingPosts.map((post, idx) => (
+                                        {normalizedTrendingPosts.map((post, idx) => (
                                             <div
                                                 key={post.id}
                                                 style={{

@@ -35,6 +35,8 @@ const BROKEN_POST_IDS = new Set([
     '326ec467-e226-40ca-ac3e-c93426734ccc',
     'ec51efe9-e026-4e3b-a641-e2b015a32c86',
     '6b168e1f-fb76-497c-baae-c84798a32a4e',
+    '0c718c71-7597-41a6-8be0-dc565ee0b383',
+    '868a6af7-f1b5-4f26-bb76-e32e8c77c581',
 ]);
 
 // Inappropriate or test accounts filtered out from feeds and search to keep app clean
@@ -707,10 +709,10 @@ export function normalizePost(post: PostData): PostData {
     if (!post) return null as any;
     if (BROKEN_POST_IDS.has(post.id)) return null as any;
 
-    // Filter out posts with empty, null, or invalid image_url
+    // Filter out posts with empty, null, or invalid image_url, or non-portable blob/data URLs
     if (!post.image_url || typeof post.image_url !== 'string') return null as any;
     const trimmedUrl = post.image_url.trim();
-    if (!trimmedUrl || trimmedUrl === 'undefined' || trimmedUrl === 'null' || trimmedUrl === 'none') {
+    if (!trimmedUrl || trimmedUrl === 'undefined' || trimmedUrl === 'null' || trimmedUrl === 'none' || trimmedUrl.startsWith('blob:') || trimmedUrl.startsWith('data:')) {
         return null as any;
     }
 
@@ -3681,6 +3683,7 @@ export async function fetchTrendingPosts(limit: number = 20, currentUserId?: str
 
         const addPost = (raw: any, isFav: boolean = false) => {
             if (!raw || !raw.id || !raw.image_url) return;
+            if (typeof raw.image_url === 'string' && (raw.image_url.startsWith('blob:') || raw.image_url.startsWith('data:'))) return;
             const norm = normalizePost(raw);
             if (!norm) return;
             const cleanUrl = (norm.image_url || '').split('?')[0].split('#')[0];

@@ -46,9 +46,9 @@ try {
 
 let isGlobalFrameCaptureRunning = false;
 
-const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop';
+const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
-    Lifestyle: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop',
+    Lifestyle: 'https://images.unsplash.com/photo-1511988617509-a57c8a288659?w=800&auto=format&fit=crop',
     Music: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
     Nature: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop',
     Travel: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&auto=format&fit=crop',
@@ -56,7 +56,7 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
     Food: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&auto=format&fit=crop',
     Dance: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=800&auto=format&fit=crop',
     Tech: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop',
-    Entertainment: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&auto=format&fit=crop',
+    Entertainment: 'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800&auto=format&fit=crop',
     Comedy: 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=800&auto=format&fit=crop',
     Fashion: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop',
     Animals: 'https://images.unsplash.com/photo-1537151608828-ea2b11777ee8?w=800&auto=format&fit=crop',
@@ -66,7 +66,7 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
     Fitness: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=800&auto=format&fit=crop',
     Memes: 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=800&auto=format&fit=crop',
     Bollywood: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
-    General: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&auto=format&fit=crop'
+    General: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop'
 };
 
 export const getFallbackPoster = (post?: Partial<PostData>): string => {
@@ -596,7 +596,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     if (hasError || !post.image_url) {
-        const poster = extractPosterFromUrl(post.image_url) || ((post as any)?.category && CATEGORY_FALLBACKS[(post as any).category]) || UNIVERSAL_FALLBACK_IMAGE;
+        const poster = extractPosterFromUrl(post.image_url) || (thumbnail ? getFallbackPoster(post) : undefined);
         return (
             <div 
                 className={className}
@@ -607,20 +607,49 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     position: 'relative',
                     overflow: 'hidden',
                     background: '#121214',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     ...style
                 }}
             >
-                <img
-                    src={poster}
-                    alt={alt}
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: resolvedObjectFit,
-                        display: 'block'
-                    }}
-                />
-                {isVideo && (
+                {poster ? (
+                    <img
+                        src={poster}
+                        alt={alt}
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: resolvedObjectFit,
+                            display: 'block'
+                        }}
+                    />
+                ) : (
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '12px',
+                        color: 'rgba(255,255,255,0.7)',
+                    }}>
+                        <div style={{
+                            width: '52px',
+                            height: '52px',
+                            borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.08)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}>
+                            <Play size={24} color="#f5a524" />
+                        </div>
+                        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontWeight: '500' }}>
+                            {isVideo ? 'Video unavailable' : 'Media unavailable'}
+                        </span>
+                    </div>
+                )}
+                {isVideo && poster && (
                     <div style={{
                         position: 'absolute',
                         inset: 0,
@@ -758,8 +787,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         </div>
                     ) : (
                         <div style={{ width: '100%', height: '100%', position: 'relative', background: '#18181b', overflow: 'hidden' }}>
-                            {/* Layered fallback picture so video tile is visually complete while frame decodes */}
-                            {!isLoaded && !capturedPoster && !resolvedPosterFromUrl && (
+                            {/* Layered fallback picture so video tile is visually complete while frame decodes in thumbnail mode */}
+                            {thumbnail && !isPlayingMode && !isLoaded && !capturedPoster && !resolvedPosterFromUrl && (
                                 <img
                                     src={getFallbackPoster(post)}
                                     alt=""
@@ -779,7 +808,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
-                                poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined) || getFallbackPoster(post)}
+                                poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined) || (thumbnail ? getFallbackPoster(post) : undefined)}
                                 crossOrigin={isPlayingMode ? undefined : videoCrossOrigin}
                                 className={className}
                                 style={{

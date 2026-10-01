@@ -348,6 +348,10 @@ const CreatePost = () => {
                 setUploadProgress({ percentage, loadedMB, totalMB });
             });
 
+            if (!publicUrl || publicUrl.startsWith('blob:') || publicUrl.startsWith('data:')) {
+                throw new Error('Media upload failed. Please check your internet connection and try again.');
+            }
+
             let finalUrl = publicUrl;
             if (uploadedPosterUrl) {
                 finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
