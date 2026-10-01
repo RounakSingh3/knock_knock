@@ -72,8 +72,7 @@ textarea,
 .fab-create,
 .signout-btn-v2,
 .feed-toggle-pill,
-.clickable,
-.reel-card {
+.clickable {
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
 }
@@ -134,12 +133,12 @@ body::before {
     contain: layout paint;
 }
 
-/* Reel cards are full-viewport height, safe for content-visibility */
+/* Reel cards: NO content-visibility because scroll-snap on mobile causes layout calculation stutter */
 .reel-card {
-    content-visibility: auto;
-    contain-intrinsic-block-size: 100vh;
+    touch-action: pan-y;
     transform: translateZ(0);
     backface-visibility: hidden;
+    will-change: transform;
 }
 
 /* GPU hardware acceleration for smooth 60fps animations */

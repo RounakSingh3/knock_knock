@@ -177,7 +177,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     soundOn={isActive && !effectiveMuted}
                     muted={effectiveMuted || !isActive}
                     loop={true}
-                    thumbnail={!isActive}
+                    thumbnail={false}
                     objectFit="contain"
                     onDoubleTapLike={handleLikeToggle}
                     onMuteChange={(muted) => {

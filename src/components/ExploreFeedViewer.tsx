@@ -83,12 +83,32 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         };
     }, [onClose]);
 
-    // Keep isInitialMountRef active until initial scroll settles so initial IntersectionObserver never overrides target reel
+    const activatePost = useCallback((postId: string, index?: number) => {
+        if (!postId || postId === activePostIdRef.current) return;
+        activePostIdRef.current = postId;
+        setActivePostId(postId);
+        const resolvedIdx = index !== undefined ? index : displayPosts.findIndex(p => p.id === postId);
+        if (resolvedIdx !== -1) setCurrentIndex(resolvedIdx);
+
+        if (user) {
+            watchTimers.current[postId] = Date.now();
+            const currentPost = displayPosts.find(p => p.id === postId);
+            const category = currentPost?.category || 'General';
+            trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
+            recordPostScreenDelivery(postId, user.id, currentPost?.boost_impressions_remaining);
+        }
+    }, [displayPosts, user]);
+
+    // Keep isInitialMountRef active only until initial scroll positions so IntersectionObserver doesn't override target reel
     useEffect(() => {
+        if (initialIndex === 0) {
+            isInitialMountRef.current = false;
+            return;
+        }
         isInitialMountRef.current = true;
         const timer = setTimeout(() => {
             isInitialMountRef.current = false;
-        }, 450);
+        }, 120);
 
         // Immediate unblock if user explicitly initiates a touch or wheel interaction
         const container = scrollRef.current;
@@ -124,15 +144,32 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
 
         scrollToTarget();
         const rafId = requestAnimationFrame(scrollToTarget);
-        const t1 = setTimeout(scrollToTarget, 50);
-        const t2 = setTimeout(scrollToTarget, 150);
+        const t1 = setTimeout(() => {
+            scrollToTarget();
+            isInitialMountRef.current = false;
+        }, 50);
 
         return () => {
             cancelAnimationFrame(rafId);
             clearTimeout(t1);
-            clearTimeout(t2);
         };
     }, [initialIndex, targetPost]);
+
+    // Passive instant scroll listener for zero-delay video activation when snapping down
+    const handleScroll = useCallback(() => {
+        const container = scrollRef.current;
+        if (!container) return;
+        isInitialMountRef.current = false;
+        const h = container.clientHeight || window.innerHeight;
+        if (h <= 0) return;
+        const snapIndex = Math.round(container.scrollTop / h);
+        if (snapIndex >= 0 && snapIndex < displayPosts.length) {
+            const target = displayPosts[snapIndex];
+            if (target && target.id !== activePostIdRef.current) {
+                activatePost(target.id, snapIndex);
+            }
+        }
+    }, [displayPosts, activatePost]);
 
     // Responsive IntersectionObserver for swiping/scrolling between reels
     useEffect(() => {
@@ -147,20 +184,8 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                     curr.intersectionRatio > prev.intersectionRatio ? curr : prev
                 );
                 const postId = dominant.target.getAttribute('data-postid');
-                const category = dominant.target.getAttribute('data-category') || 'General';
-                
                 if (postId && postId !== activePostIdRef.current) {
-                    activePostIdRef.current = postId;
-                    setActivePostId(postId);
-                    const idx = displayPosts.findIndex(p => p.id === postId);
-                    if (idx !== -1) setCurrentIndex(idx);
-
-                    if (user) {
-                        watchTimers.current[postId] = Date.now();
-                        trackEngagement(user.id, postId, 'view', 1, category).catch(() => {});
-                        const currentPost = displayPosts.find(p => p.id === postId);
-                        recordPostScreenDelivery(postId, user.id, currentPost?.boost_impressions_remaining);
-                    }
+                    activatePost(postId);
                 }
             }
 
@@ -200,7 +225,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 });
             }
         };
-    }, [user?.id, displayPosts.length]);
+    }, [user?.id, displayPosts.length, activatePost]);
 
     // Lock background page scroll while fullscreen viewer is open
     useEffect(() => {
@@ -248,6 +273,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 transform: 'translateZ(0)',
             }} 
             ref={scrollRef}
+            onScroll={handleScroll}
         >
             {displayPosts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;

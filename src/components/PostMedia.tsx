@@ -143,9 +143,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const fallbackUsedRef = useRef(false);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
-    // ⚡ On mobile devices, request 380px for feed thumbnails to cut GPU texture memory & decoding cost by 50%+
+    // ⚡ On mobile devices, request 380px for feed thumbnails to cut GPU texture memory, and 1080px for full-screen viewer
     const isMobileScreen = typeof window !== 'undefined' && window.innerWidth <= 640;
-    const targetWidth = isMobileScreen && thumbnail ? 380 : 600;
+    const targetWidth = isMobileScreen && thumbnail ? 380 : (thumbnail ? 600 : 1080);
 
     const [currentImgSrc, setCurrentImgSrc] = useState<string>(() => {
         return isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth);
@@ -330,22 +330,21 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         }
                     })
                     .catch(() => {
-                        // Fallback to muted autoplay so video never freezes on mobile or desktop
-                        if (!hasMusic && !video.muted) {
-                            setIsAutoplayFallbackMuted(true);
-                            setIsAudioBlocked(true);
+                        // Silent recovery: ensure muted autoplay succeeds so video never freezes on mobile
+                        if (!video.muted) {
                             video.muted = true;
-                            video.play().then(() => {
-                                setIsPlaying(true);
-                            }).catch(() => {});
+                            setIsAudioBlocked(true);
                         }
+                        video.play().then(() => {
+                            setIsPlaying(true);
+                        }).catch(() => {});
                     });
             }
         } else {
             video.pause();
             setIsPlaying(false);
         }
-    }, [isVideo, autoPlay, soundOn, domMuted, hasMusic]);
+    }, [isVideo, autoPlay, soundOn, domMuted]);
 
     // Handle video play/pause & sound with resilient dual-stage autoplay
     useEffect(() => {
@@ -927,7 +926,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         transform: 'translateZ(0)',
                         backfaceVisibility: 'hidden',
                     }}
-                    loading="lazy"
+                    loading={isPlayingMode || !thumbnail ? "eager" : "lazy"}
                     decoding="async"
                     referrerPolicy="no-referrer"
                     onError={handleMediaError}

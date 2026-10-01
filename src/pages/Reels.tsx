@@ -470,6 +470,69 @@ const Reels: React.FC = () => {
         }
     }, [selectedReelIndex, mutedAll, reelsList, playReelAudio]);
 
+    // Centralized instant reel activation for both onScroll and IntersectionObserver
+    const activateReel = useCallback((idx: number) => {
+        if (idx < 0 || idx >= reelsList.length) return;
+        setActiveIndex(idx);
+
+        const reel = reelsList[idx];
+        const hasMusic = Boolean(reel?.musicUrl);
+
+        // Immediate zero-latency play on target video
+        const targetVideo = videoRefs.current[idx];
+        if (targetVideo) {
+            targetVideo.muted = hasMusic ? true : mutedAll;
+            const playPromise = targetVideo.play();
+            if (playPromise !== undefined) {
+                playPromise.catch((err) => {
+                    console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
+                    setMutedAll(true);
+                    setFeedMutedPreference(true);
+                    targetVideo.muted = true;
+                    targetVideo.play().catch(() => {});
+                });
+            }
+        }
+
+        // Pause all other video elements synchronously
+        videoRefs.current.forEach((v, i) => {
+            if (v && i !== idx) {
+                v.pause();
+            }
+        });
+
+        // Manage audio: play active reel's audio if unmuted, stop all others
+        audioRefs.current.forEach((a, i) => {
+            if (a) {
+                a.muted = mutedAll;
+                if (i === idx && !mutedAll) {
+                    playReelAudio(a);
+                } else {
+                    a.pause();
+                    a.currentTime = 0;
+                }
+            }
+        });
+
+        setPlayStates((prev) => {
+            const next = [...prev];
+            next[idx] = true;
+            return next;
+        });
+    }, [reelsList, mutedAll, playReelAudio]);
+
+    // High-performance scroll listener to instantly switch reels when snap settles
+    const handleReelsScroll = useCallback(() => {
+        const el = modalScrollRef.current;
+        if (!el) return;
+        const h = el.clientHeight || window.innerHeight;
+        if (h <= 0) return;
+        const snapIdx = Math.round(el.scrollTop / h);
+        if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndex) {
+            activateReel(snapIdx);
+        }
+    }, [reelsList.length, activeIndex, activateReel]);
+
     // IntersectionObserver to auto-play visible video in modal and manage audio strictly
     useEffect(() => {
         if (selectedReelIndex === null) return;
@@ -480,42 +543,9 @@ const Reels: React.FC = () => {
                     const idxStr = card?.getAttribute('data-reel-index');
                     const idx = idxStr !== null ? parseInt(idxStr, 10) : -1;
                     if (idx === -1) return;
-                    const reel = reelsList[idx];
-                    const hasMusic = Boolean(reel?.musicUrl);
 
                     if (entry.isIntersecting) {
-                        setActiveIndex(idx);
-                        const video = videoRefs.current[idx];
-                        if (video) {
-                            video.muted = hasMusic ? true : mutedAll;
-                            const playPromise = video.play();
-                            if (playPromise !== undefined) {
-                                playPromise.catch((err) => {
-                                    console.warn('[Reels] Intersection autoplay rejected, falling back to muted play:', err);
-                                    setMutedAll(true);
-                                    setFeedMutedPreference(true);
-                                    video.muted = true;
-                                    video.play().catch(() => {});
-                                });
-                            }
-                        }
-                        // Stop all other audios immediately, and play only this reel's audio
-                        audioRefs.current.forEach((a, i) => {
-                            if (a) {
-                                a.muted = mutedAll;
-                                if (i === idx && !mutedAll) {
-                                    playReelAudio(a);
-                                } else {
-                                    a.pause();
-                                    a.currentTime = 0;
-                                }
-                            }
-                        });
-                        setPlayStates((prev) => {
-                            const next = [...prev];
-                            next[idx] = true;
-                            return next;
-                        });
+                        activateReel(idx);
                     } else {
                         const video = videoRefs.current[idx];
                         if (video) video.pause();
@@ -533,7 +563,7 @@ const Reels: React.FC = () => {
             },
             { 
                 root: modalScrollRef.current,
-                threshold: 0.6 
+                threshold: 0.5 
             }
         );
 
@@ -543,7 +573,7 @@ const Reels: React.FC = () => {
         });
 
         return () => observer.disconnect();
-    }, [selectedReelIndex, mutedAll, reelsList, playReelAudio]);
+    }, [selectedReelIndex, reelsList, activateReel]);
 
     // ⚡ Synchronize active video play when sliding window mounts new active video element
     useEffect(() => {
@@ -553,19 +583,26 @@ const Reels: React.FC = () => {
             const reel = reelsList[activeIndex];
             const hasMusic = Boolean(reel?.musicUrl);
             video.muted = hasMusic ? true : mutedAll;
-            video.play().catch(() => {});
+            const p = video.play();
+            if (p !== undefined) {
+                p.catch(() => {
+                    video.muted = true;
+                    video.play().catch(() => {});
+                });
+            }
         }
     }, [activeIndex, selectedReelIndex, mutedAll, reelsList]);
 
-    // Pillar 4: Instant Gratification — Preload next video buffer for 0ms swipe latency
+    // Pillar 4: Instant Gratification — Preload next 2 video buffers for 0ms swipe latency
     useEffect(() => {
-        const nextIdx = activeIndex + 1;
-        if (nextIdx < reelsList.length && videoRefs.current[nextIdx]) {
-            const nextVideo = videoRefs.current[nextIdx];
-            if (nextVideo && nextVideo.preload !== 'auto') {
-                nextVideo.preload = 'auto';
+        [activeIndex + 1, activeIndex + 2].forEach(nextIdx => {
+            if (nextIdx < reelsList.length && videoRefs.current[nextIdx]) {
+                const nextVideo = videoRefs.current[nextIdx];
+                if (nextVideo && nextVideo.preload !== 'auto') {
+                    nextVideo.preload = 'auto';
+                }
             }
-        }
+        });
     }, [activeIndex, reelsList.length]);
 
     // Pillar 3: The Infinite Scroll — Auto-extend stream when user nears bottom
@@ -976,10 +1013,10 @@ const Reels: React.FC = () => {
                     </div>
 
                     {/* Scrollable Player */}
-                    <div className="reels-page" ref={modalScrollRef}>
+                    <div className="reels-page" ref={modalScrollRef} onScroll={handleReelsScroll}>
                         {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
-                            const isNearby = Math.abs(idx - activeIndex) <= 1;
+                            const isNearby = Math.abs(idx - activeIndex) <= 2;
                             
                             return (
                                 <div 
@@ -999,7 +1036,14 @@ const Reels: React.FC = () => {
                                                 poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
                                                 loop
                                                 playsInline
-                                                preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
+                                                // @ts-ignore
+                                                webkit-playsinline="true"
+                                                x5-playsinline="true"
+                                                // @ts-ignore
+                                                disablePictureInPicture={true}
+                                                // @ts-ignore
+                                                disableRemotePlayback={true}
+                                                preload={Math.abs(idx - activeIndex) <= 2 ? 'auto' : 'metadata'}
                                                 autoPlay={idx === selectedReelIndex}
                                                 muted={Boolean(reel.musicUrl) || mutedAll}
                                                 className="reel-video"
