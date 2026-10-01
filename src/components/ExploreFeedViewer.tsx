@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useLayoutEffect, useContext, useState } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useContext, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { type PostData, trackEngagement, normalizePost, fetchAllPostsForScoring, recordPostScreenDelivery } from '../lib/database';
 import { PostModalContent } from './PostModal';
