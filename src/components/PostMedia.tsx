@@ -375,10 +375,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             isCancelled = true;
             try {
                 video.pause();
-                if (isPlayingMode || thumbnail) {
-                    video.removeAttribute('src');
-                    video.load();
-                }
             } catch (_) {}
         };
     }, [soundOn, isVideo, autoPlay, post.image_url, hasMusic, isPlayingMode]);
@@ -483,8 +479,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             try {
                 audio.pause();
                 audio.currentTime = 0;
-                audio.removeAttribute('src');
-                audio.load();
             } catch (_) {}
         };
     }, [autoPlay, soundOn, muted, resolvedMusicUrl]);
@@ -536,7 +530,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             setHasError(false);
             return;
         }
-        if (isVideo && !fallbackUsedRef.current) {
+        if (isVideo && !isPlayingMode && !fallbackUsedRef.current) {
             fallbackUsedRef.current = true;
             const poster = extractPosterFromUrl(post.image_url);
             if (poster) {
@@ -614,27 +608,27 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         );
     }
 
-    // Clean video URLs and ensure fresh cache-busted playback for Supabase storage
-    let cleanImageUrl = post.image_url;
-    try {
-        if (post.image_url) {
-            const parsed = new URL(post.image_url);
+    // Clean video URL: strip ALL hash fragments (#POSTER:, #FALLBACK:, #BOOST:, etc.) and filter query
+    let cleanVideoUrl = '';
+    if (post.image_url) {
+        const rawNoHash = post.image_url.split('#')[0];
+        try {
+            const parsed = new URL(rawNoHash);
             if (parsed.searchParams.has('filter')) {
                 parsed.searchParams.delete('filter');
             }
-            if (isVideo && parsed.hostname.includes('supabase.co') && !parsed.searchParams.has('v')) {
-                parsed.searchParams.set('v', 'h264_v2');
-            }
-            cleanImageUrl = parsed.toString();
+            cleanVideoUrl = parsed.toString();
+        } catch (_) {
+            cleanVideoUrl = rawNoHash;
         }
-    } catch (_) {}
+    }
 
-    // When playing mode is active, do NOT append #t=... as it disrupts progressive streaming, byte seeking, and looping
-    // For thumbnails, use #t=0.1 so the video renders a visible frame instead of a black box
+    // When playing mode is active, pure clean URL for seamless progressive streaming
+    // For thumbnails, append #t=0.1 so the browser paints the first frame instead of a blank box
     const videoSrc = isVideo
         ? (isPlayingMode
-            ? cleanImageUrl.replace(/#t=[\d.]+/, '')
-            : (cleanImageUrl.includes('#t=') ? cleanImageUrl : `${cleanImageUrl}#t=0.1`))
+            ? cleanVideoUrl
+            : (cleanVideoUrl ? `${cleanVideoUrl}#t=0.1` : ''))
         : '';
 
     return (
@@ -713,7 +707,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 ref={videoRef}
                                 src={videoSrc}
                                 poster={capturedPoster || resolvedPosterFromUrl || undefined}
-                                crossOrigin={videoCrossOrigin}
+                                crossOrigin={isPlayingMode ? undefined : videoCrossOrigin}
                                 className={className}
                                 style={{
                                     ...style,
@@ -737,7 +731,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 disablePictureInPicture={true}
                                 // @ts-ignore
                                 disableRemotePlayback={true}
-                                preload={thumbnail ? "none" : (isPlayingMode ? "auto" : "metadata")}
+                                preload={thumbnail && !isPlayingMode ? "none" : "auto"}
                                 onError={() => {
                                     handleMediaError();
                                 }}

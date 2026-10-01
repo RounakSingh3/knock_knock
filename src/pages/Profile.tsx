@@ -8,6 +8,7 @@ import {
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData,
     checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost
 } from '../lib/database';
+import { recordHashtagSignal } from '../lib/algorithm';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
 import { isVideoPost, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import PostMedia from '../components/PostMedia';
@@ -1208,7 +1209,33 @@ const Profile = () => {
                             {/* Full Bottom Action Bar with Send Reel, Like, Comments, and Imp */}
                             <div className="modal-details modal-details--sheet">
                                 {selectedPost.caption && (
-                                    <p className="modal-caption">{selectedPost.caption}</p>
+                                    <p className="modal-caption">
+                                        {selectedPost.caption.split(/(\s+)/).map((word, wIdx) => {
+                                            if (word.startsWith('#') && word.length > 1) {
+                                                const cleanTag = word.replace(/[^a-zA-Z0-9_\u0080-\uFFFF#]/g, '');
+                                                return (
+                                                    <span
+                                                        key={wIdx}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            recordHashtagSignal([cleanTag.replace('#', '')], 3.0);
+                                                            setSelectedPost(null);
+                                                            navigate(`/explore?q=${encodeURIComponent(cleanTag)}&tab=posts`);
+                                                        }}
+                                                        style={{
+                                                            color: '#f5a524',
+                                                            fontWeight: 700,
+                                                            cursor: 'pointer',
+                                                            display: 'inline'
+                                                        }}
+                                                    >
+                                                        {word}
+                                                    </span>
+                                                );
+                                            }
+                                            return word;
+                                        })}
+                                    </p>
                                 )}
                                 {selectedPost.attached_link && (
                                     <a

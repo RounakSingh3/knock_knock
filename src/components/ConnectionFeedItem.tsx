@@ -117,7 +117,7 @@ const ConnectionFeedItem: React.FC<ConnectionFeedItemProps> = ({
             {showStory && item.story && (
                 <div style={{ width: '100%', height: '100%', position: 'relative', background: 'var(--bg-color)' }}>
                     {isVideoUrl(item.story.image_url) ? (
-                        <video src={`${item.story.image_url}#t=0.001`} className="masonry-card-img" style={{ objectFit: 'cover' }} preload="metadata" muted playsInline />
+                        <video src={`${item.story.image_url.split('#')[0]}#t=0.001`} className="masonry-card-img" style={{ objectFit: 'cover' }} preload="metadata" muted playsInline />
                     ) : (
                         <img src={item.story.image_url} className="masonry-card-img" style={{ objectFit: 'cover' }} alt="Story" />
                     )}

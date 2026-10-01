@@ -3196,17 +3196,39 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
 
     if (error) {
         console.error('Error searching posts:', error);
-        return [];
+        const local = getLocalPosts();
+        return local.filter(p => {
+            const cap = (p.caption || '').toLowerCase();
+            const uname = (p.username || '').toLowerCase();
+            return candidateTerms.some(t => {
+                const termLower = t.toLowerCase();
+                return cap.includes(termLower) || uname.includes(termLower);
+            });
+        });
     }
 
     const seen = new Set<string>();
-    return (data || [])
+    const normalized = (data || [])
         .map(normalizePost)
         .filter((p): p is PostData => {
             if (!p || !p.id || seen.has(p.id)) return false;
             seen.add(p.id);
             return true;
         });
+
+    if (normalized.length === 0) {
+        const local = getLocalPosts();
+        return local.filter(p => {
+            const cap = (p.caption || '').toLowerCase();
+            const uname = (p.username || '').toLowerCase();
+            return candidateTerms.some(t => {
+                const termLower = t.toLowerCase();
+                return cap.includes(termLower) || uname.includes(termLower);
+            });
+        });
+    }
+
+    return normalized;
 }
 
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {

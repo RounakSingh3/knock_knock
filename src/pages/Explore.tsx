@@ -1076,7 +1076,7 @@ const Explore = () => {
                                             return (
                                                 <div key={group.userId} style={{ position: 'relative', aspectRatio: '9/16', cursor: 'pointer' }} onClick={() => setActiveStoryGroupIndex(idx)}>
                                                     {isVideo ? (
-                                                        <video src={`${storyUrl}#t=0.001`} preload="metadata" muted playsInline style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
+                                                        <video src={`${storyUrl.split('#')[0]}#t=0.001`} preload="metadata" muted playsInline style={{ height: '100%', width: '100%', objectFit: 'cover' }} />
                                                     ) : (
                                                         <img 
                                                             src={storyUrl} 

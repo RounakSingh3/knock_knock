@@ -219,11 +219,20 @@ function postToReel(post: PostData): ReelData {
     } catch(e) {}
 
     const resolvedPoster = extractPosterFromUrl(post.image_url);
+    const rawNoHash = (post.image_url || '').split('#')[0];
+    let cleanVideoUrl = rawNoHash;
+    try {
+        const u = new URL(rawNoHash);
+        if (u.searchParams.has('filter')) {
+            u.searchParams.delete('filter');
+        }
+        cleanVideoUrl = u.toString();
+    } catch (_) {}
 
     return {
         id: post.id,
-        videoUrl: post.image_url,
-        posterUrl: resolvedPoster || post.image_url,
+        videoUrl: cleanVideoUrl,
+        posterUrl: resolvedPoster || cleanVideoUrl,
         creator: post.username,
         creatorAvatar: post.avatar_url || `https://i.pravatar.cc/150?u=${post.username}`,
         caption: post.caption || '',
