@@ -153,11 +153,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
     const cleanUrl = post.image_url ? post.image_url.split('#')[0].split('?')[0] : '';
     const resolvedPosterFromUrl = extractPosterFromUrl(post.image_url);
-    const [capturedPoster, setCapturedPoster] = useState<string | undefined>(() => {
+    const categoryFallbackPoster = getFallbackPoster(post as any);
+    const [capturedPoster, setCapturedPoster] = useState<string>(() => {
         if (isVideo && cleanUrl) {
-            return videoPosterCache.get(cleanUrl) || resolvedPosterFromUrl;
+            return videoPosterCache.get(cleanUrl) || resolvedPosterFromUrl || categoryFallbackPoster;
         }
-        return resolvedPosterFromUrl;
+        return resolvedPosterFromUrl || categoryFallbackPoster;
     });
     const [posterFailed, setPosterFailed] = useState<boolean>(false);
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
@@ -197,9 +198,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         fallbackUsedRef.current = false;
         setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth));
         const posterFromUrl = extractPosterFromUrl(post.image_url);
-        if (posterFromUrl && cleanUrl) {
-            videoPosterCache.set(cleanUrl, posterFromUrl);
-            setCapturedPoster(posterFromUrl);
+        const fb = getFallbackPoster(post as any);
+        if (cleanUrl) {
+            const bestPoster = posterFromUrl || videoPosterCache.get(cleanUrl) || fb;
+            videoPosterCache.set(cleanUrl, bestPoster);
+            setCapturedPoster(bestPoster);
+        } else {
+            setCapturedPoster(posterFromUrl || fb);
         }
     }, [post.image_url, isVideo, cleanUrl, targetWidth]);
 
@@ -331,10 +336,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     })
                     .catch(() => {
                         // Silent recovery: ensure muted autoplay succeeds so video never freezes on mobile
-                        if (!video.muted) {
-                            video.muted = true;
-                            setIsAudioBlocked(true);
-                        }
+                        setIsAutoplayFallbackMuted(true);
+                        setIsAudioBlocked(true);
+                        video.muted = true;
                         video.play().then(() => {
                             setIsPlaying(true);
                         }).catch(() => {});
@@ -349,6 +353,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     // Handle video play/pause & sound with resilient dual-stage autoplay
     useEffect(() => {
         if (!isVideo) return;
+        const video = videoRef.current;
+        if (video && videoSrc) {
+            try {
+                video.load();
+            } catch (_) {}
+        }
         startPlayback();
 
         return () => {
@@ -356,7 +366,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 videoRef.current?.pause();
             } catch (_) {}
         };
-    }, [isVideo, startPlayback, post.image_url]);
+    }, [isVideo, startPlayback, videoSrc]);
 
     const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!isPlayingMode) return;
@@ -666,71 +676,31 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 background: '#18181b',
                             }}
                         >
-                            {(capturedPoster || (!posterFailed && resolvedPosterFromUrl ? resolvedPosterFromUrl : undefined)) ? (
-                                <img
-                                    src={capturedPoster || resolvedPosterFromUrl}
-                                    alt={alt}
-                                    style={{
-                                        ...style,
-                                        filter: extractedFilter,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: resolvedObjectFit,
-                                        display: 'block',
-                                        transform: 'translateZ(0)',
-                                        backfaceVisibility: 'hidden',
-                                    }}
-                                    loading="lazy"
-                                    decoding="async"
-                                    onError={() => {
-                                        setPosterFailed(true);
-                                        setCapturedPoster(undefined);
-                                        if (cleanUrl) videoPosterCache.delete(cleanUrl);
-                                    }}
-                                />
-                            ) : (
-                                /* When no static poster image exists, display the REAL video frame picture at #t=0.001 */
-                                <video
-                                    src={`${videoSrc}#t=0.001`}
-                                    preload="metadata"
-                                    muted
-                                    playsInline
-                                    // @ts-ignore
-                                    webkit-playsinline="true"
-                                    x5-playsinline="true"
-                                    style={{
-                                        ...style,
-                                        filter: extractedFilter,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: resolvedObjectFit,
-                                        display: 'block',
-                                        pointerEvents: 'none',
-                                        transform: 'translateZ(0)',
-                                        backfaceVisibility: 'hidden',
-                                    }}
-                                    onLoadedData={(e) => {
-                                        const v = e.currentTarget;
-                                        if (cleanUrl && !videoPosterCache.has(cleanUrl) && v.videoWidth > 0 && v.videoHeight > 0) {
-                                            try {
-                                                const canvas = document.createElement('canvas');
-                                                const scale = Math.min(1, 480 / v.videoWidth);
-                                                canvas.width = Math.round(v.videoWidth * scale);
-                                                canvas.height = Math.round(v.videoHeight * scale);
-                                                const ctx = canvas.getContext('2d');
-                                                if (ctx) {
-                                                    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-                                                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                                                    if (dataUrl && dataUrl.length > 200) {
-                                                        videoPosterCache.set(cleanUrl, dataUrl);
-                                                        setCapturedPoster(dataUrl);
-                                                    }
-                                                }
-                                            } catch (_) {}
-                                        }
-                                    }}
-                                />
-                            )}
+                            <img
+                                src={capturedPoster || resolvedPosterFromUrl || categoryFallbackPoster}
+                                alt={alt}
+                                style={{
+                                    ...style,
+                                    filter: extractedFilter,
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: resolvedObjectFit,
+                                    display: 'block',
+                                    transform: 'translateZ(0)',
+                                    backfaceVisibility: 'hidden',
+                                }}
+                                loading="lazy"
+                                decoding="async"
+                                onError={(e) => {
+                                    setPosterFailed(true);
+                                    const fb = getFallbackPoster(post as any);
+                                    if (e.currentTarget.src !== fb) {
+                                        e.currentTarget.src = fb;
+                                    }
+                                    setCapturedPoster(fb);
+                                    if (cleanUrl) videoPosterCache.set(cleanUrl, fb);
+                                }}
+                            />
                             <div style={{
                                 position: 'absolute',
                                 top: '8px',
@@ -753,7 +723,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
-                                poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined)}
+                                poster={capturedPoster || (!posterFailed ? resolvedPosterFromUrl : undefined) || categoryFallbackPoster}
                                 className={className}
                                 style={{
                                     ...style,
@@ -779,17 +749,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 disablePictureInPicture={true}
                                 // @ts-ignore
                                 disableRemotePlayback={true}
-                                preload={thumbnail && !isPlayingMode ? "metadata" : "auto"}
+                                preload="auto"
                                 onError={() => {
                                     handleMediaError();
                                 }}
-                                onLoadedMetadata={(e) => {
-                                    const v = e.currentTarget;
-                                    if (!isPlayingMode && v.currentTime === 0) {
-                                        try {
-                                            v.currentTime = 0.001;
-                                        } catch (_) {}
-                                    } else if (isPlayingMode && (autoPlay || soundOn) && v.paused) {
+                                onLoadedMetadata={() => {
+                                    if (isPlayingMode && (autoPlay || soundOn)) {
                                         startPlayback();
                                     }
                                 }}

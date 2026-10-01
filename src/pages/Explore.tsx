@@ -767,7 +767,8 @@ const Explore = () => {
         if (isNewsPost(post)) {
             setSelectedNews(postToNewsItem(post));
         } else {
-            setActiveFeedState({ posts: normalizedDiscoverPosts, index });
+            const targetIdx = normalizedDiscoverPosts.findIndex(p => p.id === post.id);
+            setActiveFeedState({ posts: normalizedDiscoverPosts, index: targetIdx !== -1 ? targetIdx : index });
         }
     }, [normalizedDiscoverPosts]);
 
@@ -784,7 +785,8 @@ const Explore = () => {
             const seenIds = new Set(normalizedSearchPosts.map(p => p.id));
             const remainingDiscover = normalizedDiscoverPosts.filter(p => !seenIds.has(p.id));
             const fullFeed = [...normalizedSearchPosts, ...remainingDiscover];
-            setActiveFeedState({ posts: fullFeed, index });
+            const targetIdx = fullFeed.findIndex(p => p.id === post.id);
+            setActiveFeedState({ posts: fullFeed, index: targetIdx !== -1 ? targetIdx : index });
         }
     }, [normalizedSearchPosts, normalizedDiscoverPosts]);
 
@@ -982,7 +984,7 @@ const Explore = () => {
                             ) : (
                                 <>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
-                                        {discoverPosts.map((post, idx) => (
+                                        {normalizedDiscoverPosts.map((post, idx) => (
                                             <ExploreGridCard
                                                 key={post.id}
                                                 post={post}
@@ -1064,7 +1066,7 @@ const Explore = () => {
                                     </div>
                                 ) : (
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
-                                            {postResults.map((post, idx) => (
+                                            {normalizedSearchPosts.map((post, idx) => (
                                                 <ExploreGridCard
                                                     key={post.id}
                                                     post={post}

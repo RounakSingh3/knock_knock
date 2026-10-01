@@ -232,7 +232,7 @@ function postToReel(post: PostData): ReelData {
     return {
         id: post.id,
         videoUrl: cleanVideoUrl,
-        posterUrl: resolvedPoster || cleanVideoUrl,
+        posterUrl: resolvedPoster || getFallbackPoster(post),
         creator: post.username,
         creatorAvatar: post.avatar_url || `https://i.pravatar.cc/150?u=${post.username}`,
         caption: post.caption || '',
