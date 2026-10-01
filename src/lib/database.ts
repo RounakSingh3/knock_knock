@@ -485,6 +485,20 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
     return [];
 }
 
+function isJwtExpiredOrInvalid(token?: string | null): boolean {
+    if (!token || typeof token !== 'string' || token.length < 25) return true;
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return false;
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        if (!payload.exp) return false;
+        // Buffer by 90 seconds so token doesn't expire during an in-flight upload
+        return (payload.exp * 1000) <= (Date.now() + 90000);
+    } catch (_) {
+        return false;
+    }
+}
+
 export async function uploadMedia(
     file: File, 
     path: string,
@@ -493,23 +507,39 @@ export async function uploadMedia(
     const MAX_RETRIES = 2;
     let lastError: Error | null = null;
     const cleanPath = path.replace(/[^a-zA-Z0-9_\-\.\/]/g, '_');
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
+
+    // Get auth token for authenticated uploads, ensuring it is valid & unexpired
+    let token = supabaseKey;
+    try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        let userToken = sessionData?.session?.access_token;
+        if (userToken && isJwtExpiredOrInvalid(userToken)) {
+            const { data: refreshed } = await supabase.auth.refreshSession().catch(() => ({ data: null }));
+            userToken = refreshed?.session?.access_token;
+        }
+        if (userToken && !isJwtExpiredOrInvalid(userToken)) {
+            token = userToken;
+        } else {
+            token = supabaseKey;
+        }
+    } catch (_) {
+        token = supabaseKey;
+    }
+
+    // Dynamic timeout: 5 minutes default, 10 minutes for videos/files > 20MB
+    const timeoutMs = file.size > 20 * 1024 * 1024 ? 600000 : 300000;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
             if (onProgress) {
                 // Use XMLHttpRequest for real upload progress tracking
-                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-                const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-                const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
-
-                // Get auth token for authenticated uploads
-                const { data: sessionData } = await supabase.auth.getSession();
-                const token = sessionData?.session?.access_token || supabaseKey;
-
-                await new Promise<void>((resolve, reject) => {
+                const runXhr = (authToken: string) => new Promise<void>((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
                     xhr.open('POST', uploadUrl, true);
-                    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                    xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
                     xhr.setRequestHeader('apikey', supabaseKey);
                     xhr.setRequestHeader('x-upsert', 'true');
                     xhr.setRequestHeader('cache-control', '3600');
@@ -518,7 +548,7 @@ export async function uploadMedia(
                     }
 
                     xhr.upload.onprogress = (e) => {
-                        if (e.lengthComputable) {
+                        if (e.lengthComputable && onProgress) {
                             onProgress({ loaded: e.loaded, total: e.total });
                         }
                     };
@@ -532,19 +562,38 @@ export async function uploadMedia(
                                 const body = JSON.parse(xhr.responseText);
                                 msg = body.message || body.error || msg;
                             } catch (_) {}
-                            reject(new Error(msg));
+                            const err: any = new Error(msg);
+                            err.status = xhr.status;
+                            reject(err);
                         }
                     };
 
                     xhr.onerror = () => reject(new Error('Network error during upload'));
                     xhr.ontimeout = () => reject(new Error('Upload timed out'));
-                    xhr.timeout = 120000; // 2 minute timeout
+                    xhr.onabort = () => reject(new Error('Upload aborted'));
+                    xhr.timeout = timeoutMs;
 
                     xhr.send(file);
                 });
+
+                try {
+                    await runXhr(token);
+                } catch (xhrErr: any) {
+                    const isAuthError = xhrErr.status === 401 || 
+                                       xhrErr.status === 403 || 
+                                       String(xhrErr.message).toLowerCase().includes('jwt') ||
+                                       String(xhrErr.message).toLowerCase().includes('unauthorized');
+                    if (isAuthError && token !== supabaseKey) {
+                        console.warn('[uploadMedia] User auth token was rejected/expired. Retrying immediately with anon key...');
+                        token = supabaseKey;
+                        await runXhr(supabaseKey);
+                    } else {
+                        throw xhrErr;
+                    }
+                }
             } else {
                 // Standard Supabase SDK upload (no progress needed)
-                const { error } = await supabase.storage
+                let { error } = await supabase.storage
                     .from(STORAGE_BUCKET)
                     .upload(cleanPath, file, {
                         cacheControl: '3600',
@@ -553,7 +602,30 @@ export async function uploadMedia(
                     });
 
                 if (error) {
-                    throw new Error(error.message || 'Failed to upload file to storage.');
+                    const isAuthError = error.message?.toLowerCase().includes('jwt') || 
+                                       error.message?.toLowerCase().includes('unauthorized') || 
+                                       (error as any).statusCode === 401 || 
+                                       (error as any).statusCode === 403;
+                    if (isAuthError) {
+                        console.warn('[uploadMedia] SDK upload got auth error, retrying directly with anon key...');
+                        const res = await fetch(uploadUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${supabaseKey}`,
+                                'apikey': supabaseKey,
+                                'x-upsert': 'true',
+                                'cache-control': '3600',
+                                ...(file.type ? { 'Content-Type': file.type } : {}),
+                            },
+                            body: file,
+                        });
+                        if (!res.ok) {
+                            const errBody = await res.json().catch(() => ({}));
+                            throw new Error(errBody.message || errBody.error || `Upload failed with status ${res.status}`);
+                        }
+                    } else {
+                        throw new Error(error.message || 'Failed to upload file to storage.');
+                    }
                 }
             }
 
@@ -570,6 +642,7 @@ export async function uploadMedia(
             console.warn(`[uploadMedia] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, lastError.message);
 
             if (attempt < MAX_RETRIES) {
+                token = supabaseKey;
                 await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
             }
         }

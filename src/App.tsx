@@ -288,11 +288,17 @@ function App() {
                     }
                 }
             } else {
-                setUser(null);
-                setPoints(0);
-                setBlockedIds([]);
-                localStorage.removeItem('knock_user_session');
-                localStorage.removeItem('knock_blocked_ids');
+                // Supabase token refresh failures, storage 401s, or background auth state drops
+                // must NEVER kick out an active user who has a valid session stored locally.
+                const storedSession = localStorage.getItem('knock_user_session');
+                if (!storedSession) {
+                    setUser(null);
+                    setPoints(0);
+                    setBlockedIds([]);
+                    localStorage.removeItem('knock_blocked_ids');
+                } else {
+                    console.warn('[App] Supabase auth event without session, maintaining resilient local session.');
+                }
             }
         });
 
