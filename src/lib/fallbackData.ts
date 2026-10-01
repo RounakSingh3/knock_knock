@@ -6218,92 +6218,46 @@ export const SEED_POSTS: PostData[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTHENTIC STORIES
 // ─────────────────────────────────────────────────────────────────────────────
-export const SEED_STORIES: StoryData[] = [
-    {
-        "id": "story-fav-1",
-        "user_id": "1369cfe5-42f1-4346-82be-0f616247092d",
-        "username": "ityourfavourite1",
-        "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
-        "image_url": "https://images.unsplash.com/photo-1509631179647-0177331693ae?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1509631179647-0177331693ae%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
-        "caption": "✨ Malaika Arora vibes today! #trending #story",
-        "is_boosted": true,
-        "likes_count": 420,
-        "created_at": "2026-09-29T08:03:46.018Z"
-    },
-    {
-        "id": "story-coral-1",
-        "user_id": "12a1a487-5dde-4a77-ab36-aee9ce84fa35",
-        "username": "coral",
-        "avatar_url": "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-        "image_url": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1544551763-46a013bb70d5%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
-        "caption": "🌊 Peaceful ocean waves & coral reefs #boost",
-        "is_boosted": true,
-        "likes_count": 310,
-        "created_at": "2026-09-29T07:18:46.077Z"
-    },
-    {
-        "id": "story-pop-1",
-        "user_id": "794703c5-c695-47bc-864c-60f400ab6fbe",
-        "username": "popcorn05",
-        "avatar_url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
-        "image_url": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1489599849927-2ee91cede3ba%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
-        "caption": "Movie night with friends! 🍿🎶",
-        "likes_count": 245,
-        "created_at": "2026-09-29T06:18:46.077Z"
-    },
-    {
-        "id": "story-rounak-1",
-        "user_id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
-        "username": "rounak2",
-        "avatar_url": "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
-        "image_url": "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1550745165-9bc0b252726f%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
-        "caption": "Next-gen gadgets test bench 🚀⚡",
-        "likes_count": 512,
-        "created_at": "2026-09-29T05:28:46.077Z"
-    },
-    {
-        "id": "story-tara-1",
-        "user_id": "1d9a782d-6990-4018-9232-6aefe57a3db6",
-        "username": "tara01",
-        "avatar_url": "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150",
-        "image_url": "https://images.unsplash.com/photo-1518173946687-a4c8a383392e?w=800&auto=format&fit=crop#POSTER:https%3A%2F%2Fimages.unsplash.com%2Fphoto-1518173946687-a4c8a383392e%3Fw%3D800%26auto%3Dformat%26fit%3Dcrop",
-        "caption": "Street art in the evening light 🎨✨",
-        "likes_count": 180,
-        "created_at": "2026-09-29T03:48:46.077Z"
-    }
-];
+export const SEED_STORIES: StoryData[] = [];
 
 export function getLocalStories(): StoryData[] {
-    const now = Date.now();
-    const refreshTimestamp = (s: StoryData, idx: number): StoryData => {
-        const time = new Date(s.created_at).getTime();
-        if (isNaN(time) || now - time > 23 * 60 * 60 * 1000) {
-            return {
-                ...s,
-                created_at: new Date(now - (idx + 1) * 90 * 60 * 1000).toISOString()
-            };
-        }
-        return s;
-    };
-
     try {
-        if (typeof window === 'undefined') return SEED_STORIES.map(refreshTimestamp);
+        if (typeof window === 'undefined') return [];
         const stored = localStorage.getItem('knock_local_stories');
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
-                const existingIds = new Set(parsed.map((s: StoryData) => s.id));
-                const missing = SEED_STORIES.filter(s => !existingIds.has(s.id));
-                return [...parsed, ...missing].map(refreshTimestamp);
+                const now = Date.now();
+                // Filter out any mock/seed stories and expired stories (> 24 hours)
+                const realStories = parsed.filter((s: StoryData) => {
+                    if (!s || !s.id) return false;
+                    if (
+                        s.id.startsWith('story-coral-') ||
+                        s.id.startsWith('story-fav-') ||
+                        s.id.startsWith('story-pop-') ||
+                        s.id.startsWith('story-rounak-') ||
+                        s.id.startsWith('story-tara-') ||
+                        s.id.startsWith('explore-seed-') ||
+                        s.user_id?.startsWith('seed-creator-') ||
+                        s.image_url?.includes('photo-1544551763-46a013bb70d5')
+                    ) {
+                        return false;
+                    }
+                    const time = new Date(s.created_at).getTime();
+                    return !isNaN(time) && now - time <= 24 * 60 * 60 * 1000;
+                });
+                if (realStories.length !== parsed.length) {
+                    try {
+                        localStorage.setItem('knock_local_stories', JSON.stringify(realStories));
+                    } catch (_) {}
+                }
+                return realStories;
             }
         }
     } catch (_) {}
-    const refreshed = SEED_STORIES.map(refreshTimestamp);
-    try {
-        localStorage.setItem('knock_local_stories', JSON.stringify(refreshed));
-    } catch (_) {}
-    return refreshed;
+    return [];
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTHENTIC CONNECTIONS & FRIENDS

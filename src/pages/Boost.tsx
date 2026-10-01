@@ -45,6 +45,7 @@ import {
     isKnockVideoLink,
     parseKnockVideoLink,
     isStoryEligibleForViewerScreen,
+    isSeedStory,
     notifyMentionedUsersInText,
     type StoryData, 
     type UserStoryGroup 
@@ -130,7 +131,7 @@ const Boost: React.FC = () => {
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    return parsed.filter((s: StoryData) => !s.id?.startsWith('explore-seed-') && !s.user_id?.startsWith('seed-creator-'));
+                    return parsed.filter((s: StoryData) => s && !isSeedStory(s));
                 }
             }
         } catch (e) {}
@@ -250,8 +251,8 @@ const Boost: React.FC = () => {
 
         try {
             const data = await fetch24HourBoostStories(user?.id);
-            // Filter out blocked users and unwanted seed videos
-            const valid = data.filter(s => (!s.user_id || !blockedIds.includes(s.user_id)) && !s.id?.startsWith('explore-seed-') && !s.user_id?.startsWith('seed-creator-'));
+            // Filter out blocked users and all seed stories
+            const valid = data.filter(s => s && (!s.user_id || !blockedIds.includes(s.user_id)) && !isSeedStory(s));
             setStories(valid);
             try {
                 localStorage.setItem('knock_boost_stories_cache_v2', JSON.stringify(valid));
@@ -263,6 +264,24 @@ const Boost: React.FC = () => {
             setIsRefreshing(false);
         }
     }, [user?.id, blockedIds, stories.length]);
+
+    // Purge any legacy cached seed stories from browser storage on mount
+    useEffect(() => {
+        try {
+            const cleanStorage = (key: string) => {
+                const raw = localStorage.getItem(key);
+                if (!raw) return;
+                const items = JSON.parse(raw);
+                if (Array.isArray(items)) {
+                    const cleaned = items.filter((s: any) => s && !isSeedStory(s));
+                    localStorage.setItem(key, JSON.stringify(cleaned));
+                }
+            };
+            cleanStorage('knock_boost_stories_cache_v2');
+            cleanStorage('knock_fallback_stories_v1');
+            cleanStorage('knock_local_stories');
+        } catch (_) {}
+    }, []);
 
     useEffect(() => {
         loadFeed();
@@ -300,14 +319,14 @@ const Boost: React.FC = () => {
 
     // Derived lists (memoized for optimal 60fps performance)
     const myActiveKnocks = useMemo(
-        () => stories.filter(s => user && s.user_id === user.id),
+        () => stories.filter(s => user && s.user_id === user.id && !isSeedStory(s)),
         [stories, user?.id]
     );
     
     // Only real authentic 24h stories uploaded by users on the app
     const combinedStories = useMemo(() => {
         return stories.filter(s => {
-            if (s.id?.startsWith('explore-seed-') || s.user_id?.startsWith('seed-creator-')) return false;
+            if (isSeedStory(s)) return false;
             // Screen quota, active user delivery, and friendship eligibility check
             return isStoryEligibleForViewerScreen(s, user?.id, userFriends);
         });

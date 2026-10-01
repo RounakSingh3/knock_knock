@@ -15,6 +15,7 @@ import {
     fetchRecentStoriesCount,
     fetchTopStreakUsers,
     deleteStory,
+    isSeedStory,
     type StoryData,
     type UserStoryGroup,
     type PostData,
@@ -104,7 +105,7 @@ const Stories = () => {
     // Fetch data on mount
     useEffect(() => {
         fetchBoostedStories().then((stories) => {
-            const validStories = stories.filter(s => !s.user_id || !blockedIds.includes(s.user_id));
+            const validStories = stories.filter(s => s && (!s.user_id || !blockedIds.includes(s.user_id)) && !isSeedStory(s));
             setBoostedStories(validStories);
             // Pick a random mystery story
             if (validStories.length > 2) {
@@ -116,7 +117,7 @@ const Stories = () => {
         fetchRecentStoriesCount().then(setRecentStoriesCount);
         fetchTopStreakUsers(3).then(setTopStreakUsers);
         if (user) {
-            fetchUserStories(user.id).then((stories) => setMyStories(stories));
+            fetchUserStories(user.id).then((stories) => setMyStories(stories.filter(s => s && !isSeedStory(s))));
             fetchProfile(user.id).then((profile) => {
                 if (profile) {
                     setStreakCount(profile.streak_count || 0);
@@ -410,8 +411,8 @@ const Stories = () => {
                 fetchBoostedStories(),
                 fetchUserStories(user.id),
             ]).then(([updatedBoosted, updatedMy]) => {
-                setBoostedStories(updatedBoosted);
-                setMyStories(updatedMy);
+                setBoostedStories(updatedBoosted.filter(s => s && !isSeedStory(s)));
+                setMyStories(updatedMy.filter(s => s && !isSeedStory(s)));
             }).catch(() => {});
 
         } catch (err: unknown) {

@@ -1706,19 +1706,41 @@ export async function fetchBoostedStories(): Promise<StoryData[]> {
 // ── Fallback 24h Story Local Storage ──────────────────────────────────────
 const FALLBACK_STORIES_KEY = 'knock_fallback_stories_v1';
 
+export function isSeedStory(s: any): boolean {
+    if (!s) return false;
+    const id = typeof s === 'string' ? s : (s.id || '');
+    const userId = typeof s === 'object' && s.user_id ? s.user_id : '';
+    const imageUrl = typeof s === 'object' && s.image_url ? s.image_url : '';
+    return (
+        id.startsWith('story-coral-') ||
+        id.startsWith('story-fav-') ||
+        id.startsWith('story-pop-') ||
+        id.startsWith('story-rounak-') ||
+        id.startsWith('story-tara-') ||
+        id.startsWith('explore-seed-') ||
+        userId.startsWith('seed-creator-') ||
+        imageUrl.includes('photo-1544551763-46a013bb70d5')
+    );
+}
+
 export function getFallbackStories(): StoryData[] {
-    const local = getLocalStories();
+    const local = getLocalStories().filter(s => !isSeedStory(s));
     if (typeof window === 'undefined' || !window.localStorage) return local;
     try {
         const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
         if (!raw) return local;
         const parsed: any[] = JSON.parse(raw);
         const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
-        const valid = parsed.filter(s => s && s.created_at && new Date(s.created_at).getTime() > twentyFourHoursAgo);
+        const valid = parsed.filter(s => 
+            s && s.id && 
+            !isSeedStory(s) && 
+            s.created_at && 
+            new Date(s.created_at).getTime() > twentyFourHoursAgo
+        );
         if (valid.length !== parsed.length) {
             localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(valid));
         }
-        const normalized = valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+        const normalized = valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s));
         const seenIds = new Set(normalized.map(s => s.id));
         const merged = [...normalized, ...local.filter(s => !seenIds.has(s.id))];
         return merged;
@@ -1753,13 +1775,14 @@ export function deleteFallbackStory(storyId: string) {
 }
 
 function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string): StoryData[] {
-    const fallback = getFallbackStories();
+    const fallback = getFallbackStories().filter(s => !isSeedStory(s));
     const filteredFallback = userIdFilter 
         ? fallback.filter(s => s.user_id === userIdFilter)
         : fallback;
-    const existingIds = new Set(dbStories.map(s => s.id));
+    const sanitizedDb = dbStories.filter(s => !isSeedStory(s));
+    const existingIds = new Set(sanitizedDb.map(s => s.id));
     const toAdd = filteredFallback.filter(s => !existingIds.has(s.id));
-    return [...toAdd, ...dbStories];
+    return [...toAdd, ...sanitizedDb];
 }
 
 /** Fetch stories from the last 24 hours for the Home story rack */
@@ -1948,10 +1971,11 @@ export function isStoryEligibleForViewerScreen(
     userFriends: string[] = []
 ): boolean {
     if (!story || !story.id || !story.image_url) return false;
+    if (isSeedStory(story)) return false;
 
     // Check media health (don't show broken or unplayable media on laptop/phone)
     const trimmed = typeof story.image_url === 'string' ? story.image_url.trim() : '';
-    if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'none' || trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
+    if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'none') {
         return false;
     }
 
@@ -2081,10 +2105,10 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
     if (error) {
         console.warn('Error fetching 24h boost stories from Supabase (using fallback store if available):', error.message);
     } else {
-        rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+        rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s));
     }
 
-    const stories = mergeWithFallbackStories(rawStories);
+    const stories = mergeWithFallbackStories(rawStories).filter(s => !isSeedStory(s));
 
     let friendIds: string[] = [];
     if (currentUserId) {
@@ -3776,11 +3800,15 @@ export async function fetchRecentStoriesCount(): Promise<number> {
             .gte('created_at', oneHourAgo);
 
         if (error) {
-            return 3;
+            const fallback = getFallbackStories().filter(s => {
+                const t = new Date(s.created_at).getTime();
+                return Date.now() - t < 60 * 60 * 1000;
+            });
+            return fallback.length;
         }
-        return count || 3;
+        return count || 0;
     } catch (_) {
-        return 3;
+        return 0;
     }
 }
 
