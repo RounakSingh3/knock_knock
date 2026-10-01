@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { 
-    fetchProfileByUsername, fetchUserPosts, type ProfileData, type PostData,
+    fetchProfileByUsername, fetchUserPosts, formatDisplayNameFromUsername, type ProfileData, type PostData,
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData,
@@ -28,6 +28,14 @@ const Profile = () => {
 
     const [profile, setProfile] = useState<ProfileData | null>(null);
     const displayUsername = profile?.username || username || '';
+    const displayDisplayName = React.useMemo(() => {
+        if (!profile) return displayUsername;
+        const clean = (profile.name || '').trim();
+        if (clean && clean.toLowerCase() !== 'user' && clean.toLowerCase() !== 'null') {
+            return clean;
+        }
+        return formatDisplayNameFromUsername(profile.username || displayUsername);
+    }, [profile, displayUsername]);
     const isOwnProfile = Boolean(currentUser && (currentUser.username === profile?.username || currentUser.id === profile?.id));
     const [posts, setPosts] = useState<PostData[]>([]);
     const [loading, setLoading] = useState(true);
@@ -635,7 +643,7 @@ const Profile = () => {
                 </div>
 
                 <div style={{ marginBottom: '0.75rem' }}>
-                    <div className="font-bold text-md">{profile.name}</div>
+                    <div className="font-bold text-md">{displayDisplayName}</div>
                     {profile.bio && (
                         <p style={{ fontSize: '14px', color: '#e0e0e0', margin: '6px 0', lineHeight: '1.4' }}>{profile.bio}</p>
                     )}

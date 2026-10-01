@@ -200,18 +200,206 @@ export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
     }
 }
 
+export const CREATOR_CANONICAL_NAMES: Record<string, string> = {
+    'rounak2': 'Rounak Singh',
+    'rounak': 'Rounak Singh',
+    'popcorn05': 'Popcorn05',
+    'popcorn': 'Popcorn05',
+    'coral': 'Coral',
+    'corel': 'Coral',
+    'ityourfavourite1': 'It Your Favourite',
+    'ityourfavourite': 'It Your Favourite',
+    'funnyreels2': 'Comedy Vault',
+    'comedy_vault_in': 'Comedy Vault',
+    'lifestylevibes': 'Urban Lifestyle',
+    'urban_lifestyle_co': 'Urban Lifestyle',
+    'sportshub': 'World Sports Central',
+    'world_sports_central': 'World Sports Central',
+    'gamingsetup': 'Gaming Lounge HQ',
+    'gaming_lounge_hq': 'Gaming Lounge HQ',
+    'igmemes1': 'Meme Hub',
+    'meme_hub_insta': 'Meme Hub',
+    'igmemes2': 'Relatable Posts',
+    'relatable_postss': 'Relatable Posts',
+    'igmemes3': 'Desi Humor Club',
+    'desi_humor_club': 'Desi Humor Club',
+    'igmemes4': 'Epic Fun Page',
+    'epic_fun_page': 'Epic Fun Page',
+    'igmemes5': 'Daily Memes',
+    'dailymemes_ig': 'Daily Memes',
+    'funnyreels1': 'Funny Clips Daily',
+    'funny_clips_daily': 'Funny Clips Daily',
+    'funnyreels3': 'Epic Fails & Laughs',
+    'epic_fails_and_laughs': 'Epic Fails & Laughs',
+    'funnyreels4': 'Viral Laugh Zone',
+    'viral_laugh_zone': 'Viral Laugh Zone',
+    'bollystars': 'Bollywood Superstars',
+    'bollywood_superstars': 'Bollywood Superstars',
+    'filmglam': 'Cinema Glamour',
+    'cinema_glamour': 'Cinema Glamour',
+    'fitfits': 'Gym Fits Daily',
+    'gym_fits_daily': 'Gym Fits Daily',
+    'ironphysique': 'Iron Pulse Fits',
+    'iron_pulse_fits': 'Iron Pulse Fits',
+    'cricketzone': 'Cricket Legend Moments',
+    'cricket_legend_moments': 'Cricket Legend Moments',
+    'shaikh_ap_i': 'Shaikh',
+    'shaikh_a': 'Shaikh',
+    'dance_central': 'Dance Central 💃',
+    'dance_queen': 'Dance Queen 💃',
+    'adventure_co': 'Adventure Co 🏔️',
+    'street_vibes': 'Street Vibes 🎨',
+};
+
+export const CREATOR_USERNAME_PAIRS: Record<string, string> = {
+    'funnyreels2': 'comedy_vault_in',
+    'comedy_vault_in': 'funnyreels2',
+    'lifestylevibes': 'urban_lifestyle_co',
+    'urban_lifestyle_co': 'lifestylevibes',
+    'sportshub': 'world_sports_central',
+    'world_sports_central': 'sportshub',
+    'gamingsetup': 'gaming_lounge_hq',
+    'gaming_lounge_hq': 'gamingsetup',
+    'igmemes1': 'meme_hub_insta',
+    'meme_hub_insta': 'igmemes1',
+    'igmemes2': 'relatable_postss',
+    'relatable_postss': 'igmemes2',
+    'igmemes3': 'desi_humor_club',
+    'desi_humor_club': 'igmemes3',
+    'igmemes4': 'epic_fun_page',
+    'epic_fun_page': 'igmemes4',
+    'igmemes5': 'dailymemes_ig',
+    'dailymemes_ig': 'igmemes5',
+    'funnyreels1': 'funny_clips_daily',
+    'funny_clips_daily': 'funnyreels1',
+    'funnyreels3': 'epic_fails_and_laughs',
+    'epic_fails_and_laughs': 'funnyreels3',
+    'funnyreels4': 'viral_laugh_zone',
+    'viral_laugh_zone': 'funnyreels4',
+    'bollystars': 'bollywood_superstars',
+    'bollywood_superstars': 'bollystars',
+    'filmglam': 'cinema_glamour',
+    'cinema_glamour': 'filmglam',
+    'fitfits': 'gym_fits_daily',
+    'gym_fits_daily': 'fitfits',
+    'ironphysique': 'iron_pulse_fits',
+    'iron_pulse_fits': 'ironphysique',
+    'cricketzone': 'cricket_legend_moments',
+    'cricket_legend_moments': 'cricketzone',
+    'shaikh_ap_i': 'shaikh_a',
+    'shaikh_a': 'shaikh_ap_i',
+};
+
+export const COMMON_TYPOS: Record<string, string[]> = {
+    'rounak': ['rounak2'],
+    'corel': ['coral'],
+    'popcorn': ['popcorn05'],
+    'ityourfavourite': ['ityourfavourite1'],
+    'aanya': ['anaya'],
+    'anya': ['anaya'],
+    'aanaa': ['anaya'],
+    'ana': ['anaya'],
+    'popcrd': ['popcorn05', 'popcorn'],
+    'popcrn': ['popcorn05', 'popcorn'],
+    'popc': ['popcorn05', 'popcorn'],
+    'tara': ['tara01'],
+    'tar': ['tara01'],
+    'adity': ['aditya'],
+    'adithya': ['aditya'],
+};
+
+export const REEL_CREATOR_POSTS: Record<string, { videoUrl: string; song: string; caption: string; category: string }[]> = {
+    'nature_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', song: 'Chill Vibes — LofiBeats', caption: '🌅 Golden hour hits different when you\'re at the coast', category: 'Nature' }],
+    'city_explorer': [{ videoUrl: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', song: 'After Dark — Mr.Kitty', caption: '🏙️ Neon lights and late-night bites in the city that never sleeps', category: 'Travel' }],
+    'ocean_dreams': [{ videoUrl: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', song: 'Ocean Eyes — Billie Eilish', caption: '🌊 The ocean is calling and I must go 🐠', category: 'Nature' }],
+    'fitness_freak': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Stronger — Kanye West', caption: '💪 No shortcuts. Just grind. Who\'s in? 🔥', category: 'Sports' }],
+    'foodie_fam': [{ videoUrl: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', song: 'THAT\'S WHAT I WANT — Lil Nas X', caption: '🍕 Wait for it… the cheese pull is insane 🤤', category: 'Food' }],
+    'sky_watcher': [{ videoUrl: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', song: 'Weightless — Marconi Union', caption: '☁️ Clouds moving in time-lapse is pure therapy', category: 'Nature' }],
+    'dance_queen': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Can\'t stop dancing to this beat! Tutorial coming soon 🔥', category: 'Dance' }],
+    'dance_central': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Tried this trend and nailed it on the first try 🎯', category: 'Dance' }],
+    'pet_paradise': [{ videoUrl: 'https://videos.pexels.com/video-files/1739010/1739010-sd_640_360_24fps.mp4', song: 'Happy — Pharrell Williams', caption: '🐶 When your dog has more personality than you 😂', category: 'Pets' }],
+    'adventure_co': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Adventure — Matthew Parker', caption: '🏔️ Life begins at the end of your comfort zone', category: 'Travel' }],
+    'street_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4', song: 'The Staunton Lick — Lemon Jelly', caption: '🎨 Street art is the voice of the city walls', category: 'Art' }],
+    'art_daily': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Golden Hour — JVKE', caption: '🎨 30 hours of work in 30 seconds. What should I paint next?', category: 'Art' }],
+    'coffee_corner': [{ videoUrl: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4', song: 'Coffee — Beabadoobee', caption: '☕ The perfect pour. Nothing beats that first sip in the morning', category: 'Lifestyle' }],
+    'astro_lover': [{ videoUrl: 'https://videos.pexels.com/video-files/2519660/2519660-sd_640_360_24fps.mp4', song: 'Starlight — Muse', caption: '🌌 The Milky Way never gets old. Who else is a night owl? 🦉', category: 'Nature' }],
+    'morning_routine': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Sunrise — Norah Jones', caption: '☀️ 5AM morning routine that changed my life', category: 'Lifestyle' }],
+};
+
+export const REEL_CREATOR_MAP: Record<string, { name: string; avatar: string; bio: string }> = {
+    'nature_vibes': { name: 'Nature Vibes 🌅', avatar: 'https://i.pravatar.cc/150?img=1', bio: 'Capturing the golden hour and coastlines 🌊' },
+    'city_explorer': { name: 'City Explorer 🏙️', avatar: 'https://i.pravatar.cc/150?img=5', bio: 'Neon lights and late-night city walks 🌃' },
+    'ocean_dreams': { name: 'Ocean Dreams 🌊', avatar: 'https://i.pravatar.cc/150?img=12', bio: 'The ocean is calling and I must go 🐠' },
+    'fitness_freak': { name: 'Fitness Freak 💪', avatar: 'https://i.pravatar.cc/150?img=8', bio: 'No shortcuts. Just grind. 🔥' },
+    'foodie_fam': { name: 'Foodie Fam 🍕', avatar: 'https://i.pravatar.cc/150?img=20', bio: 'Food adventures & best culinary spots 🤤' },
+    'sky_watcher': { name: 'Sky Watcher ☁️', avatar: 'https://i.pravatar.cc/150?img=33', bio: 'Cloud timelapses & stargazing therapy 🌌' },
+    'dance_queen': { name: 'Dance Queen 💃', avatar: 'https://i.pravatar.cc/150?img=44', bio: 'Choreography & rhythm daily ✨' },
+    'dance_central': { name: 'Dance Central 💃', avatar: 'https://i.pravatar.cc/150?img=41', bio: 'Tried this trend and nailed it on the first try 🎯' },
+    'pet_paradise': { name: 'Pet Paradise 🐾', avatar: 'https://i.pravatar.cc/150?img=48', bio: 'Cute puppies & cats making your day brighter 🐶' },
+    'adventure_co': { name: 'Adventure Co 🏔️', avatar: 'https://i.pravatar.cc/150?img=55', bio: 'Life begins at the end of your comfort zone 🧗' },
+    'street_vibes': { name: 'Street Vibes 🎨', avatar: 'https://i.pravatar.cc/150?img=60', bio: 'Street art is the voice of the city walls 🖌️' },
+    'art_daily': { name: 'Art Daily 🎨', avatar: 'https://i.pravatar.cc/150?img=60', bio: 'Visual art, paintings, and process sketches 🖌️' },
+    'coffee_corner': { name: 'Coffee Corner ☕', avatar: 'https://i.pravatar.cc/150?img=68', bio: 'Latte art & cozy morning aesthetics ☕' },
+    'astro_lover': { name: 'Astro Lover 🌌', avatar: 'https://i.pravatar.cc/150?img=65', bio: 'The Milky Way never gets old. Night owl 🦉' },
+    'morning_routine': { name: 'Morning Routine ☀️', avatar: 'https://i.pravatar.cc/150?img=22', bio: '5AM morning routines that change lives ☀️' },
+    'google_news_daily': { name: 'Google News Daily 📰', avatar: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=150', bio: 'Trending news from India and around the world 📰' }
+};
+
+export function formatDisplayNameFromUsername(username: string): string {
+    if (!username) return 'User';
+    const clean = username.replace(/^@+/, '').trim().toLowerCase();
+    if (CREATOR_CANONICAL_NAMES[clean]) {
+        return CREATOR_CANONICAL_NAMES[clean];
+    }
+    return clean
+        .split(/[_\-\s]+/)
+        .filter(Boolean)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+}
+
 export async function fetchUserPosts(username: string, userId?: string): Promise<PostData[]> {
     if (!username) return [];
     const cleanUsername = username.replace(/^@+/, '').trim().toLowerCase();
     if (!cleanUsername) return [];
 
+    // Collect all candidate usernames and aliases for this user
+    const candidateUsernames = new Set<string>([cleanUsername]);
+    if (COMMON_TYPOS[cleanUsername]) {
+        COMMON_TYPOS[cleanUsername].forEach(u => candidateUsernames.add(u.toLowerCase()));
+    }
+    // Reverse typo check (e.g. if cleanUsername is 'rounak2', add 'rounak')
+    Object.entries(COMMON_TYPOS).forEach(([typo, targets]) => {
+        if (targets.map(t => t.toLowerCase()).includes(cleanUsername)) {
+            candidateUsernames.add(typo.toLowerCase());
+        }
+    });
+    // Check creator pairs (e.g. 'funnyreels2' <-> 'comedy_vault_in')
+    if (CREATOR_USERNAME_PAIRS[cleanUsername]) {
+        candidateUsernames.add(CREATOR_USERNAME_PAIRS[cleanUsername].toLowerCase());
+    }
+
+    // Collect all candidate user IDs
+    const candidateUserIds = new Set<string>();
+    if (userId && userId !== '00000000-0000-0000-0000-000000000000' && !userId.startsWith('creator-')) {
+        candidateUserIds.add(userId);
+    }
+    for (const u of candidateUsernames) {
+        const kp = getKnownProfile(u);
+        if (kp && kp.id && !kp.id.startsWith('creator-')) {
+            candidateUserIds.add(kp.id);
+        }
+    }
+
     let dbPosts: PostData[] = [];
     try {
         let query = supabase.from('posts').select('*');
-        if (userId && userId !== '00000000-0000-0000-0000-000000000000' && !userId.startsWith('creator-')) {
-            query = query.or(`username.ilike.${cleanUsername},user_id.eq.${userId}`);
-        } else {
-            query = query.ilike('username', cleanUsername);
+        const orConditions: string[] = [];
+        candidateUsernames.forEach(u => orConditions.push(`username.ilike.${u}`));
+        candidateUserIds.forEach(id => orConditions.push(`user_id.eq.${id}`));
+
+        if (orConditions.length > 0) {
+            query = query.or(orConditions.join(','));
         }
 
         const { data, error } = await query.order('created_at', { ascending: false });
@@ -230,43 +418,31 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         return dbPosts;
     }
 
-    const localPosts = getLocalPosts().filter(p => 
-        (p.username && p.username.toLowerCase() === cleanUsername) || 
-        (userId && p.user_id === userId)
-    );
+    const localPosts = getLocalPosts().filter(p => {
+        const pUname = (p.username || '').toLowerCase();
+        if (candidateUsernames.has(pUname)) return true;
+        if (p.user_id && candidateUserIds.has(p.user_id)) return true;
+        return false;
+    });
 
     if (localPosts.length > 0) return localPosts;
 
-    // Fallback: If no DB posts exist, check if this is a known reel creator from REELS_DATA
-    const REEL_CREATOR_POSTS: Record<string, { videoUrl: string; song: string; caption: string; category: string }[]> = {
-        'nature_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', song: 'Chill Vibes — LofiBeats', caption: '🌅 Golden hour hits different when you\'re at the coast', category: 'Nature' }],
-        'city_explorer': [{ videoUrl: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', song: 'After Dark — Mr.Kitty', caption: '🏙️ Neon lights and late-night bites in the city that never sleeps', category: 'Travel' }],
-        'ocean_dreams': [{ videoUrl: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', song: 'Ocean Eyes — Billie Eilish', caption: '🌊 The ocean is calling and I must go 🐠', category: 'Nature' }],
-        'fitness_freak': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Stronger — Kanye West', caption: '💪 No shortcuts. Just grind. Who\'s in? 🔥', category: 'Sports' }],
-        'foodie_fam': [{ videoUrl: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', song: 'THAT\'S WHAT I WANT — Lil Nas X', caption: '🍕 Wait for it… the cheese pull is insane 🤤', category: 'Food' }],
-        'sky_watcher': [{ videoUrl: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', song: 'Weightless — Marconi Union', caption: '☁️ Clouds moving in time-lapse is pure therapy', category: 'Nature' }],
-        'dance_queen': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Can\'t stop dancing to this beat! Tutorial coming soon 🔥', category: 'Dance' }],
-        'pet_paradise': [{ videoUrl: 'https://videos.pexels.com/video-files/1739010/1739010-sd_640_360_25fps.mp4', song: 'Happy — Pharrell Williams', caption: '🐶 The purest soul in the world. Look at that tail wag! ❤️', category: 'Pets' }],
-        'art_daily': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Golden Hour — JVKE', caption: '🎨 30 hours of work in 30 seconds. What should I paint next?', category: 'Art' }],
-        'coffee_corner': [{ videoUrl: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4', song: 'Coffee — Beabadoobee', caption: '☕ The perfect pour. Nothing beats that first sip in the morning', category: 'Lifestyle' }],
-        'astro_lover': [{ videoUrl: 'https://videos.pexels.com/video-files/2519660/2519660-sd_640_360_24fps.mp4', song: 'Starlight — Muse', caption: '🌌 The Milky Way never gets old. Who else is a night owl? 🦉', category: 'Nature' }],
-        'morning_routine': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Sunrise — Norah Jones', caption: '☀️ 5AM morning routine that changed my life', category: 'Lifestyle' }],
-    };
-
-    const creatorKey = cleanUsername.toLowerCase();
-    if (REEL_CREATOR_POSTS[creatorKey]) {
-        return REEL_CREATOR_POSTS[creatorKey].map((p, idx) => ({
-            id: `reel-${creatorKey}-${idx}`,
-            username: creatorKey,
-            avatar_url: `https://i.pravatar.cc/150?u=${creatorKey}`,
-            image_url: p.videoUrl,
-            caption: p.caption,
-            likes_count: 1200 + idx * 350,
-            media_type: 'video',
-            category: p.category,
-            music_title: p.song,
-            created_at: new Date().toISOString()
-        }));
+    // Fallback: If no DB or local posts exist, check if this is a known reel creator from REEL_CREATOR_POSTS
+    for (const u of candidateUsernames) {
+        if (REEL_CREATOR_POSTS[u]) {
+            return REEL_CREATOR_POSTS[u].map((p, idx) => ({
+                id: `reel-${u}-${idx}`,
+                username: u,
+                avatar_url: `https://i.pravatar.cc/150?u=${u}`,
+                image_url: p.videoUrl,
+                caption: p.caption,
+                likes_count: 1200 + idx * 350,
+                media_type: 'video',
+                category: p.category,
+                music_title: p.song,
+                created_at: new Date().toISOString()
+            }));
+        }
     }
 
     return [];
@@ -846,6 +1022,50 @@ export interface ProfileData {
     bio?: string;
 }
 
+export function normalizeProfile(raw: any): ProfileData | null {
+    if (!raw) return null;
+    const username = (raw.username || '').replace(/^@+/, '').trim();
+    const unameLower = username.toLowerCase();
+    let cleanName = (raw.name || '').trim();
+
+    if (CREATOR_CANONICAL_NAMES[unameLower]) {
+        cleanName = CREATOR_CANONICAL_NAMES[unameLower];
+    } else if (raw.id === '794703c5-c695-47bc-864c-60f400ab6fbe') {
+        cleanName = 'Rounak Singh';
+    } else if (raw.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8') {
+        cleanName = 'Popcorn05';
+    } else if (raw.id === '12a1a487-5dde-4a77-ab36-aee9ce84fa35') {
+        cleanName = 'Coral';
+    } else if (raw.id === '1369cfe5-42f1-4346-82be-0f616247092d') {
+        cleanName = 'It Your Favourite';
+    } else if (
+        !cleanName ||
+        cleanName.toLowerCase() === 'user' ||
+        cleanName.toLowerCase() === 'null' ||
+        cleanName.toLowerCase() === 'undefined'
+    ) {
+        cleanName = formatDisplayNameFromUsername(username);
+    }
+
+    let points = Number(raw.points) || 0;
+    if (isUnlimitedPointsUser(raw.id, username)) {
+        points = UNLIMITED_POINTS;
+    }
+
+    return {
+        id: raw.id || `user-${unameLower || Date.now()}`,
+        name: cleanName,
+        username: username,
+        gender: raw.gender || 'other',
+        avatar_url: raw.avatar_url || `https://i.pravatar.cc/150?u=${username || raw.id}`,
+        points,
+        is_online: Boolean(raw.is_online),
+        streak_count: typeof raw.streak_count === 'number' ? raw.streak_count : 1,
+        bio: raw.bio || (cleanName !== 'User' ? `${cleanName} on Knock Knock ✨` : ''),
+        last_story_at: raw.last_story_at,
+    };
+}
+
 export async function fetchProfile(userId: string): Promise<ProfileData | null> {
     try {
         const { data, error } = await supabase
@@ -861,10 +1081,7 @@ export async function fetchProfile(userId: string): Promise<ProfileData | null> 
             if (isRemovedUser(data.id, data.username)) {
                 return null;
             }
-            if (isUnlimitedPointsUser(data.id, data.username)) {
-                data.points = UNLIMITED_POINTS;
-            }
-            return data;
+            return normalizeProfile(data);
         }
     } catch (e: any) {
         if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
@@ -872,53 +1089,46 @@ export async function fetchProfile(userId: string): Promise<ProfileData | null> 
 
     // Resilient fallback for authentic known users
     const known = getKnownProfile(userId);
-    if (known) return known;
+    if (known) return normalizeProfile(known);
 
     // Check cached session
     try {
         const raw = localStorage.getItem('knock_user_session');
         if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed.id === userId || parsed.username === userId) return parsed;
+            if (parsed.id === userId || parsed.username === userId) return normalizeProfile(parsed);
         }
     } catch (_) {}
 
     return null;
 }
 
-export const COMMON_TYPOS: Record<string, string[]> = {
-    'aanya': ['anaya'],
-    'anya': ['anaya'],
-    'aanaa': ['anaya'],
-    'ana': ['anaya'],
-    'popcrd': ['popcorn05', 'popcorn'],
-    'popcrn': ['popcorn05', 'popcorn'],
-    'popc': ['popcorn05', 'popcorn'],
-    'popcorn': ['popcorn05'],
-    'tara': ['tara01'],
-    'tar': ['tara01'],
-    'adity': ['aditya'],
-    'adithya': ['aditya'],
-};
-
 export async function fetchProfileByUsername(username: string): Promise<ProfileData | null> {
     if (!username) return null;
     const cleanUsername = username.replace(/^@+/, '').trim();
     if (!cleanUsername || isRemovedUser(undefined, cleanUsername)) return null;
 
-    // 1. Try case-insensitive lookup in profiles table
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .ilike('username', cleanUsername)
-        .maybeSingle();
+    const lower = cleanUsername.toLowerCase();
 
-    if (!error && data) {
-        if (isRemovedUser(data.id, data.username)) return null;
-        if (isUnlimitedPointsUser(data.id, data.username)) {
-            data.points = UNLIMITED_POINTS;
+    // 0. Check alias / typo candidates first for instant redirection & authentic resolution
+    const aliasCandidate = COMMON_TYPOS[lower]?.[0];
+    const pairedCandidate = CREATOR_USERNAME_PAIRS[lower];
+    const lookupCandidates = [cleanUsername];
+    if (aliasCandidate && !lookupCandidates.includes(aliasCandidate)) lookupCandidates.push(aliasCandidate);
+    if (pairedCandidate && !lookupCandidates.includes(pairedCandidate)) lookupCandidates.push(pairedCandidate);
+
+    // 1. Try case-insensitive lookup in profiles table for cleanUsername or its alias
+    for (const candidate of lookupCandidates) {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .ilike('username', candidate)
+            .maybeSingle();
+
+        if (!error && data) {
+            if (isRemovedUser(data.id, data.username)) return null;
+            return normalizeProfile(data);
         }
-        return data;
     }
 
     // 2. What if cleanUsername is a UUID (user_id)?
@@ -930,10 +1140,7 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
             .eq('id', cleanUsername)
             .maybeSingle();
         if (idData && !isRemovedUser(idData.id, idData.username)) {
-            if (isUnlimitedPointsUser(idData.id, idData.username)) {
-                idData.points = UNLIMITED_POINTS;
-            }
-            return idData;
+            return normalizeProfile(idData);
         }
     }
 
@@ -947,108 +1154,89 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
         .maybeSingle();
 
     if (fuzzyUser && !isRemovedUser(fuzzyUser.id, fuzzyUser.username)) {
-        if (isUnlimitedPointsUser(fuzzyUser.id, fuzzyUser.username)) {
-            fuzzyUser.points = UNLIMITED_POINTS;
-        }
-        return fuzzyUser;
-    }
-
-    // 2.6. Common typo & alias match (e.g. 'aanya' -> 'anaya', 'popcrd' -> 'popcorn05')
-    const aliasCandidate = COMMON_TYPOS[cleanUsername.toLowerCase()]?.[0];
-    if (aliasCandidate) {
-        const { data: aliasData } = await supabase
-            .from('profiles')
-            .select('*')
-            .ilike('username', aliasCandidate)
-            .maybeSingle();
-        if (aliasData && !isRemovedUser(aliasData.id, aliasData.username)) {
-            if (isUnlimitedPointsUser(aliasData.id, aliasData.username)) {
-                aliasData.points = UNLIMITED_POINTS;
-            }
-            return aliasData;
-        }
+        return normalizeProfile(fuzzyUser);
     }
 
     // 3. Check if this user exists in the posts table (e.g. content creators / community pages)
-    const { data: postData } = await supabase
-        .from('posts')
-        .select('user_id, username, avatar_url, caption')
-        .ilike('username', cleanUsername)
-        .limit(1)
-        .maybeSingle();
+    for (const candidate of lookupCandidates) {
+        const { data: postData } = await supabase
+            .from('posts')
+            .select('user_id, username, avatar_url, caption')
+            .ilike('username', candidate)
+            .limit(1)
+            .maybeSingle();
 
-    if (postData) {
-        const displayName = (postData.username || cleanUsername)
-            .split('_')
-            .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' ');
+        if (postData) {
+            let linkedProfile = null;
+            if (postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' && !postData.user_id.startsWith('creator-')) {
+                const { data: lp } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', postData.user_id)
+                    .maybeSingle();
+                if (lp) linkedProfile = lp;
+            }
 
-        return {
-            id: postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' 
-                ? postData.user_id 
-                : `creator-${(postData.username || cleanUsername).toLowerCase()}`,
-            name: displayName,
-            username: postData.username || cleanUsername,
-            gender: 'other',
-            avatar_url: postData.avatar_url || `https://i.pravatar.cc/150?u=${postData.username || cleanUsername}`,
-            points: isUnlimitedPointsUser(postData.user_id, postData.username || cleanUsername) ? UNLIMITED_POINTS : 100,
-            bio: `Creator on Knock Knock ✨`,
-            is_online: false,
-            streak_count: 5,
-        };
+            if (linkedProfile) {
+                return normalizeProfile({
+                    ...linkedProfile,
+                    username: postData.username || cleanUsername,
+                    avatar_url: postData.avatar_url || linkedProfile.avatar_url,
+                });
+            }
+
+            return normalizeProfile({
+                id: postData.user_id && postData.user_id !== '00000000-0000-0000-0000-000000000000' 
+                    ? postData.user_id 
+                    : `creator-${(postData.username || cleanUsername).toLowerCase()}`,
+                name: formatDisplayNameFromUsername(postData.username || cleanUsername),
+                username: postData.username || cleanUsername,
+                gender: 'other',
+                avatar_url: postData.avatar_url || `https://i.pravatar.cc/150?u=${postData.username || cleanUsername}`,
+                points: isUnlimitedPointsUser(postData.user_id, postData.username || cleanUsername) ? UNLIMITED_POINTS : 100,
+                bio: `Creator on Knock Knock ✨`,
+                is_online: false,
+                streak_count: 5,
+            });
+        }
     }
 
     // 4. Check if this is a reel creator (from REELS_DATA in Reels.tsx) or news bot
-    const REEL_CREATOR_MAP: Record<string, { name: string; avatar: string; bio: string }> = {
-        'nature_vibes': { name: 'Nature Vibes 🌅', avatar: 'https://i.pravatar.cc/150?img=1', bio: 'Capturing the golden hour and coastlines 🌊' },
-        'city_explorer': { name: 'City Explorer 🏙️', avatar: 'https://i.pravatar.cc/150?img=5', bio: 'Neon lights and late-night city walks 🌃' },
-        'ocean_dreams': { name: 'Ocean Dreams 🌊', avatar: 'https://i.pravatar.cc/150?img=12', bio: 'The ocean is calling and I must go 🐠' },
-        'fitness_freak': { name: 'Fitness Freak 💪', avatar: 'https://i.pravatar.cc/150?img=8', bio: 'No shortcuts. Just grind. 🔥' },
-        'foodie_fam': { name: 'Foodie Fam 🍕', avatar: 'https://i.pravatar.cc/150?img=20', bio: 'Food adventures & best culinary spots 🤤' },
-        'sky_watcher': { name: 'Sky Watcher ☁️', avatar: 'https://i.pravatar.cc/150?img=33', bio: 'Cloud timelapses & stargazing therapy 🌌' },
-        'dance_queen': { name: 'Dance Queen 💃', avatar: 'https://i.pravatar.cc/150?img=44', bio: 'Choreography & rhythm daily ✨' },
-        'pet_paradise': { name: 'Pet Paradise 🐾', avatar: 'https://i.pravatar.cc/150?img=53', bio: 'Cute puppies & cats making your day brighter 🐶' },
-        'art_daily': { name: 'Art Daily 🎨', avatar: 'https://i.pravatar.cc/150?img=60', bio: 'Visual art, paintings, and process sketches 🖌️' },
-        'coffee_corner': { name: 'Coffee Corner ☕', avatar: 'https://i.pravatar.cc/150?img=68', bio: 'Latte art & cozy morning aesthetics ☕' },
-        'astro_lover': { name: 'Astro Lover 🌌', avatar: 'https://i.pravatar.cc/150?img=65', bio: 'The Milky Way never gets old. Night owl 🦉' },
-        'morning_routine': { name: 'Morning Routine ☀️', avatar: 'https://i.pravatar.cc/150?img=22', bio: '5AM morning routines that change lives ☀️' },
-        'google_news_daily': { name: 'Google News Daily 📰', avatar: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=150', bio: 'Trending news from India and around the world 📰' }
-    };
-
-    const creatorKey = cleanUsername.toLowerCase();
-    if (REEL_CREATOR_MAP[creatorKey]) {
-        const c = REEL_CREATOR_MAP[creatorKey];
-        return {
-            id: `creator-${creatorKey}`,
-            name: c.name,
-            username: creatorKey,
-            gender: 'other',
-            avatar_url: c.avatar,
-            points: 250,
-            bio: c.bio,
-            is_online: false,
-            streak_count: 7,
-        };
+    for (const candidate of lookupCandidates) {
+        const creatorKey = candidate.toLowerCase();
+        if (REEL_CREATOR_MAP[creatorKey]) {
+            const c = REEL_CREATOR_MAP[creatorKey];
+            return normalizeProfile({
+                id: `creator-${creatorKey}`,
+                name: c.name,
+                username: creatorKey,
+                gender: 'other',
+                avatar_url: c.avatar,
+                points: 250,
+                bio: c.bio,
+                is_online: false,
+                streak_count: 7,
+            });
+        }
     }
 
     // 5. Authentic registered community profile fallback
-    const known = getKnownProfile(cleanUsername);
-    if (known) return known;
+    for (const candidate of lookupCandidates) {
+        const known = getKnownProfile(candidate);
+        if (known) return normalizeProfile(known);
+    }
 
     // 6. Check cached user session
     try {
         const raw = localStorage.getItem('knock_user_session');
         if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed.username?.toLowerCase() === cleanUsername.toLowerCase() || parsed.id === cleanUsername) {
-                return parsed;
+            if (lookupCandidates.some(c => c.toLowerCase() === parsed.username?.toLowerCase() || c === parsed.id)) {
+                return normalizeProfile(parsed);
             }
         }
     } catch (_) {}
 
-    if (error) {
-        console.error('Error fetching profile by username:', error);
-    }
     return null;
 }
 
@@ -2198,7 +2386,7 @@ export async function fetchFollowers(userId: string): Promise<ProfileData[]> {
         console.error('Error fetching follower profiles:', profilesError);
         return [];
     }
-    return profiles || [];
+    return (profiles || []).map(normalizeProfile).filter((p): p is ProfileData => Boolean(p));
 }
 
 /** Fetch users that a user is following (returns their profile data) */
@@ -2225,7 +2413,7 @@ export async function fetchFollowing(userId: string): Promise<ProfileData[]> {
         console.error('Error fetching following profiles:', profilesError);
         return [];
     }
-    return profiles || [];
+    return (profiles || []).map(normalizeProfile).filter((p): p is ProfileData => Boolean(p));
 }
 
 /** Get follower and following counts */
@@ -2388,11 +2576,12 @@ export async function fetchConnections(userId: string): Promise<ConnectionWithPr
                     .select('*')
                     .eq('id', otherUserId)
                     .maybeSingle();
-                profile = data;
+                if (data) profile = normalizeProfile(data);
             } catch (_) {}
 
             if (!profile) {
-                profile = getKnownProfile(otherUserId);
+                const kp = getKnownProfile(otherUserId);
+                if (kp) profile = normalizeProfile(kp);
             }
 
             if (profile) {
@@ -3148,12 +3337,20 @@ export async function searchUsers(query: string): Promise<ProfileData[]> {
     if (!cleanQuery) return [];
 
     const lower = cleanQuery.toLowerCase();
-    const candidateTerms = [cleanQuery];
+    const candidateTerms = new Set<string>([cleanQuery]);
     if (COMMON_TYPOS[lower]) {
-        candidateTerms.push(...COMMON_TYPOS[lower]);
+        COMMON_TYPOS[lower].forEach(t => candidateTerms.add(t));
     }
+    if (CREATOR_USERNAME_PAIRS[lower]) {
+        candidateTerms.add(CREATOR_USERNAME_PAIRS[lower]);
+    }
+    Object.entries(COMMON_TYPOS).forEach(([typo, targets]) => {
+        if (targets.map(t => t.toLowerCase()).includes(lower)) {
+            candidateTerms.add(typo);
+        }
+    });
 
-    const orConditions = candidateTerms.flatMap(t => [
+    const orConditions = Array.from(candidateTerms).flatMap(t => [
         `username.ilike.%${t}%`,
         `name.ilike.%${t}%`
     ]).join(',');
@@ -3164,17 +3361,61 @@ export async function searchUsers(query: string): Promise<ProfileData[]> {
         .or(orConditions)
         .limit(20);
 
-    if (error) {
-        console.error('Error searching users:', error);
-        return [];
+    const seen = new Set<string>();
+    const results: ProfileData[] = [];
+
+    if (!error && data) {
+        for (const raw of data) {
+            const p = normalizeProfile(raw);
+            if (p && !seen.has(p.id) && !isRemovedUser(p.id, p.username)) {
+                seen.add(p.id);
+                results.push(p);
+            }
+        }
     }
 
-    const seen = new Set<string>();
-    return (data || []).filter(u => {
-        if (!u.id || seen.has(u.id) || isRemovedUser(u.id, u.username)) return false;
-        seen.add(u.id);
-        return true;
+    // Merge matching known profiles
+    const allKnown = getAllKnownProfiles();
+    for (const kp of allKnown) {
+        const norm = normalizeProfile(kp);
+        if (norm && !seen.has(norm.id) && !isRemovedUser(norm.id, norm.username)) {
+            const matchesQuery = Array.from(candidateTerms).some(t => {
+                const termLower = t.toLowerCase();
+                return (norm.username && norm.username.toLowerCase().includes(termLower)) ||
+                       (norm.name && norm.name.toLowerCase().includes(termLower));
+            });
+            if (matchesQuery) {
+                seen.add(norm.id);
+                results.push(norm);
+            }
+        }
+    }
+
+    // Also check REEL_CREATOR_MAP for matches
+    Object.entries(REEL_CREATOR_MAP).forEach(([uname, creator]) => {
+        const creatorId = `creator-${uname}`;
+        if (!seen.has(creatorId)) {
+            const matches = Array.from(candidateTerms).some(t => {
+                const termLower = t.toLowerCase();
+                return uname.toLowerCase().includes(termLower) || creator.name.toLowerCase().includes(termLower);
+            });
+            if (matches) {
+                seen.add(creatorId);
+                const norm = normalizeProfile({
+                    id: creatorId,
+                    username: uname,
+                    name: creator.name,
+                    avatar_url: creator.avatar,
+                    bio: creator.bio,
+                    points: 250,
+                    streak_count: 5
+                });
+                if (norm) results.push(norm);
+            }
+        }
     });
+
+    return results;
 }
 
 /** Search posts by caption and creator username with resilient hashtag & token matching */

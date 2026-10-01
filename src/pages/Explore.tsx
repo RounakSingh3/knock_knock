@@ -1019,8 +1019,12 @@ const Explore = () => {
                                                 style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover', marginRight: '14px', cursor: 'pointer' }}
                                             />
                                             <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => navigate(`/profile/${person.username}`)}>
-                                                <h4 style={{ margin: 0, color: 'var(--text-active)', fontSize: '15px', fontWeight: '600' }}>{person.username}</h4>
-                                                {person.bio && <p style={{ margin: '2px 0 0', color: 'var(--text-inactive)', fontSize: '13px' }}>{person.bio}</p>}
+                                                <h4 style={{ margin: 0, color: 'var(--text-active)', fontSize: '15px', fontWeight: '600' }}>
+                                                    {person.name && person.name.toLowerCase() !== 'user' ? person.name : person.username}
+                                                </h4>
+                                                <p style={{ margin: '2px 0 0', color: 'var(--text-inactive)', fontSize: '12px' }}>
+                                                    @{person.username}{person.bio ? ` • ${person.bio}` : ''}
+                                                </p>
                                             </div>
                                             {user && person.id !== user.id && (
                                                 <button

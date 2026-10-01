@@ -46,7 +46,7 @@ export const KNOWN_PROFILES: ProfileData[] = [
     {
         "id": "1369cfe5-42f1-4346-82be-0f616247092d",
         "username": "ityourfavourite1",
-        "name": "Our Favourite ✨",
+        "name": "It Your Favourite",
         "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
         "points": 999999999,
         "streak_count": 14,
@@ -57,7 +57,7 @@ export const KNOWN_PROFILES: ProfileData[] = [
     {
         "id": "794703c5-c695-47bc-864c-60f400ab6fbe",
         "username": "rounak2",
-        "name": "Rounak Thakur ⚡",
+        "name": "Rounak Singh",
         "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/794703c5-c695-47bc-864c-60f400ab6fbe-1781558656087.jpg",
         "points": 999999999,
         "streak_count": 21,
@@ -68,7 +68,7 @@ export const KNOWN_PROFILES: ProfileData[] = [
     {
         "id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
         "username": "popcorn05",
-        "name": "Zack 🍿",
+        "name": "Popcorn05",
         "avatar_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8-1783331325942.jpg",
         "points": 999999999,
         "streak_count": 18,
@@ -79,7 +79,7 @@ export const KNOWN_PROFILES: ProfileData[] = [
     {
         "id": "12a1a487-5dde-4a77-ab36-aee9ce84fa35",
         "username": "coral",
-        "name": "Coral lia 🪸",
+        "name": "Coral",
         "avatar_url": "https://i.pravatar.cc/150?u=coral",
         "points": 500,
         "streak_count": 9,
