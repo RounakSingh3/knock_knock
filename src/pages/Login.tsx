@@ -27,21 +27,6 @@ const Login = () => {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [globalError, setGlobalError] = useState('');
 
-    const handleQuickLogin = (uname: string) => {
-        const p = getKnownProfile(uname);
-        if (!p) return;
-        const profile = {
-            ...p,
-            points: isUnlimitedPointsUser(p.id, p.username) ? UNLIMITED_POINTS : p.points,
-            is_online: true,
-        };
-        (profile as any).preferred_language = language;
-        localStorage.setItem('knock_user_session', JSON.stringify(profile));
-        localStorage.setItem('knock_user_lang', language);
-        setUser(profile);
-        navigate('/call');
-    };
-
     // Debounced username check
     const checkUsernameRef = React.useRef<ReturnType<typeof setTimeout>>();
 
@@ -408,57 +393,6 @@ const Login = () => {
                             <>{strings.dontHaveAccount} <span style={{ color: '#f5a524', fontWeight: 'bold' }}>{strings.signUpLink}</span></>
                         )}
                     </button>
-                </div>
-
-                {/* Quick 1-Tap Login for authentic accounts */}
-                <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginBottom: '12px', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                        <Sparkles size={13} color="#f5a524" />
-                        Quick Sign-In with Saved ID
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-                        {[
-                            { username: 'ityourfavourite1', name: 'It Your Favourite', tag: 'VIP' },
-                            { username: 'rounak2', name: 'Rounak Singh', tag: 'VIP' },
-                            { username: 'popcorn05', name: 'Popcorn05', tag: 'VIP' },
-                            { username: 'coral', name: 'Coral', tag: 'Active' },
-                        ].map((acc) => (
-                            <button
-                                key={acc.username}
-                                type="button"
-                                onClick={() => handleQuickLogin(acc.username)}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '8px 10px',
-                                    background: 'rgba(255, 255, 255, 0.05)',
-                                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                                    borderRadius: '10px',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    transition: 'all 0.2s ease',
-                                }}
-                                onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#f5a524')}
-                                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)')}
-                            >
-                                <img
-                                    src={`https://i.pravatar.cc/150?u=${acc.username}`}
-                                    alt={acc.username}
-                                    style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }}
-                                />
-                                <div style={{ overflow: 'hidden', flex: 1 }}>
-                                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        {acc.name}
-                                    </div>
-                                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>@{acc.username}</div>
-                                </div>
-                                <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 5px', borderRadius: '4px', background: acc.tag === 'VIP' ? 'rgba(245, 165, 36, 0.2)' : 'rgba(59, 130, 246, 0.2)', color: acc.tag === 'VIP' ? '#f5a524' : '#60a5fa' }}>
-                                    {acc.tag}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
                 </div>
             </div>
         </div>
