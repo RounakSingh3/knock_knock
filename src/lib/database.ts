@@ -41,6 +41,11 @@ const BROKEN_POST_IDS = new Set([
 export const BLOCKED_USERNAMES = new Set([
     'fuck',
     'gspotexpert',
+    'bollywood_superstars',
+    'baklol_kumar',
+    'meme_hub_insta',
+    'epic_fun_page',
+    'relatable_postss',
 ]);
 
 export function isRemovedUser(userId?: string | null, username?: string | null): boolean {
@@ -1754,7 +1759,7 @@ export function isStoryEligibleForViewerScreen(
 
     // 3. For non-friends: MUST be an actively boosted story with remaining screen quota!
     // Organic/completed stranger stories are strictly forbidden from showing up
-    if (!story.is_boosted || !story.boost_meta) {
+    if (!story.is_boosted && !story.boost_meta) {
         return false;
     }
 
@@ -3436,8 +3441,27 @@ export async function fetchTrendingPosts(limit: number = 20, currentUserId?: str
         // Priority 5: Top posts
         (topRes.data || []).forEach(p => addPost(p, false));
 
+        const assembleLocalTrending = (): PostData[] => {
+            const local = getLocalPosts();
+            const favVids = local.filter(p => (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && (isVideoPost(p) || isVideoUrl(p.image_url)));
+            const userVids = currentUserId ? local.filter(p => p.user_id === currentUserId && (isVideoPost(p) || isVideoUrl(p.image_url))) : [];
+            const otherVids = local.filter(p => p.username !== 'ityourfavourite1' && p.user_id !== currentUserId && (isVideoPost(p) || isVideoUrl(p.image_url)));
+            const favImages = local.filter(p => (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && !isVideoPost(p) && !isVideoUrl(p.image_url));
+            const seen = new Set<string>();
+            const res: PostData[] = [];
+            for (const p of [...favVids, ...userVids, ...otherVids, ...favImages]) {
+                if (!seen.has(p.id)) {
+                    seen.add(p.id);
+                    res.push(p);
+                }
+            }
+            return res;
+        };
+
         if (result.length === 0) {
-            return getLocalPosts();
+            const fallback = assembleLocalTrending();
+            setInCache(cacheKey, fallback);
+            return fallback;
         }
 
         setInCache(cacheKey, result);
@@ -3445,7 +3469,20 @@ export async function fetchTrendingPosts(limit: number = 20, currentUserId?: str
     } catch (error: any) {
         if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
         console.warn('Error fetching trending posts (using local fallback):', error);
-        return getLocalPosts();
+        const local = getLocalPosts();
+        const favVids = local.filter(p => (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && (isVideoPost(p) || isVideoUrl(p.image_url)));
+        const userVids = currentUserId ? local.filter(p => p.user_id === currentUserId && (isVideoPost(p) || isVideoUrl(p.image_url))) : [];
+        const otherVids = local.filter(p => p.username !== 'ityourfavourite1' && p.user_id !== currentUserId && (isVideoPost(p) || isVideoUrl(p.image_url)));
+        const favImages = local.filter(p => (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && !isVideoPost(p) && !isVideoUrl(p.image_url));
+        const seen = new Set<string>();
+        const res: PostData[] = [];
+        for (const p of [...favVids, ...userVids, ...otherVids, ...favImages]) {
+            if (!seen.has(p.id)) {
+                seen.add(p.id);
+                res.push(p);
+            }
+        }
+        return res;
     }
 }
 
