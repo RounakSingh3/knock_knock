@@ -1950,8 +1950,8 @@ export function isStoryEligibleForViewerScreen(
     if (!story || !story.id || !story.image_url) return false;
 
     // Check media health (don't show broken or unplayable media on laptop/phone)
-    const trimmed = story.image_url.trim();
-    if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'none') {
+    const trimmed = typeof story.image_url === 'string' ? story.image_url.trim() : '';
+    if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'none' || trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
         return false;
     }
 
@@ -1968,8 +1968,8 @@ export function isStoryEligibleForViewerScreen(
     }
 
     // 4. Screen quota check (e.g. 5 screens for 5 points)
-    const target = story.boost_meta.targetScreens || story.target_screens || 24;
-    const delivered = story.boost_meta.screensDelivered || story.screens_delivered || 0;
+    const target = story.boost_meta?.targetScreens || story.target_screens || 24;
+    const delivered = story.boost_meta?.screensDelivered || story.screens_delivered || 0;
     if (delivered >= target) {
         // Target screen quota fulfilled — video is gone for other viewers
         return false;
