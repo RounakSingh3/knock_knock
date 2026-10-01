@@ -537,15 +537,16 @@ const Home = () => {
     // ⚡ Stable callback closures for MasonryPostCard props to avoid allocating per-card closures on each render
     const handleSelectPost = useCallback((p: PostData) => {
         const norm = normalizePost(p) || p;
-        const idx = posts.findIndex(item => item.id === norm.id);
+        const currentList = postsRef.current;
+        const idx = currentList.findIndex(item => item.id === norm.id);
         setActiveFeedState({
-            posts,
+            posts: currentList,
             index: idx !== -1 ? idx : 0,
         });
         if (userId) {
             trackEngagement(userId, norm.id, 'click', 1, norm.category || 'General').catch(() => {});
         }
-    }, [posts, userId]);
+    }, [userId]);
     const handleOpenChat = useCallback((uid: string) => { setChatUserId(uid); setIsChatOpen(true); }, []);
     const handleSharePost = useCallback((p: PostData) => { setPostToShare(p); setIsShareOpen(true); }, []);
     const handleOpenComments = useCallback((pid: string) => { setCommentsPostId(pid); setIsCommentsOpen(true); }, []);

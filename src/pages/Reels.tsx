@@ -6,7 +6,7 @@ import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFe
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, recordHashtagSignal } from '../lib/algorithm';
-import { extractPosterFromUrl } from '../components/PostMedia';
+import { extractPosterFromUrl, getFallbackPoster } from '../components/PostMedia';
 
 // ⚡ Lazy-load heavy modals so Reels renders instantly
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
@@ -847,23 +847,23 @@ const Reels: React.FC = () => {
                         }}
                         style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
                     >
-                        {reel.posterUrl && !isVideoUrl(reel.posterUrl) ? (
-                            <img
-                                src={reel.posterUrl}
-                                alt={reel.caption || 'Reel'}
-                                loading="lazy"
-                                decoding="async"
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                            />
-                        ) : (
-                            <video
-                                src={reel.videoUrl.includes('#t=') ? reel.videoUrl : `${reel.videoUrl}#t=0.1`}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                                muted
-                                playsInline
-                                preload="none"
-                            />
-                        )}
+                        {(() => {
+                            const posterSrc = (reel.posterUrl && !isVideoUrl(reel.posterUrl))
+                                ? reel.posterUrl
+                                : (extractPosterFromUrl(reel.videoUrl) || getFallbackPoster({ category: reel.category }));
+                            return (
+                                <img
+                                    src={posterSrc}
+                                    alt={reel.caption || 'Reel'}
+                                    loading="lazy"
+                                    decoding="async"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                    onError={(e) => {
+                                        (e.currentTarget as HTMLImageElement).src = getFallbackPoster({ category: reel.category });
+                                    }}
+                                />
+                            );
+                        })()}
                         <div style={{
                             position: 'absolute',
                             top: 8,

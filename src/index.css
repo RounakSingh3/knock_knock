@@ -127,6 +127,7 @@ body::before {
 .masonry-card, .story-rack-item {
     transform: translateZ(0);
     backface-visibility: hidden;
+    contain: layout paint;
 }
 
 .explore-grid-item {
@@ -4309,9 +4310,11 @@ select option {
 
     /* Lighten GPU background compositing during mobile scroll */
     body::before {
-        background-image:
-            radial-gradient(circle at 50% 0%, rgba(245, 165, 36, 0.12) 0%, transparent 60%),
-            radial-gradient(circle at 90% 90%, rgba(255, 122, 69, 0.06) 0%, transparent 50%);
+        display: none !important;
+    }
+
+    body {
+        background-color: #07070b !important;
     }
 
     /* Eliminate heavy Gaussian re-rasterization on fixed/sticky surfaces during mobile scroll */
@@ -4347,13 +4350,20 @@ select option {
     .modal-mute-btn,
     .explore-search-bar,
     .comments-sheet-header,
-    .chat-header-v2 {
+    .chat-header-v2,
+    .post-modal-header,
+    .post-modal-bottom-bar,
+    .post-modal-actions {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
     }
 
     /* Isolate paint and layout per card for smooth scrolling */
-    .masonry-card {
+    .masonry-card,
+    .explore-grid-item,
+    .explore-item,
+    .feed-item-card,
+    .post-card {
         contain: layout paint;
     }
 

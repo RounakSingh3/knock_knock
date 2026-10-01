@@ -44,7 +44,6 @@ try {
     }
 } catch (_) {}
 
-let isGlobalFrameCaptureRunning = false;
 
 const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
@@ -201,68 +200,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         if (posterFromUrl && cleanUrl) {
             videoPosterCache.set(cleanUrl, posterFromUrl);
             setCapturedPoster(posterFromUrl);
-        } else if (isVideo && cleanUrl) {
-            const cached = videoPosterCache.get(cleanUrl);
-            if (cached) setCapturedPoster(cached);
         }
     }, [post.image_url, isVideo, cleanUrl, targetWidth]);
 
-    const captureFrame = useCallback(() => {
-        if (isPlayingMode) return;
-        const video = videoRef.current;
-        if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) return;
-
-        if (isGlobalFrameCaptureRunning) {
-            setTimeout(() => {
-                if (videoRef.current && !capturedPoster) {
-                    captureFrame();
-                }
-            }, 120);
-            return;
-        }
-
-        // ⚡ Defer frame capture to idle callback to avoid interrupting active touch scrolling
-        const deferFn = typeof (window as any).requestIdleCallback === 'function'
-            ? (window as any).requestIdleCallback
-            : (cb: () => void) => setTimeout(cb, 60);
-
-        deferFn(() => {
-            if (isGlobalFrameCaptureRunning) return;
-            const v = videoRef.current;
-            if (!v || !v.videoWidth || !v.videoHeight || v.readyState < 2) return;
-            isGlobalFrameCaptureRunning = true;
-            try {
-                const canvas = document.createElement('canvas');
-                const scale = Math.min(1, 360 / v.videoWidth);
-                canvas.width = Math.round(v.videoWidth * scale);
-                canvas.height = Math.round(v.videoHeight * scale);
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-                    if (dataUrl && dataUrl.length > 200) {
-                        videoPosterCache.set(cleanUrl, dataUrl);
-                        setCapturedPoster(dataUrl);
-
-                        // Persist up to 60 recent poster frames to sessionStorage
-                        try {
-                            const cacheObj: Record<string, string> = {};
-                            let count = 0;
-                            for (const [k, val] of videoPosterCache.entries()) {
-                                if (count++ > 60) break;
-                                cacheObj[k] = val;
-                            }
-                            sessionStorage.setItem('knock_video_posters', JSON.stringify(cacheObj));
-                        } catch (_) {}
-                    }
-                }
-            } catch (_) {
-                // Keep video element as fallback
-            } finally {
-                isGlobalFrameCaptureRunning = false;
-            }
-        });
-    }, [isPlayingMode, cleanUrl, capturedPoster]);
 
     const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
     const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
@@ -713,33 +653,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         >
             {isVideo ? (
                 <>
-                    {thumbnail && !isPlayingMode && (capturedPoster || resolvedPosterFromUrl) && !posterFailed ? (
-                        /* ⚡ Static poster image in thumbnail mode ONLY if an authentic poster frame exists */
-                        <img
-                            src={capturedPoster || resolvedPosterFromUrl}
-                            alt={alt}
-                            className={className}
-                            style={{
-                                ...style,
-                                filter: extractedFilter,
-                                width: '100%',
-                                height: '100%',
-                                objectFit: resolvedObjectFit,
-                                display: 'block',
-                                transform: 'translateZ(0)',
-                                backfaceVisibility: 'hidden',
-                            }}
-                            loading="lazy"
-                            decoding="async"
-                            referrerPolicy="no-referrer"
-                            onError={() => {
-                                setPosterFailed(true);
-                                setCapturedPoster(undefined);
-                                videoPosterCache.delete(cleanUrl);
-                            }}
-                        />
-                    ) : !isInView && thumbnail && !isPlayingMode ? (
-                        /* ⚡ Off-screen thumbnail placeholder: Instant rich image, 0 decoders, 0 heavy bandwidth */
+                    {thumbnail && !isPlayingMode ? (
+                        /* ⚡ Ultra-lightweight instant poster for all grid/masonry cards: 0 video decoders, 0 layout shifts, 0 main-thread blocking */
                         <div
                             className={className}
                             style={{
@@ -753,17 +668,27 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             }}
                         >
                             <img
-                                src={getFallbackPoster(post)}
+                                src={capturedPoster || (!posterFailed && resolvedPosterFromUrl ? resolvedPosterFromUrl : undefined) || getFallbackPoster(post)}
                                 alt={alt}
                                 style={{
+                                    ...style,
+                                    filter: extractedFilter,
                                     width: '100%',
                                     height: '100%',
                                     objectFit: resolvedObjectFit,
                                     display: 'block',
-                                    filter: extractedFilter,
+                                    transform: 'translateZ(0)',
+                                    backfaceVisibility: 'hidden',
                                 }}
                                 loading="lazy"
                                 decoding="async"
+                                onError={() => {
+                                    if (!posterFailed) {
+                                        setPosterFailed(true);
+                                        setCapturedPoster(undefined);
+                                        videoPosterCache.delete(cleanUrl);
+                                    }
+                                }}
                             />
                             <div style={{
                                 position: 'absolute',
@@ -777,30 +702,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
+                                pointerEvents: 'none',
                             }}>
                                 <Play size={12} fill="#fff" color="#fff" style={{ marginLeft: '1px' }} />
                             </div>
                         </div>
                     ) : (
                         <div style={{ width: '100%', height: '100%', position: 'relative', background: '#18181b', overflow: 'hidden' }}>
-                            {/* Layered fallback picture so video tile is visually complete while frame decodes in thumbnail mode */}
-                            {thumbnail && !isPlayingMode && !isLoaded && !capturedPoster && !resolvedPosterFromUrl && (
-                                <img
-                                    src={getFallbackPoster(post)}
-                                    alt=""
-                                    style={{
-                                        position: 'absolute',
-                                        inset: 0,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: resolvedObjectFit,
-                                        filter: extractedFilter,
-                                        zIndex: 0,
-                                        display: 'block',
-                                    }}
-                                    loading="eager"
-                                />
-                            )}
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
@@ -846,19 +754,16 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 }}
                                 onLoadedData={() => {
                                     setIsLoaded(true);
-                                    captureFrame();
                                     if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
                                         startPlayback();
                                     }
                                 }}
                                 onCanPlay={() => {
                                     setIsLoaded(true);
-                                    captureFrame();
                                     if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
                                         startPlayback();
                                     }
                                 }}
-                                onSeeked={captureFrame}
                                 onTimeUpdate={(e) => {
                                     const v = e.currentTarget;
                                     if (isPlayingMode && v.duration && progressBarRef.current) {

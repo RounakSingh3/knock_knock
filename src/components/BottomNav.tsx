@@ -9,7 +9,7 @@ const BottomNav = React.memo(() => {
     useEffect(() => {
         const interval = setInterval(() => {
             setCallOpen(isCallingAllowedNow());
-        }, 1000);
+        }, 30000);
         return () => clearInterval(interval);
     }, []);
 
