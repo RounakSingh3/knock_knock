@@ -257,6 +257,17 @@ export async function extractVideoPoster(
                         return;
                     }
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    // Check if sampled center pixel is pure black, seek further if so
+                    try {
+                        const imgData = ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+                        const isBlack = imgData[0] < 8 && imgData[1] < 8 && imgData[2] < 8;
+                        if (isBlack && video.currentTime < 1.0 && (video.duration || 0) > 1.5) {
+                            video.currentTime = 1.5;
+                            return; // wait for next onseeked
+                        }
+                    } catch (_) {}
+
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
                     canvas.toBlob((blob) => {
                         cleanup();
@@ -272,26 +283,12 @@ export async function extractVideoPoster(
                 }
             };
 
-            video.onloadeddata = () => {
-                if (video.videoWidth > 0 && video.videoHeight > 0) {
-                    capture();
-                }
-                try {
-                    video.currentTime = Math.min(atTime, (video.duration || 1) / 2);
-                } catch (_) {
-                    capture();
-                }
-            };
-
             video.onloadedmetadata = () => {
-                if (video.videoWidth > 0 && video.videoHeight > 0) {
-                    capture();
-                }
-            };
-
-            video.oncanplay = () => {
-                if (video.videoWidth > 0 && video.videoHeight > 0) {
-                    capture();
+                try {
+                    const targetTime = Math.min(Math.max(atTime, 0.5), (video.duration || 2) / 2);
+                    video.currentTime = targetTime;
+                } catch (_) {
+                    setTimeout(capture, 500);
                 }
             };
 
@@ -299,10 +296,10 @@ export async function extractVideoPoster(
                 capture();
             };
 
-            video.ontimeupdate = () => {
-                if (video.videoWidth > 0 && video.videoHeight > 0) {
-                    capture();
-                }
+            video.onloadeddata = () => {
+                setTimeout(() => {
+                    if (!captured) capture();
+                }, 600);
             };
 
             video.onerror = () => {
