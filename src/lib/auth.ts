@@ -169,14 +169,38 @@ export async function signIn(username: string, password: string) {
 
 export async function signOut() {
     try {
-        localStorage.removeItem('knock_user_session');
         const { error } = await supabase.auth.signOut();
         if (error && !isQuotaError(error)) throw error;
     } catch (e) {
         // Sign out locally regardless
-        localStorage.removeItem('knock_user_session');
+    } finally {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                const keysToRemove: string[] = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && (
+                        k.startsWith('knock_chat_') ||
+                        k.startsWith('knock_groups_') ||
+                        k.startsWith('knock_group_') ||
+                        k.startsWith('knock_user_') ||
+                        k.startsWith('knock_local_connections') ||
+                        k.startsWith('knock_blocked_ids') ||
+                        k.startsWith('knock_home_posts_cache') ||
+                        k.startsWith('knock_last_') ||
+                        k.startsWith('knock_seen_stories_')
+                    )) {
+                        keysToRemove.push(k);
+                    }
+                }
+                keysToRemove.forEach(k => {
+                    try { localStorage.removeItem(k); } catch (_) {}
+                });
+            }
+        } catch (_) {}
     }
 }
+
 
 // ── Session Helpers ──
 

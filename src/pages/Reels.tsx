@@ -300,26 +300,14 @@ const Reels: React.FC = () => {
             user?.id ? fetchUserEngagements(user.id) : Promise.resolve([])
         ]).then(async ([videoPosts, engagements]) => {
             const validPosts = videoPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
-            const resolvedPosts = await Promise.all(validPosts.map(async (rawP) => {
+            const resolvedPosts = validPosts.map((rawP) => {
                 const p = normalizePost(rawP);
                 if (!p) return null;
                 const cleanUrl = getCleanSongUrl(p.music_title, p.music_url);
-                if (cleanUrl) {
-                    return { ...p, music_url: cleanUrl };
-                }
-                if (p.music_title && (!p.music_url || p.music_url.includes('soundhelix'))) {
-                    try {
-                        const query = `${p.music_title} ${p.music_artist || ''}`.trim();
-                        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=1`);
-                        const data = await res.json();
-                        if (data.results?.[0]?.previewUrl) {
-                            return { ...p, music_url: data.results[0].previewUrl };
-                        }
-                    } catch (e) {}
-                }
-                return p;
-            }));
+                return { ...p, music_url: cleanUrl || p.music_url };
+            });
             const userReels = resolvedPosts.filter((p): p is PostData => Boolean(p)).map(postToReel);
+
             
             // Interleave userReels and REELS_DATA with author anti-clustering
             const merged: ReelData[] = [];
@@ -521,16 +509,21 @@ const Reels: React.FC = () => {
         });
     }, [reelsList, mutedAll, playReelAudio]);
 
-    // High-performance scroll listener to instantly switch reels when snap settles
+    const scrollEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // High-performance scroll listener to smoothly switch reels when snap settles
     const handleReelsScroll = useCallback(() => {
         const el = modalScrollRef.current;
         if (!el) return;
-        const h = el.clientHeight || window.innerHeight;
-        if (h <= 0) return;
-        const snapIdx = Math.round(el.scrollTop / h);
-        if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndex) {
-            activateReel(snapIdx);
-        }
+        if (scrollEndTimeoutRef.current) clearTimeout(scrollEndTimeoutRef.current);
+        scrollEndTimeoutRef.current = setTimeout(() => {
+            const h = el.clientHeight || window.innerHeight;
+            if (h <= 0) return;
+            const snapIdx = Math.round(el.scrollTop / h);
+            if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndex) {
+                activateReel(snapIdx);
+            }
+        }, 50);
     }, [reelsList.length, activeIndex, activateReel]);
 
     // IntersectionObserver to auto-play visible video in modal and manage audio strictly
@@ -563,7 +556,7 @@ const Reels: React.FC = () => {
             },
             { 
                 root: modalScrollRef.current,
-                threshold: 0.5 
+                threshold: 0.65 
             }
         );
 
@@ -572,8 +565,12 @@ const Reels: React.FC = () => {
             observer.observe(card);
         });
 
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+            if (scrollEndTimeoutRef.current) clearTimeout(scrollEndTimeoutRef.current);
+        };
     }, [selectedReelIndex, reelsList, activateReel]);
+
 
     // ⚡ Synchronize active video play when sliding window mounts new active video element
     useEffect(() => {
@@ -591,6 +588,12 @@ const Reels: React.FC = () => {
                 });
             }
         }
+        // Explicitly pause any offscreen/non-active video elements to release mobile hardware decoder resources
+        videoRefs.current.forEach((v, idx) => {
+            if (v && idx !== activeIndex) {
+                v.pause();
+            }
+        });
     }, [activeIndex, selectedReelIndex, mutedAll, reelsList]);
 
     // Pillar 4: Instant Gratification — Preload next 2 video buffers for 0ms swipe latency

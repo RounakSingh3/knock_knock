@@ -6946,65 +6946,27 @@ export const SEED_CONNECTIONS: ConnectionWithProfile[] = [
 
 export function getLocalConnections(userId?: string): ConnectionWithProfile[] {
     try {
-        if (typeof window === 'undefined') return SEED_CONNECTIONS;
-        const stored = localStorage.getItem('knock_local_connections');
+        if (typeof window === 'undefined') return [];
+        const isRounak = userId === '794703c5-c695-47bc-864c-60f400ab6fbe' || userId === 'rounak2';
+        const storageKey = userId ? `knock_local_connections_${userId}` : 'knock_local_connections';
+        const stored = localStorage.getItem(storageKey);
         if (stored) {
             let parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
-                // Auto-repair any inverted UUIDs for popcorn05 / rounak2
-                let repaired = false;
-                parsed = parsed.map((c: ConnectionWithProfile) => {
-                    if (c.profile?.username === 'popcorn05' || (c as any).username === 'popcorn05') {
-                        if (c.user_b !== '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8' || c.profile?.id !== '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8') {
-                            repaired = true;
-                            return {
-                                ...c,
-                                user_b: '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8',
-                                profile: {
-                                    ...c.profile,
-                                    id: '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8',
-                                    username: 'popcorn05',
-                                    name: 'Popcorn05',
-                                    avatar_url: 'https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8-1783331325942.jpg'
-                                }
-                            };
-                        }
-                    }
-                    if (c.profile?.username === 'rounak2' || (c as any).username === 'rounak2') {
-                        if (c.user_b !== '794703c5-c695-47bc-864c-60f400ab6fbe' || c.profile?.id !== '794703c5-c695-47bc-864c-60f400ab6fbe') {
-                            repaired = true;
-                            return {
-                                ...c,
-                                user_b: '794703c5-c695-47bc-864c-60f400ab6fbe',
-                                profile: {
-                                    ...c.profile,
-                                    id: '794703c5-c695-47bc-864c-60f400ab6fbe',
-                                    username: 'rounak2',
-                                    name: 'Rounak Singh',
-                                    avatar_url: 'https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/avatars/794703c5-c695-47bc-864c-60f400ab6fbe-1781558656087.jpg'
-                                }
-                            };
-                        }
-                    }
-                    return c;
-                });
-                const existingIds = new Set(parsed.map((c: ConnectionWithProfile) => c.id));
-                const missing = SEED_CONNECTIONS.filter(c => !existingIds.has(c.id));
-                const merged = [...parsed, ...missing];
-                if (repaired || missing.length > 0) {
-                    try {
-                        localStorage.setItem('knock_local_connections', JSON.stringify(merged));
-                    } catch (_) {}
-                }
-                return merged;
+                return parsed;
             }
         }
+        if (isRounak) {
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(SEED_CONNECTIONS));
+            } catch (_) {}
+            return SEED_CONNECTIONS;
+        }
+        return [];
     } catch (_) {}
-    try {
-        localStorage.setItem('knock_local_connections', JSON.stringify(SEED_CONNECTIONS));
-    } catch (_) {}
-    return SEED_CONNECTIONS;
+    return [];
 }
+
 
 export function removeLocalConnection(connectionId: string): void {
     try {

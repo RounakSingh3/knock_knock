@@ -141,6 +141,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const playPauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retryCountRef = useRef(0);
     const fallbackUsedRef = useRef(false);
+    const playPromiseRef = useRef<Promise<void> | null>(null);
     const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
 
     // ⚡ On mobile devices, request 380px for feed thumbnails to cut GPU texture memory, and 1080px for full-screen viewer
@@ -296,8 +297,17 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         if (video) {
             video.muted = hasMusic ? true : false;
             video.volume = 1;
-            if (video.paused) {
-                video.play().then(() => setIsPlaying(true)).catch(() => {});
+            if (video.paused && !playPromiseRef.current) {
+                const p = video.play();
+                if (p !== undefined) {
+                    playPromiseRef.current = p;
+                    p.then(() => {
+                        playPromiseRef.current = null;
+                        setIsPlaying(true);
+                    }).catch(() => {
+                        playPromiseRef.current = null;
+                    });
+                }
             }
         }
         const audio = audioRef.current;
@@ -341,6 +351,26 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         domMutedRef.current = domMuted;
     }, [domMuted]);
 
+    const safePause = useCallback(() => {
+        const video = videoRef.current;
+        if (!video) return;
+        if (playPromiseRef.current) {
+            playPromiseRef.current
+                .then(() => {
+                    video.pause();
+                    setIsPlaying(false);
+                })
+                .catch(() => {
+                    setIsPlaying(false);
+                });
+        } else {
+            try {
+                video.pause();
+            } catch (_) {}
+            setIsPlaying(false);
+        }
+    }, []);
+
     const startPlayback = useCallback(() => {
         if (!isVideo) return;
         const video = videoRef.current;
@@ -348,31 +378,46 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         if (autoPlay || soundOn) {
             video.muted = domMutedRef.current;
+            // Guard against overlapping play requests on the same media element
+            if (playPromiseRef.current) return;
+
             const playPromise = video.play();
             if (playPromise !== undefined) {
+                playPromiseRef.current = playPromise;
                 playPromise
                     .then(() => {
+                        playPromiseRef.current = null;
                         setIsPlaying(true);
                         if (!video.muted) {
                             setIsAudioBlocked(false);
                         }
                     })
                     .catch((err) => {
+                        playPromiseRef.current = null;
+                        if (err.name === 'AbortError') return; // Interrupted cleanly, ignore
                         console.warn('[PostMedia] Autoplay unmuted failed, falling back to muted:', err);
                         // Silent recovery: ensure muted autoplay succeeds so video never freezes on mobile
                         setIsAutoplayFallbackMuted(true);
                         setIsAudioBlocked(true);
                         video.muted = true;
-                        video.play().then(() => {
-                            setIsPlaying(true);
-                        }).catch(() => {});
+                        const fallbackPromise = video.play();
+                        if (fallbackPromise !== undefined) {
+                            playPromiseRef.current = fallbackPromise;
+                            fallbackPromise
+                                .then(() => {
+                                    playPromiseRef.current = null;
+                                    setIsPlaying(true);
+                                })
+                                .catch(() => {
+                                    playPromiseRef.current = null;
+                                });
+                        }
                     });
             }
         } else {
-            video.pause();
-            setIsPlaying(false);
+            safePause();
         }
-    }, [isVideo, autoPlay, soundOn]);
+    }, [isVideo, autoPlay, soundOn, safePause]);
 
     // Handle video play/pause & sound with resilient dual-stage autoplay
     useEffect(() => {
@@ -380,16 +425,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         if (autoPlay || soundOn) {
             startPlayback();
         } else {
-            videoRef.current?.pause();
-            setIsPlaying(false);
+            safePause();
         }
 
         return () => {
-            try {
-                videoRef.current?.pause();
-            } catch (_) {}
+            safePause();
         };
-    }, [isVideo, autoPlay, soundOn, videoSrc, startPlayback]);
+    }, [isVideo, autoPlay, soundOn, videoSrc, startPlayback, safePause]);
 
     const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!isPlayingMode) return;
@@ -420,17 +462,26 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         const video = videoRef.current;
         if (video && isVideo) {
             if (video.paused) {
-                video.play().then(() => {
-                    setIsPlaying(true);
-                    setShowPlayPauseIcon('play');
-                    if (onTogglePlay) onTogglePlay(true);
-                }).catch(() => {});
+                if (!playPromiseRef.current) {
+                    video.muted = domMuted;
+                    const p = video.play();
+                    if (p !== undefined) {
+                        playPromiseRef.current = p;
+                        p.then(() => {
+                            playPromiseRef.current = null;
+                            setIsPlaying(true);
+                            setShowPlayPauseIcon('play');
+                            if (onTogglePlay) onTogglePlay(true);
+                        }).catch(() => {
+                            playPromiseRef.current = null;
+                        });
+                    }
+                }
                 if (audioRef.current && hasMusic && !domMuted) {
                     audioRef.current.play().catch(() => {});
                 }
             } else {
-                video.pause();
-                setIsPlaying(false);
+                safePause();
                 setShowPlayPauseIcon('pause');
                 if (onTogglePlay) onTogglePlay(false);
                 if (audioRef.current) {
@@ -442,7 +493,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 setShowPlayPauseIcon(null);
             }, 600);
         }
-    }, [isPlayingMode, isAudioBlocked, handleUnmute, isVideo, onDoubleTapLike, onTogglePlay, hasMusic, domMuted]);
+    }, [isPlayingMode, isAudioBlocked, handleUnmute, isVideo, onDoubleTapLike, onTogglePlay, hasMusic, domMuted, safePause]);
 
     // Handle background audio playback for posts with music
     useEffect(() => {
@@ -785,13 +836,19 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 onMouseEnter={() => {
                                     if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
                                         videoRef.current.muted = true;
-                                        videoRef.current.play().catch(() => {});
+                                        if (!playPromiseRef.current) {
+                                            const p = videoRef.current.play();
+                                            if (p !== undefined) {
+                                                playPromiseRef.current = p;
+                                                p.then(() => { playPromiseRef.current = null; }).catch(() => { playPromiseRef.current = null; });
+                                            }
+                                        }
                                     }
                                 }}
                                 onMouseLeave={() => {
                                     if (!isPlayingMode && videoRef.current && window.matchMedia?.('(hover: hover)').matches) {
-                                        videoRef.current.pause();
-                                        videoRef.current.currentTime = 0.001;
+                                        safePause();
+                                        if (videoRef.current) videoRef.current.currentTime = 0.001;
                                     }
                                 }}
                             />

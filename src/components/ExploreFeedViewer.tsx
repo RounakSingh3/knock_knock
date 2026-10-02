@@ -155,22 +155,27 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         };
     }, [initialIndex, targetPost]);
 
-    // Passive instant scroll listener for zero-delay video activation when snapping down
+    const scrollEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Debounced scroll listener to smoothly activate post when scroll snap settles without mid-drag stutter
     const handleScroll = useCallback(() => {
         const container = scrollRef.current;
         if (!container) return;
         // Do NOT switch active post while programmatic initial scroll is positioning
         if (isInitialMountRef.current) return;
 
-        const h = container.clientHeight || window.innerHeight;
-        if (h <= 0) return;
-        const snapIndex = Math.round(container.scrollTop / h);
-        if (snapIndex >= 0 && snapIndex < displayPosts.length) {
-            const target = displayPosts[snapIndex];
-            if (target && target.id !== activePostIdRef.current) {
-                activatePost(target.id, snapIndex);
+        if (scrollEndTimeoutRef.current) clearTimeout(scrollEndTimeoutRef.current);
+        scrollEndTimeoutRef.current = setTimeout(() => {
+            const h = container.clientHeight || window.innerHeight;
+            if (h <= 0) return;
+            const snapIndex = Math.round(container.scrollTop / h);
+            if (snapIndex >= 0 && snapIndex < displayPosts.length) {
+                const target = displayPosts[snapIndex];
+                if (target && target.id !== activePostIdRef.current) {
+                    activatePost(target.id, snapIndex);
+                }
             }
-        }
+        }, 50);
     }, [displayPosts, activatePost]);
 
     // Responsive IntersectionObserver for swiping/scrolling between reels
@@ -180,7 +185,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         const observer = new IntersectionObserver((entries) => {
             if (isInitialMountRef.current) return;
 
-            const intersecting = entries.filter(e => e.isIntersecting && e.intersectionRatio >= 0.5);
+            const intersecting = entries.filter(e => e.isIntersecting && e.intersectionRatio >= 0.65);
             if (intersecting.length > 0) {
                 const dominant = intersecting.reduce((prev, curr) => 
                     curr.intersectionRatio > prev.intersectionRatio ? curr : prev
@@ -209,7 +214,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
             });
         }, {
             root: scrollRef.current,
-            threshold: [0.5, 0.75, 0.9]
+            threshold: [0.65, 0.85]
         });
 
         Object.values(itemRefs.current).forEach(el => {
@@ -218,6 +223,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
 
         return () => {
             observer.disconnect();
+            if (scrollEndTimeoutRef.current) clearTimeout(scrollEndTimeoutRef.current);
             if (user) {
                 Object.entries(watchTimers.current).forEach(([pId, startT]) => {
                     const durationSeconds = (Date.now() - startT) / 1000;

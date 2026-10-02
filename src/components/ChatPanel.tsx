@@ -125,7 +125,10 @@ function loadLocalChatMessages(myId: string, partnerId: string): MessageData[] {
 
 function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: MessageData; unreadCount: number }> {
     const map = new Map<string, { lastMessage: MessageData; unreadCount: number }>();
+    if (!myId) return map;
     const canMyId = toCanonicalUserId(myId);
+    if (!canMyId) return map;
+
     try {
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -134,6 +137,7 @@ function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: Messa
                 if (parts.length === 2) {
                     const p0Can = toCanonicalUserId(parts[0]);
                     const p1Can = toCanonicalUserId(parts[1]);
+                    // STRICT ISOLATION: The thread must strictly belong to the logged-in user!
                     if (p0Can === canMyId || p1Can === canMyId) {
                         const otherId = p0Can === canMyId ? p1Can : p0Can;
                         if (otherId && otherId !== canMyId) {
@@ -153,17 +157,6 @@ function scanAllLocalChatThreads(myId: string): Map<string, { lastMessage: Messa
             }
         }
     } catch (e) {}
-
-    // Ensure Popcorn05 thread is always initialized for Rounak
-    if (canMyId === '794703c5-c695-47bc-864c-60f400ab6fbe' && !map.has('9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8')) {
-        const msgs = getLocalMessages(canMyId, '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8');
-        if (msgs.length > 0) {
-            map.set('9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8', {
-                lastMessage: msgs[msgs.length - 1],
-                unreadCount: 0
-            });
-        }
-    }
 
     return map;
 }
@@ -927,15 +920,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     ...connIds,
                     ...followingProfiles.map(p => p.id),
                     ...followerProfiles.map(p => p.id),
-                    ...(allDbProfiles || []).map(p => p.id)
                 ]);
                 allFriendIds.delete(currentUser.id);
                 allFriendIds.delete(canMyId);
 
-                // Ensure popcorn05 is always in friend contacts if not own profile
-                if (canMyId !== '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8' && currentUser.username?.toLowerCase() !== 'popcorn05') {
-                    allFriendIds.add('9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8');
-                }
                 
                 const unchattedConnIds = Array.from(allFriendIds).filter(id => !chattedSet.has(id));
 

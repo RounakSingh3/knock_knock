@@ -385,7 +385,9 @@ function App() {
         localStorage.removeItem('knock_user_session');
         setUser(null);
         setPoints(0);
+        setBlockedIds([]);
     }, [user?.id]);
+
 
     const contextValue = useMemo(() => ({
         points: isUnlimitedPointsUser(user?.id, user?.username) ? UNLIMITED_POINTS : points,

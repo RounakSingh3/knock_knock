@@ -2925,7 +2925,6 @@ export const CANONICAL_USER_IDS: Record<string, string> = {
     'rounak': '794703c5-c695-47bc-864c-60f400ab6fbe',
     'popcorn05': '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8',
     'popcorn': '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8',
-    'current_user': '794703c5-c695-47bc-864c-60f400ab6fbe',
     'coral': '12a1a487-5dde-4a77-ab36-aee9ce84fa35',
     'tara01': '1d9a782d-6990-4018-9232-6aefe57a3db6',
     'anaya': '374bf414-64a8-4c81-b5fb-40d5c4bf8dc2',
@@ -3002,8 +3001,11 @@ export async function fetchChattedUserIds(userId: string): Promise<string[]> {
 
 /** Helper to load local messages between two users */
 export function getLocalMessages(user1: string, user2: string): MessageData[] {
+    if (!user1 || !user2 || user1 === user2) return [];
     const c1 = toCanonicalUserId(user1);
     const c2 = toCanonicalUserId(user2);
+    if (!c1 || !c2 || c1 === c2) return [];
+
     const idMap = new Map<string, MessageData>();
 
     const checkKey = (k: string) => {
@@ -3037,22 +3039,6 @@ export function getLocalMessages(user1: string, user2: string): MessageData[] {
         `knock_chat_msgs_${user2}_${user1}`,
     ]);
 
-    // Check specific known aliases if conversation involves Rounak or Popcorn
-    const isRounakPopcorn = 
-        (c1 === '794703c5-c695-47bc-864c-60f400ab6fbe' && c2 === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8') ||
-        (c2 === '794703c5-c695-47bc-864c-60f400ab6fbe' && c1 === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8');
-
-    if (isRounakPopcorn) {
-        keysToCheck.add('knock_chat_msgs_rounak2_popcorn05');
-        keysToCheck.add('knock_chat_msgs_popcorn05_rounak2');
-        keysToCheck.add('knock_chat_msgs_current_user_popcorn05');
-        keysToCheck.add('knock_chat_msgs_popcorn05_current_user');
-        keysToCheck.add('knock_chat_msgs_current_user_9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8');
-        keysToCheck.add('knock_chat_msgs_9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8_current_user');
-        keysToCheck.add('knock_chat_msgs_794703c5-c695-47bc-864c-60f400ab6fbe_popcorn05');
-        keysToCheck.add('knock_chat_msgs_popcorn05_794703c5-c695-47bc-864c-60f400ab6fbe');
-    }
-
     // Inspect all keys
     try {
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -3074,19 +3060,15 @@ export function getLocalMessages(user1: string, user2: string): MessageData[] {
 
     keysToCheck.forEach(checkKey);
 
-    // If no messages found and this is Rounak & Popcorn, populate authentic seed messages
-    if (idMap.size === 0 && isRounakPopcorn) {
-        SEED_ROUNAK_POPCORN_MSGS.forEach(m => idMap.set(m.id, m));
-    }
-
     const clean = Array.from(idMap.values()).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     try {
-        if (typeof window !== 'undefined' && window.localStorage) {
+        if (typeof window !== 'undefined' && window.localStorage && clean.length > 0) {
             localStorage.setItem(`knock_chat_msgs_${c1}_${c2}`, JSON.stringify(clean));
         }
     } catch (_) {}
     return clean;
 }
+
 
 /** Helper to save local messages between two users */
 export function saveLocalMessages(user1: string, user2: string, msgs: MessageData[]) {
