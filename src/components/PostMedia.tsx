@@ -152,6 +152,24 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     });
 
     const cleanUrl = post.image_url ? post.image_url.split('#')[0].split('?')[0] : '';
+
+    // Clean video URL: strip ALL hash fragments (#POSTER:, #FALLBACK:, #BOOST:, etc.) and filter query
+    let cleanVideoUrl = '';
+    if (post.image_url) {
+        const rawNoHash = post.image_url.split('#')[0];
+        try {
+            const parsed = new URL(rawNoHash);
+            if (parsed.searchParams.has('filter')) {
+                parsed.searchParams.delete('filter');
+            }
+            cleanVideoUrl = parsed.toString();
+        } catch (_) {
+            cleanVideoUrl = rawNoHash;
+        }
+    }
+
+    // Pure clean URL for seamless progressive streaming without pipeline resets
+    const videoSrc = isVideo ? cleanVideoUrl : '';
     const resolvedPosterFromUrl = extractPosterFromUrl(post.image_url);
     const categoryFallbackPoster = getFallbackPoster(post as any);
     const [capturedPoster, setCapturedPoster] = useState<string>(() => {
@@ -625,24 +643,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             </div>
         );
     }
-
-    // Clean video URL: strip ALL hash fragments (#POSTER:, #FALLBACK:, #BOOST:, etc.) and filter query
-    let cleanVideoUrl = '';
-    if (post.image_url) {
-        const rawNoHash = post.image_url.split('#')[0];
-        try {
-            const parsed = new URL(rawNoHash);
-            if (parsed.searchParams.has('filter')) {
-                parsed.searchParams.delete('filter');
-            }
-            cleanVideoUrl = parsed.toString();
-        } catch (_) {
-            cleanVideoUrl = rawNoHash;
-        }
-    }
-
-    // Pure clean URL for seamless progressive streaming without pipeline resets
-    const videoSrc = isVideo ? cleanVideoUrl : '';
 
     return (
         <div 
