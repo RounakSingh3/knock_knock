@@ -47,11 +47,12 @@ import {
     isStoryEligibleForViewerScreen,
     isSeedStory,
     notifyMentionedUsersInText,
+    fetchUserEngagements,
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
 import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
-import { rankBoostLoopStories, recordBoostSignal, extractHashtags } from '../lib/algorithm';
+import { rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
@@ -420,21 +421,48 @@ const Boost: React.FC = () => {
         };
     }, []);
 
-    // Screen impression delivery tracker (Deduplicated IntersectionObserver)
+    // Screen impression delivery & Instagram dwell interest tracker (Deduplicated IntersectionObserver)
     useEffect(() => {
         if (!user || stories.length === 0) return;
 
+        const dwellTimers = new Map<string, number>();
+
         const observer = new IntersectionObserver((entries) => {
+            const now = Date.now();
             entries.forEach(entry => {
+                const storyId = entry.target.getAttribute('data-story-id');
+                if (!storyId) return;
+
                 if (entry.isIntersecting) {
-                    const storyId = entry.target.getAttribute('data-story-id');
-                    if (storyId && !trackedImpressionsRef.current.has(storyId)) {
+                    if (!dwellTimers.has(storyId)) {
+                        dwellTimers.set(storyId, now);
+                    }
+                    if (!trackedImpressionsRef.current.has(storyId)) {
                         trackedImpressionsRef.current.add(storyId);
                         recordScreenDelivery(storyId, user.id);
                     }
+                } else {
+                    const start = dwellTimers.get(storyId);
+                    if (start) {
+                        const dwellMs = now - start;
+                        dwellTimers.delete(storyId);
+                        if (dwellMs >= 2000) {
+                            const story = stories.find(s => s.id === storyId);
+                            if (story) {
+                                recordBoostSignal({
+                                    storyId,
+                                    creatorId: story.user_id || undefined,
+                                    hashtags: extractHashtags(story.caption),
+                                    category: (story as any).category || undefined,
+                                    isVideo: isVideoUrl(story.image_url),
+                                    type: 'dwell'
+                                });
+                            }
+                        }
+                    }
                 }
             });
-        }, { threshold: 0.25 });
+        }, { threshold: 0.3 });
 
         Object.values(cardRefs.current).forEach(el => {
             if (el) observer.observe(el);
@@ -443,11 +471,30 @@ const Boost: React.FC = () => {
         return () => observer.disconnect();
     }, [user?.id, stories]);
 
-    // Derived lists (memoized for optimal 60fps performance)
-    const myActiveKnocks = useMemo(
-        () => stories.filter(s => user && s.user_id === user.id && !isSeedStory(s)),
-        [stories, user?.id]
-    );
+    // Load user's platform interest profile
+    const [hybridProfile, setHybridProfile] = useState<any>(null);
+    useEffect(() => {
+        if (user?.id) {
+            fetchUserEngagements(user.id).then(eng => {
+                setHybridProfile(getHybridInterestProfile(eng));
+            }).catch(() => {});
+        }
+    }, [user?.id]);
+
+    // Creator's active knocks (strictly restricted to authenticated owner only)
+    const myActiveKnocks = useMemo(() => {
+        if (!user) return [];
+        return stories.filter(s => {
+            if (isSeedStory(s)) return false;
+            // Strict ownership verification:
+            if (s.username && user.username && s.username.toLowerCase() !== user.username.toLowerCase()) {
+                return false;
+            }
+            const isIdMatch = Boolean(s.user_id && s.user_id === user.id);
+            const isUsernameMatch = Boolean(s.username && user.username && s.username.toLowerCase() === user.username.toLowerCase());
+            return isIdMatch || isUsernameMatch;
+        });
+    }, [stories, user?.id, user?.username]);
     
     // Only real authentic 24h stories uploaded by users on the app
     const combinedStories = useMemo(() => {
@@ -460,8 +507,8 @@ const Boost: React.FC = () => {
 
     // ⚡ Adaptive Addictive Loop Engine: real-time taste chasing & recency frequency boost
     const rankedStories = useMemo(() => {
-        return rankBoostLoopStories(combinedStories, user?.id, userFriends);
-    }, [combinedStories, user?.id, userFriends]);
+        return rankBoostLoopStories(combinedStories, user?.id, userFriends, hybridProfile);
+    }, [combinedStories, user?.id, userFriends, hybridProfile]);
 
     // Enhanced 24h Discovery filtering (Filter Tab + #Hashtag + Search Query)
     const filteredStories = useMemo(() => {
@@ -497,6 +544,57 @@ const Boost: React.FC = () => {
             return true;
         });
     }, [rankedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
+
+    // ── Continuous 24h Infinite Stream Synthesizer (Instagram Explore Style) ──
+    const [streamPage, setStreamPage] = useState(0);
+    const [streamPosts, setStreamPosts] = useState<StoryData[]>([]);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const sentinelRef = useRef<HTMLDivElement>(null);
+
+    // Sync stream when rankedStories or filters change
+    useEffect(() => {
+        setStreamPage(0);
+        if (filteredStories.length > 0) {
+            const initialBatch = generateInfiniteStream(
+                filteredStories,
+                0,
+                18,
+                (batch) => rankBoostLoopStories(batch, user?.id, userFriends, hybridProfile)
+            );
+            setStreamPosts(initialBatch);
+        } else {
+            setStreamPosts([]);
+        }
+    }, [filteredStories, user?.id, userFriends, hybridProfile]);
+
+    const loadMoreStreamStories = useCallback(() => {
+        if (isLoadingMore || filteredStories.length === 0) return;
+        setIsLoadingMore(true);
+        const nextPage = streamPage + 1;
+        const nextBatch = generateInfiniteStream(
+            filteredStories,
+            nextPage,
+            12,
+            (batch) => rankBoostLoopStories(batch, user?.id, userFriends, hybridProfile)
+        );
+        if (nextBatch.length > 0) {
+            setStreamPosts(prev => [...prev, ...nextBatch]);
+            setStreamPage(nextPage);
+        }
+        setIsLoadingMore(false);
+    }, [isLoadingMore, filteredStories, streamPage, user?.id, userFriends, hybridProfile]);
+
+    // IntersectionObserver for continuous infinite scrolling
+    useEffect(() => {
+        if (!sentinelRef.current) return;
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && !isLoadingMore && streamPosts.length > 0) {
+                loadMoreStreamStories();
+            }
+        }, { rootMargin: '600px' });
+        observer.observe(sentinelRef.current);
+        return () => observer.disconnect();
+    }, [loadMoreStreamStories, isLoadingMore, streamPosts.length]);
 
     // Dynamically derive all active hashtags from the current 24-hour stories
     const dynamicHashtags = useMemo(() => {
@@ -544,22 +642,26 @@ const Boost: React.FC = () => {
         cardRefs.current[id] = el;
     }, []);
 
-    // Open Story Viewer (bulletproof fallback resolution)
+    // Open Story Viewer (bulletproof fallback resolution with continuous interest queue)
     const handleOpenStory = useCallback((story: StoryData) => {
         if (user && story.id) {
             recordScreenDelivery(story.id, user.id);
         }
+        const isVid = isVideoUrl(story.image_url);
         recordBoostSignal({
             storyId: story.id,
-            creatorId: story.user_id,
+            creatorId: story.user_id || undefined,
             hashtags: extractHashtags(story.caption),
+            category: (story as any).category || undefined,
+            isVideo: isVid,
             type: 'view'
         });
 
-        // Attach full 24h stream so the next video is ALWAYS available without dead-ends
-        const filteredIds = new Set(filteredStories.map(s => s.id));
-        const remaining24h = rankedStories.filter(s => !filteredIds.has(s.id));
-        const fullStream = [...filteredStories, ...remaining24h];
+        // Attach full continuous 24h stream so the next video is ALWAYS available without dead-ends
+        const currentStream = streamPosts.length > 0 ? streamPosts : filteredStories;
+        const streamIds = new Set(currentStream.map(s => s.id));
+        const remaining24h = rankedStories.filter(s => !streamIds.has(s.id));
+        const fullStream = [...currentStream, ...remaining24h];
 
         let groups = groupStoriesByUser(fullStream);
         let groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
@@ -580,7 +682,7 @@ const Boost: React.FC = () => {
 
         setViewerStoryGroups(groups);
         setActiveViewerGroupIndex(groupIdx);
-    }, [user, filteredStories, rankedStories]);
+    }, [user, streamPosts, filteredStories, rankedStories]);
 
     // Camera Controls & 1-Minute Video Recording
     const startCamera = async (mode: 'photo' | 'video' = cameraMode) => {
@@ -1368,25 +1470,46 @@ const Boost: React.FC = () => {
                             </button>
                         </div>
                     ) : (
-                        <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
-                            gridAutoFlow: 'dense',
-                            gap: '2px'
-                        }}>
-                            {filteredStories.map((story, idx) => {
-                                const isBig = (idx % 12 === 0) || (idx % 12 === 8);
-                                return (
-                                    <BoostStoryCard
-                                        key={story.id}
-                                        story={story}
-                                        isBig={isBig}
-                                        onOpen={handleOpenStory}
-                                        onCardRef={handleCardRef}
-                                    />
-                                );
-                            })}
-                        </div>
+                        <>
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gridAutoFlow: 'dense',
+                                gap: '2px'
+                            }}>
+                                {(streamPosts.length > 0 ? streamPosts : filteredStories).map((story, idx) => {
+                                    const isBig = (idx % 12 === 0) || (idx % 12 === 8);
+                                    return (
+                                        <BoostStoryCard
+                                            key={`${story.id}-${idx}`}
+                                            story={story}
+                                            isBig={isBig}
+                                            onOpen={handleOpenStory}
+                                            onCardRef={handleCardRef}
+                                        />
+                                    );
+                                })}
+                            </div>
+
+                            {/* Continuous Infinite Scroll Sentinel */}
+                            <div
+                                ref={sentinelRef}
+                                style={{
+                                    height: '60px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    margin: '16px 0'
+                                }}
+                            >
+                                {isLoadingMore && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f5a524', fontSize: '13px', fontWeight: '600' }}>
+                                        <Loader2 size={18} className="animate-spin" />
+                                        <span>Loading more 24h Knocks...</span>
+                                    </div>
+                                )}
+                            </div>
+                        </>
                     )}
                 </div>
             </PullToRefresh>

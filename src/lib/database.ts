@@ -2104,41 +2104,25 @@ export function isViewerActiveDailyUser(userId?: string): boolean {
 /** Check if a 24h story / boosted video is eligible to be shown on a viewer's screen */
 export function isStoryEligibleForViewerScreen(
     story: StoryData,
-    viewerUserId?: string,
-    userFriends: string[] = []
+    _viewerUserId?: string,
+    _userFriends: string[] = []
 ): boolean {
     if (!story || !story.id || !story.image_url) return false;
     if (isSeedStory(story)) return false;
 
-    // Check media health (don't show broken or unplayable media on laptop/phone)
+    // Check media health (don't show broken or unplayable media)
     const trimmed = typeof story.image_url === 'string' ? story.image_url.trim() : '';
     if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'none') {
         return false;
     }
 
-    // 1. Creator can always view their own story
-    if (viewerUserId && story.user_id === viewerUserId) return true;
-
-    // 2. Friends of creator can always view (base friends reach)
-    if (story.user_id && userFriends.includes(story.user_id)) return true;
-
-    // 3. For non-friends: MUST be an actively boosted story with remaining screen quota!
-    // Organic/completed stranger stories are strictly forbidden from showing up
-    if (!story.is_boosted && !story.boost_meta) {
-        return false;
-    }
-
-    // 4. Screen quota check (e.g. 5 screens for 5 points)
-    const target = story.boost_meta?.targetScreens || story.target_screens || 24;
-    const delivered = story.boost_meta?.screensDelivered || story.screens_delivered || 0;
-    if (delivered >= target) {
-        // Target screen quota fulfilled — video is gone for other viewers
-        return false;
-    }
-
-    // 5. Active Daily User Check: points only deliver to active daily users
-    if (!viewerUserId || !isViewerActiveDailyUser(viewerUserId)) {
-        return false;
+    // 24-hour content lifespan with graceful 48h buffer for continuous stream replenishment
+    if (story.created_at) {
+        const msOld = Date.now() - new Date(story.created_at).getTime();
+        const maxLifespanMs = 48 * 60 * 60 * 1000;
+        if (msOld > maxLifespanMs) {
+            return false;
+        }
     }
 
     return true;
@@ -2230,19 +2214,39 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
     const cached = getFromCache<StoryData[]>(`24h_boost_stories_${currentUserId || 'anon'}`, 15000);
     if (cached) return cached;
 
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const thirtySixHoursAgo = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
         .from('stories')
         .select('*')
-        .gte('created_at', twentyFourHoursAgo)
+        .gte('created_at', thirtySixHoursAgo)
         .order('created_at', { ascending: false })
-        .limit(150);
+        .limit(100);
 
     let rawStories: StoryData[] = [];
     if (error) {
         console.warn('Error fetching 24h boost stories from Supabase (using fallback store if available):', error.message);
     } else {
         rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s));
+    }
+
+    // Ensure candidate pool is robust (at least 25 items for smooth Instagram Explore infinite streaming)
+    if (rawStories.length < 25) {
+        const { data: recentDb } = await supabase
+            .from('stories')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(60);
+
+        if (recentDb && recentDb.length > 0) {
+            const normalizedRecent = recentDb.map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s));
+            const existingIds = new Set(rawStories.map(s => s.id));
+            for (const s of normalizedRecent) {
+                if (!existingIds.has(s.id)) {
+                    rawStories.push(s);
+                    existingIds.add(s.id);
+                }
+            }
+        }
     }
 
     const stories = mergeWithFallbackStories(rawStories).filter(s => !isSeedStory(s));
@@ -2256,36 +2260,33 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
         }
     }
 
-    // Delivery Guarantee Ordering:
+    // Instagram Explore 24h Delivery Architecture:
     // 1. Current user's own active stories (to monitor reach)
-    // 2. Stories from user's friends (fulfills friend reach guarantee)
-    // 3. Actively boosted stories with remaining screen quota (only delivered to active daily users)
-    //    -> "Only points that people use to boost go to screens of people who are active"
-    //    -> Completed or organic stranger stories are strictly excluded from other users' screens!
+    // 2. Actively boosted stories with remaining screen quota (priority delivery duty)
+    // 3. Stories from user's friends (social connection)
+    // 4. All platform 24h video and image stories (for continuous interest discovery)
     const ownStories: StoryData[] = [];
     const friendStories: StoryData[] = [];
     const activeBoostedStories: StoryData[] = [];
-
-    const isViewerActive = isViewerActiveDailyUser(currentUserId);
+    const exploreCandidates: StoryData[] = [];
 
     for (const story of stories) {
-        // Media validity check: ignore stories with empty or broken URLs
         if (!story.image_url || story.image_url === 'undefined' || story.image_url === 'null') {
             continue;
         }
 
-        if (currentUserId && story.user_id === currentUserId) {
+        if (currentUserId && (story.user_id === currentUserId || (story.username && currentUserId === story.username))) {
             ownStories.push(story);
+        } else if (story.is_boosted && (story.screens_delivered || 0) < (story.target_screens || 24)) {
+            activeBoostedStories.push(story);
         } else if (story.user_id && friendIds.includes(story.user_id)) {
             friendStories.push(story);
-        } else if (isViewerActive && story.is_boosted && (story.screens_delivered || 0) < (story.target_screens || 0)) {
-            // Only non-friend stories that are actively boosted with remaining screen quota
-            // reach active daily users' screens!
-            activeBoostedStories.push(story);
+        } else {
+            exploreCandidates.push(story);
         }
     }
 
-    // Active boosted stories that need more screens get priority injection for active users
+    // Active boosted stories that need more screens get priority injection
     activeBoostedStories.sort((a, b) => {
         const deficitA = (a.target_screens || 0) - (a.screens_delivered || 0);
         const deficitB = (b.target_screens || 0) - (b.screens_delivered || 0);
@@ -2296,8 +2297,9 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
 
     const result = [
         ...ownStories,
+        ...activeBoostedStories,
         ...friendStories,
-        ...activeBoostedStories
+        ...exploreCandidates
     ];
 
     setInCache(`24h_boost_stories_${currentUserId || 'anon'}`, result);

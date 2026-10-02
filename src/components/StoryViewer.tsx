@@ -99,10 +99,15 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
     const effectiveUserId = currentUserId || authUser?.id;
     const isOwner = Boolean(
-        (effectiveUserId && currentStory?.user_id === effectiveUserId) ||
-        (effectiveUserId && currentGroup?.userId === effectiveUserId) ||
-        (authUser?.username && currentGroup?.username && authUser.username.toLowerCase() === currentGroup.username.toLowerCase()) ||
-        (authUser?.username && currentStory?.username && authUser.username.toLowerCase() === currentStory.username.toLowerCase())
+        effectiveUserId && (
+            // Username must match if both present (prevents ID collision across test accounts)
+            (!authUser?.username || !currentStory?.username || authUser.username.toLowerCase() === currentStory.username.toLowerCase()) &&
+            (
+                currentStory?.user_id === effectiveUserId ||
+                currentGroup?.userId === effectiveUserId ||
+                (authUser?.username && currentStory?.username && authUser.username.toLowerCase() === currentStory.username.toLowerCase())
+            )
+        )
     );
 
     const [audioPlaying, setAudioPlaying] = useState(true);

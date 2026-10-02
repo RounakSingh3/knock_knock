@@ -1190,10 +1190,12 @@ export function getConversationStarters(sharedCategories: string[]): string[] {
 export interface BoostInterestState {
     hashtags: Record<string, number>;
     creators: Record<string, number>;
+    categories: Record<string, number>;
+    videoPreference: number;
     lastActive: number;
 }
 
-const BOOST_INTEREST_KEY = 'knock_boost_loop_interests_v1';
+const BOOST_INTEREST_KEY = 'knock_boost_loop_interests_v2';
 
 export function getBoostInterestState(): BoostInterestState {
     try {
@@ -1204,40 +1206,70 @@ export function getBoostInterestState(): BoostInterestState {
                 return {
                     hashtags: parsed.hashtags || {},
                     creators: parsed.creators || {},
+                    categories: parsed.categories || {},
+                    videoPreference: parsed.videoPreference || 0,
                     lastActive: parsed.lastActive || Date.now(),
                 };
             }
         }
     } catch (_) {}
-    return { hashtags: {}, creators: {}, lastActive: Date.now() };
+    return { hashtags: {}, creators: {}, categories: {}, videoPreference: 0, lastActive: Date.now() };
+}
+
+function inferCategoryFromText(text?: string): string {
+    if (!text) return 'General';
+    const lower = text.toLowerCase();
+    if (lower.includes('tech') || lower.includes('ai') || lower.includes('phone') || lower.includes('code') || lower.includes('coding') || lower.includes('xiaomi') || lower.includes('gadget')) return 'Tech';
+    if (lower.includes('food') || lower.includes('recipe') || lower.includes('eating') || lower.includes('cook') || lower.includes('delicious')) return 'Food';
+    if (lower.includes('comedy') || lower.includes('funny') || lower.includes('meme') || lower.includes('joke') || lower.includes('humor') || lower.includes('cartoon')) return 'Comedy';
+    if (lower.includes('fitness') || lower.includes('gym') || lower.includes('workout') || lower.includes('muscle') || lower.includes('health')) return 'Fitness';
+    if (lower.includes('travel') || lower.includes('nature') || lower.includes('trip') || lower.includes('vacation') || lower.includes('beach') || lower.includes('mountain')) return 'Travel';
+    if (lower.includes('music') || lower.includes('song') || lower.includes('sing') || lower.includes('beat') || lower.includes('rap') || lower.includes('audio')) return 'Music';
+    if (lower.includes('dance') || lower.includes('dancing') || lower.includes('choreography')) return 'Dance';
+    if (lower.includes('fashion') || lower.includes('outfit') || lower.includes('style') || lower.includes('beauty') || lower.includes('makeup')) return 'Fashion';
+    if (lower.includes('gaming') || lower.includes('gamer') || lower.includes('gameplay') || lower.includes('playstation') || lower.includes('xbox')) return 'Gaming';
+    if (lower.includes('business') || lower.includes('money') || lower.includes('crypto') || lower.includes('stock') || lower.includes('ad')) return 'Business';
+    return 'General';
 }
 
 export function recordBoostSignal(signal: {
     storyId?: string;
     hashtags?: string[];
     creatorId?: string;
-    type: 'view' | 'dwell' | 'loop' | 'hashtag_click' | 'convert_snap' | 'boost';
+    category?: string;
+    isVideo?: boolean;
+    type: 'view' | 'dwell' | 'loop' | 'hashtag_click' | 'convert_snap' | 'boost' | 'skip';
 }): void {
     try {
         const state = getBoostInterestState();
         const weight = signal.type === 'convert_snap' ? 5.0
-            : signal.type === 'boost' ? 4.0
+            : signal.type === 'boost' ? 4.5
             : signal.type === 'hashtag_click' ? 3.5
             : signal.type === 'loop' ? 3.0
-            : signal.type === 'dwell' ? 2.0
+            : signal.type === 'dwell' ? 2.5
+            : signal.type === 'skip' ? -1.5
             : 1.0;
 
         if (signal.hashtags && Array.isArray(signal.hashtags)) {
             signal.hashtags.forEach(tag => {
                 const clean = tag.replace(/^#+/, '').toLowerCase().trim();
                 if (clean) {
-                    state.hashtags[clean] = (state.hashtags[clean] || 0) + weight;
+                    state.hashtags[clean] = Math.max(0, (state.hashtags[clean] || 0) + weight);
                 }
             });
         }
 
         if (signal.creatorId) {
-            state.creators[signal.creatorId] = (state.creators[signal.creatorId] || 0) + weight;
+            state.creators[signal.creatorId] = Math.max(0, (state.creators[signal.creatorId] || 0) + weight);
+        }
+
+        const cat = signal.category || 'General';
+        if (cat && cat !== 'General') {
+            state.categories[cat] = Math.max(0, (state.categories[cat] || 0) + weight);
+        }
+
+        if (signal.isVideo) {
+            state.videoPreference = Math.min(25, Math.max(-10, (state.videoPreference || 0) + (signal.type === 'skip' ? -0.5 : 1.0)));
         }
 
         state.lastActive = Date.now();
@@ -1246,54 +1278,81 @@ export function recordBoostSignal(signal: {
 }
 
 /**
- * Adaptive 24-Hour Boost Discovery Loop:
- * - Surfaces newly uploaded videos frequently (recency boost).
- * - Real-time chasing of what content the viewer wants to see (hashtag & creator affinities).
- * - Fulfills delivery guarantee duty for boosted content with remaining screen deficits.
- * - Anti-fatigue slot-machine interleaving with infinite circular replay loop.
+ * Instagram Explore-Grade 24-Hour Adaptive Loop Algorithm:
+ * - Real-time interest chasing: Tracks hashtags, categories, creators, and watch behavior.
+ * - Blends user's hybrid platform profile with real-time 24h discovery taste.
+ * - Surfacing newly uploaded 24h videos and reels frequently (recency burst).
+ * - Delivers continuous infinite streams with slot-machine creator anti-clustering.
  */
 export function rankBoostLoopStories(
     stories: StoryData[],
     currentUserId?: string,
-    userFriends: string[] = []
+    userFriends: string[] = [],
+    hybridProfile?: UserInterestProfile
 ): StoryData[] {
     if (!stories || stories.length === 0) return [];
 
     const interestState = getBoostInterestState();
     const now = Date.now();
 
-    // Screen Reach Quota & Active User Delivery Enforcement:
-    // If a boosted story reached its target screens, or viewer is not in the active audience, exclude it!
+    // Verify media validity & 24h lifespan
     const eligibleStories = stories.filter(story => {
         return isStoryEligibleForViewerScreen(story, currentUserId, userFriends);
     });
 
     const scored = eligibleStories.map(story => {
         let score = 0;
+        const isVid = isVideoUrl(story.image_url);
+        const storyCategory = (story as any).category || inferCategoryFromText(story.caption);
 
-        // 1. Freshness & Upload Frequency (Huge boost for videos uploaded in last 1-6 hours)
+        // 1. Freshness & Upload Frequency (High dopamine for new uploads in the last 1–6h)
         const ageHours = (now - new Date(story.created_at).getTime()) / (1000 * 60 * 60);
-        if (ageHours <= 1) score += 60;
-        else if (ageHours <= 3) score += 45;
-        else if (ageHours <= 6) score += 30;
-        else if (ageHours <= 12) score += 15;
+        if (ageHours <= 1) score += 70;
+        else if (ageHours <= 3) score += 55;
+        else if (ageHours <= 6) score += 40;
+        else if (ageHours <= 12) score += 25;
+        else if (ageHours <= 24) score += 15;
 
-        // 2. Real-Time Affinity Chaser: Match hashtags the user engages with
+        // 2. Category / Topic Alignment (Instagram Explore Interest Matching)
+        let catScore = 0;
+        if (hybridProfile && hybridProfile.categoryScores && hybridProfile.categoryScores[storyCategory]) {
+            catScore += hybridProfile.categoryScores[storyCategory] * 0.8;
+        }
+        if (interestState.categories && interestState.categories[storyCategory]) {
+            catScore += interestState.categories[storyCategory] * 12;
+        }
+        score += Math.min(80, catScore);
+
+        // 3. Multi-Hashtag Compound Affinity (Instagram Explore Hashtag Graph)
         const tags = extractHashtags(story.caption);
         let tagAffinity = 0;
+        let matchedTags = 0;
         tags.forEach(t => {
-            if (interestState.hashtags[t]) {
-                tagAffinity += interestState.hashtags[t];
+            let s = interestState.hashtags[t] || 0;
+            if (hybridProfile && hybridProfile.hashtagScores && hybridProfile.hashtagScores[t]) {
+                s += hybridProfile.hashtagScores[t] * 0.6;
+            }
+            if (s > 0) {
+                tagAffinity += s;
+                matchedTags++;
             }
         });
-        score += Math.min(60, tagAffinity * 12);
-
-        // 3. Creator Affinity: Boost creators the user watches frequently
-        if (story.user_id && interestState.creators[story.user_id]) {
-            score += Math.min(45, interestState.creators[story.user_id] * 10);
+        if (matchedTags > 0) {
+            const compoundMult = 1 + Math.min(1.5, (matchedTags - 1) * 0.4);
+            score += Math.min(85, (tagAffinity * 10) * compoundMult);
         }
 
-        // 4. Delivery Guarantee Duty: Boosted stories with screen deficits & extra points
+        // 4. Video Format Affinity: Priority for dynamic video reels if user prefers video
+        if (isVid) {
+            score += 15 + Math.max(0, interestState.videoPreference * 2);
+        }
+
+        // 5. Creator Affinity: Boost creators the user watches frequently
+        if (story.user_id && interestState.creators[story.user_id]) {
+            score += Math.min(60, interestState.creators[story.user_id] * 12);
+        }
+
+        // 6. Delivery Guarantee Duty: Boosted stories with screen deficits & allocated points
         if (story.is_boosted) {
             const target = (story.boost_meta?.targetScreens || story.target_screens || 24);
             const delivered = (story.boost_meta?.screensDelivered || story.screens_delivered || 0);
@@ -1301,30 +1360,26 @@ export function rankBoostLoopStories(
             const pointsSpent = story.boost_meta?.pointsSpent || story.points_spent || 0;
 
             if (deficit > 0) {
-                // Base 5 points motivation boost
                 score += Math.min(50, deficit * 2.5);
-
-                // If extra points (beyond 5 points) were spent:
-                // Leverage the algorithm to match active users with matching hashtags and creator taste
                 if (pointsSpent > 5) {
                     const extraPoints = pointsSpent - 5;
-                    score += Math.min(75, extraPoints * 3 + (tagAffinity > 0 ? tagAffinity * 15 : 10));
+                    score += Math.min(80, extraPoints * 3.5 + (tagAffinity > 0 ? tagAffinity * 15 : 12));
                 }
             }
         }
 
-        // 5. Friends connection boost
+        // 7. Friends connection boost
         if (story.user_id && userFriends.includes(story.user_id)) {
             score += 35;
         }
 
-        // 6. User's own story at top
-        if (currentUserId && story.user_id === currentUserId) {
+        // 8. User's own story at top
+        if (currentUserId && (story.user_id === currentUserId || (story.username && currentUserId === story.username))) {
             score += 1000;
         }
 
-        // Subtle stochastic jitter for dopamine unpredictability
-        const jitter = Math.sin(story.id.charCodeAt(0) + (now % 1000)) * 4;
+        // Subtle stochastic jitter for dopamine unpredictability (Instagram slot-machine effect)
+        const jitter = Math.sin(story.id.charCodeAt(0) + (now % 1000)) * 5;
         score += jitter;
 
         return { story, score };
@@ -1334,7 +1389,7 @@ export function rankBoostLoopStories(
     scored.sort((a, b) => b.score - a.score);
 
     // Slot-machine dopamine interleaving:
-    // Avoid showing 5 items from the same user back-to-back
+    // Disperse same creators so the user gets a vibrant mix like Instagram Explore
     const result: StoryData[] = [];
     const pool = [...scored];
     let lastUserId: string | null = null;
