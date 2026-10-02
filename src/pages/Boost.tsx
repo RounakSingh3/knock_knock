@@ -120,6 +120,132 @@ const TRENDING_HASHTAGS = [
     '#Ads'
 ];
 
+interface BoostStoryCardProps {
+    story: StoryData;
+    isBig: boolean;
+    onOpen: (story: StoryData) => void;
+    onCardRef: (id: string, el: HTMLElement | null) => void;
+}
+
+const BoostStoryCard = React.memo(function BoostStoryCard({
+    story,
+    isBig,
+    onOpen,
+    onCardRef,
+}: BoostStoryCardProps) {
+    const isVideo = isVideoUrl(story.image_url);
+    const isBoosted = story.is_boosted;
+    const filterStyle = FILTERS.find(f => f.name === story.filter_name)?.style || 'none';
+
+    return (
+        <div
+            ref={el => onCardRef(story.id, el)}
+            data-story-id={story.id}
+            onClick={() => onOpen(story)}
+            style={{
+                aspectRatio: '1',
+                gridColumn: isBig ? 'span 2' : 'span 1',
+                gridRow: isBig ? 'span 2' : 'span 1',
+                position: 'relative',
+                cursor: 'pointer',
+                overflow: 'hidden',
+                borderRadius: '4px',
+                background: '#18181b',
+                contain: 'layout paint',
+                transition: 'transform 0.15s ease'
+            }}
+            onMouseEnter={e => {
+                e.currentTarget.style.transform = 'scale(0.98)';
+            }}
+            onMouseLeave={e => {
+                e.currentTarget.style.transform = 'scale(1)';
+            }}
+        >
+            {/* Optimized Media Pipeline */}
+            <PostMedia
+                post={{
+                    image_url: story.image_url,
+                    css_filter: filterStyle,
+                    media_type: isVideo ? 'video' : 'image',
+                    category: (story as any).category || 'General'
+                } as any}
+                muted
+                loop
+                playsInline
+                autoPlay={false}
+                thumbnail={true}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+
+            {isVideo && (
+                <div style={{
+                    position: 'absolute',
+                    top: isBig ? '10px' : '6px',
+                    right: isBig ? '10px' : '6px',
+                    zIndex: 4,
+                    pointerEvents: 'none',
+                    background: isBig ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.55)',
+                    borderRadius: isBig ? '16px' : '6px',
+                    padding: isBig ? '4px 8px' : '2px 4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+                }}>
+                    <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
+                    {isBig && (
+                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
+                            REEL
+                        </span>
+                    )}
+                </div>
+            )}
+
+            {/* Sponsored / Ad Badge */}
+            {story.is_sponsored && (
+                <div style={{
+                    position: 'absolute',
+                    top: isBig ? '10px' : '6px',
+                    left: isBig ? '10px' : '6px',
+                    zIndex: 4,
+                    background: 'linear-gradient(135deg, #ff3366, #f5a524)',
+                    borderRadius: '6px',
+                    padding: isBig ? '2px 8px' : '1px 5px',
+                    fontSize: isBig ? '10px' : '9px',
+                    fontWeight: '800',
+                    color: '#fff',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.3px',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                    pointerEvents: 'none'
+                }}>
+                    Ad
+                </div>
+            )}
+
+            {/* Bottom Details Overlay (Instagram Explore style) */}
+            <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
+                padding: isBig ? '28px 10px 8px 10px' : '12px 6px 4px 6px',
+                zIndex: 3,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                pointerEvents: 'none'
+            }}>
+                <span style={{ fontSize: isBig ? '12px' : '10px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    @{story.username || 'user'}
+                </span>
+                {isBoosted && (
+                    <span style={{ fontSize: isBig ? '11px' : '9px', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '700' }}>
+                        <Flame size={isBig ? 13 : 10} fill="#f5a524" />
+                        {isBig && 'Boosted'}
+                    </span>
+                )}
+            </div>
+        </div>
+    );
+});
+
 const Boost: React.FC = () => {
     const { user, points, setPoints, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
@@ -413,8 +539,13 @@ const Boost: React.FC = () => {
         }
     };
 
+    // Cached card ref handler
+    const handleCardRef = useCallback((id: string, el: HTMLElement | null) => {
+        cardRefs.current[id] = el;
+    }, []);
+
     // Open Story Viewer (bulletproof fallback resolution)
-    const handleOpenStory = (story: StoryData) => {
+    const handleOpenStory = useCallback((story: StoryData) => {
         if (user && story.id) {
             recordScreenDelivery(story.id, user.id);
         }
@@ -449,7 +580,7 @@ const Boost: React.FC = () => {
 
         setViewerStoryGroups(groups);
         setActiveViewerGroupIndex(groupIdx);
-    };
+    }, [user, filteredStories, rankedStories]);
 
     // Camera Controls & 1-Minute Video Recording
     const startCamera = async (mode: 'photo' | 'video' = cameraMode) => {
@@ -583,7 +714,10 @@ const Boost: React.FC = () => {
             const start = Date.now();
             recordingIntervalRef.current = setInterval(() => {
                 const secs = Math.floor((Date.now() - start) / 1000);
-                setRecordingSeconds(Math.min(60, secs));
+                setRecordingSeconds(prev => {
+                    const next = Math.min(60, secs);
+                    return prev === next ? prev : next;
+                });
                 if (secs >= 60) {
                     stopVideoRecording();
                 }
@@ -1241,117 +1375,15 @@ const Boost: React.FC = () => {
                             gap: '2px'
                         }}>
                             {filteredStories.map((story, idx) => {
-                                const isVideo = isVideoUrl(story.image_url);
-                                const isBoosted = story.is_boosted;
                                 const isBig = (idx % 12 === 0) || (idx % 12 === 8);
-
                                 return (
-                                    <div
+                                    <BoostStoryCard
                                         key={story.id}
-                                        ref={el => { cardRefs.current[story.id] = el; }}
-                                        data-story-id={story.id}
-                                        onClick={() => handleOpenStory(story)}
-                                        style={{
-                                            aspectRatio: '1',
-                                            gridColumn: isBig ? 'span 2' : 'span 1',
-                                            gridRow: isBig ? 'span 2' : 'span 1',
-                                            position: 'relative',
-                                            cursor: 'pointer',
-                                            overflow: 'hidden',
-                                            borderRadius: '4px',
-                                            background: '#18181b',
-                                            contain: 'layout paint',
-                                            transition: 'transform 0.15s ease'
-                                        }}
-                                        onMouseEnter={e => {
-                                            e.currentTarget.style.transform = 'scale(0.98)';
-                                        }}
-                                        onMouseLeave={e => {
-                                            e.currentTarget.style.transform = 'scale(1)';
-                                        }}
-                                    >
-                                        {/* Optimized Media Pipeline */}
-                                        <PostMedia
-                                            post={{
-                                                image_url: story.image_url,
-                                                css_filter: FILTERS.find(f => f.name === story.filter_name)?.style || 'none',
-                                                media_type: isVideo ? 'video' : 'image',
-                                                category: (story as any).category || 'General'
-                                            } as any}
-                                            muted
-                                            loop
-                                            playsInline
-                                            autoPlay={false}
-                                            thumbnail={true}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
-
-                                        {isVideo && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                top: isBig ? '10px' : '6px',
-                                                right: isBig ? '10px' : '6px',
-                                                zIndex: 4,
-                                                pointerEvents: 'none',
-                                                background: isBig ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.55)',
-                                                borderRadius: isBig ? '16px' : '6px',
-                                                padding: isBig ? '4px 8px' : '2px 4px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '4px',
-                                                boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
-                                            }}>
-                                                <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
-                                                {isBig && (
-                                                    <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
-                                                        REEL
-                                                    </span>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {/* Sponsored / Ad Badge */}
-                                        {story.is_sponsored && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                top: isBig ? '10px' : '6px',
-                                                left: isBig ? '10px' : '6px',
-                                                zIndex: 4,
-                                                background: 'linear-gradient(135deg, #ff3366, #f5a524)',
-                                                borderRadius: '6px',
-                                                padding: isBig ? '2px 8px' : '1px 5px',
-                                                fontSize: isBig ? '10px' : '9px',
-                                                fontWeight: '800',
-                                                color: '#fff',
-                                                textTransform: 'uppercase',
-                                                letterSpacing: '0.3px',
-                                                boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
-                                                pointerEvents: 'none'
-                                            }}>
-                                                Ad
-                                            </div>
-                                        )}
-
-                                        {/* Bottom Details Overlay (Instagram Explore style) */}
-                                        <div style={{
-                                            position: 'absolute', bottom: 0, left: 0, right: 0,
-                                            background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
-                                            padding: isBig ? '28px 10px 8px 10px' : '12px 6px 4px 6px',
-                                            zIndex: 3,
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            pointerEvents: 'none'
-                                        }}>
-                                            <span style={{ fontSize: isBig ? '12px' : '10px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                @{story.username || 'user'}
-                                            </span>
-                                            {isBoosted && (
-                                                <span style={{ fontSize: isBig ? '11px' : '9px', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '700' }}>
-                                                    <Flame size={isBig ? 13 : 10} fill="#f5a524" />
-                                                    {isBig && 'Boosted'}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
+                                        story={story}
+                                        isBig={isBig}
+                                        onOpen={handleOpenStory}
+                                        onCardRef={handleCardRef}
+                                    />
                                 );
                             })}
                         </div>

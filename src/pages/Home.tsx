@@ -293,6 +293,10 @@ const Home = () => {
     useEffect(() => { feedPageRef.current = feedPage; }, [feedPage]);
     useEffect(() => { likedPostsRef.current = likedPosts; }, [likedPosts]);
     useEffect(() => { impedPostsRef.current = impedPosts; }, [impedPosts]);
+    const blockedIdsRef = useRef<string[]>(blockedIds);
+    useEffect(() => { blockedIdsRef.current = blockedIds; }, [blockedIds]);
+    const connectionUserIdsRef = useRef<Set<string>>(connectionUserIds);
+    useEffect(() => { connectionUserIdsRef.current = connectionUserIds; }, [connectionUserIds]);
 
     // ⚡ Cached engagement fetcher — avoids network call on every scroll
     const getCachedEngagements = useCallback(async () => {
@@ -318,7 +322,8 @@ const Home = () => {
             fetchAllPostsForScoring(userId),
             getCachedEngagements()
         ]).then(([rawPosts, engagements]) => {
-            const validPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            const currentBlocked = blockedIdsRef.current;
+            const validPosts = rawPosts.filter(p => !p.user_id || !currentBlocked.includes(p.user_id));
             const seenUrls = new Set<string>();
             const seenIds = new Set<string>();
             const uniquePosts = validPosts.filter(p => {
@@ -330,7 +335,7 @@ const Home = () => {
             setAllRawPosts(uniquePosts);
             allRawPostsRef.current = uniquePosts;
             const hybridProfile = getHybridInterestProfile(engagements);
-            const connIds = Array.from(connectionUserIds);
+            const connIds = Array.from(connectionUserIdsRef.current);
             const rankedPosts = rankFeedPosts(uniquePosts, hybridProfile, userId, connIds);
             const firstBatch = rankedPosts.slice(0, 10);
             
@@ -361,11 +366,18 @@ const Home = () => {
                 setImpedPosts(prev => ({ ...prev, ...impMap }));
             });
             
-            // Track view engagements and screen reach delivery
-            firstBatch.forEach(p => {
-                trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
-                recordPostScreenDelivery(p.id, userId, p.boost_impressions_remaining);
-            });
+            // Defer screen reach delivery off the critical initial render frame
+            const trackViews = () => {
+                firstBatch.forEach(p => {
+                    trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
+                    recordPostScreenDelivery(p.id, userId, p.boost_impressions_remaining);
+                });
+            };
+            if ('requestIdleCallback' in window) {
+                (window as any).requestIdleCallback(trackViews);
+            } else {
+                setTimeout(trackViews, 400);
+            }
             
             setHasMorePosts(true);
         }).catch(err => {
@@ -373,7 +385,7 @@ const Home = () => {
             setError('Failed to load posts. Please check your connection and try again.');
             setLoading(false);
         });
-    }, [userId, blockedIds, connectionUserIds, getCachedEngagements]);
+    }, [userId, getCachedEngagements]);
 
     useEffect(() => {
         loadForYouFeed();
@@ -386,7 +398,7 @@ const Home = () => {
         try {
             const engagements = await getCachedEngagements();
             const hybridProfile = getHybridInterestProfile(engagements);
-            const connIds = Array.from(connectionUserIds);
+            const connIds = Array.from(connectionUserIdsRef.current);
             const shuffled = shuffleFeedForRefresh(allRawPostsRef.current);
             const freshBatch = rankFeedPosts(shuffled, hybridProfile, userId, connIds).slice(0, 10);
             setPosts(freshBatch);
@@ -398,7 +410,7 @@ const Home = () => {
             console.error('Refresh failed:', err);
         }
         setIsRefreshing(false);
-    }, [userId, isRefreshing, connectionUserIds, getCachedEngagements]);
+    }, [userId, isRefreshing, getCachedEngagements]);
 
     // Infinite scroll — load more posts automatically (Infinite non-terminating stream with variable rewards)
     // ⚡ Reads from refs instead of state to avoid callback recreation on every scroll
@@ -409,7 +421,7 @@ const Home = () => {
             const nextPage = feedPageRef.current + 1;
             const engagements = await getCachedEngagements();
             const hybridProfile = getHybridInterestProfile(engagements);
-            const connIds = Array.from(connectionUserIds);
+            const connIds = Array.from(connectionUserIdsRef.current);
             
             const currentPosts = postsRef.current;
             const currentIds = new Set(currentPosts.map(p => p.id));
@@ -434,7 +446,7 @@ const Home = () => {
                 // Fetch more discover posts if pool is running low
                 const moreDbPosts = await fetchDiscoverPosts(null, 50, rawPosts.length);
                 const uniqueMoreDb = moreDbPosts.filter(p => {
-                    if (!p.image_url || currentIds.has(p.id) || currentUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
+                    if (!p.image_url || currentIds.has(p.id) || currentUrls.has(p.image_url) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) return false;
                     currentIds.add(p.id);
                     currentUrls.add(p.image_url);
                     return true;
@@ -468,11 +480,18 @@ const Home = () => {
                 });
                 const newCounts: Record<string, number> = {};
                 freshBatch.forEach(p => {
-                    trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
-                    recordPostScreenDelivery(p.id, userId, p.boost_impressions_remaining);
                     newCounts[p.id] = p.likes_count;
                 });
                 setLikeCounts(prev => ({ ...prev, ...newCounts }));
+
+                // ⚡ Offload engagement telemetry to idle callback so it doesn't stutter infinite scrolling
+                const scheduleIdle = (window as any).requestIdleCallback || ((cb: Function) => setTimeout(cb, 300));
+                scheduleIdle(() => {
+                    freshBatch.forEach(p => {
+                        trackEngagement(userId, p.id, 'view', 1, p.category || 'General');
+                        recordPostScreenDelivery(p.id, userId, p.boost_impressions_remaining);
+                    });
+                });
             }
             setHasMorePosts(true);
         } catch (err) {
@@ -480,7 +499,7 @@ const Home = () => {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [userId, isLoadingMore, loading, blockedIds, connectionUserIds, getCachedEngagements]);
+    }, [userId, isLoadingMore, loading, getCachedEngagements]);
 
     // IntersectionObserver for automatic infinite scrolling as user scrolls
     useEffect(() => {
@@ -501,7 +520,9 @@ const Home = () => {
     useEffect(() => {
         if (userId) {
             fetchConnectionUserIds(userId).then(ids => {
-                setConnectionUserIds(new Set(ids));
+                const idSet = new Set(ids);
+                connectionUserIdsRef.current = idSet;
+                setConnectionUserIds(idSet);
             });
         }
     }, [userId]);

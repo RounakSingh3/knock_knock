@@ -8,8 +8,7 @@ import GlobalCallListener from './components/GlobalCallListener';
 import { isCallingAllowedNow } from './lib/callingWindow';
 
 // ⚡ Lazy-load pages so only the page you visit is downloaded (huge speed boost).
-// Login is loaded eagerly because it's the first thing unauthenticated users see.
-import Login from './pages/Login';
+const Login = lazy(() => import('./pages/Login'));
 const Home = lazy(() => import('./pages/Home'));
 const Stories = lazy(() => import('./pages/Stories'));
 const Explore = lazy(() => import('./pages/Explore'));
@@ -222,6 +221,26 @@ function App() {
         }
     }, []);
 
+    // ⚡ Preload top navigation routes during idle time so tab clicks are instantaneous (0ms)
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        const preloadRoutes = () => {
+            import('./pages/Home');
+            import('./pages/Explore');
+            import('./pages/Reels');
+            import('./pages/Boost');
+            import('./pages/VoiceCall');
+            import('./pages/Settings');
+            import('./pages/Connections');
+        };
+        if ('requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(preloadRoutes, { timeout: 2500 });
+        } else {
+            const timer = setTimeout(preloadRoutes, 600);
+            return () => clearTimeout(timer);
+        }
+    }, [isAuthenticated]);
+
     // Restore Supabase Auth session + profile in background
     useEffect(() => {
         let mounted = true;
@@ -422,7 +441,7 @@ function App() {
                         {!isAuthenticated ? (
                             <>
                                 <Route path="*" element={<Navigate to="/login" />} />
-                                <Route path="/login" element={<Login />} />
+                                <Route path="/login" element={<Suspense fallback={<PageLoader message="Loading..." />}><Login /></Suspense>} />
                             </>
                         ) : (
                             <>

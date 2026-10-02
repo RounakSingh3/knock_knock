@@ -424,6 +424,11 @@ const Explore = () => {
         discoverPostsRef.current = discoverPosts;
     }, [discoverPosts]);
 
+    const blockedIdsRef = useRef<string[]>(blockedIds);
+    useEffect(() => {
+        blockedIdsRef.current = blockedIds;
+    }, [blockedIds]);
+
     // Load Trending Posts (FOMO banner)
     useEffect(() => {
         if (trendingPosts.length === 0) setIsTrendingLoading(true);
@@ -520,7 +525,7 @@ const Explore = () => {
                 // Fetch next page offset from DB
                 const nextBatchDb = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
                 const freshDbPosts = nextBatchDb.filter(p => {
-                    if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || (p.user_id && blockedIds.includes(p.user_id))) return false;
+                    if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) return false;
                     seenIds.add(p.id);
                     seenUrls.add(p.image_url);
                     return true;
@@ -554,7 +559,7 @@ const Explore = () => {
         } finally {
             setIsLoadingMore(false);
         }
-    }, [isLoadingMore, selectedCategory, blockedIds]);
+    }, [isLoadingMore, selectedCategory]);
 
     // IntersectionObserver for infinite scroll sentinel
     useEffect(() => {
