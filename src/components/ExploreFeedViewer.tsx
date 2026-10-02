@@ -147,7 +147,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         const t1 = setTimeout(() => {
             scrollToTarget();
             isInitialMountRef.current = false;
-        }, 50);
+        }, 150);
 
         return () => {
             cancelAnimationFrame(rafId);
@@ -159,7 +159,9 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     const handleScroll = useCallback(() => {
         const container = scrollRef.current;
         if (!container) return;
-        isInitialMountRef.current = false;
+        // Do NOT switch active post while programmatic initial scroll is positioning
+        if (isInitialMountRef.current) return;
+
         const h = container.clientHeight || window.innerHeight;
         if (h <= 0) return;
         const snapIndex = Math.round(container.scrollTop / h);
@@ -277,7 +279,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         >
             {displayPosts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNearActive = Math.abs(index - currentIndex) <= 2;
+                const isNearActive = (index === initialIndex) || Math.abs(index - currentIndex) <= 2;
                 return (
                     <div 
                         key={post.id} 

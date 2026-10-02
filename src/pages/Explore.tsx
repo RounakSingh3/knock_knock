@@ -1135,6 +1135,7 @@ const Explore = () => {
 
             {activeFeedState && (
                 <ExploreFeedViewer
+                    key={`explore-feed-${activeFeedState.index}-${activeFeedState.posts[activeFeedState.index]?.id || 'viewer'}`}
                     posts={activeFeedState.posts}
                     initialIndex={activeFeedState.index}
                     onClose={() => setActiveFeedState(null)}

@@ -887,6 +887,7 @@ const Home = () => {
             {/* Fullscreen Video & Photo Feed Viewer (Unified with 3rd Page Explore Viewer) */}
             {activeFeedState && (
                 <ExploreFeedViewer
+                    key={`home-feed-${activeFeedState.index}-${activeFeedState.posts[activeFeedState.index]?.id || 'viewer'}`}
                     posts={activeFeedState.posts}
                     initialIndex={activeFeedState.index}
                     onClose={() => setActiveFeedState(null)}

@@ -336,13 +336,18 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     }, [isVideo, domMuted]);
 
     // Resilient dual-stage playback logic
+    const domMutedRef = useRef(domMuted);
+    useEffect(() => {
+        domMutedRef.current = domMuted;
+    }, [domMuted]);
+
     const startPlayback = useCallback(() => {
         if (!isVideo) return;
         const video = videoRef.current;
         if (!video) return;
 
         if (autoPlay || soundOn) {
-            video.muted = domMuted;
+            video.muted = domMutedRef.current;
             const playPromise = video.play();
             if (playPromise !== undefined) {
                 playPromise
@@ -352,7 +357,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             setIsAudioBlocked(false);
                         }
                     })
-                    .catch(() => {
+                    .catch((err) => {
+                        console.warn('[PostMedia] Autoplay unmuted failed, falling back to muted:', err);
                         // Silent recovery: ensure muted autoplay succeeds so video never freezes on mobile
                         setIsAutoplayFallbackMuted(true);
                         setIsAudioBlocked(true);
@@ -366,25 +372,24 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             video.pause();
             setIsPlaying(false);
         }
-    }, [isVideo, autoPlay, soundOn, domMuted]);
+    }, [isVideo, autoPlay, soundOn]);
 
     // Handle video play/pause & sound with resilient dual-stage autoplay
     useEffect(() => {
         if (!isVideo) return;
-        const video = videoRef.current;
-        if (video && videoSrc) {
-            try {
-                video.load();
-            } catch (_) {}
+        if (autoPlay || soundOn) {
+            startPlayback();
+        } else {
+            videoRef.current?.pause();
+            setIsPlaying(false);
         }
-        startPlayback();
 
         return () => {
             try {
                 videoRef.current?.pause();
             } catch (_) {}
         };
-    }, [isVideo, startPlayback, videoSrc]);
+    }, [isVideo, autoPlay, soundOn, videoSrc, startPlayback]);
 
     const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!isPlayingMode) return;
