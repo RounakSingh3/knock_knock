@@ -51,7 +51,7 @@ import {
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
-import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster } from '../lib/media';
 import { rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';

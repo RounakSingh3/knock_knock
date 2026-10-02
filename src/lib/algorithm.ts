@@ -8,7 +8,7 @@
  * 4. Infinite Scroll Stream Generator: Endless cyclical permutation without artificial stopping points.
  */
 
-import { isVideoPost } from './media';
+import { isVideoPost, isVideoUrl } from './media';
 import { trackEngagement, isStoryEligibleForViewerScreen, type PostData, type UserStoryGroup, type StoryData } from './database';
 
 // ── Weight Configuration ───────────────────────────────────
@@ -894,7 +894,7 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
     return scheduleVariableRewards(dispersed, (r: T) => {
         const catScore = profile.categoryScores[r.category || 'General'] || 0;
         let tagScore = 0;
-        const tags = extractHashtags(r.caption);
+        const tags = extractHashtags((r as any).caption);
         if (tags.length > 0 && profile.hashtagScores) {
             for (const t of tags) tagScore += profile.hashtagScores[t] || 0;
         }
@@ -1071,7 +1071,7 @@ export function rankStoryGroups(
         score += dms * 12;
 
         // Check if group contains unwatched stories
-        const hasUnseen = group.stories.some(s => !s.viewed_by_user);
+        const hasUnseen = group.stories.some(s => !(s as any).viewed_by_user);
         if (hasUnseen) {
             score += 50;
         }

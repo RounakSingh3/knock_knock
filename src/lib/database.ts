@@ -3533,24 +3533,20 @@ export async function addComment(
             });
 
         if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        if (!error) {
+            // Increment comment count on the post
+            const { error: rpcError } = await supabase.rpc('increment_field', { row_id: postId, field_name: 'comments_count', table_name: 'posts' });
+            if (rpcError) {
+                const { data: post } = await supabase.from('posts').select('comments_count').eq('id', postId).single();
+                if (post) {
+                    await supabase.from('posts').update({ comments_count: (post.comments_count || 0) + 1 }).eq('id', postId);
+                }
+            }
+        }
         return { data: [newComment], error: null };
     } catch (_) {
         return { data: [newComment], error: null };
     }
-
-    if (!error) {
-        // Increment comment count on the post
-        const { error: rpcError } = await supabase.rpc('increment_field', { row_id: postId, field_name: 'comments_count', table_name: 'posts' });
-        if (rpcError) {
-            // Fallback: manual increment if RPC doesn't exist
-            const { data: post } = await supabase.from('posts').select('comments_count').eq('id', postId).single();
-            if (post) {
-                await supabase.from('posts').update({ comments_count: (post.comments_count || 0) + 1 }).eq('id', postId);
-            }
-        }
-    }
-
-    return { data, error };
 }
 
 /** Delete a comment (own only — RLS enforced) */
