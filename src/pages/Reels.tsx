@@ -376,6 +376,22 @@ const Reels: React.FC = () => {
     const audioRefs = useRef<(HTMLAudioElement | null)[]>([]);
     const lastTapRef = useRef<number>(0);
     const navigate = useNavigate();
+    const activeIndexRef = useRef<number>(activeIndex);
+
+    useEffect(() => {
+        activeIndexRef.current = activeIndex;
+    }, [activeIndex]);
+
+    // Pillar 4: Prioritized Pre-buffering — Prime the NEXT video once active video is running
+    const primeNextVideo = useCallback((currentIdx: number) => {
+        const nextIdx = currentIdx + 1;
+        if (nextIdx < reelsList.length) {
+            const nextVideo = videoRefs.current[nextIdx];
+            if (nextVideo && nextVideo.preload !== 'auto') {
+                nextVideo.preload = 'auto';
+            }
+        }
+    }, [reelsList.length]);
 
     // Helper to safely play audio with interaction fallback if browser blocks autoplay
     const playReelAudio = useCallback((audio: HTMLAudioElement | null) => {
@@ -425,17 +441,22 @@ const Reels: React.FC = () => {
                     const hasMusic = Boolean(reel?.musicUrl);
                     v.muted = hasMusic ? true : mutedAll;
                     if (idx === selectedReelIndex) {
-                        const playPromise = v.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch((err) => {
-                                console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
-                                setMutedAll(true);
-                                setFeedMutedPreference(true);
-                                v.muted = true;
-                                v.play().catch(() => {});
-                            });
+                        if (v.paused) {
+                            const playPromise = v.play();
+                            if (playPromise !== undefined) {
+                                playPromise.then(() => primeNextVideo(selectedReelIndex)).catch((err) => {
+                                    if (err.name === 'AbortError') return;
+                                    console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
+                                    setMutedAll(true);
+                                    setFeedMutedPreference(true);
+                                    v.muted = true;
+                                    v.play().then(() => primeNextVideo(selectedReelIndex)).catch(() => {});
+                                });
+                            }
+                        } else {
+                            primeNextVideo(selectedReelIndex);
                         }
-                    } else {
+                    } else if (!v.paused) {
                         v.pause();
                     }
                 });
@@ -444,24 +465,33 @@ const Reels: React.FC = () => {
                     a.muted = mutedAll;
                     if (idx === selectedReelIndex && !mutedAll) {
                         playReelAudio(a);
-                    } else {
+                    } else if (!a.paused) {
                         a.pause();
                         a.currentTime = 0;
                     }
                 });
-                setPlayStates(prev => { const n = [...prev]; n[selectedReelIndex] = true; return n; });
+                setPlayStates(prev => {
+                    if (prev[selectedReelIndex]) return prev;
+                    const n = [...prev];
+                    n[selectedReelIndex] = true;
+                    return n;
+                });
             };
 
             syncReelMedia();
             const timer = setTimeout(syncReelMedia, 150);
             return () => clearTimeout(timer);
         }
-    }, [selectedReelIndex, mutedAll, reelsList, playReelAudio]);
+    }, [selectedReelIndex, mutedAll, reelsList, playReelAudio, primeNextVideo]);
 
     // Centralized instant reel activation for both onScroll and IntersectionObserver
     const activateReel = useCallback((idx: number) => {
         if (idx < 0 || idx >= reelsList.length) return;
-        setActiveIndex(idx);
+        const isSame = activeIndexRef.current === idx;
+        activeIndexRef.current = idx;
+        if (!isSame) {
+            setActiveIndex(idx);
+        }
 
         const reel = reelsList[idx];
         const hasMusic = Boolean(reel?.musicUrl);
@@ -470,21 +500,28 @@ const Reels: React.FC = () => {
         const targetVideo = videoRefs.current[idx];
         if (targetVideo) {
             targetVideo.muted = hasMusic ? true : mutedAll;
-            const playPromise = targetVideo.play();
-            if (playPromise !== undefined) {
-                playPromise.catch((err) => {
-                    console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
-                    setMutedAll(true);
-                    setFeedMutedPreference(true);
-                    targetVideo.muted = true;
-                    targetVideo.play().catch(() => {});
-                });
+            if (targetVideo.paused) {
+                const playPromise = targetVideo.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        primeNextVideo(idx);
+                    }).catch((err) => {
+                        if (err.name === 'AbortError') return;
+                        console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
+                        setMutedAll(true);
+                        setFeedMutedPreference(true);
+                        targetVideo.muted = true;
+                        targetVideo.play().then(() => primeNextVideo(idx)).catch(() => {});
+                    });
+                }
+            } else {
+                primeNextVideo(idx);
             }
         }
 
-        // Pause all other video elements synchronously
+        // Pause all other video elements synchronously to free decoder and network
         videoRefs.current.forEach((v, i) => {
-            if (v && i !== idx) {
+            if (v && i !== idx && !v.paused) {
                 v.pause();
             }
         });
@@ -495,19 +532,21 @@ const Reels: React.FC = () => {
                 a.muted = mutedAll;
                 if (i === idx && !mutedAll) {
                     playReelAudio(a);
-                } else {
+                } else if (!a.paused) {
                     a.pause();
                     a.currentTime = 0;
                 }
             }
         });
 
+        // Only update playStates if it was actually false, preventing unnecessary React re-renders!
         setPlayStates((prev) => {
+            if (prev[idx]) return prev;
             const next = [...prev];
             next[idx] = true;
             return next;
         });
-    }, [reelsList, mutedAll, playReelAudio]);
+    }, [reelsList, mutedAll, playReelAudio, primeNextVideo]);
 
     const scrollEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -515,18 +554,48 @@ const Reels: React.FC = () => {
     const handleReelsScroll = useCallback(() => {
         const el = modalScrollRef.current;
         if (!el) return;
+        const h = el.clientHeight || window.innerHeight;
+        if (h <= 0) return;
+        
+        const snapIdx = Math.round(el.scrollTop / h);
+        if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndexRef.current) {
+            const distFromSnap = Math.abs(el.scrollTop - (snapIdx * h));
+            if (distFromSnap < 4) {
+                activateReel(snapIdx);
+                return;
+            }
+        }
+
         if (scrollEndTimeoutRef.current) clearTimeout(scrollEndTimeoutRef.current);
         scrollEndTimeoutRef.current = setTimeout(() => {
+            const curH = el.clientHeight || window.innerHeight;
+            if (curH <= 0) return;
+            const targetIdx = Math.round(el.scrollTop / curH);
+            if (targetIdx >= 0 && targetIdx < reelsList.length && targetIdx !== activeIndexRef.current) {
+                activateReel(targetIdx);
+            }
+        }, 20);
+    }, [reelsList.length, activateReel]);
+
+    // Native scrollend listener for instantaneous snap settlement without timer overhead
+    useEffect(() => {
+        const el = modalScrollRef.current;
+        if (!el || selectedReelIndex === null) return;
+        const handleScrollEnd = () => {
             const h = el.clientHeight || window.innerHeight;
             if (h <= 0) return;
             const snapIdx = Math.round(el.scrollTop / h);
-            if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndex) {
+            if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndexRef.current) {
                 activateReel(snapIdx);
             }
-        }, 50);
-    }, [reelsList.length, activeIndex, activateReel]);
+        };
+        el.addEventListener('scrollend', handleScrollEnd, { passive: true });
+        return () => {
+            el.removeEventListener('scrollend', handleScrollEnd);
+        };
+    }, [selectedReelIndex, reelsList.length, activateReel]);
 
-    // IntersectionObserver to auto-play visible video in modal and manage audio strictly
+    // IntersectionObserver with 0.5 threshold for instant activation when reel enters viewport center
     useEffect(() => {
         if (selectedReelIndex === null) return;
         const observer = new IntersectionObserver(
@@ -541,22 +610,17 @@ const Reels: React.FC = () => {
                         activateReel(idx);
                     } else {
                         const video = videoRefs.current[idx];
-                        if (video) video.pause();
+                        if (video && !video.paused) video.pause();
                         if (audioRefs.current[idx]) {
                             audioRefs.current[idx]?.pause();
                             audioRefs.current[idx]!.currentTime = 0;
                         }
-                        setPlayStates((prev) => {
-                            const next = [...prev];
-                            next[idx] = false;
-                            return next;
-                        });
                     }
                 });
             },
             { 
                 root: modalScrollRef.current,
-                threshold: 0.65 
+                threshold: 0.5 
             }
         );
 
@@ -571,42 +635,30 @@ const Reels: React.FC = () => {
         };
     }, [selectedReelIndex, reelsList, activateReel]);
 
-
     // ⚡ Synchronize active video play when sliding window mounts new active video element
     useEffect(() => {
         if (selectedReelIndex === null) return;
         const video = videoRefs.current[activeIndex];
-        if (video) {
+        if (video && video.paused) {
             const reel = reelsList[activeIndex];
             const hasMusic = Boolean(reel?.musicUrl);
             video.muted = hasMusic ? true : mutedAll;
             const p = video.play();
             if (p !== undefined) {
-                p.catch(() => {
+                p.then(() => primeNextVideo(activeIndex)).catch((err) => {
+                    if (err.name === 'AbortError') return;
                     video.muted = true;
-                    video.play().catch(() => {});
+                    video.play().then(() => primeNextVideo(activeIndex)).catch(() => {});
                 });
             }
         }
         // Explicitly pause any offscreen/non-active video elements to release mobile hardware decoder resources
         videoRefs.current.forEach((v, idx) => {
-            if (v && idx !== activeIndex) {
+            if (v && idx !== activeIndex && !v.paused) {
                 v.pause();
             }
         });
-    }, [activeIndex, selectedReelIndex, mutedAll, reelsList]);
-
-    // Pillar 4: Instant Gratification — Preload next 2 video buffers for 0ms swipe latency
-    useEffect(() => {
-        [activeIndex + 1, activeIndex + 2].forEach(nextIdx => {
-            if (nextIdx < reelsList.length && videoRefs.current[nextIdx]) {
-                const nextVideo = videoRefs.current[nextIdx];
-                if (nextVideo && nextVideo.preload !== 'auto') {
-                    nextVideo.preload = 'auto';
-                }
-            }
-        });
-    }, [activeIndex, reelsList.length]);
+    }, [activeIndex, selectedReelIndex, mutedAll, reelsList, primeNextVideo]);
 
     // Pillar 3: The Infinite Scroll — Auto-extend stream when user nears bottom
     useEffect(() => {
@@ -698,6 +750,16 @@ const Reels: React.FC = () => {
         return () => handlers.forEach(h => h());
     }, [selectedReelIndex, reelsList, user]);
 
+    const activeProgressBarRef = useRef<HTMLElement | null>(null);
+
+    // Cache active progress bar element when active reel changes, eliminating 60fps DOM queries
+    useEffect(() => {
+        if (selectedReelIndex === null) return;
+        activeProgressBarRef.current = document.querySelector(
+            `.reel-card[data-reel-index="${activeIndex}"] .reel-progress-fill`
+        ) as HTMLElement;
+    }, [selectedReelIndex, activeIndex]);
+
     // Pillar 2: Progress bar updater & 80%+ completion signal tracking
     // ⚡ Uses requestAnimationFrame + direct DOM manipulation instead of setState to avoid re-rendering
     useEffect(() => {
@@ -711,9 +773,10 @@ const Reels: React.FC = () => {
                 const pct = (activeVideo.currentTime / activeVideo.duration) * 100;
                 progressesRef.current[activeIndex] = pct;
 
-                // ⚡ Direct DOM update only for active reel — eliminates layout thrashing
-                const bar = document.querySelector(`.reel-card[data-reel-index="${activeIndex}"] .reel-progress-fill`) as HTMLElement;
-                if (bar) bar.style.width = `${pct}%`;
+                // ⚡ Direct DOM update only for active reel using cached element ref
+                if (activeProgressBarRef.current) {
+                    activeProgressBarRef.current.style.width = `${pct}%`;
+                }
 
                 if (pct >= 80) {
                     const currentReel = reelsListRef_local[activeIndex];
@@ -1019,7 +1082,7 @@ const Reels: React.FC = () => {
                     <div className="reels-page" ref={modalScrollRef} onScroll={handleReelsScroll}>
                         {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
-                            const isNearby = Math.abs(idx - activeIndex) <= 2;
+                            const isNearby = Math.abs(idx - activeIndex) <= 1;
                             
                             return (
                                 <div 
@@ -1046,12 +1109,13 @@ const Reels: React.FC = () => {
                                                 disablePictureInPicture={true}
                                                 // @ts-ignore
                                                 disableRemotePlayback={true}
-                                                preload={Math.abs(idx - activeIndex) <= 2 ? 'auto' : 'metadata'}
+                                                preload={idx === activeIndex ? 'auto' : 'metadata'}
                                                 autoPlay={idx === selectedReelIndex}
                                                 muted={Boolean(reel.musicUrl) || mutedAll}
                                                 className="reel-video"
                                                 style={{ filter: reel.css_filter || 'none' }}
                                                 onClick={(e) => handleDoubleTap(idx, e)}
+                                                onPlaying={() => primeNextVideo(idx)}
                                                 onError={() => {
                                                     setFailedVisuals(prev => new Set(prev).add(reel.id));
                                                 }}
@@ -1156,13 +1220,14 @@ const Reels: React.FC = () => {
                                                 Friend
                                             </button>
                                         </div>
-                                        {reel.musicUrl && isNearby && (
+                                        {reel.musicUrl && idx === activeIndex && (
                                             <audio
                                                 ref={(el) => { audioRefs.current[idx] = el; }}
                                                 src={reel.musicUrl}
                                                 loop
                                                 style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
                                                 playsInline
+                                                preload="auto"
                                             />
                                         )}
                                         <div className="reel-song">

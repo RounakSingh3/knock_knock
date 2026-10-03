@@ -2168,7 +2168,8 @@ body::before {
     height: 100%;
     background: linear-gradient(90deg, #f5a524, #ff6b35);
     border-radius: 0 2px 2px 0;
-    transition: width 0.2s linear;
+    transition: none;
+    will-change: width;
 }
 
 /* Heart burst animation (double-tap) */
