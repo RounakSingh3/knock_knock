@@ -396,7 +396,8 @@ const Reels: React.FC = () => {
     // Helper to safely play audio with interaction fallback if browser blocks autoplay
     const playReelAudio = useCallback((audio: HTMLAudioElement | null) => {
         if (!audio || mutedAll) return;
-        audio.currentTime = 0;
+        // Already playing → don't restart (repeated activations used to reset music to 0 and stutter)
+        if (!audio.paused) return;
         const p = audio.play();
         if (p !== undefined) {
             p.catch((err) => {
@@ -488,6 +489,11 @@ const Reels: React.FC = () => {
     const activateReel = useCallback((idx: number) => {
         if (idx < 0 || idx >= reelsList.length) return;
         const isSame = activeIndexRef.current === idx;
+        // ⚡ Same reel already playing → nothing to do (scroll, scrollend & observer all fire for one swipe)
+        if (isSame) {
+            const current = videoRefs.current[idx];
+            if (current && !current.paused) return;
+        }
         activeIndexRef.current = idx;
         if (!isSame) {
             setActiveIndex(idx);
@@ -606,9 +612,11 @@ const Reels: React.FC = () => {
                     const idx = idxStr !== null ? parseInt(idxStr, 10) : -1;
                     if (idx === -1) return;
 
-                    if (entry.isIntersecting) {
+                    // ⚡ Use the ratio, not isIntersecting: isIntersecting stays true while a reel is
+                    // scrolling OUT (e.g. 40% visible), which used to re-activate the outgoing reel mid-swipe.
+                    if (entry.intersectionRatio >= 0.85) {
                         activateReel(idx);
-                    } else {
+                    } else if (entry.intersectionRatio < 0.15) {
                         const video = videoRefs.current[idx];
                         if (video && !video.paused) video.pause();
                         if (audioRefs.current[idx]) {
@@ -620,7 +628,7 @@ const Reels: React.FC = () => {
             },
             { 
                 root: modalScrollRef.current,
-                threshold: 0.5 
+                threshold: [0.15, 0.85]
             }
         );
 
@@ -658,7 +666,13 @@ const Reels: React.FC = () => {
                 v.pause();
             }
         });
-    }, [activeIndex, selectedReelIndex, mutedAll, reelsList, primeNextVideo]);
+        // 🎵 The active reel's <audio> only mounts after this render, so start it here
+        const activeAudio = audioRefs.current[activeIndex];
+        if (activeAudio && !mutedAll) {
+            activeAudio.muted = false;
+            playReelAudio(activeAudio);
+        }
+    }, [activeIndex, selectedReelIndex, mutedAll, reelsList, primeNextVideo, playReelAudio]);
 
     // Pillar 3: The Infinite Scroll — Auto-extend stream when user nears bottom
     useEffect(() => {
@@ -721,34 +735,8 @@ const Reels: React.FC = () => {
     }, [activeIndex]);
 
     // Pillar 2: Re-watch Loop Detection (Super-strong positive signal)
-    useEffect(() => {
-        if (selectedReelIndex === null) return;
-        const handlers: (() => void)[] = [];
-        videoRefs.current.forEach((video, idx) => {
-            if (!video) return;
-            const handler = () => {
-                const reel = reelsList[idx];
-                if (reel) {
-                    replayCountRef.current[idx] = (replayCountRef.current[idx] || 0) + 1;
-                    const loops = replayCountRef.current[idx];
-                    recordImplicitSignal({
-                        type: 'replay',
-                        targetId: String(reel.id),
-                        category: reel.category || 'General',
-                        caption: reel.caption,
-                        value: loops,
-                        timestamp: Date.now()
-                    });
-                    if (user && typeof reel.id === 'string' && loops >= 2) {
-                        trackEngagement(user.id, reel.id, 'replay', loops, reel.category || 'General');
-                    }
-                }
-            };
-            video.addEventListener('ended', handler);
-            handlers.push(() => video.removeEventListener('ended', handler));
-        });
-        return () => handlers.forEach(h => h());
-    }, [selectedReelIndex, reelsList, user]);
+    // Reels use `loop`, so the 'ended' event never fires — replays are detected from the
+    // progress wrap-around inside the RAF progress loop below.
 
     const activeProgressBarRef = useRef<HTMLElement | null>(null);
 
@@ -766,12 +754,34 @@ const Reels: React.FC = () => {
         if (selectedReelIndex === null) return;
         let rafId: number;
         const reelsListRef_local = reelsList; // capture for closure
+        let lastPct = 0;
 
         const tick = () => {
             const activeVideo = videoRefs.current[activeIndex];
             if (activeVideo && activeVideo.duration) {
                 const pct = (activeVideo.currentTime / activeVideo.duration) * 100;
                 progressesRef.current[activeIndex] = pct;
+
+                // 🔁 Looping videos never fire 'ended' — detect the wrap-around as a re-watch signal
+                if (lastPct > 90 && pct < 10) {
+                    const reel = reelsListRef_local[activeIndex];
+                    if (reel) {
+                        const loops = (replayCountRef.current[activeIndex] || 0) + 1;
+                        replayCountRef.current[activeIndex] = loops;
+                        recordImplicitSignal({
+                            type: 'replay',
+                            targetId: String(reel.id),
+                            category: reel.category || 'General',
+                            caption: reel.caption,
+                            value: loops,
+                            timestamp: Date.now()
+                        });
+                        if (user && typeof reel.id === 'string' && loops >= 2) {
+                            trackEngagement(user.id, reel.id, 'replay', loops, reel.category || 'General');
+                        }
+                    }
+                }
+                lastPct = pct;
 
                 // ⚡ Direct DOM update only for active reel using cached element ref
                 if (activeProgressBarRef.current) {
@@ -797,7 +807,7 @@ const Reels: React.FC = () => {
 
         rafId = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(rafId);
-    }, [selectedReelIndex, activeIndex, reelsList]);
+    }, [selectedReelIndex, activeIndex, reelsList, user]);
 
     const togglePlay = useCallback(
         (idx: number) => {
@@ -1028,7 +1038,7 @@ const Reels: React.FC = () => {
                             style={{ 
                                 background: 'rgba(0,0,0,0.5)', border: 'none', color: 'var(--text-active)', 
                                 width: '40px', height: '40px', borderRadius: '50%', pointerEvents: 'auto',
-                                backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 fontSize: '1.2rem'
                             }}
                         >
@@ -1071,7 +1081,7 @@ const Reels: React.FC = () => {
                             style={{ 
                                 background: 'rgba(0,0,0,0.5)', border: 'none', color: 'var(--text-active)', 
                                 width: '40px', height: '40px', borderRadius: '50%', pointerEvents: 'auto',
-                                backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                display: 'flex', alignItems: 'center', justifyContent: 'center'
                             }}
                         >
                             {mutedAll ? <VolumeX size={20} /> : <Volume2 size={20} />}
@@ -1083,6 +1093,18 @@ const Reels: React.FC = () => {
                         {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
                             const isNearby = Math.abs(idx - activeIndex) <= 1;
+
+                            // ⚡ Virtualization: far-away reels render as empty snap placeholders.
+                            // Keeps scroll height & snap points identical while cutting DOM + re-render cost per swipe.
+                            if (Math.abs(idx - activeIndex) > 2) {
+                                return (
+                                    <div
+                                        className="reel-card"
+                                        key={reel.id}
+                                        data-reel-index={idx}
+                                    />
+                                );
+                            }
                             
                             return (
                                 <div 
@@ -1315,7 +1337,10 @@ const Reels: React.FC = () => {
                                             />
                                             <span>{formatCount((reel.imps || 0) + (impedReels.has(reel.id) ? 1 : 0))}</span>
                                         </button>
-                                        <div className="reel-disc">
+                                        <div
+                                            className="reel-disc"
+                                            style={{ animationPlayState: idx === activeIndex && playStates[idx] ? 'running' : 'paused' }}
+                                        >
                                             <img src={reel.creatorAvatar} alt="" />
                                         </div>
                                     </div>

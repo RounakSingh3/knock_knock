@@ -133,12 +133,11 @@ body::before {
     contain: layout paint;
 }
 
-/* Reel cards: NO content-visibility because scroll-snap on mobile causes layout calculation stutter */
+/* Reel cards: NO content-visibility because scroll-snap on mobile causes layout calculation stutter.
+   NO per-card will-change/translateZ either: one full-screen GPU layer per card exhausts mobile GPU
+   memory and drops frames. The .reels-page scroller is already composited by the browser. */
 .reel-card {
     touch-action: pan-y;
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    will-change: transform;
 }
 
 /* GPU hardware acceleration for smooth 60fps animations */
@@ -1910,6 +1909,8 @@ body::before {
     scrollbar-width: none;
     background: #000;
     position: relative;
+    /* One compositing layer for the whole scroller (instead of one per card) */
+    will-change: scroll-position;
 }
 
 .reels-page::-webkit-scrollbar {
@@ -2048,8 +2049,8 @@ body::before {
 }
 
 .reel-follow-btn {
-    background: rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(8px);
+    /* No backdrop-filter: blurring over a playing video is re-computed every frame */
+    background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.4);
     color: white;
     font-size: 0.75rem;
