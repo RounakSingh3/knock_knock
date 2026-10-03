@@ -71,6 +71,7 @@ const Stories = () => {
     const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
     const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const preparedGalleryMediaPromiseRef = useRef<Promise<{ fileToUpload: File; posterBlob: Blob | null }> | null>(null);
     const [storyCaption, setStoryCaption] = useState('');
     const [videoClips, setVideoClips] = useState<PostData[]>([]);
     const [activeStoryGroupIndex, setActiveStoryGroupIndex] = useState<number | null>(null);
@@ -236,6 +237,7 @@ const Stories = () => {
         setSelectedTrack(null);
         setStoryCaption('');
         setCameraError(null);
+        preparedGalleryMediaPromiseRef.current = null;
     };
 
     // Ensure stream is bound if video mounts late
@@ -263,6 +265,29 @@ const Stories = () => {
             setIsCameraActive(true);
             if (fileInputRef.current) fileInputRef.current.value = '';
             if (nativeCameraInputRef.current) nativeCameraInputRef.current.value = '';
+
+            // ⚡ Instant background pre-processing: extract poster & compress media while user previews/captions
+            preparedGalleryMediaPromiseRef.current = (async () => {
+                const isVid = isVideoFile(file);
+                if (!isVid && (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name))) {
+                    try {
+                        const compressed = await compressImage(file, 1200, 1200, 0.75);
+                        return { fileToUpload: compressed, posterBlob: null };
+                    } catch (e) {
+                        console.error('Compression failed, using original', e);
+                        return { fileToUpload: file, posterBlob: null };
+                    }
+                } else if (isVid) {
+                    try {
+                        const prepared = await prepareVideoForUpload(file);
+                        return { fileToUpload: prepared.videoFile, posterBlob: prepared.posterBlob };
+                    } catch (e) {
+                        console.warn('Video poster preparation failed:', e);
+                        return { fileToUpload: file, posterBlob: null };
+                    }
+                }
+                return { fileToUpload: file, posterBlob: null };
+            })();
         }
     };
 
@@ -322,13 +347,20 @@ const Stories = () => {
         else setIsPosting(true);
 
         try {
-            // Step 1: Upload media (the slow part)
+            // Step 1: Upload media (fast parallel pipeline)
             let imageUrl = '';
             if (galleryFile) {
                 let fileToUpload = galleryFile;
                 const isVid = isVideoFile(galleryFile);
                 let posterBlob: Blob | null = null;
-                if (!isVid && (galleryFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(galleryFile.name))) {
+
+                if (preparedGalleryMediaPromiseRef.current) {
+                    try {
+                        const prepared = await preparedGalleryMediaPromiseRef.current;
+                        fileToUpload = prepared.fileToUpload;
+                        posterBlob = prepared.posterBlob;
+                    } catch (_) {}
+                } else if (!isVid && (galleryFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(galleryFile.name))) {
                     try {
                         fileToUpload = await compressImage(galleryFile, 1200, 1200, 0.75);
                     } catch (e) {
@@ -347,18 +379,25 @@ const Stories = () => {
                 const fileExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
                 const path = `stories/${user.id}-${Date.now()}.${fileExt}`;
 
-                let uploadedPosterUrl = '';
-                if (posterBlob) {
-                    try {
-                        const posterPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
-                        const posterFile = new File([posterBlob], `poster.jpg`, { type: 'image/jpeg' });
-                        uploadedPosterUrl = await uploadMedia(posterFile, posterPath);
-                    } catch (pe) {
+                // ⚡ Parallel upload: upload video poster and media simultaneously to halve network wait time!
+                const posterPromise = posterBlob
+                    ? uploadMedia(
+                        new File([posterBlob], `poster.jpg`, { type: 'image/jpeg' }),
+                        `stories/posters/${user.id}-${Date.now()}.jpg`
+                    ).catch((pe) => {
                         console.warn('Poster upload skipped:', pe);
-                    }
-                }
+                        return '';
+                    })
+                    : Promise.resolve('');
 
-                imageUrl = await uploadMedia(fileToUpload, path);
+                const mediaPromise = uploadMedia(fileToUpload, path);
+
+                const [uploadedPosterUrl, uploadedMediaUrl] = await Promise.all([
+                    posterPromise,
+                    mediaPromise
+                ]);
+
+                imageUrl = uploadedMediaUrl;
                 if (uploadedPosterUrl) {
                     imageUrl = `${imageUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
                 }

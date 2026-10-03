@@ -130,6 +130,13 @@ const CreatePost = () => {
     const [isMusicModalOpen, setIsMusicModalOpen] = useState(false);
     const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
 
+    // ⚡ Instant background pre-processing ref for media files
+    const preparedMediaPromiseRef = useRef<Promise<{
+        fileToUpload: File;
+        videoPosterBlob: Blob | null;
+        videoPosterDataUrl: string | null;
+    }> | null>(null);
+
     // 🏷️ Add / Mention Friend State
     const [taggedFriend, setTaggedFriend] = useState<ProfileData | null>(null);
     const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
@@ -275,6 +282,31 @@ const CreatePost = () => {
             const selectedFile = e.target.files[0];
             setFile(selectedFile);
             setPreviewUrl(URL.createObjectURL(selectedFile));
+
+            // ⚡ Instant background pre-processing: extract poster and compress media while user writes caption
+            preparedMediaPromiseRef.current = (async () => {
+                const mediaType = getMediaTypeFromFile(selectedFile);
+                if (mediaType === 'image') {
+                    try {
+                        const compressed = await compressImage(selectedFile, 1200, 1200, 0.8);
+                        return { fileToUpload: compressed, videoPosterBlob: null, videoPosterDataUrl: null };
+                    } catch (_) {
+                        return { fileToUpload: selectedFile, videoPosterBlob: null, videoPosterDataUrl: null };
+                    }
+                } else if (mediaType === 'video') {
+                    try {
+                        const prepared = await prepareVideoForUpload(selectedFile);
+                        return {
+                            fileToUpload: prepared.videoFile,
+                            videoPosterBlob: prepared.posterBlob,
+                            videoPosterDataUrl: prepared.posterDataUrl,
+                        };
+                    } catch (_) {
+                        return { fileToUpload: selectedFile, videoPosterBlob: null, videoPosterDataUrl: null };
+                    }
+                }
+                return { fileToUpload: selectedFile, videoPosterBlob: null, videoPosterDataUrl: null };
+            })();
         }
     };
 
@@ -283,6 +315,7 @@ const CreatePost = () => {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
         setSelectedFilter('none');
+        preparedMediaPromiseRef.current = null;
     };
 
     const handleUpload = async () => {
@@ -298,34 +331,39 @@ const CreatePost = () => {
         try {
             const mediaType = getMediaTypeFromFile(file);
             let fileToUpload = file;
-
             let videoPosterBlob: Blob | null = null;
             let videoPosterDataUrl: string | null = null;
-            if (mediaType === 'image') {
-                try {
-                    setError('Compressing image for fast upload...');
-                    fileToUpload = await compressImage(file, 1200, 1200, 0.8);
-                    setError('');
-                } catch (compErr) {
-                    console.error('Image compression failed, using original file:', compErr);
-                }
-            } else if (mediaType === 'video') {
+
+            if (mediaType === 'video') {
                 const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
                 if (file.size > MAX_VIDEO_SIZE) {
                     setError(`This video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please select a video smaller than 50MB.`);
                     setLoading(false);
                     return;
                 }
+            }
+
+            // ⚡ Fast retrieval: Check if media was already prepared in background while user typed
+            if (preparedMediaPromiseRef.current) {
                 try {
-                    const prepared = await prepareVideoForUpload(fileToUpload);
-                    fileToUpload = prepared.videoFile;
-                    if (prepared.posterBlob) {
-                        videoPosterBlob = prepared.posterBlob;
-                    }
-                    if (prepared.posterDataUrl) {
-                        videoPosterDataUrl = prepared.posterDataUrl;
-                    }
+                    const preparedData = await preparedMediaPromiseRef.current;
+                    fileToUpload = preparedData.fileToUpload;
+                    videoPosterBlob = preparedData.videoPosterBlob;
+                    videoPosterDataUrl = preparedData.videoPosterDataUrl;
                 } catch (_) {}
+            } else {
+                if (mediaType === 'image') {
+                    try {
+                        fileToUpload = await compressImage(file, 1200, 1200, 0.8);
+                    } catch (_) {}
+                } else if (mediaType === 'video') {
+                    try {
+                        const prepared = await prepareVideoForUpload(fileToUpload);
+                        fileToUpload = prepared.videoFile;
+                        videoPosterBlob = prepared.posterBlob;
+                        videoPosterDataUrl = prepared.posterDataUrl;
+                    } catch (_) {}
+                }
             }
 
             const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
@@ -334,18 +372,18 @@ const CreatePost = () => {
             const fileName = `${user.id}-${Date.now()}.${fileExt}`;
             const path = `posts/${fileName}`;
 
-            let uploadedPosterUrl: string | undefined = undefined;
-            if (videoPosterBlob) {
-                try {
-                    const posterFile = new File([videoPosterBlob], `${fileName.replace(/\.[^.]+$/, '')}.jpg`, { type: 'image/jpeg' });
-                    const posterPath = `posts/posters/${fileName.replace(/\.[^.]+$/, '')}.jpg`;
-                    uploadedPosterUrl = await uploadMedia(posterFile, posterPath);
-                } catch (pe) {
-                    console.warn('Failed to upload video poster:', pe);
-                }
-            }
+            // ⚡ Parallel upload: upload video poster and main video simultaneously to halve network wait time!
+            const posterPromise = videoPosterBlob
+                ? uploadMedia(
+                    new File([videoPosterBlob], `${fileName.replace(/\.[^.]+$/, '')}.jpg`, { type: 'image/jpeg' }),
+                    `posts/posters/${fileName.replace(/\.[^.]+$/, '')}.jpg`
+                ).catch((pe) => {
+                    console.warn('Failed to upload video poster in background:', pe);
+                    return undefined;
+                })
+                : Promise.resolve(undefined);
 
-            const publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
+            const videoUploadPromise = uploadMedia(fileToUpload, path, (progress) => {
                 const total = progress.total || fileToUpload.size || 1;
                 const percentage = Math.min(100, Math.round((progress.loaded / total) * 100));
                 const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
@@ -353,7 +391,12 @@ const CreatePost = () => {
                 setUploadProgress({ percentage, loadedMB, totalMB });
             });
 
-            if (!publicUrl || publicUrl.startsWith('blob:') || publicUrl.startsWith('data:')) {
+            const [uploadedPosterUrl, publicUrl] = await Promise.all([
+                posterPromise,
+                videoUploadPromise
+            ]);
+
+            if (!publicUrl || publicUrl.startsWith('data:video/')) {
                 throw new Error('Media upload failed. Please check your internet connection and try again.');
             }
 
@@ -397,7 +440,7 @@ const CreatePost = () => {
                 music_url: selectedTrack?.url
             });
 
-            // Send mention notification to tagged friend so they can customize & repost in chat
+            // Send mention notification to tagged friend in background
             if (taggedFriend && user?.id) {
                 sendAddMentionNotification({
                     senderId: user.id,
@@ -407,36 +450,42 @@ const CreatePost = () => {
                 }).catch(e => console.warn('Failed to send add mention notification:', e));
             }
 
-            // Award points for uploading content on Knock Knock!
-            const POST_REWARD_POINTS = 10;
-            let currentBal = points;
-            if (user?.id) {
-                currentBal = await awardUploadPoints(user.id, POST_REWARD_POINTS, points);
-                setPoints(currentBal);
-            }
-
-            // Immediately train recommendation algorithm for active user's posted topics
-            if (activeHashtags.length > 0) {
-                recordHashtagSignal(activeHashtags, 5.0);
-            }
-
-            if (boostToSpotlight) {
-                const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
-                currentBal = isUnlimited ? 999999999 : Math.max(0, currentBal - boostAmount);
-                await updatePoints(user.id, currentBal);
-                setPoints(currentBal);
-            }
-
             // Invalidate feed caches so newly uploaded content appears immediately at top of Home & Explore
             try {
                 localStorage.removeItem('knock_home_posts_cache');
                 localStorage.removeItem('knock_explore_posts_cache_v7');
             } catch (e) {}
 
-            // Trigger celebratory reward congratulation modal
+            // Immediately train recommendation algorithm for active user's posted topics
+            if (activeHashtags.length > 0) {
+                recordHashtagSignal(activeHashtags, 5.0);
+            }
+
+            // ⚡ Instant user feedback: trigger celebratory reward modal immediately
+            const POST_REWARD_POINTS = 10;
+            let currentBal = points;
+            if (boostToSpotlight) {
+                const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
+                currentBal = isUnlimited ? 999999999 : Math.max(0, currentBal - boostAmount);
+            }
             setRewardPointsEarned(POST_REWARD_POINTS);
-            setRewardNewBalance(currentBal);
+            setRewardNewBalance(currentBal + POST_REWARD_POINTS);
             setShowRewardModal(true);
+
+            // Award points and sync in background without blocking user
+            if (user?.id) {
+                awardUploadPoints(user.id, POST_REWARD_POINTS, points)
+                    .then(newBal => {
+                        let finalBal = newBal;
+                        if (boostToSpotlight) {
+                            const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
+                            finalBal = isUnlimited ? 999999999 : Math.max(0, newBal - boostAmount);
+                            updatePoints(user.id, finalBal).catch(() => {});
+                        }
+                        setPoints(finalBal);
+                    })
+                    .catch(() => {});
+            }
         } catch (err: unknown) {
             console.error('Upload Error:', err);
             const message = err instanceof Error ? err.message : 'An error occurred during upload.';

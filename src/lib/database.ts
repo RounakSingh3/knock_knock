@@ -504,7 +504,21 @@ export async function uploadMedia(
     path: string,
     onProgress?: (progress: { loaded: number; total: number }) => void
 ): Promise<string> {
-    const MAX_RETRIES = 2;
+    // ⚡ Fast bypass: If Supabase quota is already restricted, avoid network timeouts and return instant fallback
+    if (isSupabaseQuotaRestricted()) {
+        console.warn('[uploadMedia] Storage restricted by quota, returning instant local media URL');
+        if (file.type.startsWith('image/') && file.size < 3 * 1024 * 1024) {
+            return new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = () => resolve(URL.createObjectURL(file));
+                reader.readAsDataURL(file);
+            });
+        }
+        return URL.createObjectURL(file);
+    }
+
+    const MAX_RETRIES = 1;
     let lastError: Error | null = null;
     const cleanPath = path.replace(/[^a-zA-Z0-9_\-\.\/]/g, '_');
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -529,8 +543,8 @@ export async function uploadMedia(
         token = supabaseKey;
     }
 
-    // Dynamic timeout: 5 minutes default, 10 minutes for videos/files > 20MB
-    const timeoutMs = file.size > 20 * 1024 * 1024 ? 600000 : 300000;
+    // Dynamic timeout: 60s default, 120s for videos > 20MB
+    const timeoutMs = file.size > 20 * 1024 * 1024 ? 120000 : 60000;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
@@ -643,7 +657,6 @@ export async function uploadMedia(
 
             if (attempt < MAX_RETRIES) {
                 token = supabaseKey;
-                await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
             }
         }
     }
@@ -651,24 +664,19 @@ export async function uploadMedia(
     // ⚡ Resilient Fallback: If Supabase storage is restricted or network failed:
     if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)) {
         console.warn('[uploadMedia] Storage unavailable, using Base64 image fallback');
-        return new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = () => resolve(URL.createObjectURL(file));
-            reader.readAsDataURL(file);
-        });
+        if (file.size < 3 * 1024 * 1024) {
+            return new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = () => resolve(URL.createObjectURL(file));
+                reader.readAsDataURL(file);
+            });
+        }
+        return URL.createObjectURL(file);
     }
 
-    // Video fallback
+    // Video fallback — Instant object URL avoids heavy FileReader thread freeze & memory leaks
     console.warn('[uploadMedia] Storage unavailable, creating resilient video URL fallback');
-    if (file.size <= 15 * 1024 * 1024) {
-        return new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = () => resolve(URL.createObjectURL(file));
-            reader.readAsDataURL(file);
-        });
-    }
     return URL.createObjectURL(file);
 }
 
@@ -885,6 +893,33 @@ export async function createNewPost(post: {
     let finalCaption = post.caption || '';
     if (post.music_url && !finalCaption.includes('[MUSIC:')) {
         finalCaption += `\n\n[MUSIC:${post.music_url}|${post.music_title || ''}|${post.music_artist || ''}]`;
+    }
+
+    if (isSupabaseQuotaRestricted()) {
+        const localPost: PostData = {
+            id: `post-local-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            user_id: post.user_id,
+            username: post.username,
+            avatar_url: post.avatar_url,
+            image_url: post.image_url,
+            caption: finalCaption,
+            likes_count: 0,
+            imps_count: 0,
+            comments_count: 0,
+            shares_count: 0,
+            attached_link: post.attached_link,
+            media_type: post.media_type || 'image',
+            category: post.category || 'General',
+            boost_expires_at: post.boost_expires_at,
+            boost_impressions_remaining: post.boost_impressions_remaining || 0,
+            music_title: post.music_title,
+            music_artist: post.music_artist,
+            music_url: post.music_url,
+            created_at: new Date().toISOString(),
+        };
+        saveLocalPost(localPost);
+        invalidateCache();
+        return [localPost];
     }
 
     const row: Record<string, unknown> = {
@@ -2007,6 +2042,25 @@ export async function createStory(
     // We encode the music into the image_url to survive the fallback safely.
     if (musicUrl) {
         imageUrl = `${imageUrl}#MUSIC:${encodeURIComponent(musicUrl)}|${encodeURIComponent(musicTitle || '')}|${encodeURIComponent(musicArtist || '')}`;
+    }
+
+    if (isSupabaseQuotaRestricted()) {
+        saveFallbackStory({
+            id: `story-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            user_id: userId,
+            image_url: imageUrl,
+            filter_name: filterName,
+            is_boosted: isBoosted,
+            username: username || 'You',
+            caption: caption,
+            music_title: musicTitle,
+            music_artist: musicArtist,
+            music_url: musicUrl,
+            created_at: new Date().toISOString(),
+        });
+        invalidateCache('recent_stories');
+        invalidateCache('24h_boost_stories');
+        return { error: null };
     }
 
     const payload: any = {
