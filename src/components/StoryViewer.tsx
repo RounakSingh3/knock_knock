@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap, ExternalLink, Check, Film, Loader2, Coins } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap, isKnockVideoLink, parseKnockVideoLink, fetchPostById, givePointsToContent } from '../lib/database';
-import { audioPlayer } from '../lib/audioPlayer';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
-import { recordImplicitSignal } from '../lib/algorithm';
+import { recordImplicitSignal, recordBoostSignal, extractHashtags } from '../lib/algorithm';
 
 // Map filter names stored in DB to actual CSS filter values
 const FILTER_MAP: Record<string, string> = {
@@ -225,19 +224,39 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const handleNextStory = useCallback(() => {
         if (!currentGroup || !currentStory) return;
         const dwellTime = Date.now() - storyStartRef.current;
+        const isVid = isVideoUrl(currentStory.image_url);
+        const storyCategory = (currentStory as any).category || 'General';
+        const storyTags = extractHashtags(currentStory.caption);
+
         if (progressRef.current >= 95) {
             recordImplicitSignal({
                 type: 'story_complete',
                 postId: currentStory.id,
-                category: (currentStory as any).category || 'General',
+                category: storyCategory,
                 timestamp: Date.now()
+            });
+            recordBoostSignal({
+                storyId: currentStory.id,
+                creatorId: currentStory.user_id,
+                category: storyCategory,
+                hashtags: storyTags,
+                isVideo: isVid,
+                type: 'dwell'
             });
         } else if (dwellTime < 1800) {
             recordImplicitSignal({
                 type: 'story_skip',
                 postId: currentStory.id,
-                category: (currentStory as any).category || 'General',
+                category: storyCategory,
                 timestamp: Date.now()
+            });
+            recordBoostSignal({
+                storyId: currentStory.id,
+                creatorId: currentStory.user_id,
+                category: storyCategory,
+                hashtags: storyTags,
+                isVideo: isVid,
+                type: 'skip'
             });
         }
         storyStartRef.current = Date.now();

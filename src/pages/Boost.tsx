@@ -48,6 +48,7 @@ import {
     isSeedStory,
     notifyMentionedUsersInText,
     fetchUserEngagements,
+    deduplicateStories,
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
@@ -251,14 +252,20 @@ const Boost: React.FC = () => {
     const { user, points, setPoints, blockedIds } = useContext(AppContext);
     const navigate = useNavigate();
 
-    // Explore Feed State with Instant Cache Rehydration (filtering out unwanted seed videos)
+    // Explore Feed State with Instant Cache Rehydration (strictly 24 hours & deduplicated)
     const [stories, setStories] = useState<StoryData[]>(() => {
         try {
             const cached = localStorage.getItem('knock_boost_stories_cache_v2');
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    return parsed.filter((s: StoryData) => s && !isSeedStory(s));
+                    const now = Date.now();
+                    const valid = parsed.filter((s: StoryData) => {
+                        if (!s || isSeedStory(s) || !s.created_at) return false;
+                        const msOld = now - new Date(s.created_at).getTime();
+                        return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+                    });
+                    return deduplicateStories(valid);
                 }
             }
         } catch (e) {}
@@ -378,8 +385,14 @@ const Boost: React.FC = () => {
 
         try {
             const data = await fetch24HourBoostStories(user?.id);
-            // Filter out blocked users and all seed stories
-            const valid = data.filter(s => s && (!s.user_id || !blockedIds.includes(s.user_id)) && !isSeedStory(s));
+            const now = Date.now();
+            // Filter out blocked users, seed stories, and anything > 24 hours old
+            const valid = deduplicateStories(data.filter(s => {
+                if (!s || isSeedStory(s) || !s.created_at) return false;
+                if (s.user_id && blockedIds.includes(s.user_id)) return false;
+                const msOld = now - new Date(s.created_at).getTime();
+                return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+            }));
             setStories(valid);
             try {
                 localStorage.setItem('knock_boost_stories_cache_v2', JSON.stringify(valid));
@@ -392,7 +405,7 @@ const Boost: React.FC = () => {
         }
     }, [user?.id, blockedIds, stories.length]);
 
-    // Purge any legacy cached seed stories from browser storage on mount
+    // Purge any legacy cached seed stories or expired content (>24h) from browser storage on mount
     useEffect(() => {
         try {
             const cleanStorage = (key: string) => {
@@ -400,8 +413,13 @@ const Boost: React.FC = () => {
                 if (!raw) return;
                 const items = JSON.parse(raw);
                 if (Array.isArray(items)) {
-                    const cleaned = items.filter((s: any) => s && !isSeedStory(s));
-                    localStorage.setItem(key, JSON.stringify(cleaned));
+                    const now = Date.now();
+                    const cleaned = items.filter((s: any) => {
+                        if (!s || isSeedStory(s) || !s.created_at) return false;
+                        const msOld = now - new Date(s.created_at).getTime();
+                        return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+                    });
+                    localStorage.setItem(key, JSON.stringify(deduplicateStories(cleaned)));
                 }
             };
             cleanStorage('knock_boost_stories_cache_v2');
@@ -481,28 +499,42 @@ const Boost: React.FC = () => {
         }
     }, [user?.id]);
 
-    // Creator's active knocks (strictly restricted to authenticated owner only)
+    // Creator's active knocks (strictly restricted to authenticated owner only and strictly 24 hours)
     const myActiveKnocks = useMemo(() => {
         if (!user) return [];
+        const now = Date.now();
+        const seenMedia = new Set<string>();
         return stories.filter(s => {
-            if (isSeedStory(s)) return false;
+            if (isSeedStory(s) || !s.created_at) return false;
+
+            // Strict 24h lifespan check: NEVER show expired history knocks on the upper side
+            const msOld = now - new Date(s.created_at).getTime();
+            if (msOld > 24 * 60 * 60 * 1000 || msOld < 0) return false;
+
             // Strict ownership verification:
             if (s.username && user.username && s.username.toLowerCase() !== user.username.toLowerCase()) {
                 return false;
             }
             const isIdMatch = Boolean(s.user_id && s.user_id === user.id);
             const isUsernameMatch = Boolean(s.username && user.username && s.username.toLowerCase() === user.username.toLowerCase());
-            return isIdMatch || isUsernameMatch;
+            if (!isIdMatch && !isUsernameMatch) return false;
+
+            // Deduplicate same media uploaded multiple times by creator
+            const cleanMedia = (s.image_url || '').split('#')[0].trim();
+            if (seenMedia.has(cleanMedia)) return false;
+            seenMedia.add(cleanMedia);
+
+            return true;
         });
     }, [stories, user?.id, user?.username]);
     
-    // Only real authentic 24h stories uploaded by users on the app
+    // Only real authentic 24h stories uploaded by users on the app (deduplicated)
     const combinedStories = useMemo(() => {
-        return stories.filter(s => {
-            if (isSeedStory(s)) return false;
+        return deduplicateStories(stories.filter(s => {
+            if (isSeedStory(s) || !s.created_at) return false;
             // Screen quota, active user delivery, and friendship eligibility check
             return isStoryEligibleForViewerScreen(s, user?.id, userFriends);
-        });
+        }));
     }, [stories, user?.id, userFriends]);
 
     // ⚡ Adaptive Addictive Loop Engine: real-time taste chasing & recency frequency boost
@@ -545,56 +577,37 @@ const Boost: React.FC = () => {
         });
     }, [rankedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
 
-    // ── Continuous 24h Infinite Stream Synthesizer (Instagram Explore Style) ──
-    const [streamPage, setStreamPage] = useState(0);
-    const [streamPosts, setStreamPosts] = useState<StoryData[]>([]);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    // ── Unique 24h Explore Stream (Instagram Style, Strictly Unique Items — Zero Repeats) ──
+    const [displayLimit, setDisplayLimit] = useState(24);
     const sentinelRef = useRef<HTMLDivElement>(null);
 
-    // Sync stream when rankedStories or filters change
+    // Reset pagination when filter changes
     useEffect(() => {
-        setStreamPage(0);
-        if (filteredStories.length > 0) {
-            const initialBatch = generateInfiniteStream(
-                filteredStories,
-                0,
-                18,
-                (batch) => rankBoostLoopStories(batch, user?.id, userFriends, hybridProfile)
-            );
-            setStreamPosts(initialBatch);
-        } else {
-            setStreamPosts([]);
-        }
-    }, [filteredStories, user?.id, userFriends, hybridProfile]);
+        setDisplayLimit(24);
+    }, [filterTab, selectedHashtag, searchQuery]);
 
-    const loadMoreStreamStories = useCallback(() => {
-        if (isLoadingMore || filteredStories.length === 0) return;
-        setIsLoadingMore(true);
-        const nextPage = streamPage + 1;
-        const nextBatch = generateInfiniteStream(
-            filteredStories,
-            nextPage,
-            12,
-            (batch) => rankBoostLoopStories(batch, user?.id, userFriends, hybridProfile)
-        );
-        if (nextBatch.length > 0) {
-            setStreamPosts(prev => [...prev, ...nextBatch]);
-            setStreamPage(nextPage);
-        }
-        setIsLoadingMore(false);
-    }, [isLoadingMore, filteredStories, streamPage, user?.id, userFriends, hybridProfile]);
+    const displayedStories = useMemo(() => {
+        return filteredStories.slice(0, displayLimit);
+    }, [filteredStories, displayLimit]);
 
-    // IntersectionObserver for continuous infinite scrolling
+    const hasMore = displayLimit < filteredStories.length;
+
+    const loadMoreStories = useCallback(() => {
+        if (!hasMore) return;
+        setDisplayLimit(prev => Math.min(filteredStories.length, prev + 18));
+    }, [hasMore, filteredStories.length]);
+
+    // IntersectionObserver for pagination of remaining unique 24h items
     useEffect(() => {
-        if (!sentinelRef.current) return;
+        if (!sentinelRef.current || !hasMore) return;
         const observer = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting && !isLoadingMore && streamPosts.length > 0) {
-                loadMoreStreamStories();
+            if (entries[0].isIntersecting) {
+                loadMoreStories();
             }
-        }, { rootMargin: '600px' });
+        }, { rootMargin: '400px' });
         observer.observe(sentinelRef.current);
         return () => observer.disconnect();
-    }, [loadMoreStreamStories, isLoadingMore, streamPosts.length]);
+    }, [loadMoreStories, hasMore]);
 
     // Dynamically derive all active hashtags from the current 24-hour stories
     const dynamicHashtags = useMemo(() => {
@@ -657,13 +670,9 @@ const Boost: React.FC = () => {
             type: 'view'
         });
 
-        // Attach full continuous 24h stream so the next video is ALWAYS available without dead-ends
-        const currentStream = streamPosts.length > 0 ? streamPosts : filteredStories;
-        const streamIds = new Set(currentStream.map(s => s.id));
-        const remaining24h = rankedStories.filter(s => !streamIds.has(s.id));
-        const fullStream = [...currentStream, ...remaining24h];
-
-        let groups = groupStoriesByUser(fullStream);
+        // Use filtered unique 24h stories (zero repeated stories)
+        const activeStories = filteredStories.length > 0 ? filteredStories : rankedStories;
+        let groups = groupStoriesByUser(activeStories);
         let groupIdx = groups.findIndex(g => g.stories.some(s => s.id === story.id));
         if (groupIdx === -1) {
             groups = groupStoriesByUser(rankedStories);
@@ -682,7 +691,7 @@ const Boost: React.FC = () => {
 
         setViewerStoryGroups(groups);
         setActiveViewerGroupIndex(groupIdx);
-    }, [user, streamPosts, filteredStories, rankedStories]);
+    }, [user, filteredStories, rankedStories]);
 
     // Camera Controls & 1-Minute Video Recording
     const startCamera = async (mode: 'photo' | 'video' = cameraMode) => {
@@ -1477,11 +1486,11 @@ const Boost: React.FC = () => {
                                 gridAutoFlow: 'dense',
                                 gap: '2px'
                             }}>
-                                {(streamPosts.length > 0 ? streamPosts : filteredStories).map((story, idx) => {
+                                {displayedStories.map((story, idx) => {
                                     const isBig = (idx % 12 === 0) || (idx % 12 === 8);
                                     return (
                                         <BoostStoryCard
-                                            key={`${story.id}-${idx}`}
+                                            key={story.id}
                                             story={story}
                                             isBig={isBig}
                                             onOpen={handleOpenStory}
@@ -1491,24 +1500,55 @@ const Boost: React.FC = () => {
                                 })}
                             </div>
 
-                            {/* Continuous Infinite Scroll Sentinel */}
-                            <div
-                                ref={sentinelRef}
-                                style={{
-                                    height: '60px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    margin: '16px 0'
-                                }}
-                            >
-                                {isLoadingMore && (
+                            {/* Pagination sentinel if more unique stories exist */}
+                            {hasMore && (
+                                <div
+                                    ref={sentinelRef}
+                                    style={{
+                                        height: '50px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        margin: '16px 0'
+                                    }}
+                                >
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f5a524', fontSize: '13px', fontWeight: '600' }}>
                                         <Loader2 size={18} className="animate-spin" />
                                         <span>Loading more 24h Knocks...</span>
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            )}
+
+                            {/* Completion Status: Strictly 24h, zero repeated items */}
+                            {!hasMore && displayedStories.length > 0 && (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '24px 16px 12px 16px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}>
+                                    <div style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        fontSize: '12px',
+                                        fontWeight: '700',
+                                        color: 'rgba(255,255,255,0.7)',
+                                        background: 'rgba(255,255,255,0.05)',
+                                        border: '1px solid rgba(255,255,255,0.08)',
+                                        padding: '6px 16px',
+                                        borderRadius: '20px'
+                                    }}>
+                                        <Sparkles size={14} color="#f5a524" />
+                                        <span>You're all caught up • {displayedStories.length} active 24h Knock{displayedStories.length === 1 ? '' : 's'}</span>
+                                    </div>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-inactive)' }}>
+                                        Content automatically disappears after 24 hours
+                                    </span>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>

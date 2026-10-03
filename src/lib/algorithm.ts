@@ -1238,38 +1238,42 @@ export function recordBoostSignal(signal: {
     creatorId?: string;
     category?: string;
     isVideo?: boolean;
-    type: 'view' | 'dwell' | 'loop' | 'hashtag_click' | 'convert_snap' | 'boost' | 'skip';
+    type: 'view' | 'dwell' | 'loop' | 'hashtag_click' | 'convert_snap' | 'boost' | 'skip' | 'like';
 }): void {
     try {
         const state = getBoostInterestState();
         const weight = signal.type === 'convert_snap' ? 5.0
             : signal.type === 'boost' ? 4.5
+            : signal.type === 'like' ? 4.0
             : signal.type === 'hashtag_click' ? 3.5
             : signal.type === 'loop' ? 3.0
             : signal.type === 'dwell' ? 2.5
-            : signal.type === 'skip' ? -1.5
+            : signal.type === 'skip' ? -2.0
             : 1.0;
 
         if (signal.hashtags && Array.isArray(signal.hashtags)) {
             signal.hashtags.forEach(tag => {
                 const clean = tag.replace(/^#+/, '').toLowerCase().trim();
                 if (clean) {
-                    state.hashtags[clean] = Math.max(0, (state.hashtags[clean] || 0) + weight);
+                    const current = state.hashtags[clean] || 0;
+                    state.hashtags[clean] = Math.max(-20, current + weight);
                 }
             });
         }
 
         if (signal.creatorId) {
-            state.creators[signal.creatorId] = Math.max(0, (state.creators[signal.creatorId] || 0) + weight);
+            const current = state.creators[signal.creatorId] || 0;
+            state.creators[signal.creatorId] = Math.max(-20, current + weight);
         }
 
         const cat = signal.category || 'General';
         if (cat && cat !== 'General') {
-            state.categories[cat] = Math.max(0, (state.categories[cat] || 0) + weight);
+            const current = state.categories[cat] || 0;
+            state.categories[cat] = Math.max(-30, current + weight);
         }
 
         if (signal.isVideo) {
-            state.videoPreference = Math.min(25, Math.max(-10, (state.videoPreference || 0) + (signal.type === 'skip' ? -0.5 : 1.0)));
+            state.videoPreference = Math.min(25, Math.max(-10, (state.videoPreference || 0) + (signal.type === 'skip' ? -1.0 : 1.5)));
         }
 
         state.lastActive = Date.now();
@@ -1282,7 +1286,7 @@ export function recordBoostSignal(signal: {
  * - Real-time interest chasing: Tracks hashtags, categories, creators, and watch behavior.
  * - Blends user's hybrid platform profile with real-time 24h discovery taste.
  * - Surfacing newly uploaded 24h videos and reels frequently (recency burst).
- * - Delivers continuous infinite streams with slot-machine creator anti-clustering.
+ * - Strictly deduplicates items so each 24h video/story is shown ONLY ONCE.
  */
 export function rankBoostLoopStories(
     stories: StoryData[],
@@ -1295,8 +1299,28 @@ export function rankBoostLoopStories(
     const interestState = getBoostInterestState();
     const now = Date.now();
 
-    // Verify media validity & 24h lifespan
-    const eligibleStories = stories.filter(story => {
+    // 1. Strict deduplication by media content URL + creator (each 24h video shown ONLY ONCE)
+    const seenMedia = new Map<string, StoryData>();
+    for (const s of stories) {
+        if (!s || !s.image_url) continue;
+        const cleanMedia = s.image_url.split('#')[0].trim();
+        const key = `${(s.username || s.user_id || 'anon').toLowerCase()}::${cleanMedia}`;
+        const existing = seenMedia.get(key);
+        if (!existing) {
+            seenMedia.set(key, s);
+        } else {
+            if (!existing.is_boosted && s.is_boosted) {
+                seenMedia.set(key, s);
+            }
+        }
+    }
+    const uniqueStories = Array.from(seenMedia.values());
+
+    // 2. Verify media validity & strict 24h lifespan (life is strictly 24 hours)
+    const eligibleStories = uniqueStories.filter(story => {
+        if (!story.created_at) return false;
+        const msOld = now - new Date(story.created_at).getTime();
+        if (msOld > 24 * 60 * 60 * 1000 || msOld < -60000) return false;
         return isStoryEligibleForViewerScreen(story, currentUserId, userFriends);
     });
 
@@ -1313,15 +1337,15 @@ export function rankBoostLoopStories(
         else if (ageHours <= 12) score += 25;
         else if (ageHours <= 24) score += 15;
 
-        // 2. Category / Topic Alignment (Instagram Explore Interest Matching)
+        // 2. Category / Topic Alignment (Instagram Explore Interest Matching & Skip Demotion)
         let catScore = 0;
         if (hybridProfile && hybridProfile.categoryScores && hybridProfile.categoryScores[storyCategory]) {
             catScore += hybridProfile.categoryScores[storyCategory] * 0.8;
         }
-        if (interestState.categories && interestState.categories[storyCategory]) {
+        if (interestState.categories && typeof interestState.categories[storyCategory] === 'number') {
             catScore += interestState.categories[storyCategory] * 12;
         }
-        score += Math.min(80, catScore);
+        score += Math.max(-50, Math.min(80, catScore));
 
         // 3. Multi-Hashtag Compound Affinity (Instagram Explore Hashtag Graph)
         const tags = extractHashtags(story.caption);
@@ -1332,14 +1356,14 @@ export function rankBoostLoopStories(
             if (hybridProfile && hybridProfile.hashtagScores && hybridProfile.hashtagScores[t]) {
                 s += hybridProfile.hashtagScores[t] * 0.6;
             }
-            if (s > 0) {
+            if (s !== 0) {
                 tagAffinity += s;
                 matchedTags++;
             }
         });
         if (matchedTags > 0) {
             const compoundMult = 1 + Math.min(1.5, (matchedTags - 1) * 0.4);
-            score += Math.min(85, (tagAffinity * 10) * compoundMult);
+            score += Math.max(-40, Math.min(85, (tagAffinity * 10) * compoundMult));
         }
 
         // 4. Video Format Affinity: Priority for dynamic video reels if user prefers video

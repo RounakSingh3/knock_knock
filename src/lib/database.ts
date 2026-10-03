@@ -1911,15 +1911,44 @@ export function deleteFallbackStory(storyId: string) {
     }
 }
 
+export function deduplicateStories(storiesList: StoryData[]): StoryData[] {
+    const map = new Map<string, StoryData>();
+    for (const story of storiesList) {
+        if (!story || !story.image_url) continue;
+        const cleanMedia = story.image_url.split('#')[0].trim();
+        const key = `${(story.username || story.user_id || 'anon').toLowerCase()}::${cleanMedia}`;
+        const existing = map.get(key);
+        if (!existing) {
+            map.set(key, story);
+        } else {
+            // Prioritize boosted story over unboosted, or newer story
+            if (!existing.is_boosted && story.is_boosted) {
+                map.set(key, story);
+            } else if (!existing.is_boosted || story.is_boosted) {
+                if (new Date(story.created_at).getTime() > new Date(existing.created_at).getTime()) {
+                    map.set(key, story);
+                }
+            }
+        }
+    }
+    return Array.from(map.values());
+}
+
 function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string): StoryData[] {
-    const fallback = getFallbackStories().filter(s => !isSeedStory(s));
+    const now = Date.now();
+    const fallback = getFallbackStories().filter(s => {
+        if (isSeedStory(s)) return false;
+        if (!s.created_at) return false;
+        const msOld = now - new Date(s.created_at).getTime();
+        return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+    });
     const filteredFallback = userIdFilter 
         ? fallback.filter(s => s.user_id === userIdFilter)
         : fallback;
     const sanitizedDb = dbStories.filter(s => !isSeedStory(s));
     const existingIds = new Set(sanitizedDb.map(s => s.id));
     const toAdd = filteredFallback.filter(s => !existingIds.has(s.id));
-    return [...toAdd, ...sanitizedDb];
+    return deduplicateStories([...toAdd, ...sanitizedDb]);
 }
 
 /** Fetch stories from the last 24 hours for the Home story rack */
@@ -2116,11 +2145,11 @@ export function isStoryEligibleForViewerScreen(
         return false;
     }
 
-    // 24-hour content lifespan with graceful 48h buffer for continuous stream replenishment
+    // Strict 24-hour content lifespan — zero tolerance for expired content
     if (story.created_at) {
         const msOld = Date.now() - new Date(story.created_at).getTime();
-        const maxLifespanMs = 48 * 60 * 60 * 1000;
-        if (msOld > maxLifespanMs) {
+        const maxLifespanMs = 24 * 60 * 60 * 1000;
+        if (msOld > maxLifespanMs || msOld < -60000) {
             return false;
         }
     }
@@ -2214,11 +2243,11 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
     const cached = getFromCache<StoryData[]>(`24h_boost_stories_${currentUserId || 'anon'}`, 15000);
     if (cached) return cached;
 
-    const thirtySixHoursAgo = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
         .from('stories')
         .select('*')
-        .gte('created_at', thirtySixHoursAgo)
+        .gte('created_at', twentyFourHoursAgo)
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -2226,30 +2255,15 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
     if (error) {
         console.warn('Error fetching 24h boost stories from Supabase (using fallback store if available):', error.message);
     } else {
-        rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s));
+        const now = Date.now();
+        rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => {
+            if (!s || isSeedStory(s) || !s.created_at) return false;
+            const msOld = now - new Date(s.created_at).getTime();
+            return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+        });
     }
 
-    // Ensure candidate pool is robust (at least 25 items for smooth Instagram Explore infinite streaming)
-    if (rawStories.length < 25) {
-        const { data: recentDb } = await supabase
-            .from('stories')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(60);
-
-        if (recentDb && recentDb.length > 0) {
-            const normalizedRecent = recentDb.map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s));
-            const existingIds = new Set(rawStories.map(s => s.id));
-            for (const s of normalizedRecent) {
-                if (!existingIds.has(s.id)) {
-                    rawStories.push(s);
-                    existingIds.add(s.id);
-                }
-            }
-        }
-    }
-
-    const stories = mergeWithFallbackStories(rawStories).filter(s => !isSeedStory(s));
+    const stories = deduplicateStories(mergeWithFallbackStories(rawStories).filter(s => !isSeedStory(s)));
 
     let friendIds: string[] = [];
     if (currentUserId) {
