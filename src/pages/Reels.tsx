@@ -256,6 +256,7 @@ const Reels: React.FC = () => {
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
     const [failedVisuals, setFailedVisuals] = useState<Set<string | number>>(new Set());
+    const [bufferingReels, setBufferingReels] = useState<Set<string | number>>(new Set());
     const [mutedAll, setMutedAll] = useState(() => getFeedMutedPreference());
     const [activeIndex, setActiveIndex] = useState(0);
     const [selectedReelIndex, setSelectedReelIndex] = useState<number | null>(null);
@@ -387,11 +388,28 @@ const Reels: React.FC = () => {
         const nextIdx = currentIdx + 1;
         if (nextIdx < reelsList.length) {
             const nextVideo = videoRefs.current[nextIdx];
-            if (nextVideo && nextVideo.preload !== 'auto') {
-                nextVideo.preload = 'auto';
+            if (nextVideo) {
+                if (nextVideo.preload !== 'auto') {
+                    nextVideo.preload = 'auto';
+                }
+                if (nextVideo.readyState < 2) {
+                    nextVideo.load();
+                }
+            }
+            // Pre-fetch 2 reels ahead in background idle cache
+            const nextNextReel = reelsList[currentIdx + 2];
+            if (nextNextReel?.videoUrl && typeof document !== 'undefined') {
+                const clean = nextNextReel.videoUrl.split('#')[0];
+                if (!document.querySelector(`link[href="${clean}"]`)) {
+                    const link = document.createElement('link');
+                    link.rel = 'prefetch';
+                    link.as = 'video';
+                    link.href = clean;
+                    document.head.appendChild(link);
+                }
             }
         }
-    }, [reelsList.length]);
+    }, [reelsList]);
 
     // Helper to safely play audio with interaction fallback if browser blocks autoplay
     const playReelAudio = useCallback((audio: HTMLAudioElement | null) => {
@@ -1131,17 +1149,47 @@ const Reels: React.FC = () => {
                                                 disablePictureInPicture={true}
                                                 // @ts-ignore
                                                 disableRemotePlayback={true}
-                                                preload={idx === activeIndex ? 'auto' : 'metadata'}
+                                                preload={Math.abs(idx - activeIndex) <= 1 ? 'auto' : 'metadata'}
                                                 autoPlay={idx === selectedReelIndex}
                                                 muted={Boolean(reel.musicUrl) || mutedAll}
                                                 className="reel-video"
                                                 style={{ filter: reel.css_filter || 'none' }}
                                                 onClick={(e) => handleDoubleTap(idx, e)}
-                                                onPlaying={() => primeNextVideo(idx)}
+                                                onWaiting={() => {
+                                                    setBufferingReels(prev => new Set(prev).add(reel.id));
+                                                }}
+                                                onPlaying={() => {
+                                                    setBufferingReels(prev => {
+                                                        if (!prev.has(reel.id)) return prev;
+                                                        const next = new Set(prev);
+                                                        next.delete(reel.id);
+                                                        return next;
+                                                    });
+                                                    primeNextVideo(idx);
+                                                }}
+                                                onCanPlay={() => {
+                                                    setBufferingReels(prev => {
+                                                        if (!prev.has(reel.id)) return prev;
+                                                        const next = new Set(prev);
+                                                        next.delete(reel.id);
+                                                        return next;
+                                                    });
+                                                }}
                                                 onError={() => {
                                                     setFailedVisuals(prev => new Set(prev).add(reel.id));
+                                                    setBufferingReels(prev => {
+                                                        if (!prev.has(reel.id)) return prev;
+                                                        const next = new Set(prev);
+                                                        next.delete(reel.id);
+                                                        return next;
+                                                    });
                                                 }}
                                             />
+                                            {bufferingReels.has(reel.id) && idx === activeIndex && (
+                                                <div className="reel-buffering-indicator">
+                                                    <div className="reel-spinner" />
+                                                </div>
+                                            )}
                                             {failedVisuals.has(reel.id) && reel.posterUrl && !isVideoUrl(reel.posterUrl) && (
                                                 <div style={{
                                                     position: 'absolute',

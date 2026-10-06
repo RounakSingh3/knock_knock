@@ -95,6 +95,30 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     }, [currentStory]);
 
     const [videoHasVisual, setVideoHasVisual] = useState(true);
+    const [isStoryBuffering, setIsStoryBuffering] = useState(false);
+
+    // ⚡ Pre-buffer the NEXT story (or first story of next user group) so tap-next is instantaneous
+    const nextStoryMediaUrl = useMemo(() => {
+        const nextInGroup = currentGroup?.stories[storyIndex + 1];
+        if (nextInGroup?.image_url) return nextInGroup.image_url.split('#')[0];
+        const nextGroup = storyGroups[groupIndex + 1];
+        if (nextGroup?.stories[0]?.image_url) return nextGroup.stories[0].image_url.split('#')[0];
+        return null;
+    }, [currentGroup, storyIndex, storyGroups, groupIndex]);
+
+    useEffect(() => {
+        if (!nextStoryMediaUrl) return;
+        if (isVideoUrl(nextStoryMediaUrl)) {
+            const v = document.createElement('video');
+            v.preload = 'auto';
+            v.src = nextStoryMediaUrl;
+            v.muted = true;
+            v.load();
+        } else {
+            const img = new Image();
+            img.src = nextStoryMediaUrl;
+        }
+    }, [nextStoryMediaUrl]);
 
     const effectiveUserId = currentUserId || authUser?.id;
     const isOwner = Boolean(
@@ -727,14 +751,19 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         src={cleanMediaUrl}
                         poster={posterUrlFromStory || undefined}
                         autoPlay
+                        preload="auto"
                         playsInline
                         muted={Boolean(currentStory.music_url || currentStory.music_title)}
                         className="story-image"
+                        onWaiting={() => setIsStoryBuffering(true)}
+                        onPlaying={() => setIsStoryBuffering(false)}
+                        onCanPlay={() => setIsStoryBuffering(false)}
                         onTimeUpdate={handleVideoTimeUpdate}
                         onEnded={handleVideoEnded}
                         onError={() => {
                             console.warn('Video failed to load in StoryViewer:', currentStory.id);
                             setVideoHasVisual(false);
+                            setIsStoryBuffering(false);
                         }}
                         style={{ 
                             filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none', 
@@ -744,6 +773,11 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             position: 'relative'
                         }}
                     />
+                    {isStoryBuffering && (
+                        <div className="reel-buffering-indicator">
+                            <div className="reel-spinner" />
+                        </div>
+                    )}
 
                     {/* Fallback Display if Video Element Failed to Load (Audio Plays Uninterrupted with Sharp Picture!) */}
                     {!videoHasVisual && (posterUrlFromStory || currentGroup.avatarUrl) && (

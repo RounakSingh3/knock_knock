@@ -2003,6 +2003,27 @@ body::before {
     }
 }
 
+/* Buffering / Loading spinner (Instagram style) */
+.reel-buffering-indicator {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 15;
+}
+
+.reel-spinner {
+    width: 44px;
+    height: 44px;
+    border: 3.5px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #f5a524;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+}
+
 /* Bottom gradient */
 .reel-gradient-bottom {
     position: absolute;

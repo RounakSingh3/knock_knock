@@ -130,6 +130,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const isPlayingMode = autoPlay || soundOn || controls;
     const [isLoaded, setIsLoaded] = useState(false);
+    const [isBuffering, setIsBuffering] = useState(false);
     const [hasError, setHasError] = useState(false);
     const [isAudioBlocked, setIsAudioBlocked] = useState(false);
     const [isAutoplayFallbackMuted, setIsAutoplayFallbackMuted] = useState(false);
@@ -807,7 +808,15 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 disableRemotePlayback={true}
                                 preload="auto"
                                 onError={() => {
+                                    setIsBuffering(false);
                                     handleMediaError();
+                                }}
+                                onWaiting={() => {
+                                    if (isPlayingMode) setIsBuffering(true);
+                                }}
+                                onPlaying={() => {
+                                    setIsBuffering(false);
+                                    setIsLoaded(true);
                                 }}
                                 onLoadedMetadata={() => {
                                     if (isPlayingMode && (autoPlay || soundOn)) {
@@ -815,12 +824,14 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     }
                                 }}
                                 onLoadedData={() => {
+                                    setIsBuffering(false);
                                     setIsLoaded(true);
                                     if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
                                         startPlayback();
                                     }
                                 }}
                                 onCanPlay={() => {
+                                    setIsBuffering(false);
                                     setIsLoaded(true);
                                     if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
                                         startPlayback();
@@ -912,6 +923,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             ) : (
                                 <Pause size={36} fill="#fff" color="#fff" />
                             )}
+                        </div>
+                    )}
+
+                    {/* Buffering spinner overlay in active playback mode */}
+                    {isBuffering && isPlayingMode && (
+                        <div className="reel-buffering-indicator">
+                            <div className="reel-spinner" />
                         </div>
                     )}
 

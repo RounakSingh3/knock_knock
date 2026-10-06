@@ -24,6 +24,7 @@ import {
 } from '../lib/database';
 import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { rankStoryGroups, getHybridInterestProfile, extractHashtags } from '../lib/algorithm';
+import { extractPosterFromUrl, videoPosterCache } from '../components/PostMedia';
 
 // ⚡ Lazy load heavy modals
 const StoryViewer = lazy(() => import('../components/StoryViewer'));
@@ -254,6 +255,12 @@ const Stories = () => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const isVideo = file.type.startsWith('video/');
+            if (isVideo && file.size > 50 * 1024 * 1024) {
+                alert(`This video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please choose a video under 50MB so it uploads and plays smoothly.`);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                if (nativeCameraInputRef.current) nativeCameraInputRef.current.value = '';
+                return;
+            }
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
                 streamRef.current = null;
@@ -915,22 +922,39 @@ const Stories = () => {
                                 style={{ cursor: 'pointer' }}
                                 onClick={() => openStoryViewer(story)}
                             >
-                                {isVideoUrl(story.image_url) ? (
-                                    <video 
-                                        src={`${story.image_url.split('#')[0]}#t=0.001`} 
-                                        preload="metadata" 
-                                        muted 
-                                        playsInline 
-                                        onError={(e) => {
-                                            const card = (e.target as HTMLElement).closest('.my-story-card');
-                                            if (card) (card as HTMLElement).style.opacity = '0.7';
-                                        }}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                                    />
-                                ) : (
+                                {isVideoUrl(story.image_url) ? (() => {
+                                    const cleanUrl = story.image_url.split('#')[0];
+                                    const poster = extractPosterFromUrl(story.image_url) || videoPosterCache.get(cleanUrl);
+                                    if (poster) {
+                                        return (
+                                            <img 
+                                                src={poster} 
+                                                alt="" 
+                                                loading="lazy" 
+                                                decoding="async" 
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                            />
+                                        );
+                                    }
+                                    return (
+                                        <video 
+                                            src={`${cleanUrl}#t=0.001`} 
+                                            preload="metadata" 
+                                            muted 
+                                            playsInline 
+                                            onError={(e) => {
+                                                const card = (e.target as HTMLElement).closest('.my-story-card');
+                                                if (card) (card as HTMLElement).style.opacity = '0.7';
+                                            }}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                        />
+                                    );
+                                })() : (
                                     <img 
                                         src={story.image_url?.split('#')[0] || ''} 
                                         alt="" 
+                                        loading="lazy"
+                                        decoding="async"
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.my-story-card');
                                             if (card) (card as HTMLElement).style.opacity = '0.7';
@@ -1056,23 +1080,39 @@ const Stories = () => {
                                 style={{ cursor: 'pointer' }}
                                 onClick={() => openStoryViewer(story)}
                             >
-                                {isVideoUrl(story.image_url) ? (
-                                    <video 
-                                        src={`${story.image_url.split('#')[0]}#t=0.001`} 
-                                        preload="metadata" 
-                                        muted 
-                                        playsInline 
-                                        onError={(e) => {
-                                            const card = (e.target as HTMLElement).closest('.boosted-story');
-                                            if (card) (card as HTMLElement).style.opacity = '0.7';
-                                        }}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                                    />
-                                ) : (
+                                {isVideoUrl(story.image_url) ? (() => {
+                                    const cleanUrl = story.image_url.split('#')[0];
+                                    const poster = extractPosterFromUrl(story.image_url) || videoPosterCache.get(cleanUrl);
+                                    if (poster) {
+                                        return (
+                                            <img 
+                                                src={poster} 
+                                                alt="Story" 
+                                                loading="lazy" 
+                                                decoding="async" 
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                            />
+                                        );
+                                    }
+                                    return (
+                                        <video 
+                                            src={`${cleanUrl}#t=0.001`} 
+                                            preload="metadata" 
+                                            muted 
+                                            playsInline 
+                                            onError={(e) => {
+                                                const card = (e.target as HTMLElement).closest('.boosted-story');
+                                                if (card) (card as HTMLElement).style.opacity = '0.7';
+                                            }}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                        />
+                                    );
+                                })() : (
                                     <img 
                                         src={story.image_url?.split('#')[0] || ''} 
                                         alt="Story" 
                                         loading="lazy" 
+                                        decoding="async"
                                         onError={(e) => {
                                             const card = (e.target as HTMLElement).closest('.boosted-story');
                                             if (card) (card as HTMLElement).style.opacity = '0.7';
