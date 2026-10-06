@@ -277,7 +277,8 @@ const Settings = () => {
                                         muted
                                         loop
                                         playsInline
-                                        autoPlay={isVideoPost(post)}
+                                        autoPlay={false}
+                                        thumbnail={true}
                                     />
                                     {isVideoPost(post) && (
                                         <div className="settings-video-badge">▶</div>
@@ -290,6 +291,8 @@ const Settings = () => {
                                         </div>
                                     </div>
                                     <button
+                                        type="button"
+                                        aria-label="Delete post"
                                         onClick={async (e) => {
                                             e.stopPropagation();
                                             if (confirm('Delete this post permanently?')) {
@@ -305,7 +308,7 @@ const Settings = () => {
                                             cursor: 'pointer', zIndex: 5,
                                         }}
                                     >
-                                        <span style={{ color: '#ff3b30', fontSize: '14px' }}>×</span>
+                                        <span style={{ color: '#ff3b30', fontSize: '14px', lineHeight: 1 }}>×</span>
                                     </button>
                                 </div>
                             ))}

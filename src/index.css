@@ -1791,7 +1791,7 @@ body::before {
 .login-container {
     width: 100%;
     max-width: 420px;
-    background: rgba(255, 255, 255, 0.05, 0.6);
+    background: rgba(255, 255, 255, 0.05);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     padding: 48px 32px;
@@ -3832,6 +3832,7 @@ body::before {
 
 .settings-container {
     padding: 16px;
+    padding-bottom: calc(110px + env(safe-area-inset-bottom, 20px));
     max-width: 500px;
     margin: 0 auto;
     display: flex;
@@ -3840,7 +3841,7 @@ body::before {
 }
 
 .profile-card-premium {
-    background: rgba(255, 255, 255, 0.05, 0.65);
+    background: rgba(255, 255, 255, 0.05);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--border-color);
@@ -3953,7 +3954,7 @@ body::before {
 .stats-grid-premium {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     padding-top: 16px;
@@ -3970,6 +3971,8 @@ body::before {
     border: 1px solid rgba(255, 255, 255, 0.04);
     border-radius: 16px;
     transition: all 0.2s ease;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .stat-box-premium:hover {
@@ -3980,13 +3983,24 @@ body::before {
 
 .stat-value-premium {
     font-family: 'Sora', sans-serif;
-    font-size: 1.05rem;
+    font-size: clamp(0.85rem, 3.2vw, 1.05rem);
     font-weight: 700;
     color: var(--text-active);
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
     margin-bottom: 2px;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stat-value-premium span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .stat-label-premium {
@@ -3995,10 +4009,11 @@ body::before {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    white-space: nowrap;
 }
 
 .settings-group-premium {
-    background: rgba(255, 255, 255, 0.05, 0.65);
+    background: rgba(255, 255, 255, 0.05);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--border-color);
@@ -4181,18 +4196,20 @@ body::before {
 
 .settings-video-badge {
     position: absolute;
-    top: 6px;
-    right: 6px;
-    background: rgba(0,0,0,0.5);
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
+    bottom: 6px;
+    left: 6px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border-radius: 6px;
+    padding: 2px 6px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 10px;
-    color: #fff;
+    color: #f5a524;
     pointer-events: none;
+    z-index: 2;
 }
 
 .settings-post-overlay {
@@ -4351,6 +4368,13 @@ select option {
         background: rgba(7, 7, 11, 0.96) !important;
     }
 
+    .profile-card-premium,
+    .settings-group-premium {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: rgba(18, 18, 24, 0.95) !important;
+    }
+
     .bottom-nav {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
@@ -4385,7 +4409,8 @@ select option {
     .explore-grid-item,
     .explore-item,
     .feed-item-card,
-    .post-card {
+    .post-card,
+    .settings-post-item {
         contain: layout paint;
     }
 
@@ -4395,6 +4420,8 @@ select option {
     .reels-page,
     .stories-page-v2,
     .home-page-v2,
+    .profile-page,
+    .settings-container,
     .post-modal-backdrop--fullscreen {
         -webkit-overflow-scrolling: touch;
     }
