@@ -58,73 +58,77 @@ export function getOptimizedImageUrl(url: string | null | undefined, width = 600
  * Compresses an image file client-side using HTML5 Canvas.
  * Resizes the image if it exceeds maxWidth/maxHeight, and outputs JPEG with specified quality.
  */
-export function compressImage(
+export async function compressImage(
     file: File,
-    maxWidth: number = 1200,
-    maxHeight: number = 1200,
+    maxWidth: number = 1080,
+    maxHeight: number = 1080,
     quality: number = 0.8
 ): Promise<File> {
-    return new Promise((resolve, reject) => {
-        if (!file.type.startsWith('image/')) {
-            return resolve(file); // Not an image, return original file
+    if (!file.type.startsWith('image/')) {
+        return file;
+    }
+
+    try {
+        let width: number;
+        let height: number;
+        let source: ImageBitmap | HTMLImageElement;
+
+        // ⚡ Fast path: Use createImageBitmap for off-thread hardware decoding (10x faster, zero base64 RAM overhead)
+        if (typeof createImageBitmap !== 'undefined') {
+            source = await createImageBitmap(file);
+            width = source.width;
+            height = source.height;
+        } else {
+            source = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+                img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image decode failed')); };
+                img.src = url;
+            });
+            width = source.width;
+            height = source.height;
         }
 
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target?.result as string;
-            img.onload = () => {
-                let width = img.width;
-                let height = img.height;
+        // Calculate aspect-ratio preserved dimensions (Instagram standard 1080px max)
+        if (width > height) {
+            if (width > maxWidth) {
+                height = Math.round((height * maxWidth) / width);
+                width = maxWidth;
+            }
+        } else {
+            if (height > maxHeight) {
+                width = Math.round((width * maxHeight) / height);
+                height = maxHeight;
+            }
+        }
 
-                // Calculate new dimensions while maintaining aspect ratio
-                if (width > height) {
-                    if (width > maxWidth) {
-                        height = Math.round((height * maxWidth) / width);
-                        width = maxWidth;
-                    }
-                } else {
-                    if (height > maxHeight) {
-                        width = Math.round((width * maxHeight) / height);
-                        height = maxHeight;
-                    }
-                }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return file;
 
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
+        ctx.drawImage(source, 0, 0, width, height);
 
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    return reject(new Error('Failed to get 2D context from canvas.'));
-                }
+        if ('close' in source && typeof (source as any).close === 'function') {
+            (source as any).close();
+        }
 
-                // Draw image on canvas
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // Export to Blob
-                canvas.toBlob(
-                    (blob) => {
-                        if (!blob) {
-                            return reject(new Error('Canvas compression failed.'));
-                        }
-                        const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || 'image';
-                        const fileName = `${nameWithoutExt}.jpg`;
-                        const compressedFile = new File([blob], fileName, {
-                            type: 'image/jpeg',
-                            lastModified: Date.now(),
-                        });
-                        resolve(compressedFile);
-                    },
-                    'image/jpeg',
-                    quality
-                );
-            };
-            img.onerror = (err) => reject(err);
-        };
-        reader.onerror = (err) => reject(err);
-    });
+        return await new Promise<File>((resolve) => {
+            canvas.toBlob((blob) => {
+                if (!blob) return resolve(file);
+                const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || 'image';
+                const fileName = `${nameWithoutExt}.jpg`;
+                resolve(new File([blob], fileName, {
+                    type: 'image/jpeg',
+                    lastModified: Date.now(),
+                }));
+            }, 'image/jpeg', quality);
+        });
+    } catch (_) {
+        return file;
+    }
 }
 
 /**

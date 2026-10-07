@@ -288,7 +288,7 @@ const CreatePost = () => {
                 const mediaType = getMediaTypeFromFile(selectedFile);
                 if (mediaType === 'image') {
                     try {
-                        const compressed = await compressImage(selectedFile, 1200, 1200, 0.8);
+                        const compressed = await compressImage(selectedFile, 1080, 1080, 0.8);
                         return { fileToUpload: compressed, videoPosterBlob: null, videoPosterDataUrl: null };
                     } catch (_) {
                         return { fileToUpload: selectedFile, videoPosterBlob: null, videoPosterDataUrl: null };
@@ -354,7 +354,7 @@ const CreatePost = () => {
             } else {
                 if (mediaType === 'image') {
                     try {
-                        fileToUpload = await compressImage(file, 1200, 1200, 0.8);
+                        fileToUpload = await compressImage(file, 1080, 1080, 0.8);
                     } catch (_) {}
                 } else if (mediaType === 'video') {
                     try {
@@ -372,18 +372,8 @@ const CreatePost = () => {
             const fileName = `${user.id}-${Date.now()}.${fileExt}`;
             const path = `posts/${fileName}`;
 
-            // ⚡ Parallel upload: upload video poster and main video simultaneously to halve network wait time!
-            const posterPromise = videoPosterBlob
-                ? uploadMedia(
-                    new File([videoPosterBlob], `${fileName.replace(/\.[^.]+$/, '')}.jpg`, { type: 'image/jpeg' }),
-                    `posts/posters/${fileName.replace(/\.[^.]+$/, '')}.jpg`
-                ).catch((pe) => {
-                    console.warn('Failed to upload video poster in background:', pe);
-                    return undefined;
-                })
-                : Promise.resolve(undefined);
-
-            const videoUploadPromise = uploadMedia(fileToUpload, path, (progress) => {
+            // ⚡ Dedicated high-speed upload: Give 100% network bandwidth to main media with active progress
+            const publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
                 const total = progress.total || fileToUpload.size || 1;
                 const percentage = Math.min(100, Math.round((progress.loaded / total) * 100));
                 const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
@@ -391,17 +381,25 @@ const CreatePost = () => {
                 setUploadProgress({ percentage, loadedMB, totalMB });
             });
 
-            const [uploadedPosterUrl, publicUrl] = await Promise.all([
-                posterPromise,
-                videoUploadPromise
-            ]);
-
-            if (!publicUrl || publicUrl.startsWith('data:video/')) {
+            if (!publicUrl || publicUrl.startsWith('blob:') || publicUrl.startsWith('data:video/')) {
                 throw new Error('Media upload failed. Please check your internet connection and try again.');
             }
 
+            // ⚡ Background poster frame upload: does not block post creation or steal main bandwidth
+            if (videoPosterBlob) {
+                const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
+                uploadMedia(
+                    new File([videoPosterBlob], posterFileName, { type: 'image/jpeg' }),
+                    `posts/posters/${posterFileName}`
+                ).then(posterUrl => {
+                    if (posterUrl && !posterUrl.startsWith('blob:')) {
+                        videoPosterCache.set(publicUrl.split('#')[0], posterUrl);
+                    }
+                }).catch(() => {});
+            }
+
             let finalUrl = publicUrl;
-            const effectivePoster = uploadedPosterUrl || (videoPosterDataUrl && videoPosterDataUrl.length < 50000 ? videoPosterDataUrl : undefined);
+            const effectivePoster = (videoPosterDataUrl && videoPosterDataUrl.length < 50000 ? videoPosterDataUrl : undefined);
             if (effectivePoster) {
                 finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(effectivePoster)}`;
                 videoPosterCache.set(finalUrl.split('#')[0], effectivePoster);
