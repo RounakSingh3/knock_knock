@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, Volume2, VolumeX, Coins, Rocket, Check } from 'lucide-react';
+import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, Volume2, VolumeX, Coins, Rocket, Check, Film } from 'lucide-react';
 import PostMedia from './PostMedia';
 import { AppContext } from '../context/AppContext';
-import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, type PostData } from '../lib/database';
+import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, isKnockVideoLink, parseKnockVideoLink, type PostData } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
+import ConnectedVideoModal, { type ConnectedVideoData } from './ConnectedVideoModal';
 
 // Helper to format time
 function getTimeAgo(dateStr: string) {
@@ -70,6 +71,56 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     const [boostPointsAmount, setBoostPointsAmount] = useState(10);
     const [isBoostingPost, setIsBoostingPost] = useState(false);
     const [boostPostToast, setBoostPostToast] = useState<string | null>(null);
+
+    // 🎬 Connected Knock Video Modal & Swipe Left Feature
+    const [connectedVideoModal, setConnectedVideoModal] = useState<ConnectedVideoData | null>(null);
+    const touchStartPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
+
+    const hasAttachedVideo = Boolean(post.attached_link && isKnockVideoLink(post.attached_link));
+
+    const handleOpenConnectedVideo = () => {
+        if (!post.attached_link) return;
+        const parsed = parseKnockVideoLink(post.attached_link);
+        if (parsed) {
+            setConnectedVideoModal(parsed);
+        } else if (isKnockVideoLink(post.attached_link)) {
+            setConnectedVideoModal({ videoUrl: post.attached_link, caption: post.caption || 'Knock Knock Video' });
+        } else {
+            window.open(post.attached_link, '_blank', 'noopener,noreferrer');
+        }
+    };
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (e.touches[0]) {
+            touchStartPosRef.current = {
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY,
+                time: Date.now()
+            };
+        }
+    };
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (!touchStartPosRef.current || !e.changedTouches[0]) return;
+        const diffX = e.changedTouches[0].clientX - touchStartPosRef.current.x;
+        const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
+        touchStartPosRef.current = null;
+
+        // Horizontal swipe (> 35px displacement and more horizontal than vertical)
+        if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
+            if (diffX < 0) {
+                // Swipe LEFT 👈 -> Open Connected Video
+                if (hasAttachedVideo) {
+                    handleOpenConnectedVideo();
+                }
+            } else if (diffX > 0) {
+                // Swipe RIGHT 👉 -> Dismiss video overlay if open
+                if (connectedVideoModal) {
+                    setConnectedVideoModal(null);
+                }
+            }
+        }
+    };
 
     const handleBoostPost = async () => {
         if (!user || !post || isBoostingPost || boostPointsAmount <= 0) return;
@@ -145,7 +196,13 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     };
 
     return (
-        <div className="post-modal post-modal--fullscreen" onClick={(e) => e.stopPropagation()} style={isEmbedded ? { height: '100%', width: '100%', maxHeight: '100%', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden' } : undefined}>
+        <div 
+            className="post-modal post-modal--fullscreen" 
+            onClick={(e) => e.stopPropagation()} 
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            style={isEmbedded ? { height: '100%', width: '100%', maxHeight: '100%', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden', touchAction: 'manipulation' } : { touchAction: 'manipulation' }}
+        >
             <div className="modal-top-bar">
                 <div className="modal-user-row">
                     <img
@@ -168,14 +225,14 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     <X size={22} />
                 </button>
             </div>
-            <div className="modal-media-stage" style={isEmbedded ? { position: 'absolute', inset: 0, zIndex: 1 } : { position: 'relative' }}>
+            <div className="modal-media-stage" style={isEmbedded ? { position: 'absolute', inset: 0, zIndex: 1, touchAction: 'pan-y' } : { position: 'relative', touchAction: 'pan-y' }}>
                 <PostMedia
                     post={post}
                     className="modal-image"
                     playsInline
-                    autoPlay={isActive}
-                    soundOn={isActive && !effectiveMuted}
-                    muted={effectiveMuted || !isActive}
+                    autoPlay={isActive && !connectedVideoModal}
+                    soundOn={isActive && !effectiveMuted && !connectedVideoModal}
+                    muted={effectiveMuted || !isActive || Boolean(connectedVideoModal)}
                     loop={true}
                     thumbnail={false}
                     objectFit="contain"
@@ -210,6 +267,39 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                 >
                     {effectiveMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                 </button>
+                {hasAttachedVideo && (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenConnectedVideo();
+                        }}
+                        style={{
+                            position: 'absolute',
+                            bottom: (post.music_url || post.music_title) ? '64px' : '16px',
+                            right: '16px',
+                            zIndex: 15,
+                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95), rgba(255, 107, 53, 0.95))',
+                            border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                            borderRadius: '16px',
+                            padding: '6px 12px',
+                            color: '#000',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 15px rgba(245, 165, 36, 0.5)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                        }}
+                        title="Swipe left or tap to watch connected video"
+                    >
+                        <Film size={14} color="#000" strokeWidth={2.4} />
+                        <span>Swipe Left 👈</span>
+                    </button>
+                )}
                 {(post.music_url || post.music_title) && (
                     <div style={{
                         position: 'absolute', bottom: '16px', left: '16px', zIndex: 10,
@@ -257,7 +347,50 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                         })}
                     </p>
                 )}
-                {post.attached_link && (
+                {hasAttachedVideo ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenConnectedVideo();
+                        }}
+                        style={{
+                            pointerEvents: 'auto',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            width: '100%',
+                            maxWidth: '360px',
+                            padding: '10px 16px',
+                            marginBottom: '10px',
+                            borderRadius: '16px',
+                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95) 0%, rgba(255, 107, 53, 0.95) 100%)',
+                            color: '#000',
+                            fontWeight: 800,
+                            fontSize: '12px',
+                            border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                            boxShadow: '0 4px 18px rgba(245, 165, 36, 0.4)',
+                            cursor: 'pointer',
+                            transition: 'transform 0.15s ease'
+                        }}
+                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
+                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Film size={16} color="#000" strokeWidth={2.4} />
+                            <span>Watch Connected Video</span>
+                        </div>
+                        <span style={{
+                            background: 'rgba(0, 0, 0, 0.25)',
+                            padding: '3px 8px',
+                            borderRadius: '10px',
+                            fontSize: '10px',
+                            fontWeight: 900
+                        }}>
+                            Swipe Left 👈
+                        </span>
+                    </button>
+                ) : post.attached_link ? (
                     <a
                         href={post.attached_link}
                         target="_blank"
@@ -267,7 +400,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     >
                         <LinkIcon size={14} /> {post.attached_link}
                     </a>
-                )}
+                ) : null}
                 <div className="modal-actions" style={isEmbedded ? { pointerEvents: 'auto' } : undefined}>
                     <button
                         className={`modal-action-btn ${isLiked ? 'liked' : ''}`}
@@ -479,6 +612,15 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                 }}>
                     <Check size={16} /> {boostPostToast}
                 </div>
+            )}
+
+            {/* Connected Knock Video Player Overlay */}
+            {connectedVideoModal && (
+                <ConnectedVideoModal
+                    video={connectedVideoModal}
+                    onClose={() => setConnectedVideoModal(null)}
+                    zIndex={100060}
+                />
             )}
         </div>
     );

@@ -49,6 +49,7 @@ import {
     notifyMentionedUsersInText,
     fetchUserEngagements,
     deduplicateStories,
+    normalizeStory,
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
@@ -56,6 +57,7 @@ import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractV
 import { rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
+import ConnectedVideoModal, { type ConnectedVideoData } from '../components/ConnectedVideoModal';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 import KnockVideoPickerModal, { type KnockVideoItem } from '../components/KnockVideoPickerModal';
 import UploadRewardModal from '../components/UploadRewardModal';
@@ -127,6 +129,7 @@ interface BoostStoryCardProps {
     isBig: boolean;
     onOpen: (story: StoryData) => void;
     onCardRef: (id: string, el: HTMLElement | null) => void;
+    onOpenConnectedVideo?: (story: StoryData) => void;
 }
 
 const BoostStoryCard = React.memo(function BoostStoryCard({
@@ -134,16 +137,55 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
     isBig,
     onOpen,
     onCardRef,
+    onOpenConnectedVideo,
 }: BoostStoryCardProps) {
     const isVideo = isVideoUrl(story.image_url);
     const isBoosted = story.is_boosted;
     const filterStyle = FILTERS.find(f => f.name === story.filter_name)?.style || 'none';
+
+    const attachedLink = story.link_url || (story as any).attached_link || (() => {
+        if (story.image_url && story.image_url.includes('#LINK:')) {
+            const m = story.image_url.match(/#LINK:([^#]+)/);
+            if (m && m[1]) {
+                try { return decodeURIComponent(m[1].split('|')[0]); } catch { return m[1].split('|')[0]; }
+            }
+        }
+        return undefined;
+    })();
+    const hasAttachedVideo = Boolean(attachedLink && isKnockVideoLink(attachedLink));
+
+    const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+    const handleCardTouchStart = (e: React.TouchEvent) => {
+        if (e.touches[0]) {
+            touchStartPosRef.current = {
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY,
+            };
+        }
+    };
+
+    const handleCardTouchEnd = (e: React.TouchEvent) => {
+        if (!touchStartPosRef.current || !e.changedTouches[0]) return;
+        const diffX = e.changedTouches[0].clientX - touchStartPosRef.current.x;
+        const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
+        touchStartPosRef.current = null;
+
+        // Swipe LEFT 👈 (> 35px displacement and greater horizontal than vertical)
+        if (diffX < -35 && Math.abs(diffX) > Math.abs(diffY)) {
+            if (hasAttachedVideo) {
+                onOpenConnectedVideo?.(story);
+            }
+        }
+    };
 
     return (
         <div
             ref={el => onCardRef(story.id, el)}
             data-story-id={story.id}
             onClick={() => onOpen(story)}
+            onTouchStart={handleCardTouchStart}
+            onTouchEnd={handleCardTouchEnd}
             style={{
                 aspectRatio: '1',
                 gridColumn: isBig ? 'span 2' : 'span 1',
@@ -154,7 +196,8 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
                 borderRadius: '4px',
                 background: '#18181b',
                 contain: 'layout paint',
-                transition: 'transform 0.15s ease'
+                transition: 'transform 0.15s ease',
+                touchAction: 'manipulation'
             }}
             onMouseEnter={e => {
                 e.currentTarget.style.transform = 'scale(0.98)';
@@ -203,8 +246,43 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
                 </div>
             )}
 
+            {/* Attached Knock Video (Swipe Left Feature) Badge */}
+            {hasAttachedVideo && (
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenConnectedVideo?.(story);
+                    }}
+                    style={{
+                        position: 'absolute',
+                        top: isBig ? '10px' : '6px',
+                        left: isBig ? '10px' : '6px',
+                        zIndex: 5,
+                        background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95), rgba(255, 107, 53, 0.95))',
+                        color: '#000',
+                        border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                        borderRadius: isBig ? '14px' : '10px',
+                        padding: isBig ? '4px 8px' : '2px 6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: isBig ? '11px' : '9px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 15px rgba(245, 165, 36, 0.5)',
+                        backdropFilter: 'blur(8px)',
+                        WebkitBackdropFilter: 'blur(8px)',
+                    }}
+                    title="Swipe left or tap to watch connected video"
+                >
+                    <Film size={isBig ? 12 : 10} color="#000" strokeWidth={2.5} />
+                    <span>Swipe Left 👈</span>
+                </button>
+            )}
+
             {/* Sponsored / Ad Badge */}
-            {story.is_sponsored && (
+            {story.is_sponsored && !hasAttachedVideo && (
                 <div style={{
                     position: 'absolute',
                     top: isBig ? '10px' : '6px',
@@ -260,7 +338,7 @@ const Boost: React.FC = () => {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) {
                     const now = Date.now();
-                    const valid = parsed.filter((s: StoryData) => {
+                    const valid = parsed.map(normalizeStory).filter((s: StoryData) => {
                         if (!s || isSeedStory(s) || !s.created_at) return false;
                         const msOld = now - new Date(s.created_at).getTime();
                         return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
@@ -282,6 +360,26 @@ const Boost: React.FC = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [filterTab, setFilterTab] = useState<'all' | 'boosted' | 'friends' | 'videos'>('all');
     const [userFriends, setUserFriends] = useState<string[]>([]);
+
+    // Connected Knock Video Modal for card-level left swipes
+    const [connectedCardVideo, setConnectedCardVideo] = useState<ConnectedVideoData | null>(null);
+
+    const handleOpenConnectedVideo = useCallback((story: StoryData) => {
+        let link = story.link_url || (story as any).attached_link;
+        if (!link && story.image_url && story.image_url.includes('#LINK:')) {
+            const m = story.image_url.match(/#LINK:([^#]+)/);
+            if (m && m[1]) {
+                try { link = decodeURIComponent(m[1].split('|')[0]); } catch { link = m[1].split('|')[0]; }
+            }
+        }
+        if (!link) return;
+        const parsed = parseKnockVideoLink(link);
+        if (parsed) {
+            setConnectedCardVideo(parsed);
+        } else if (isKnockVideoLink(link)) {
+            setConnectedCardVideo({ videoUrl: link, caption: story.caption || 'Knock Knock Video' });
+        }
+    }, []);
 
     // Instagram Explore Hashtags & Search States
     const [searchQuery, setSearchQuery] = useState('');
@@ -1495,6 +1593,7 @@ const Boost: React.FC = () => {
                                             isBig={isBig}
                                             onOpen={handleOpenStory}
                                             onCardRef={handleCardRef}
+                                            onOpenConnectedVideo={handleOpenConnectedVideo}
                                         />
                                     );
                                 })}
@@ -2338,6 +2437,15 @@ const Boost: React.FC = () => {
                 uploadType="knockup"
                 onClose={() => setShowRewardModal(false)}
             />
+
+            {/* ── Connected Knock Video Modal (Card Swipe Left / Tap) ── */}
+            {connectedCardVideo && (
+                <ConnectedVideoModal
+                    video={connectedCardVideo}
+                    onClose={() => setConnectedCardVideo(null)}
+                    zIndex={100060}
+                />
+            )}
         </div>
     );
 };

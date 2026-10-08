@@ -731,18 +731,35 @@ export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[
 
 export async function fetchPostById(id: string): Promise<PostData | null> {
     if (!id) return null;
+    const strId = String(id);
     try {
-        const { data, error } = await supabase
-            .from('posts')
-            .select('*')
-            .eq('id', id)
-            .maybeSingle();
+        if (!isSupabaseQuotaRestricted()) {
+            const { data, error } = await supabase
+                .from('posts')
+                .select('*')
+                .eq('id', strId)
+                .maybeSingle();
 
-        if (error || !data) return null;
-        return normalizePost(data);
+            if (!error && data) {
+                return normalizePost(data);
+            }
+        }
     } catch (e) {
-        return null;
+        // Fall back to local search
     }
+
+    // Check local posts and fallback cache
+    try {
+        const local = getLocalPosts();
+        const foundLocal = local.find(p => String(p.id) === strId);
+        if (foundLocal) return normalizePost(foundLocal);
+
+        const fallback = mergePostsWithFallback([]);
+        const foundFallback = fallback.find(p => String(p.id) === strId);
+        if (foundFallback) return normalizePost(foundFallback);
+    } catch (_) {}
+
+    return null;
 }
 
 /** Formats a Knock Knock video attachment into a standardized internal link */
@@ -763,11 +780,14 @@ export function formatKnockVideoLink(video: {
 /** Checks whether a link URL points to a Knock Knock video or reel */
 export function isKnockVideoLink(url?: string | null): boolean {
     if (!url) return false;
-    const u = url.toLowerCase();
-    if (u.includes('/reels') || u.includes('kk:video:')) {
+    const u = url.toLowerCase().trim();
+    if (u.includes('/reels') || u.includes('/video') || u.includes('kk:video:')) {
         return true;
     }
-    if (/\.(mp4|webm|mov)(\?.*)?$/i.test(url)) {
+    if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(url) || isVideoUrl(url)) {
+        return true;
+    }
+    if (u.includes('?v=') || u.includes('&v=') || u.includes('?video=') || u.includes('&video=')) {
         return true;
     }
     return false;
@@ -782,21 +802,22 @@ export function parseKnockVideoLink(url?: string | null): {
 } | null {
     if (!url) return null;
     try {
-        if (url.includes('/reels')) {
-            const queryIndex = url.indexOf('?');
-            const queryString = queryIndex !== -1 ? url.slice(queryIndex + 1) : '';
+        const trimmed = url.trim();
+        if (trimmed.includes('/reels') || trimmed.includes('/video') || trimmed.includes('?v=') || trimmed.includes('&v=')) {
+            const queryIndex = trimmed.indexOf('?');
+            const queryString = queryIndex !== -1 ? trimmed.slice(queryIndex + 1) : '';
             const params = new URLSearchParams(queryString);
-            const id = params.get('id') || undefined;
-            const videoUrl = params.get('v') || undefined;
-            const caption = params.get('caption') || undefined;
-            const username = params.get('user') || undefined;
+            const id = params.get('id') || params.get('postId') || undefined;
+            const videoUrl = params.get('v') || params.get('url') || params.get('video') || params.get('media') || undefined;
+            const caption = params.get('caption') || params.get('desc') || undefined;
+            const username = params.get('user') || params.get('username') || params.get('author') || undefined;
             return { id, videoUrl, caption, username };
         }
-        if (url.startsWith('kk:video:')) {
-            return { id: url.replace('kk:video:', '').trim() };
+        if (trimmed.startsWith('kk:video:')) {
+            return { id: trimmed.replace('kk:video:', '').trim() };
         }
-        if (/\.(mp4|webm|mov)(\?.*)?$/i.test(url)) {
-            return { videoUrl: url };
+        if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(trimmed) || isVideoUrl(trimmed)) {
+            return { videoUrl: trimmed };
         }
     } catch (_) {}
     return null;
@@ -1658,55 +1679,51 @@ export interface StoryData {
     screens_delivered?: number;
     points_spent?: number;
     link_url?: string;
+    attached_link?: string;
     link_cta?: string;
     is_sponsored?: boolean;
 }
 
 export function normalizeStory(story: StoryData): StoryData {
     if (!story) return story;
-    let image_url = story.image_url || '';
+    const rawUrl = story.image_url || '';
+    const cleanBaseUrl = rawUrl.split('#')[0];
+
     let poster_url = story.poster_url;
     let music_url = story.music_url;
     let music_title = story.music_title;
     let music_artist = story.music_artist;
     let boost_meta: BoostReachMeta | undefined = story.boost_meta;
-    let link_url = story.link_url;
-    let link_cta = story.link_cta || 'Learn More';
+    let link_url = story.link_url || (story as any).attached_link || (story as any).link || (story as any).ad_link_url;
+    let link_cta = story.link_cta || (story as any).link_cta || 'Watch Connected Video';
     let is_sponsored = story.is_sponsored || false;
 
-    if (image_url.includes('#POSTER:')) {
-        const parts = image_url.split('#POSTER:');
-        image_url = parts[0];
-        const posterData = parts[1]?.split('#')[0];
-        if (posterData) {
-            try {
-                poster_url = decodeURIComponent(posterData);
-            } catch (_) {
-                poster_url = posterData;
-            }
+    // 1. Independent extraction of #POSTER:
+    const posterMatch = rawUrl.match(/#POSTER:([^#]+)/);
+    if (posterMatch && posterMatch[1]) {
+        try {
+            poster_url = decodeURIComponent(posterMatch[1]);
+        } catch (_) {
+            poster_url = posterMatch[1];
         }
     }
 
-    if (image_url.includes('#LINK:')) {
-        const parts = image_url.split('#LINK:');
-        image_url = parts[0];
-        const linkData = parts[1]?.split('#')[0];
-        if (linkData) {
-            const match = linkData.match(/([^|]+)\|([^|]*)\|([^|]*)/);
-            if (match) {
-                try {
-                    link_url = decodeURIComponent(match[1]);
-                    link_cta = decodeURIComponent(match[2]) || 'Learn More';
-                    is_sponsored = match[3] === '1';
-                } catch {
-                    link_url = match[1];
-                    link_cta = match[2] || 'Learn More';
-                    is_sponsored = match[3] === '1';
-                }
-            }
+    // 2. Independent extraction of #LINK:
+    const linkMatch = rawUrl.match(/#LINK:([^#]+)/);
+    if (linkMatch && linkMatch[1]) {
+        const linkParts = linkMatch[1].split('|');
+        try {
+            link_url = decodeURIComponent(linkParts[0]);
+            link_cta = decodeURIComponent(linkParts[1] || '') || link_cta;
+            is_sponsored = linkParts[2] === '1';
+        } catch {
+            link_url = linkParts[0];
+            link_cta = linkParts[1] || link_cta;
+            is_sponsored = linkParts[2] === '1';
         }
     }
 
+    // Fallback: extract link from caption if not explicitly present
     if (!link_url && story.caption) {
         const urlMatch = story.caption.match(/(https?:\/\/[^\s]+)/i);
         if (urlMatch) {
@@ -1715,44 +1732,34 @@ export function normalizeStory(story: StoryData): StoryData {
         }
     }
 
-    if (image_url.includes('#BOOST:')) {
-        const parts = image_url.split('#BOOST:');
-        image_url = parts[0];
-        const boostData = parts[1]?.split('#')[0];
-        if (boostData) {
-            const match = boostData.match(/^([0-9]+)\|([0-9]+)\|([0-9]+)/);
-            if (match) {
-                const target = parseInt(match[1], 10) || 0;
-                const friends = parseInt(match[2], 10) || 0;
-                const points = parseInt(match[3], 10) || 0;
-                boost_meta = {
-                    targetScreens: target,
-                    friendsCount: friends,
-                    pointsSpent: points,
-                    screensDelivered: 0,
-                };
-            }
-        }
+    // 3. Independent extraction of #BOOST:
+    const boostMatch = rawUrl.match(/#BOOST:([^#]+)/);
+    if (boostMatch && boostMatch[1]) {
+        const boostParts = boostMatch[1].split('|');
+        const target = parseInt(boostParts[0], 10) || 0;
+        const friends = parseInt(boostParts[1], 10) || 0;
+        const points = parseInt(boostParts[2], 10) || 0;
+        boost_meta = {
+            targetScreens: target,
+            friendsCount: friends,
+            pointsSpent: points,
+            screensDelivered: 0,
+        };
     }
 
-    if (image_url.includes('#MUSIC:')) {
-        const parts = image_url.split('#MUSIC:');
-        image_url = parts[0];
-        const musicData = parts[1];
-        if (musicData) {
-            const match = musicData.match(/([^|]+)\|([^|]*)\|([^|]*)/);
-            if (match) {
-                if (!music_url) {
-                    try {
-                        music_url = decodeURIComponent(match[1]);
-                        music_title = decodeURIComponent(match[2]) || 'Song';
-                        music_artist = decodeURIComponent(match[3]) || '';
-                    } catch (e) {
-                        music_url = match[1];
-                        music_title = match[2] || 'Song';
-                        music_artist = match[3] || '';
-                    }
-                }
+    // 4. Independent extraction of #MUSIC:
+    const musicMatch = rawUrl.match(/#MUSIC:([^#]+)/);
+    if (musicMatch && musicMatch[1]) {
+        const musicParts = musicMatch[1].split('|');
+        if (!music_url) {
+            try {
+                music_url = decodeURIComponent(musicParts[0]);
+                music_title = decodeURIComponent(musicParts[1] || '') || 'Song';
+                music_artist = decodeURIComponent(musicParts[2] || '') || '';
+            } catch {
+                music_url = musicParts[0];
+                music_title = musicParts[1] || 'Song';
+                music_artist = musicParts[2] || '';
             }
         }
     }
@@ -1802,10 +1809,9 @@ export function normalizeStory(story: StoryData): StoryData {
         boost_meta.screensDelivered = Math.min(boost_meta.targetScreens, screensDelivered);
     }
 
-    const cleanBaseUrl = image_url.split('#')[0];
     const finalImageUrlWithPoster = poster_url
         ? `${cleanBaseUrl}#POSTER:${encodeURIComponent(poster_url)}`
-        : (image_url.includes('#POSTER:') ? image_url : cleanBaseUrl);
+        : cleanBaseUrl;
 
     return {
         ...story,
@@ -1819,6 +1825,7 @@ export function normalizeStory(story: StoryData): StoryData {
         screens_delivered: boost_meta?.screensDelivered,
         points_spent: boost_meta?.pointsSpent,
         link_url,
+        attached_link: link_url,
         link_cta,
         is_sponsored,
     };
@@ -2078,6 +2085,22 @@ export async function createStory(
         invalidateCache('24h_boost_stories');
         return { error: null };
     }
+    // Also mirror to local fallback storage for instant cache access
+    saveFallbackStory({
+        id: `story-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        user_id: userId,
+        image_url: imageUrl,
+        filter_name: filterName,
+        is_boosted: isBoosted,
+        username: username || 'You',
+        caption: caption,
+        music_title: musicTitle,
+        music_artist: musicArtist,
+        music_url: musicUrl,
+        created_at: new Date().toISOString(),
+    });
+    invalidateCache('recent_stories');
+    invalidateCache('24h_boost_stories');
     return { error: null };
 }
 

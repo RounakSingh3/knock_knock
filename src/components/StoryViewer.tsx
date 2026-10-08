@@ -5,6 +5,7 @@ import { AppContext } from '../context/AppContext';
 import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap, isKnockVideoLink, parseKnockVideoLink, fetchPostById, givePointsToContent } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 import { recordImplicitSignal, recordBoostSignal, extractHashtags } from '../lib/algorithm';
+import ConnectedVideoModal from './ConnectedVideoModal';
 
 // Map filter names stored in DB to actual CSS filter values
 const FILTER_MAP: Record<string, string> = {
@@ -150,19 +151,36 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const touchStartPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
     const mouseStartPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
+    const getStoryLink = useCallback((story: StoryData | null | undefined): string | undefined => {
+        if (!story) return undefined;
+        let link = story.link_url || (story as any)?.attached_link || (story as any)?.link || (story as any)?.ad_link_url;
+        if (!link && story.image_url && story.image_url.includes('#LINK:')) {
+            const m = story.image_url.match(/#LINK:([^#]+)/);
+            if (m && m[1]) {
+                try {
+                    link = decodeURIComponent(m[1].split('|')[0]);
+                } catch {
+                    link = m[1].split('|')[0];
+                }
+            }
+        }
+        return link;
+    }, []);
+
     const handleOpenLinkedVideo = useCallback(() => {
-        if (!currentStory?.link_url) return;
+        const link = getStoryLink(currentStory);
+        if (!link) return;
         setIsPaused(true);
 
-        const parsed = parseKnockVideoLink(currentStory.link_url);
+        const parsed = parseKnockVideoLink(link);
         if (parsed) {
             setConnectedVideoModal(parsed);
-        } else if (isKnockVideoLink(currentStory.link_url)) {
-            setConnectedVideoModal({ videoUrl: currentStory.link_url, caption: 'Knock Knock Video' });
+        } else if (isKnockVideoLink(link)) {
+            setConnectedVideoModal({ videoUrl: link, caption: 'Knock Knock Video' });
         } else {
-            window.open(currentStory.link_url, '_blank', 'noopener,noreferrer');
+            window.open(link, '_blank', 'noopener,noreferrer');
         }
-    }, [currentStory]);
+    }, [currentStory, getStoryLink]);
 
     // Resolve video URL if only ID was stored in the link
     useEffect(() => {
@@ -507,11 +525,13 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         const elapsed = Date.now() - touchStartPosRef.current.time;
         touchStartPosRef.current = null;
 
-        // Horizontal swipe (> 45px displacement and greater than vertical)
-        if (Math.abs(diffX) > 45 && Math.abs(diffX) > Math.abs(diffY)) {
+        const effectiveLink = getStoryLink(currentStory);
+
+        // Horizontal swipe (> 35px displacement and greater horizontal than vertical)
+        if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
             if (diffX < 0) {
                 // Swipe LEFT 👈 -> Open Connected Video or advance
-                if (currentStory?.link_url) {
+                if (effectiveLink) {
                     handleOpenLinkedVideo();
                 } else {
                     handleNextStory();
@@ -553,10 +573,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         const elapsed = Date.now() - mouseStartPosRef.current.time;
         mouseStartPosRef.current = null;
 
+        const effectiveLink = getStoryLink(currentStory);
+
         // Mouse drag left/right
-        if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
+        if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
             if (diffX < 0) {
-                if (currentStory?.link_url) {
+                if (effectiveLink) {
                     handleOpenLinkedVideo();
                 } else {
                     handleNextStory();
@@ -587,7 +609,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             onTouchEnd={handleTouchEnd}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
-            style={{ touchAction: 'pan-y' }}
+            style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }}
         >
             {/* Progress Bars */}
             <div className="story-progress-container">
@@ -770,7 +792,8 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             objectFit: 'contain',
                             width: '100%',
                             height: '100%',
-                            position: 'relative'
+                            position: 'relative',
+                            pointerEvents: 'none'
                         }}
                     />
                     {isStoryBuffering && (
@@ -833,7 +856,10 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         console.warn('Image failed to load in StoryViewer:', currentStory.id);
                         handleNextStory();
                     }}
-                    style={{ filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none' }}
+                    style={{ 
+                        filter: currentStory.filter_name ? (FILTER_MAP[currentStory.filter_name] || 'none') : 'none',
+                        pointerEvents: 'none'
+                    }}
                 />
             )}
 
@@ -910,108 +936,115 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             )}
 
             {/* 📢 Connected Video (Swipe Left Feature) or Instagram-Style Advertisement Bar */}
-            {currentStory.link_url && (
-                <div style={{
-                    position: 'absolute',
-                    bottom: (currentStory.music_url || currentStory.music_title) ? '180px' : '95px',
-                    left: '16px',
-                    right: '16px',
-                    zIndex: 110,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    pointerEvents: 'auto'
-                }}>
-                    {isKnockVideoLink(currentStory.link_url) ? (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenLinkedVideo();
-                            }}
-                            style={{
-                                width: '100%',
-                                maxWidth: '380px',
-                                background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95) 0%, rgba(255, 107, 53, 0.95) 100%)',
-                                backdropFilter: 'blur(16px)',
-                                border: '1.5px solid rgba(255, 255, 255, 0.45)',
-                                borderRadius: '18px',
-                                padding: '11px 18px',
-                                color: '#000',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                boxShadow: '0 8px 30px rgba(245, 165, 36, 0.45), 0 0 15px rgba(245, 165, 36, 0.3)',
-                                cursor: 'pointer',
-                                fontWeight: 800,
-                                transition: 'transform 0.15s ease'
-                            }}
-                            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
-                            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-                        >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Film size={18} color="#000" strokeWidth={2.4} />
-                                <span style={{ fontSize: '0.92rem', letterSpacing: '0.2px' }}>
-                                    {currentStory.link_cta || 'Watch Connected Video'}
-                                </span>
-                            </div>
-                            <span style={{
-                                fontSize: '0.72rem',
-                                background: 'rgba(0,0,0,0.25)',
-                                color: '#000',
-                                padding: '3px 8px',
-                                borderRadius: '12px',
-                                fontWeight: 800
-                            }}>
-                                Swipe Left 👈
-                            </span>
-                        </button>
-                    ) : (
-                        <a
-                            href={currentStory.link_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                                width: '100%',
-                                maxWidth: '380px',
-                                background: 'linear-gradient(135deg, rgba(255, 51, 102, 0.95) 0%, rgba(245, 165, 36, 0.95) 100%)',
-                                backdropFilter: 'blur(16px)',
-                                border: '1px solid rgba(255, 255, 255, 0.35)',
-                                borderRadius: '16px',
-                                padding: '11px 18px',
-                                color: '#fff',
-                                textDecoration: 'none',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                boxShadow: '0 8px 30px rgba(255, 51, 102, 0.45)',
-                                cursor: 'pointer',
-                                fontWeight: 700,
-                                transition: 'transform 0.15s ease'
-                            }}
-                        >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <ExternalLink size={16} color="#fff" />
-                                <span style={{ fontSize: '0.92rem', letterSpacing: '0.2px' }}>
-                                    {currentStory.link_cta || 'Learn More'}
-                                </span>
-                                {currentStory.is_sponsored && (
-                                    <span style={{
-                                        fontSize: '0.65rem',
-                                        background: 'rgba(0,0,0,0.35)',
-                                        padding: '2px 6px',
-                                        borderRadius: '6px',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.5px'
-                                    }}>
-                                        Sponsored Ad
+            {(() => {
+                const storyLink = getStoryLink(currentStory);
+                if (!storyLink) return null;
+                const isKnockVid = isKnockVideoLink(storyLink);
+                return (
+                    <div style={{
+                        position: 'absolute',
+                        bottom: (currentStory.music_url || currentStory.music_title) ? '180px' : '95px',
+                        left: '16px',
+                        right: '16px',
+                        zIndex: 110,
+                        display: 'flex',
+                        justifyContent: 'center',
+                        pointerEvents: 'auto'
+                    }}>
+                        {isKnockVid ? (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenLinkedVideo();
+                                }}
+                                style={{
+                                    width: '100%',
+                                    maxWidth: '380px',
+                                    background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95) 0%, rgba(255, 107, 53, 0.95) 100%)',
+                                    backdropFilter: 'blur(16px)',
+                                    WebkitBackdropFilter: 'blur(16px)',
+                                    border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                                    borderRadius: '18px',
+                                    padding: '11px 18px',
+                                    color: '#000',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    boxShadow: '0 8px 30px rgba(245, 165, 36, 0.45), 0 0 15px rgba(245, 165, 36, 0.3)',
+                                    cursor: 'pointer',
+                                    fontWeight: 800,
+                                    transition: 'transform 0.15s ease'
+                                }}
+                                onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
+                                onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Film size={18} color="#000" strokeWidth={2.4} />
+                                    <span style={{ fontSize: '0.92rem', letterSpacing: '0.2px' }}>
+                                        {currentStory.link_cta || 'Watch Connected Video'}
                                     </span>
-                                )}
-                            </div>
-                            <span style={{ fontSize: '0.82rem', opacity: 0.9 }}>Visit ↗</span>
-                        </a>
-                    )}
-                </div>
-            )}
+                                </div>
+                                <span style={{
+                                    fontSize: '0.72rem',
+                                    background: 'rgba(0,0,0,0.25)',
+                                    color: '#000',
+                                    padding: '3px 8px',
+                                    borderRadius: '12px',
+                                    fontWeight: 800
+                                }}>
+                                    Swipe Left 👈
+                                </span>
+                            </button>
+                        ) : (
+                            <a
+                                href={storyLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                    width: '100%',
+                                    maxWidth: '380px',
+                                    background: 'linear-gradient(135deg, rgba(255, 51, 102, 0.95) 0%, rgba(245, 165, 36, 0.95) 100%)',
+                                    backdropFilter: 'blur(16px)',
+                                    WebkitBackdropFilter: 'blur(16px)',
+                                    border: '1px solid rgba(255, 255, 255, 0.35)',
+                                    borderRadius: '16px',
+                                    padding: '11px 18px',
+                                    color: '#fff',
+                                    textDecoration: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    boxShadow: '0 8px 30px rgba(255, 51, 102, 0.45)',
+                                    cursor: 'pointer',
+                                    fontWeight: 700,
+                                    transition: 'transform 0.15s ease'
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <ExternalLink size={16} color="#fff" />
+                                    <span style={{ fontSize: '0.92rem', letterSpacing: '0.2px' }}>
+                                        {currentStory.link_cta || 'Learn More'}
+                                    </span>
+                                    {currentStory.is_sponsored && (
+                                        <span style={{
+                                            fontSize: '0.65rem',
+                                            background: 'rgba(0,0,0,0.35)',
+                                            padding: '2px 6px',
+                                            borderRadius: '6px',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.5px'
+                                        }}>
+                                            Sponsored Ad
+                                        </span>
+                                    )}
+                                </div>
+                                <span style={{ fontSize: '0.82rem', opacity: 0.9 }}>Visit ↗</span>
+                            </a>
+                        )}
+                    </div>
+                );
+            })()}
 
             {/* CUSTOM NATIVE AUDIO PLAYER WITH CONTROLS */}
             {(currentStory.music_url || currentStory.music_title) && (() => {
@@ -1318,128 +1351,14 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
             {/* In-Story Connected Video Full Overlay Player */}
             {connectedVideoModal && (
-                <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    zIndex: 250,
-                    background: '#000',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    animation: 'fadeIn 0.2s ease-out'
-                }}>
-                    {/* Header */}
-                    <div style={{
-                        position: 'absolute',
-                        top: '16px',
-                        left: '16px',
-                        right: '16px',
-                        zIndex: 260,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '10px 14px',
-                        borderRadius: '20px',
-                        background: 'rgba(0,0,0,0.7)',
-                        backdropFilter: 'blur(12px)',
-                        border: '1px solid rgba(255,255,255,0.15)'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Film size={18} color="#f5a524" />
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <span style={{ fontSize: '10px', color: '#f5a524', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                    Knock Knock Video
-                                </span>
-                                {connectedVideoModal.username && (
-                                    <span style={{ fontSize: '13px', color: '#fff', fontWeight: 700 }}>
-                                        @{connectedVideoModal.username}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {connectedVideoModal.id && (
-                                <button
-                                    onClick={() => {
-                                        onClose();
-                                        navigate(`/reels?id=${connectedVideoModal.id}`);
-                                    }}
-                                    style={{
-                                        background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
-                                        border: 'none',
-                                        borderRadius: '14px',
-                                        padding: '6px 12px',
-                                        color: '#000',
-                                        fontWeight: 800,
-                                        fontSize: '11px',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    Open in Reels ↗
-                                </button>
-                            )}
-                            <button
-                                onClick={() => {
-                                    setConnectedVideoModal(null);
-                                    setIsPaused(false);
-                                }}
-                                style={{
-                                    background: 'rgba(255,255,255,0.2)',
-                                    border: 'none',
-                                    borderRadius: '50%',
-                                    width: '32px',
-                                    height: '32px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#fff',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Video Player */}
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
-                        {connectedVideoModal.videoUrl ? (
-                            <video
-                                src={connectedVideoModal.videoUrl}
-                                autoPlay
-                                controls
-                                playsInline
-                                loop
-                                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                            />
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', color: '#f5a524' }}>
-                                <Loader2 size={32} className="animate-spin" />
-                                <span style={{ fontSize: '13px' }}>Loading connected video...</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Caption Bar */}
-                    {connectedVideoModal.caption && (
-                        <div style={{
-                            position: 'absolute',
-                            bottom: '24px',
-                            left: '16px',
-                            right: '16px',
-                            background: 'rgba(0,0,0,0.7)',
-                            backdropFilter: 'blur(10px)',
-                            padding: '12px 16px',
-                            borderRadius: '16px',
-                            color: '#fff',
-                            fontSize: '13px',
-                            border: '1px solid rgba(255,255,255,0.15)',
-                            zIndex: 260
-                        }}>
-                            {connectedVideoModal.caption}
-                        </div>
-                    )}
-                </div>
+                <ConnectedVideoModal
+                    video={connectedVideoModal}
+                    onClose={() => {
+                        setConnectedVideoModal(null);
+                        setIsPaused(false);
+                    }}
+                    zIndex={260}
+                />
             )}
         </div>
     );

@@ -6,13 +6,15 @@ import {
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData,
-    checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost
+    checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost,
+    isKnockVideoLink, parseKnockVideoLink
 } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
 import { isVideoPost, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
+import ConnectedVideoModal, { type ConnectedVideoData } from '../components/ConnectedVideoModal';
 import { supabase } from '../lib/supabase';
 import { audioPlayer } from '../lib/audioPlayer';
 import { isCallingAllowedNow, getCallingScheduleInfo } from '../lib/callingWindow';
@@ -84,6 +86,19 @@ const Profile = () => {
     const [isConnected, setIsConnected] = useState(false);
     const [isOnline, setIsOnline] = useState(false);
     const [loadingCallAction, setLoadingCallAction] = useState(false);
+
+    // Connected Knock Video Overlay for Profile Post Modal
+    const [connectedPostVideo, setConnectedPostVideo] = useState<ConnectedVideoData | null>(null);
+
+    const handleOpenConnectedVideo = (link?: string | null) => {
+        if (!link) return;
+        const parsed = parseKnockVideoLink(link);
+        if (parsed) {
+            setConnectedPostVideo(parsed);
+        } else if (isKnockVideoLink(link)) {
+            setConnectedPostVideo({ videoUrl: link, caption: selectedPost?.caption || 'Knock Knock Video' });
+        }
+    };
 
     // Sync like & imp status when selectedPost changes
     useEffect(() => {
@@ -1074,10 +1089,11 @@ const Profile = () => {
                 const currentIndex = posts.findIndex(p => p.id === selectedPost.id);
                 const hasNext = currentIndex < posts.length - 1;
                 const hasPrev = currentIndex > 0;
+                const hasAttachedVideo = Boolean(selectedPost.attached_link && isKnockVideoLink(selectedPost.attached_link));
 
                 const handleTouchStart = (e: React.TouchEvent) => {
                     const target = e.target as HTMLElement;
-                    if (target.closest('button') || target.closest('.modal-mute-btn') || target.closest('.modal-close-btn') || target.closest('video') || target.closest('.nav-btn')) {
+                    if (target.closest('button') || target.closest('.modal-mute-btn') || target.closest('.modal-close-btn') || target.closest('.nav-btn')) {
                         return;
                     }
                     setTouchEnd(null);
@@ -1091,8 +1107,15 @@ const Profile = () => {
                 const handleTouchEnd = () => {
                     if (!touchStart || !touchEnd) return;
                     const distance = touchStart - touchEnd;
-                    if (distance > 50 && hasNext) setSelectedPost(posts[currentIndex + 1]);
-                    if (distance < -50 && hasPrev) setSelectedPost(posts[currentIndex - 1]);
+                    if (distance > 40) {
+                        if (hasAttachedVideo) {
+                            handleOpenConnectedVideo(selectedPost.attached_link);
+                        } else if (hasNext) {
+                            setSelectedPost(posts[currentIndex + 1]);
+                        }
+                    } else if (distance < -40 && hasPrev) {
+                        setSelectedPost(posts[currentIndex - 1]);
+                    }
                 };
 
                 return (
@@ -1211,6 +1234,39 @@ const Profile = () => {
                                         <ChevronRight size={28} />
                                     </button>
                                 )}
+                                {hasAttachedVideo && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenConnectedVideo(selectedPost.attached_link);
+                                        }}
+                                        style={{
+                                            position: 'absolute',
+                                            bottom: (selectedPost.music_url || selectedPost.music_title) ? '64px' : '16px',
+                                            right: '16px',
+                                            zIndex: 15,
+                                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95), rgba(255, 107, 53, 0.95))',
+                                            border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                                            borderRadius: '16px',
+                                            padding: '6px 12px',
+                                            color: '#000',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            fontSize: '11px',
+                                            fontWeight: 800,
+                                            cursor: 'pointer',
+                                            boxShadow: '0 4px 15px rgba(245, 165, 36, 0.5)',
+                                            backdropFilter: 'blur(8px)',
+                                            WebkitBackdropFilter: 'blur(8px)',
+                                        }}
+                                        title="Swipe left or tap to watch connected video"
+                                    >
+                                        <Film size={14} color="#000" strokeWidth={2.4} />
+                                        <span>Swipe Left 👈</span>
+                                    </button>
+                                )}
                             </div>
                             {(selectedPost.music_url || selectedPost.music_title) && (
                                 <div style={{
@@ -1259,7 +1315,50 @@ const Profile = () => {
                                         })}
                                     </p>
                                 )}
-                                {selectedPost.attached_link && (
+                                {hasAttachedVideo ? (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenConnectedVideo(selectedPost.attached_link);
+                                        }}
+                                        style={{
+                                            pointerEvents: 'auto',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            width: '100%',
+                                            maxWidth: '360px',
+                                            padding: '10px 16px',
+                                            marginBottom: '10px',
+                                            borderRadius: '16px',
+                                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95) 0%, rgba(255, 107, 53, 0.95) 100%)',
+                                            color: '#000',
+                                            fontWeight: 800,
+                                            fontSize: '12px',
+                                            border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                                            boxShadow: '0 4px 18px rgba(245, 165, 36, 0.4)',
+                                            cursor: 'pointer',
+                                            transition: 'transform 0.15s ease'
+                                        }}
+                                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
+                                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <Film size={16} color="#000" strokeWidth={2.4} />
+                                            <span>Watch Connected Video</span>
+                                        </div>
+                                        <span style={{
+                                            background: 'rgba(0, 0, 0, 0.25)',
+                                            padding: '3px 8px',
+                                            borderRadius: '10px',
+                                            fontSize: '10px',
+                                            fontWeight: 900
+                                        }}>
+                                            Swipe Left 👈
+                                        </span>
+                                    </button>
+                                ) : selectedPost.attached_link ? (
                                     <a
                                         href={selectedPost.attached_link}
                                         target="_blank"
@@ -1269,7 +1368,7 @@ const Profile = () => {
                                     >
                                         🔗 {selectedPost.attached_link}
                                     </a>
-                                )}
+                                ) : null}
                                 <div className="modal-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                                     <button
                                         className={`modal-action-btn ${selectedPostLiked ? 'liked' : ''}`}
@@ -1323,6 +1422,15 @@ const Profile = () => {
                     </div>
                 );
             })()}
+
+            {/* Connected Knock Video Player Overlay */}
+            {connectedPostVideo && (
+                <ConnectedVideoModal
+                    video={connectedPostVideo}
+                    onClose={() => setConnectedPostVideo(null)}
+                    zIndex={100060}
+                />
+            )}
                 </>
             )}
 

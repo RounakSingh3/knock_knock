@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef, useContext, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, recordPostScreenDelivery, type PostData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, recordPostScreenDelivery, isKnockVideoLink, parseKnockVideoLink, type PostData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
 import { supabase } from '../lib/supabase';
-import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX } from 'lucide-react';
+import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX, Film } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
 import ConnectionFeedItem from '../components/ConnectionFeedItem';
 import PullToRefresh from '../components/PullToRefresh';
 import VoiceReaction from '../components/VoiceReaction';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
+import ConnectedVideoModal, { type ConnectedVideoData } from '../components/ConnectedVideoModal';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankFeedPosts, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, type ScoredPost } from '../lib/algorithm';
 
@@ -40,6 +41,7 @@ interface MasonryPostCardProps {
     onOpenChat: (userId: string) => void;
     onShare: (post: PostData) => void;
     onOpenComments: (postId: string) => void;
+    onOpenConnectedVideo?: (post: PostData) => void;
     onObserveCard?: (node: HTMLDivElement | null, postId: string, category: string) => void;
 }
 
@@ -57,9 +59,35 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
     onOpenChat,
     onShare,
     onOpenComments,
+    onOpenConnectedVideo,
     onObserveCard,
 }) => {
     const navigate = useNavigate();
+    const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+    const handleCardTouchStart = (e: React.TouchEvent) => {
+        if (e.touches[0]) {
+            touchStartPosRef.current = {
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY,
+            };
+        }
+    };
+
+    const handleCardTouchEnd = (e: React.TouchEvent) => {
+        if (!touchStartPosRef.current || !e.changedTouches[0]) return;
+        const diffX = e.changedTouches[0].clientX - touchStartPosRef.current.x;
+        const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
+        touchStartPosRef.current = null;
+
+        // Swipe LEFT 👈 (> 35px displacement and more horizontal than vertical)
+        if (diffX < -35 && Math.abs(diffX) > Math.abs(diffY)) {
+            if (post.attached_link && isKnockVideoLink(post.attached_link)) {
+                onOpenConnectedVideo?.(post);
+            }
+        }
+    };
+
     return (
         <div
             ref={(node) => onObserveCard?.(node, post.id, post.category || 'General')}
@@ -68,6 +96,9 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
             data-post-cat={post.category || 'General'}
             onClick={() => onSelect(post)}
             onDoubleClick={() => onDoubleTap(post)}
+            onTouchStart={handleCardTouchStart}
+            onTouchEnd={handleCardTouchEnd}
+            style={{ touchAction: 'manipulation' }}
         >
             <PostMedia post={post} className="masonry-card-img" muted loop playsInline autoPlay={false} thumbnail={true} />
             {(post.music_url || post.music_title) && (
@@ -127,9 +158,42 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
                 </div>
             )}
             {post.attached_link && (
-                <div className="masonry-link-badge">
-                    <LinkIcon size={12} />
-                </div>
+                isKnockVideoLink(post.attached_link) ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenConnectedVideo?.(post);
+                        }}
+                        style={{
+                            position: 'absolute',
+                            top: '12px',
+                            left: '12px',
+                            zIndex: 6,
+                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95), rgba(255, 107, 53, 0.95))',
+                            color: '#000',
+                            border: '1.5px solid rgba(255, 255, 255, 0.45)',
+                            borderRadius: '14px',
+                            padding: '4px 8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 15px rgba(245, 165, 36, 0.45)',
+                            backdropFilter: 'blur(8px)',
+                        }}
+                        title="Swipe left or tap to watch connected video"
+                    >
+                        <Film size={12} color="#000" strokeWidth={2.5} />
+                        <span>Swipe Left 👈</span>
+                    </button>
+                ) : (
+                    <div className="masonry-link-badge">
+                        <LinkIcon size={12} />
+                    </div>
+                )
             )}
             <div className="masonry-card-info">
                 <div
@@ -205,6 +269,7 @@ const Home = () => {
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
     const [impCounts, setImpCounts] = useState<Record<string, number>>({});
+    const [connectedPostVideo, setConnectedPostVideo] = useState<ConnectedVideoData | null>(null);
 
 
 
@@ -581,6 +646,15 @@ const Home = () => {
     const handleOpenChat = useCallback((uid: string) => { setChatUserId(uid); setIsChatOpen(true); }, []);
     const handleSharePost = useCallback((p: PostData) => { setPostToShare(p); setIsShareOpen(true); }, []);
     const handleOpenComments = useCallback((pid: string) => { setCommentsPostId(pid); setIsCommentsOpen(true); }, []);
+    const handleOpenConnectedVideo = useCallback((p: PostData) => {
+        if (!p.attached_link) return;
+        const parsed = parseKnockVideoLink(p.attached_link);
+        if (parsed) {
+            setConnectedPostVideo(parsed);
+        } else if (isKnockVideoLink(p.attached_link)) {
+            setConnectedPostVideo({ videoUrl: p.attached_link, caption: p.caption || 'Knock Knock Video' });
+        }
+    }, []);
 
     // Pillar 2: Implicit Signal Tracking for Home Feed Cards (dwell time & fast skips)
     // ⚡ Direct callback ref observation with zero document.querySelectorAll churn
@@ -848,6 +922,7 @@ const Home = () => {
                                     onOpenChat={handleOpenChat}
                                     onShare={handleSharePost}
                                     onOpenComments={handleOpenComments}
+                                    onOpenConnectedVideo={handleOpenConnectedVideo}
                                     onObserveCard={observeCard}
                                 />
                             ))}
@@ -934,6 +1009,15 @@ const Home = () => {
                     }}
                     likedPosts={likedPosts}
                     impedPosts={impedPosts}
+                />
+            )}
+
+            {/* Direct Connected Knock Video Player Overlay (from card swipe/tap) */}
+            {connectedPostVideo && (
+                <ConnectedVideoModal
+                    video={connectedPostVideo}
+                    onClose={() => setConnectedPostVideo(null)}
+                    zIndex={100060}
                 />
             )}
 
