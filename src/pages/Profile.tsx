@@ -10,7 +10,7 @@ import {
     isKnockVideoLink, parseKnockVideoLink
 } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
-import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
+import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, Video, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
 import { isVideoPost, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
@@ -77,7 +77,7 @@ const Profile = () => {
     const [selectedPostImpsCount, setSelectedPostImpsCount] = useState(0);
 
     const [isEditOpen, setIsEditOpen] = useState(false);
-    const [callingStatus, setCallingStatus] = useState<'none' | 'calling'>('none');
+    const [callingStatus, setCallingStatus] = useState<'none' | 'calling' | 'calling-video'>('none');
     const [updatingAvatar, setUpdatingAvatar] = useState(false);
     const [isBlocking, setIsBlocking] = useState(false);
     
@@ -477,16 +477,16 @@ const Profile = () => {
         setLoadingCallAction(false);
     };
 
-    const handleDirectCall = () => {
+    const handleDirectCall = (callType: 'audio' | 'video' = 'audio') => {
         if (!isCallingAllowedNow()) {
             const sched = getCallingScheduleInfo();
-            alert(`Voice calls are strictly available between 8:00 PM and 10:00 PM daily. Calling window opens in ${sched.formatted}.`);
+            alert(`Voice and Video calls are strictly available between 8:00 PM and 10:00 PM daily. Calling window opens in ${sched.formatted}.`);
             return;
         }
         if (!currentUser || !profile) return;
         
         const room = `direct-${currentUser.id}-${profile.id}-${Date.now()}`;
-        setCallingStatus('calling');
+        setCallingStatus(callType === 'video' ? 'calling-video' : 'calling');
 
         const channel = supabase.channel('direct-calls');
 
@@ -497,7 +497,7 @@ const Profile = () => {
                 payload: {
                     callerId: currentUser.id,
                     receiverId: profile.id,
-                    type: 'audio',
+                    type: callType,
                     room
                 }
             });
@@ -507,7 +507,7 @@ const Profile = () => {
         channel.on('broadcast', { event: 'call-accept' }, (payload) => {
             if (payload.payload.callerId === currentUser.id && payload.payload.receiverId === profile.id) {
                 setCallingStatus('none');
-                navigate(`/call?direct=true&partnerId=${profile.id}&role=caller&room=${payload.payload.room}`);
+                navigate(`/call?direct=true&partnerId=${profile.id}&role=caller&room=${payload.payload.room}&type=${callType}`);
             }
         });
 
@@ -717,15 +717,44 @@ const Profile = () => {
                                     </button>
                                     {/* Call / Request Call Permission Buttons */}
                                     {isConnected || (callRequest && callRequest.status === 'accepted') ? (
-                                        <button 
-                                            className="profile-action-btn" 
-                                            style={{ background: '#34C759', color: 'var(--text-active)', opacity: callingStatus === 'calling' ? 0.7 : 1 }}
-                                            onClick={handleDirectCall}
-                                            disabled={callingStatus === 'calling'}
-                                        >
-                                            {callingStatus === 'calling' ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />} 
-                                            {callingStatus === 'calling' ? ' Calling...' : ' Call'}
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+                                            <button 
+                                                className="profile-action-btn" 
+                                                style={{ 
+                                                    background: '#34C759', 
+                                                    color: '#fff', 
+                                                    opacity: callingStatus !== 'none' ? 0.7 : 1,
+                                                    flex: 1,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '6px'
+                                                }}
+                                                onClick={() => handleDirectCall('audio')}
+                                                disabled={callingStatus !== 'none'}
+                                            >
+                                                {callingStatus === 'calling' ? <Loader2 size={16} className="animate-spin" /> : <Phone size={16} />} 
+                                                {callingStatus === 'calling' ? ' Calling...' : ' Call'}
+                                            </button>
+                                            <button 
+                                                className="profile-action-btn" 
+                                                style={{ 
+                                                    background: '#007AFF', 
+                                                    color: '#fff', 
+                                                    opacity: callingStatus !== 'none' ? 0.7 : 1,
+                                                    flex: 1,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    gap: '6px'
+                                                }}
+                                                onClick={() => handleDirectCall('video')}
+                                                disabled={callingStatus !== 'none'}
+                                            >
+                                                {callingStatus === 'calling-video' ? <Loader2 size={16} className="animate-spin" /> : <Video size={16} />} 
+                                                {callingStatus === 'calling-video' ? ' Calling...' : ' Video'}
+                                            </button>
+                                        </div>
                                     ) : callRequest && callRequest.status === 'pending' ? (
                                         callRequest.sender_id === currentUser.id ? (
                                             <button 

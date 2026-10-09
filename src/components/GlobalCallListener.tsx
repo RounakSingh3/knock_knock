@@ -64,7 +64,7 @@ const GlobalCallListener: React.FC = () => {
                 setIncomingCall({ callerId, callerProfile, type: type || 'audio', room });
 
                 if ('Notification' in window && Notification.permission === 'granted') {
-                    new Notification(`Incoming call from ${callerProfile?.username || 'Someone'}`, {
+                    new Notification(`Incoming ${type === 'video' ? 'video ' : ''}call from ${callerProfile?.username || 'Someone'}`, {
                         body: 'Click to open Knock Knock',
                         icon: callerProfile?.avatar_url || '/logo192.png',
                     });
@@ -287,7 +287,7 @@ const GlobalCallListener: React.FC = () => {
                         {incomingCall.callerProfile?.username || 'Someone'}
                     </h2>
                     <p style={{ color: 'var(--text-inactive)', margin: '0 0 32px 0', fontSize: '15px' }}>
-                        is calling you...
+                        {incomingCall.type === 'video' ? 'is video calling you...' : 'is calling you...'}
                     </p>
 
                     <div style={{ display: 'flex', gap: '24px' }}>
