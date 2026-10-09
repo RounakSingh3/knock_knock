@@ -124,6 +124,7 @@ const CreatePost = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [uploadProgress, setUploadProgress] = useState<{ percentage: number; loadedMB: string; totalMB: string } | null>(null);
+    const [uploadStatusText, setUploadStatusText] = useState<string>('');
     const [boostToSpotlight, setBoostToSpotlight] = useState(isFromSpotlight && points >= 10);
     const [boostAmount, setBoostAmount] = useState(points >= 100 ? 100 : Math.max(10, points));
 
@@ -295,7 +296,17 @@ const CreatePost = () => {
                     }
                 } else if (mediaType === 'video') {
                     try {
-                        const prepared = await prepareVideoForUpload(selectedFile);
+                        const prepared = await prepareVideoForUpload(
+                            selectedFile,
+                            (status) => setUploadStatusText(status),
+                            (pct) => {
+                                setUploadProgress(prev => ({
+                                    percentage: pct,
+                                    loadedMB: ((selectedFile.size * (pct / 100)) / (1024 * 1024)).toFixed(1),
+                                    totalMB: (selectedFile.size / (1024 * 1024)).toFixed(1)
+                                }));
+                            }
+                        );
                         return {
                             fileToUpload: prepared.videoFile,
                             videoPosterBlob: prepared.posterBlob,
@@ -316,6 +327,7 @@ const CreatePost = () => {
         setPreviewUrl(null);
         setSelectedFilter('none');
         preparedMediaPromiseRef.current = null;
+        setUploadStatusText('');
     };
 
     const handleUpload = async () => {
@@ -327,6 +339,7 @@ const CreatePost = () => {
         setLoading(true);
         setError('');
         setUploadProgress(null);
+        setUploadStatusText('Preparing media...');
 
         try {
             const mediaType = getMediaTypeFromFile(file);
@@ -335,9 +348,9 @@ const CreatePost = () => {
             let videoPosterDataUrl: string | null = null;
 
             if (mediaType === 'video') {
-                const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
+                const MAX_VIDEO_SIZE = 80 * 1024 * 1024; // 80MB
                 if (file.size > MAX_VIDEO_SIZE) {
-                    setError(`This video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please select a video smaller than 50MB.`);
+                    setError(`This video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please select a video smaller than 80MB.`);
                     setLoading(false);
                     return;
                 }
@@ -345,6 +358,7 @@ const CreatePost = () => {
 
             // ⚡ Fast retrieval: Check if media was already prepared in background while user typed
             if (preparedMediaPromiseRef.current) {
+                setUploadStatusText('Finishing video optimization...');
                 try {
                     const preparedData = await preparedMediaPromiseRef.current;
                     fileToUpload = preparedData.fileToUpload;
@@ -358,7 +372,18 @@ const CreatePost = () => {
                     } catch (_) {}
                 } else if (mediaType === 'video') {
                     try {
-                        const prepared = await prepareVideoForUpload(fileToUpload);
+                        setUploadStatusText('Optimizing video for ultra-fast upload...');
+                        const prepared = await prepareVideoForUpload(
+                            fileToUpload,
+                            (status) => setUploadStatusText(status),
+                            (pct) => {
+                                setUploadProgress({
+                                    percentage: pct,
+                                    loadedMB: ((fileToUpload.size * (pct / 100)) / (1024 * 1024)).toFixed(1),
+                                    totalMB: (fileToUpload.size / (1024 * 1024)).toFixed(1)
+                                });
+                            }
+                        );
                         fileToUpload = prepared.videoFile;
                         videoPosterBlob = prepared.posterBlob;
                         videoPosterDataUrl = prepared.posterDataUrl;
@@ -366,6 +391,7 @@ const CreatePost = () => {
                 }
             }
 
+            setUploadStatusText('Uploading at high speed...');
             const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
             setUploadProgress({ percentage: 0, loadedMB: '0.0', totalMB: initialTotalMB });
             const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
@@ -379,6 +405,9 @@ const CreatePost = () => {
                 const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
                 const totalMB = (total / (1024 * 1024)).toFixed(1);
                 setUploadProgress({ percentage, loadedMB, totalMB });
+                if (percentage === 100) {
+                    setUploadStatusText('Finalizing post...');
+                }
             });
 
             if (!publicUrl || publicUrl.startsWith('blob:') || publicUrl.startsWith('data:video/')) {
@@ -562,9 +591,10 @@ const CreatePost = () => {
                 </div>
             )}
 
-            {file && file.type.startsWith('video/') && file.size > 20 * 1024 * 1024 && (
-                <div style={{ marginBottom: '16px', padding: '10px 14px', background: 'rgba(245, 165, 36, 0.1)', border: '1px solid rgba(245, 165, 36, 0.25)', borderRadius: '12px', fontSize: '12px', color: '#f5a524' }}>
-                    💡 Large video detected ({(file.size / (1024 * 1024)).toFixed(1)} MB). Upload may take a minute depending on your connection.
+            {file && file.type.startsWith('video/') && file.size > 10 * 1024 * 1024 && (
+                <div style={{ marginBottom: '16px', padding: '10px 14px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '12px', fontSize: '12px', color: '#4ade80', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>⚡</span>
+                    <span>Ultra-Fast Upload Active: Automatically compressing your {(file.size / (1024 * 1024)).toFixed(1)} MB video into crisp 720p HD so it posts in seconds!</span>
                 </div>
             )}
 
@@ -1399,7 +1429,7 @@ const CreatePost = () => {
                     {uploadProgress !== null ? (
                         <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px', color: 'var(--text-active)', fontWeight: 'bold' }}>
-                                <span>Uploading {file ? getMediaTypeFromFile(file) : 'file'}...</span>
+                                <span>{uploadStatusText || (file ? `Uploading ${getMediaTypeFromFile(file)}...` : 'Uploading...')}</span>
                                 <span style={{ color: '#f5a524' }}>
                                     {uploadProgress.percentage}% ({uploadProgress.loadedMB} / {uploadProgress.totalMB} MB)
                                 </span>
@@ -1408,14 +1438,14 @@ const CreatePost = () => {
                                 <div style={{ width: `${uploadProgress.percentage}%`, height: '100%', background: 'linear-gradient(90deg, #f5a524, #ff6b35)', transition: 'width 0.15s ease-out' }} />
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '11px', color: 'var(--text-inactive)' }}>
-                                <span>⚡ Direct cloud upload</span>
+                                <span>⚡ Direct high-speed upload</span>
                                 <span>{uploadProgress.percentage === 100 ? 'Saving post...' : 'Please keep app open'}</span>
                             </div>
                         </div>
                     ) : (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--text-active)' }}>
                             <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
-                            <span>Processing media...</span>
+                            <span>{uploadStatusText || 'Optimizing media for fast upload...'}</span>
                         </div>
                     )}
                 </div>

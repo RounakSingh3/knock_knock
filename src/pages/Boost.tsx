@@ -53,7 +53,7 @@ import {
     type StoryData, 
     type UserStoryGroup 
 } from '../lib/database';
-import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster, compressVideo } from '../lib/media';
 import { rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import PostMedia from '../components/PostMedia';
@@ -893,7 +893,14 @@ const Boost: React.FC = () => {
         }
 
         try {
-            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+            const recorder = new MediaRecorder(
+                stream,
+                mimeType ? {
+                    mimeType,
+                    videoBitsPerSecond: 2000000,
+                    audioBitsPerSecond: 128000
+                } : undefined
+            );
             mediaRecorderRef.current = recorder;
             videoChunksRef.current = [];
             setRecordingSeconds(0);
@@ -964,18 +971,17 @@ const Boost: React.FC = () => {
                 setCapturedMediaUrl(objectUrl);
                 stopCamera();
 
-                // Prepare video in background: extract poster and optimize HEVC if needed
-                try {
-                    const prepared = await prepareVideoForUpload(file);
+                // Prepare video in background: extract poster and optimize for ultra-fast upload
+                prepareVideoForUpload(file).then(prepared => {
                     if (prepared.posterBlob) {
                         setPosterBlob(prepared.posterBlob);
                     }
                     if (prepared.videoFile && prepared.videoFile !== file) {
                         setSelectedFile(prepared.videoFile);
                     }
-                } catch (e) {
+                }).catch(e => {
                     console.warn('Video prep fallback:', e);
-                }
+                });
                 return;
             }
 
@@ -1059,20 +1065,7 @@ const Boost: React.FC = () => {
                 } catch (_) {}
             }
 
-            const uploadTasks: Promise<any>[] = [];
-
-            // Poster task
-            if (currentPosterBlob) {
-                const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
-                uploadTasks.push(
-                    uploadMedia(posterFile, pPath).then(url => { uploadedPosterUrl = url; }).catch(pe => {
-                        console.warn('Poster upload skipped:', pe);
-                    })
-                );
-            }
-
-            // Main Media task
+            // Step 1: Upload main media with dedicated high-speed bandwidth
             if (selectedFile) {
                 if (!isVid && (selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(selectedFile.name))) {
                     try {
@@ -1081,32 +1074,43 @@ const Boost: React.FC = () => {
                         console.warn('Compression skipped:', e);
                     }
                 } else if (isVid) {
-                    if (selectedFile.size > 50 * 1024 * 1024) {
-                        throw new Error('Video size exceeds 50MB limit. Please select a shorter video clip.');
+                    // Compress large videos (> 7MB) to 720p HD so they upload in seconds
+                    if (selectedFile.size > 7 * 1024 * 1024) {
+                        try {
+                            const compressed = await compressVideo(selectedFile);
+                            if (compressed && compressed.size < selectedFile.size) {
+                                fileToUpload = compressed;
+                            }
+                        } catch (_) {}
                     }
                 }
 
                 const rawExt = fileToUpload.name.split('.').pop() || (isVid ? 'mp4' : 'jpg');
                 const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
                 const path = `stories/${user.id}-${Date.now()}.${ext}`;
-                uploadTasks.push(
-                    uploadMedia(fileToUpload, path, (progress) => {
-                        if (progress.total > 0) {
-                            const pct = Math.round((progress.loaded / progress.total) * 100);
-                            setUploadProgress(pct);
-                        }
-                    }).then(url => { uploadedUrl = url; })
-                );
+                uploadedUrl = await uploadMedia(fileToUpload, path, (progress) => {
+                    if (progress.total > 0) {
+                        const pct = Math.round((progress.loaded / progress.total) * 100);
+                        setUploadProgress(pct);
+                    }
+                });
             } else if (capturedMediaUrl) {
-                uploadTasks.push(
-                    uploadStoryImage(capturedMediaUrl, user.id).then(url => { uploadedUrl = url; })
-                );
+                uploadedUrl = await uploadStoryImage(capturedMediaUrl, user.id);
             }
-
-            await Promise.all(uploadTasks);
 
             if (!uploadedUrl) {
                 throw new Error('Failed to upload media. Please try again.');
+            }
+
+            // Upload poster in background without taking bandwidth away from main video
+            if (currentPosterBlob) {
+                const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
+                uploadMedia(posterFile, pPath).then(url => {
+                    uploadedPosterUrl = url;
+                }).catch(pe => {
+                    console.warn('Poster upload skipped:', pe);
+                });
             }
 
             // Step 2: Create 24-hour boosted story with reach guarantee & advertisement link metadata

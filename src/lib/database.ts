@@ -516,7 +516,9 @@ export async function uploadMedia(
         const { data: sessionData } = await supabase.auth.getSession();
         let userToken = sessionData?.session?.access_token;
         if (userToken && isJwtExpiredOrInvalid(userToken)) {
-            const { data: refreshed } = await supabase.auth.refreshSession().catch(() => ({ data: null }));
+            const refreshPromise = supabase.auth.refreshSession().catch(() => ({ data: null }));
+            const timeoutPromise = new Promise<{ data: null }>((r) => setTimeout(() => r({ data: null }), 1500));
+            const { data: refreshed } = await Promise.race([refreshPromise, timeoutPromise]);
             userToken = refreshed?.session?.access_token;
         }
         if (userToken && !isJwtExpiredOrInvalid(userToken)) {
