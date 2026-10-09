@@ -658,7 +658,7 @@ const Stories = () => {
                                 onChange={handleGallerySelect}
                                 style={{ display: 'none' }}
                             />
-                            <button className="shutter-btn" onClick={captureImage} title="Capture Snap"></button>
+                            <button className="shutter-btn" onClick={captureImage} title="Capture Knock Knock"></button>
                             <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="Upload from gallery">
                                 <ImageIcon size={30} />
                             </button>

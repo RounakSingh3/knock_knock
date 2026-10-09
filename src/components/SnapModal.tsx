@@ -355,7 +355,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
 
         const recipientId = targetGroupId ? targetGroupId : (selectedRecipientId || targetContact?.id);
         if (!recipientId) {
-            alert('Please select a friend to send this snap to.');
+            alert('Please select a friend to send this Knock Knock to.');
             return;
         }
 
@@ -409,8 +409,8 @@ export const SnapModal: React.FC<SnapModalProps> = ({
             setUploadProgress(100);
             onClose();
         } catch (err: any) {
-            console.error('Failed to send snap:', err);
-            alert('Failed to upload and send snap. Please check your connection and try again.');
+            console.error('Failed to send Knock Knock:', err);
+            alert('Failed to upload and send Knock Knock. Please check your connection and try again.');
         } finally {
             setIsUploading(false);
         }
@@ -468,7 +468,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f5a524', fontWeight: '800', fontSize: '15px' }}>
                     <Sparkles size={18} />
-                    <span>Knock Snap Studio</span>
+                    <span>Knock Knock Studio</span>
                 </div>
 
                 {isCameraActive && !capturedMediaUrl ? (
@@ -536,7 +536,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                     ) : (
                         <img
                             src={capturedMediaUrl}
-                            alt="Snap Preview"
+                            alt="Knock Knock Preview"
                             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                         />
                     )
@@ -709,7 +709,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                                 boxShadow: '0 0 20px rgba(245, 165, 36, 0.6)',
                                 transition: 'transform 0.1s ease',
                             }}
-                            title="Snap Photo"
+                            title="Knock Knock Photo"
                         />
 
                         <div style={{ width: '50px' }} />
@@ -744,7 +744,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                                         }} />
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                                             <span style={{ color: '#ff3b30', fontWeight: '800', fontSize: '13px' }}>
-                                                Recording Voice Note...
+                                                Recording 30s Voice Note...
                                             </span>
                                             <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '11px' }}>
                                                 0:{String(audioDuration).padStart(2, '0')} / 0:30 (Max 30s)
@@ -794,7 +794,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                                         </button>
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                                             <span style={{ color: '#f5a524', fontWeight: '700', fontSize: '13px' }}>
-                                                🎙️ Attached Voice Note ({audioDuration}s)
+                                                🎙️ Attached 30s Voice Note ({audioDuration}s)
                                             </span>
                                             <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px' }}>
                                                 Plays automatically when opened
@@ -826,7 +826,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fff' }}>
                                         <Mic size={18} color="#f5a524" />
                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span style={{ fontSize: '13px', fontWeight: '700' }}>Attach Audio Note</span>
+                                            <span style={{ fontSize: '13px', fontWeight: '700' }}>Attach 30s Voice Note</span>
                                             <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>Record voice up to 30 seconds</span>
                                         </div>
                                     </div>
@@ -857,7 +857,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                         <div style={{ position: 'relative' }}>
                             <input
                                 type="text"
-                                placeholder="Add a caption to this snap... (optional)"
+                                placeholder="Add a caption to this Knock Knock... (optional)"
                                 value={caption}
                                 onChange={(e) => setCaption(e.target.value)}
                                 maxLength={140}
@@ -887,7 +887,7 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                                     <Search size={14} color="rgba(255,255,255,0.5)" />
                                     <input
                                         type="text"
-                                        placeholder="Send to friend..."
+                                        placeholder="Send Knock Knock to friend..."
                                         value={recipientSearch}
                                         onChange={(e) => setRecipientSearch(e.target.value)}
                                         style={{
@@ -976,13 +976,13 @@ export const SnapModal: React.FC<SnapModalProps> = ({
                             {isUploading ? (
                                 <>
                                     <Loader2 size={18} className="animate-spin" />
-                                    <span>Sending Snap... {uploadProgress > 0 ? `${uploadProgress}%` : ''}</span>
+                                    <span>Sending Knock Knock... {uploadProgress > 0 ? `${uploadProgress}%` : ''}</span>
                                 </>
                             ) : (
                                 <>
                                     <Send size={18} />
                                     <span>
-                                        Send Snap {targetGroupId ? `to ${targetGroupName || 'Group'}` : targetContact ? `to @${targetContact.username}` : ''} 🚀
+                                        Send Knock Knock {targetGroupId ? `to ${targetGroupName || 'Group'}` : targetContact ? `to @${targetContact.username}` : ''} 🚪
                                     </span>
                                 </>
                             )}
@@ -1005,3 +1005,5 @@ export const SnapModal: React.FC<SnapModalProps> = ({
         </div>
     );
 };
+
+export const KnockKnockModal = SnapModal;

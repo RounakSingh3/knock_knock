@@ -100,7 +100,7 @@ const Settings = () => {
         {
             icon: <Zap size={20} />,
             label: 'Boost & Stories',
-            sub: 'Snaps, streaks, and match boosts',
+            sub: 'Knock Knocks, streaks, and match boosts',
             iconColor: '#f59e0b',
             bgLight: 'rgba(245, 158, 11, 0.1)',
             onClick: () => navigate('/stories'),
