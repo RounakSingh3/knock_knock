@@ -672,12 +672,13 @@ body::before {
     top: 0;
     left: 0;
     right: 0;
-    z-index: 20;
+    z-index: 25;
     pointer-events: none;
 }
 
 .modal-top-bar .modal-user-row,
 .modal-top-bar .modal-close-btn,
+.modal-top-bar .modal-back-btn,
 .modal-top-bar .modal-username {
     pointer-events: auto;
 }
@@ -760,7 +761,7 @@ body::before {
     flex-shrink: 0;
     max-height: 45vh;
     background: linear-gradient(0deg, rgba(0, 0, 0, 0.96) 0%, rgba(0, 0, 0, 0.7) 65%, transparent 100%);
-    padding: 36px 18px max(28px, calc(env(safe-area-inset-bottom) + 16px));
+    padding: 36px 72px max(28px, calc(env(safe-area-inset-bottom) + 16px)) 18px;
     position: absolute;
     bottom: 0;
     left: 0;
@@ -891,6 +892,73 @@ body::before {
 
 .modal-action-right {
     margin-left: auto;
+}
+
+/* Instagram-Style Post Side Actions (Right Side) */
+.post-side-actions {
+    position: absolute;
+    right: 12px;
+    bottom: 75px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    z-index: 30;
+    pointer-events: auto;
+}
+
+.post-side-action-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.7));
+    padding: 4px;
+}
+
+.post-side-action-btn:active {
+    transform: scale(0.85);
+}
+
+.post-side-action-btn span {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.post-side-action-btn.liked svg {
+    animation: pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal-back-btn {
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: none;
+    color: #fff;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    flex-shrink: 0;
+}
+
+.modal-back-btn:hover {
+    background: rgba(0, 0, 0, 0.65);
+}
+
+.modal-back-btn:active {
+    transform: scale(0.92);
 }
 
 /* Profile Stat Button */

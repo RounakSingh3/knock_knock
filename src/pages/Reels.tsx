@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Heart, MessageCircle, Share2, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
+import { Heart, MessageCircle, Send, ChevronLeft, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
 import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, type PostData, type MessageData } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { AppContext } from '../context/AppContext';
@@ -943,6 +943,19 @@ const Reels: React.FC = () => {
         setSelectedReelIndex(null);
     };
 
+    // 🔙 Instagram-style hardware / browser back handling to close player
+    useEffect(() => {
+        if (selectedReelIndex === null) return;
+        window.history.pushState({ modal: 'reel_player' }, '');
+        const handlePopState = () => {
+            closePlayer();
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [selectedReelIndex]);
+
     return (
         <div className="explore-page pb-20" ref={containerRef} style={{ background: 'var(--bg-color)' }}>
             {/* Header & Create Story Area */}
@@ -1043,25 +1056,33 @@ const Reels: React.FC = () => {
                     {/* Modal Controls */}
                     <div style={{
                         position: 'absolute',
-                        top: 40,
-                        left: 20,
-                        right: 20,
+                        top: 'max(24px, env(safe-area-inset-top, 24px))',
+                        left: 16,
+                        right: 16,
                         zIndex: 10000,
                         display: 'flex',
+                        alignItems: 'center',
                         justifyContent: 'space-between',
                         pointerEvents: 'none'
                     }}>
-                        <button 
-                            onClick={closePlayer}
-                            style={{ 
-                                background: 'rgba(0,0,0,0.5)', border: 'none', color: 'var(--text-active)', 
-                                width: '40px', height: '40px', borderRadius: '50%', pointerEvents: 'auto',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: '1.2rem'
-                            }}
-                        >
-                            ←
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', pointerEvents: 'auto' }}>
+                            <button 
+                                onClick={() => {
+                                    if (window.history.state?.modal === 'reel_player') {
+                                        window.history.back();
+                                    } else {
+                                        closePlayer();
+                                    }
+                                }}
+                                className="modal-back-btn"
+                                aria-label="Back"
+                            >
+                                <ChevronLeft size={24} />
+                            </button>
+                            <span style={{ color: '#fff', fontWeight: 800, fontSize: '18px', textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>
+                                Reels
+                            </span>
+                        </div>
                         <button
                             onClick={() => {
                                 const newMuted = !mutedAll;
@@ -1370,8 +1391,10 @@ const Reels: React.FC = () => {
                                                 setPostToShare(mappedPost);
                                                 setIsShareOpen(true);
                                             }}
+                                            title="Send"
+                                            aria-label="Send"
                                         >
-                                            <Share2 size={28} />
+                                            <Send size={26} style={{ transform: 'rotate(-20deg)', transformOrigin: 'center' }} />
                                             <span>{formatCount(reel.shares)}</span>
                                         </button>
                                         <button

@@ -76,6 +76,27 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
         }
     }, [isOpen]);
 
+    // 🔙 Instagram-style hardware / browser back handling for share sheet
+    useEffect(() => {
+        if (!isOpen) return;
+        window.history.pushState({ modal: 'share_modal' }, '');
+        const handlePopState = () => {
+            onClose();
+        };
+        window.addEventListener('popstate', handlePopState);
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [isOpen, onClose]);
+
+    const handleClose = () => {
+        if (window.history.state?.modal === 'share_modal') {
+            window.history.back();
+        } else {
+            onClose();
+        }
+    };
+
     // ── 30-Second Voice Recording Engine ──
     const startVoiceRecording = async () => {
         try {
@@ -284,20 +305,29 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, post, currentU
             background: 'rgba(0,0,0,0.8)', zIndex: 100060, display: 'flex',
             justifyContent: 'center', alignItems: 'flex-end',
             animation: 'fadeIn 0.2s ease-out'
-        }} onClick={onClose}>
+        }} onClick={handleClose}>
             <div style={{
                 background: 'var(--surface-color)', width: '100%', maxWidth: '500px',
                 borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-                padding: '24px 0 0 0', display: 'flex', flexDirection: 'column',
+                padding: '12px 0 0 0', display: 'flex', flexDirection: 'column',
                 maxHeight: '85dvh',
                 paddingBottom: 'max(16px, env(safe-area-inset-bottom, 0px))',
-                animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+                animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                position: 'relative'
             }} onClick={e => e.stopPropagation()}>
+                {/* Instagram-style drag handle pill */}
+                <div style={{
+                    width: '38px',
+                    height: '4px',
+                    borderRadius: '2px',
+                    background: 'rgba(255, 255, 255, 0.3)',
+                    margin: '0 auto 12px auto'
+                }} />
                 
                 {/* Header */}
                 <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 24px 16px', borderBottom: '1px solid #2c2c2e' }}>
                     <h2 style={{ color: 'var(--text-active)', margin: 0, fontSize: '18px', fontWeight: 'bold' }}>Share</h2>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }}>
+                    <button onClick={handleClose} style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer' }} aria-label="Close">
                         <X size={24} />
                     </button>
                 </header>

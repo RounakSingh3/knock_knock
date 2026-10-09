@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, Volume2, VolumeX, Coins, Rocket, Check, Film } from 'lucide-react';
+import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, Volume2, VolumeX, Coins, Rocket, Check, Film, ChevronLeft } from 'lucide-react';
 import PostMedia from './PostMedia';
 import { AppContext } from '../context/AppContext';
 import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, isKnockVideoLink, parseKnockVideoLink, type PostData } from '../lib/database';
@@ -204,25 +204,54 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
             style={isEmbedded ? { height: '100%', width: '100%', maxHeight: '100%', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden', touchAction: 'manipulation' } : { touchAction: 'manipulation' }}
         >
             <div className="modal-top-bar">
-                <div className="modal-user-row">
-                    <img
-                        src={post.avatar_url || 'https://i.pravatar.cc/150'}
-                        alt=""
-                        className="modal-avatar"
-                        onClick={() => { onClose(); navigate(`/profile/${post.username}`); }}
-                    />
-                    <div>
-                        <span
-                            className="modal-username"
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', pointerEvents: 'auto' }}>
+                    <button 
+                        className="modal-back-btn" 
+                        type="button" 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.history.state?.modal === 'post' || window.history.state?.modal === 'feed_viewer') {
+                                window.history.back();
+                            } else {
+                                onClose();
+                            }
+                        }}
+                        aria-label="Back"
+                    >
+                        <ChevronLeft size={24} />
+                    </button>
+                    <div className="modal-user-row">
+                        <img
+                            src={post.avatar_url || 'https://i.pravatar.cc/150'}
+                            alt=""
+                            className="modal-avatar"
                             onClick={() => { onClose(); navigate(`/profile/${post.username}`); }}
-                        >
-                            {post.username}
-                        </span>
-                        <span className="modal-time">{getTimeAgo(post.created_at)}</span>
+                        />
+                        <div>
+                            <span
+                                className="modal-username"
+                                onClick={() => { onClose(); navigate(`/profile/${post.username}`); }}
+                            >
+                                {post.username}
+                            </span>
+                            <span className="modal-time">{getTimeAgo(post.created_at)}</span>
+                        </div>
                     </div>
                 </div>
-                <button className="modal-close-btn" type="button" onClick={onClose}>
-                    <X size={22} />
+                <button 
+                    className="modal-close-btn" 
+                    type="button" 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.history.state?.modal === 'post' || window.history.state?.modal === 'feed_viewer') {
+                            window.history.back();
+                        } else {
+                            onClose();
+                        }
+                    }}
+                    aria-label="Close"
+                >
+                    <X size={20} />
                 </button>
             </div>
             <div className="modal-media-stage" style={isEmbedded ? { position: 'absolute', inset: 0, zIndex: 1, touchAction: 'pan-y' } : { position: 'relative', touchAction: 'pan-y' }}>
@@ -401,53 +430,68 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                         <LinkIcon size={14} /> {post.attached_link}
                     </a>
                 ) : null}
-                <div className="modal-actions" style={isEmbedded ? { pointerEvents: 'auto' } : undefined}>
+            </div>
+
+            {/* Instagram-Style Right-Side Action Column */}
+            <div className="post-side-actions" onClick={e => e.stopPropagation()}>
+                <button
+                    className={`post-side-action-btn ${isLiked ? 'liked' : ''}`}
+                    onClick={handleLikeToggle}
+                    aria-label="Like"
+                >
+                    <Heart size={28} fill={isLiked ? '#f5a524' : 'none'} color={isLiked ? '#f5a524' : '#fff'} />
+                    <span>{likeCount}</span>
+                </button>
+                <button
+                    className="post-side-action-btn"
+                    onClick={() => onCommentClick && onCommentClick(post.id)}
+                    aria-label="Comment"
+                >
+                    <MessageCircle size={28} color="#fff" />
+                    <span>{post.comments_count || 0}</span>
+                </button>
+                <button
+                    className="post-side-action-btn"
+                    onClick={() => onShareClick && onShareClick(post)}
+                    title="Send / Share"
+                    aria-label="Send"
+                >
+                    <Send size={26} color="#fff" style={{ transform: 'rotate(-20deg)', transformOrigin: 'center' }} />
+                    <span>{post.shares_count || 0}</span>
+                </button>
+                <button
+                    className={`post-side-action-btn ${isImped ? 'imped' : ''}`}
+                    onClick={handleImpToggle}
+                    title="Imp / Boost post"
+                    aria-label="Imp"
+                >
+                    <Flame size={28} fill={isImped ? '#ff4500' : 'none'} color={isImped ? '#ff4500' : '#fff'} />
+                    <span>{impCount}</span>
+                </button>
+                <button
+                    className="post-side-action-btn"
+                    onClick={() => setShowBoostModal(true)}
+                    title="Give Points to Boost Screen Reach"
+                    aria-label="Boost Screen Reach"
+                >
+                    <Coins size={26} color="#10b981" />
+                    <span style={{ color: '#10b981' }}>Boost</span>
+                </button>
+                {user && post.user_id === user.id && onDelete && (
                     <button
-                        className={`modal-action-btn ${isLiked ? 'liked' : ''}`}
-                        onClick={handleLikeToggle}
+                        className="post-side-action-btn"
+                        style={{ color: '#ff3b30' }}
+                        onClick={async () => {
+                            if (confirm('Delete this post?')) {
+                                const ok = await deletePost(post.id);
+                                if (ok) onDelete(post.id);
+                            }
+                        }}
+                        aria-label="Delete"
                     >
-                        <Heart size={22} fill={isLiked ? '#f5a524' : 'none'} color={isLiked ? '#f5a524' : 'var(--text-active)'} />
-                        <span>{likeCount}</span>
+                        <Trash2 size={24} color="#ff3b30" />
                     </button>
-                    <button className="modal-action-btn" onClick={() => onCommentClick && onCommentClick(post.id)}>
-                        <MessageCircle size={22} />
-                        <span>{post.comments_count || 0}</span>
-                    </button>
-                    <button className="modal-action-btn" onClick={() => onShareClick && onShareClick(post)}>
-                        <Send size={22} />
-                    </button>
-                    <button
-                        className={`modal-action-btn ${isImped ? 'imped' : ''}`}
-                        onClick={handleImpToggle}
-                        title="Imp / Boost post"
-                    >
-                        <Flame size={22} fill={isImped ? '#ff4500' : 'none'} color={isImped ? '#ff4500' : 'var(--text-active)'} />
-                        <span>{impCount}</span>
-                    </button>
-                    <button
-                        className="modal-action-btn"
-                        onClick={() => setShowBoostModal(true)}
-                        title="Give Points to Boost Screen Reach"
-                        style={{ color: '#10b981' }}
-                    >
-                        <Coins size={22} color="#10b981" />
-                        <span>Boost</span>
-                    </button>
-                    {user && post.user_id === user.id && onDelete && (
-                        <button
-                            className="modal-action-btn"
-                            style={{ color: '#ff3b30' }}
-                            onClick={async () => {
-                                if (confirm('Delete this post?')) {
-                                    const ok = await deletePost(post.id);
-                                    if (ok) onDelete(post.id);
-                                }
-                            }}
-                        >
-                            <Trash2 size={22} />
-                        </button>
-                    )}
-                </div>
+                )}
             </div>
 
             {/* ⚡ Boost Post Screen Reach (+Points) Modal */}
