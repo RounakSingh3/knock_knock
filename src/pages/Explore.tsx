@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
-import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash } from 'lucide-react';
+import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash, Shuffle } from 'lucide-react';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
@@ -429,10 +429,35 @@ const Explore = () => {
         blockedIdsRef.current = blockedIds;
     }, [blockedIds]);
 
+    const [isReshufflingTrending, setIsReshufflingTrending] = useState(false);
+    const [reshuffleToast, setReshuffleToast] = useState<string | null>(null);
+
+    const handleReshuffleTrending = useCallback(async () => {
+        if (isReshufflingTrending) return;
+        setIsReshufflingTrending(true);
+        try {
+            const posts = await fetchTrendingPosts(50, user?.id, true);
+            const filtered = posts
+                .filter(p => !p.user_id || !blockedIds.includes(p.user_id))
+                .map(normalizePost)
+                .filter((p): p is PostData => Boolean(p));
+            setTrendingPosts(filtered);
+            try {
+                localStorage.setItem('knock_explore_trending_cache_v8', JSON.stringify(filtered));
+            } catch (e) {}
+            setReshuffleToast('Trending reshuffled! 🔀');
+            setTimeout(() => setReshuffleToast(null), 2200);
+        } catch (e) {
+            console.error('Error reshuffling trending posts:', e);
+        } finally {
+            setTimeout(() => setIsReshufflingTrending(false), 350);
+        }
+    }, [user?.id, blockedIds, isReshufflingTrending]);
+
     // Load Trending Posts (FOMO banner)
     useEffect(() => {
         if (trendingPosts.length === 0) setIsTrendingLoading(true);
-        fetchTrendingPosts(50, user?.id).then(posts => {
+        fetchTrendingPosts(50, user?.id, true).then(posts => {
             const filtered = posts
                 .filter(p => !p.user_id || !blockedIds.includes(p.user_id))
                 .map(normalizePost)
@@ -652,8 +677,8 @@ const Explore = () => {
         // ⚡ On-demand fresh shuffle on pull-to-refresh
         const refreshSeed = `${getTodayKey()}_pull_${Date.now()}`;
         await loadDiscoverFeed(refreshSeed);
-        // Reload trending too
-        fetchTrendingPosts(50, user?.id).then(posts => {
+        // Reload trending with fresh shuffle too
+        fetchTrendingPosts(50, user?.id, true).then(posts => {
             const filtered = posts
                 .filter(p => !p.user_id || !blockedIds.includes(p.user_id))
                 .map(normalizePost)
@@ -873,13 +898,56 @@ const Explore = () => {
 
                             {/* 🔥 Trending Now Banner — FOMO */}
                             {!isTrendingLoading && normalizedTrendingPosts.length > 0 && (
-                                <div style={{ marginBottom: '16px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                                        <Flame size={18} color="#f5a524" />
-                                        <span style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-active)' }}>Trending Now</span>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-inactive)', marginLeft: 'auto' }}>
-                                            {normalizedTrendingPosts.filter(p => isVideoPost(p)).length > 0 ? `${normalizedTrendingPosts.filter(p => isVideoPost(p)).length} Videos` : 'Last 24h'}
-                                        </span>
+                                <div style={{ marginBottom: '16px', position: 'relative' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <Flame size={18} color="#f5a524" />
+                                            <span style={{ fontWeight: 'bold', fontSize: '15px', color: 'var(--text-active)' }}>Trending Now</span>
+                                            <span style={{ fontSize: '11px', color: 'var(--text-inactive)', marginLeft: '4px', opacity: 0.8 }}>
+                                                {normalizedTrendingPosts.filter(p => isVideoPost(p)).length > 0 ? `(${normalizedTrendingPosts.filter(p => isVideoPost(p)).length} Videos)` : ''}
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {reshuffleToast && (
+                                                <span style={{
+                                                    fontSize: '11px',
+                                                    color: '#f5a524',
+                                                    fontWeight: '600',
+                                                    animation: 'fadeIn 0.2s ease',
+                                                }}>
+                                                    {reshuffleToast}
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={handleReshuffleTrending}
+                                                disabled={isReshufflingTrending}
+                                                title="Reshuffle trending videos"
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px',
+                                                    padding: '4px 10px',
+                                                    borderRadius: '20px',
+                                                    background: 'rgba(245, 165, 36, 0.12)',
+                                                    border: '1px solid rgba(245, 165, 36, 0.35)',
+                                                    color: '#f5a524',
+                                                    fontSize: '11px',
+                                                    fontWeight: '600',
+                                                    cursor: isReshufflingTrending ? 'wait' : 'pointer',
+                                                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                    opacity: isReshufflingTrending ? 0.7 : 1,
+                                                }}
+                                            >
+                                                <Shuffle
+                                                    size={12}
+                                                    style={{
+                                                        transform: isReshufflingTrending ? 'rotate(180deg)' : 'none',
+                                                        transition: 'transform 0.4s ease',
+                                                    }}
+                                                />
+                                                <span>{isReshufflingTrending ? 'Shuffling...' : 'Reshuffle 🔀'}</span>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' }}>
                                         {normalizedTrendingPosts.map((post, idx) => (
