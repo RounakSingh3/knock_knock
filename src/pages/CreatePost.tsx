@@ -1,7 +1,7 @@
 import React, { useState, useContext, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, type ProfileData } from '../lib/database';
+import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, resolveLocalMediaUrl, type ProfileData } from '../lib/database';
 import { getMediaTypeFromFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { CONTENT_CATEGORIES, extractHashtags, recordHashtagSignal } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles, AtSign, UserPlus, Search, Check, Hash, Plus, Layers } from 'lucide-react';
@@ -410,7 +410,7 @@ const CreatePost = () => {
                 }
             });
 
-            if (!publicUrl || publicUrl.startsWith('blob:') || publicUrl.startsWith('data:video/')) {
+            if (!publicUrl) {
                 throw new Error('Media upload failed. Please check your internet connection and try again.');
             }
 
@@ -1096,7 +1096,7 @@ const CreatePost = () => {
                                 position: 'relative',
                                 flexShrink: 0
                             }}>
-                                <video src={attachedKnockVideo.videoUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <video src={resolveLocalMediaUrl(attachedKnockVideo.videoUrl)} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
                                     <Play size={14} fill="#fff" color="#fff" />
                                 </div>

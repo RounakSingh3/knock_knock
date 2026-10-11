@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Film, X, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { fetchPostById } from '../lib/database';
+import { fetchPostById, resolveLocalMediaUrl } from '../lib/database';
 
 export interface ConnectedVideoData {
     id?: string;
@@ -184,7 +184,7 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
             }}>
                 {activeData.videoUrl ? (
                     <video
-                        src={activeData.videoUrl}
+                        src={resolveLocalMediaUrl(activeData.videoUrl)}
                         autoPlay
                         controls
                         playsInline

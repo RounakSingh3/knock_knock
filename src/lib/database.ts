@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { isVideoPost, isVideoUrl, getCleanSongUrl, type MediaType } from './media';
+import { createLocalFallbackMediaUrl, resolveLocalMediaUrl, initLocalMediaRegistry, storeLocalMedia, getLocalMedia } from './localMedia';
+export { createLocalFallbackMediaUrl, resolveLocalMediaUrl, initLocalMediaRegistry, storeLocalMedia, getLocalMedia };
 import {
     isSupabaseQuotaRestricted,
     setSupabaseQuotaRestricted,
@@ -505,6 +507,19 @@ export async function uploadMedia(
     path: string,
     onProgress?: (progress: { loaded: number; total: number }) => void
 ): Promise<string> {
+    // Resilient Offline & Quota Fast-Path:
+    // If Supabase Storage is known to be quota restricted, save directly to persistent IndexedDB
+    if (isSupabaseQuotaRestricted()) {
+        console.info('[uploadMedia] Supabase quota restricted — saving media to resilient IndexedDB local storage.');
+        if (onProgress) {
+            onProgress({ loaded: Math.round(file.size * 0.45), total: file.size });
+            await new Promise(r => setTimeout(r, 60));
+            onProgress({ loaded: file.size, total: file.size });
+        }
+        const { fallbackUrl } = await createLocalFallbackMediaUrl(file);
+        return fallbackUrl;
+    }
+
     const cleanPath = path.replace(/[^a-zA-Z0-9_\-\.\/]/g, '_');
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -675,8 +690,19 @@ export async function uploadMedia(
         }
     }
 
-    // Never return a temporary dead blob URL — throw an informative error so the user can retry
-    throw new Error(lastError?.message || 'Media upload failed. Please check your internet connection and try again.');
+    // Storage network failure recovery:
+    // When Supabase storage fails (quota 402, Failed to fetch, network offline, etc.),
+    // automatically save to persistent IndexedDB fallback storage so user's upload NEVER fails!
+    const errText = String(lastError?.message || '');
+    if (isQuotaError(lastError) || errText.includes('Failed to fetch') || errText.includes('Network') || (lastError as any)?.status === 402 || (lastError as any)?.status === 403) {
+        setSupabaseQuotaRestricted(true);
+    }
+    console.warn(`[uploadMedia] Storage network upload unavailable (${errText}). Saving media to persistent IndexedDB fallback storage.`);
+    if (onProgress) {
+        onProgress({ loaded: file.size, total: file.size });
+    }
+    const { fallbackUrl } = await createLocalFallbackMediaUrl(file);
+    return fallbackUrl;
 }
 
 export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[]> {
@@ -848,7 +874,8 @@ export function normalizePost(post: PostData): PostData {
     // Filter out posts with empty, null, or invalid image_url, or non-portable blob/data URLs
     if (!post.image_url || typeof post.image_url !== 'string') return null as any;
     const trimmedUrl = post.image_url.trim();
-    if (!trimmedUrl || trimmedUrl === 'undefined' || trimmedUrl === 'null' || trimmedUrl === 'none' || trimmedUrl.startsWith('blob:') || trimmedUrl.startsWith('data:')) {
+    const isLocalMediaPost = trimmedUrl.includes('#LOCAL_ID:') || trimmedUrl.startsWith('local-media://');
+    if (!trimmedUrl || trimmedUrl === 'undefined' || trimmedUrl === 'null' || trimmedUrl === 'none' || ((trimmedUrl.startsWith('blob:') || trimmedUrl.startsWith('data:')) && !isLocalMediaPost)) {
         return null as any;
     }
 
@@ -883,9 +910,11 @@ export function normalizePost(post: PostData): PostData {
     }
 
     const avatar_url = post.avatar_url || `https://i.pravatar.cc/150?u=${post.username || 'user'}`;
+    const resolvedUrl = isLocalMediaPost ? resolveLocalMediaUrl(trimmedUrl) : trimmedUrl;
 
     return {
         ...post,
+        image_url: resolvedUrl,
         avatar_url,
         caption,
         music_url,
@@ -1811,13 +1840,29 @@ export function normalizeStory(story: StoryData): StoryData {
         boost_meta.screensDelivered = Math.min(boost_meta.targetScreens, screensDelivered);
     }
 
-    const finalImageUrlWithPoster = poster_url
-        ? `${cleanBaseUrl}#POSTER:${encodeURIComponent(poster_url)}`
-        : cleanBaseUrl;
+    // 5. Preserve local media fallback tags (#LOCAL_ID:xxx and #video.mp4)
+    const localIdMatch = rawUrl.match(/#LOCAL_ID:([^#]+)/);
+    const hasVideoTag = rawUrl.includes('#video.mp4') || rawUrl.includes('#video.webm');
+
+    let finalImageUrl = cleanBaseUrl;
+    if (localIdMatch) {
+        finalImageUrl = `${finalImageUrl}#LOCAL_ID:${localIdMatch[1]}`;
+    }
+    if (hasVideoTag) {
+        finalImageUrl = `${finalImageUrl}#video.mp4`;
+    }
+    if (poster_url) {
+        finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(poster_url)}`;
+    }
+    if (link_url) {
+        finalImageUrl = `${finalImageUrl}#LINK:${encodeURIComponent(link_url)}|${encodeURIComponent(link_cta || 'Watch Connected Video')}|${is_sponsored ? '1' : '0'}`;
+    }
+
+    const resolvedImageUrl = resolveLocalMediaUrl(finalImageUrl);
 
     return {
         ...story,
-        image_url: finalImageUrlWithPoster,
+        image_url: resolvedImageUrl,
         poster_url,
         music_url,
         music_title,

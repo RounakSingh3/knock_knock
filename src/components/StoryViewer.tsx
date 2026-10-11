@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } 
 import { useNavigate } from 'react-router-dom';
 import { X, Trash2, Music, Play, Pause, Volume2, VolumeX, SkipForward, Clock, Rocket, Zap, ExternalLink, Check, Film, Loader2, Coins } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
-import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap, isKnockVideoLink, parseKnockVideoLink, fetchPostById, givePointsToContent } from '../lib/database';
+import { type UserStoryGroup, deleteStory, recordScreenDelivery, convertToPersonalSnap, isKnockVideoLink, parseKnockVideoLink, fetchPostById, givePointsToContent, resolveLocalMediaUrl } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl } from '../lib/media';
 import { recordImplicitSignal, recordBoostSignal, extractHashtags } from '../lib/algorithm';
 import ConnectedVideoModal from './ConnectedVideoModal';
@@ -75,8 +75,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     const { user: authUser, points, setPoints } = useContext(AppContext);
     const currentGroup = storyGroups[groupIndex];
     const currentStory = currentGroup?.stories[storyIndex];
-    const cleanMediaUrl = useMemo(() => (currentStory?.image_url || '').split('#')[0], [currentStory?.image_url]);
-    const isVideo = isVideoUrl(cleanMediaUrl);
+    const resolvedImageUrl = useMemo(() => resolveLocalMediaUrl(currentStory?.image_url), [currentStory?.image_url]);
+    const cleanMediaUrl = useMemo(() => (resolvedImageUrl || '').split('#')[0], [resolvedImageUrl]);
+    const isVideo = isVideoUrl(resolvedImageUrl || cleanMediaUrl);
 
     const posterUrlFromStory = useMemo(() => {
         if (!currentStory) return null;

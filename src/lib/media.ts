@@ -11,6 +11,7 @@ export function isVideoFile(file: File): boolean {
 export function isVideoUrl(url: string | null | undefined): boolean {
     if (!url) return false;
     if (url.startsWith('data:video/')) return true;
+    if (url.includes('#video.') || (url.includes('#LOCAL_ID:') && /\.(mp4|webm|mov|m4v)/i.test(url))) return true;
     return VIDEO_EXTENSIONS.test(url) || /\/(videos?|video-files)\//i.test(url);
 }
 

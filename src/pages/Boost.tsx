@@ -34,6 +34,8 @@ import {
     convertToPersonalSnap,
     fetch24HourBoostStories, 
     createBoostedStory, 
+    createNewPost,
+    resolveLocalMediaUrl,
     recordScreenDelivery, 
     fetchConnectionUserIds, 
     updatePoints, 
@@ -1113,7 +1115,37 @@ const Boost: React.FC = () => {
                 });
             }
 
-            // Step 2: Create 24-hour boosted story with reach guarantee & advertisement link metadata
+            // Step 2: Compute effective link (Attached Knock Video for swipe feature or custom promo URL)
+            const effectiveLink = attachedKnockVideo
+                ? formatKnockVideoLink(attachedKnockVideo.videoUrl, attachedKnockVideo.id, attachedKnockVideo.username, attachedKnockVideo.caption)
+                : (hasAdLink && adLinkUrl.trim() ? adLinkUrl.trim() : undefined);
+            const effectiveCta = attachedKnockVideo ? 'Watch Connected Video' : (hasAdLink ? adLinkCta : undefined);
+            const effectiveSponsored = attachedKnockVideo ? false : (hasAdLink ? isSponsoredAd : undefined);
+
+            // If user selected Explore Video / Ad post type, also publish to Explore & Home feed
+            if (postType === 'explore') {
+                try {
+                    await createNewPost({
+                        user_id: user.id,
+                        username: user.username || user.name,
+                        avatar_url: user.avatar_url || 'https://i.pravatar.cc/150',
+                        image_url: uploadedUrl,
+                        caption: caption.trim(),
+                        attached_link: effectiveLink,
+                        media_type: isVid ? 'video' : 'image',
+                        category: 'General',
+                        boost_impressions_remaining: safePointsToSpend,
+                        boost_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                        music_title: selectedTrack?.title,
+                        music_artist: selectedTrack?.artist,
+                        music_url: selectedTrack?.url,
+                    });
+                } catch (pe) {
+                    console.warn('[handleLaunchBoostKnock] Explore post creation non-fatal:', pe);
+                }
+            }
+
+            // Create 24-hour boosted story with reach guarantee & advertisement link metadata
             const filterName = FILTERS[activeFilterIndex].name;
             const { error: storyError } = await createBoostedStory(
                 user.id,
@@ -1126,9 +1158,9 @@ const Boost: React.FC = () => {
                 selectedTrack?.title,
                 selectedTrack?.artist,
                 selectedTrack?.url,
-                hasAdLink && adLinkUrl.trim() ? adLinkUrl.trim() : undefined,
-                hasAdLink ? adLinkCta : undefined,
-                hasAdLink ? isSponsoredAd : undefined,
+                effectiveLink,
+                effectiveCta,
+                effectiveSponsored,
                 uploadedPosterUrl
             );
 
@@ -1170,7 +1202,11 @@ const Boost: React.FC = () => {
             setShowRewardModal(true);
         } catch (err: any) {
             console.error('Failed to post 24h boost knock:', err);
-            setUploadError(err.message || 'Failed to post knock. Please try again.');
+            let msg = err?.message || 'Failed to post knock. Please try again.';
+            if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Failed to load')) {
+                msg = 'Network issue detected. Saved to your offline 24h Knocks!';
+            }
+            setUploadError(msg);
         } finally {
             setIsSubmitting(false);
         }
@@ -2107,7 +2143,7 @@ const Boost: React.FC = () => {
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
                                             <div style={{ width: '42px', height: '42px', borderRadius: '8px', background: '#000', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
-                                                <video src={attachedKnockVideo.videoUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                <video src={resolveLocalMediaUrl(attachedKnockVideo.videoUrl)} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
                                                     <Play size={12} fill="#fff" color="#fff" />
                                                 </div>

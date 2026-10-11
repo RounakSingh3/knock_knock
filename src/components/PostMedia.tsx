@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, memo, useCallback } from 'react';
 import { VolumeX, Play, Pause, Heart } from 'lucide-react';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
+import { resolveLocalMediaUrl } from '../lib/localMedia';
 import type { PostData } from '../lib/database';
 
 interface PostMediaProps {
@@ -143,22 +144,23 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const retryCountRef = useRef(0);
     const fallbackUsedRef = useRef(false);
     const playPromiseRef = useRef<Promise<void> | null>(null);
-    const isVideo = isVideoPost(post) || isVideoUrl(post.image_url);
+    const effectiveImageUrl = resolveLocalMediaUrl(post.image_url);
+    const isVideo = isVideoPost(post) || isVideoUrl(effectiveImageUrl);
 
     // ⚡ On mobile devices, request 380px for feed thumbnails to cut GPU texture memory, and 1080px for full-screen viewer
     const isMobileScreen = typeof window !== 'undefined' && window.innerWidth <= 640;
     const targetWidth = isMobileScreen && thumbnail ? 380 : (thumbnail ? 600 : 1080);
 
     const [currentImgSrc, setCurrentImgSrc] = useState<string>(() => {
-        return isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth);
+        return isVideo ? '' : getOptimizedImageUrl(effectiveImageUrl, targetWidth);
     });
 
-    const cleanUrl = post.image_url ? post.image_url.split('#')[0].split('?')[0] : '';
+    const cleanUrl = effectiveImageUrl ? effectiveImageUrl.split('#')[0].split('?')[0] : '';
 
     // Clean video URL: strip ALL hash fragments (#POSTER:, #FALLBACK:, #BOOST:, etc.) and filter query
     let cleanVideoUrl = '';
-    if (post.image_url) {
-        const rawNoHash = post.image_url.split('#')[0];
+    if (effectiveImageUrl) {
+        const rawNoHash = effectiveImageUrl.split('#')[0];
         try {
             const parsed = new URL(rawNoHash);
             if (parsed.searchParams.has('filter')) {
@@ -172,7 +174,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
     // Pure clean URL for seamless progressive streaming without pipeline resets
     const videoSrc = isVideo ? cleanVideoUrl : '';
-    const resolvedPosterFromUrl = extractPosterFromUrl(post.image_url);
+    const resolvedPosterFromUrl = extractPosterFromUrl(effectiveImageUrl);
     const categoryFallbackPoster = getFallbackPoster(post as any);
     const [capturedPoster, setCapturedPoster] = useState<string>(() => {
         if (isVideo && cleanUrl) {

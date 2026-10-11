@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Play, Video, Search, Check, Link as LinkIcon, Film, Sparkles, Loader2, AlertCircle } from 'lucide-react';
-import { fetchUserPosts, fetchVideoPosts, fetchPostById, type PostData } from '../lib/database';
+import { fetchUserPosts, fetchVideoPosts, fetchPostById, resolveLocalMediaUrl, type PostData } from '../lib/database';
 import { REELS_DATA, type ReelData } from '../pages/Reels';
 import { isVideoPost, isVideoUrl } from '../lib/media';
 
@@ -483,7 +483,7 @@ export const KnockVideoPickerModal: React.FC<KnockVideoPickerModalProps> = ({
                                         {/* Thumbnail Container */}
                                         <div style={{ position: 'relative', width: '100%', aspectRatio: '9 / 12', background: '#000', overflow: 'hidden' }}>
                                             <video
-                                                src={item.videoUrl}
+                                                src={resolveLocalMediaUrl(item.videoUrl)}
                                                 muted
                                                 playsInline
                                                 preload="metadata"
@@ -580,7 +580,7 @@ export const KnockVideoPickerModal: React.FC<KnockVideoPickerModalProps> = ({
                                 flexShrink: 0,
                                 position: 'relative'
                             }}>
-                                <video src={selectedVideo.videoUrl} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <video src={resolveLocalMediaUrl(selectedVideo.videoUrl)} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.3)' }}>
                                     <Play size={12} fill="#fff" color="#fff" />
                                 </div>

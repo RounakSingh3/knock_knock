@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { fetchProfile, updatePoints, setUserOnlineStatus, fetchBlockedIds, isUnlimitedPointsUser, UNLIMITED_POINTS, type ProfileData } from './lib/database';
+import { initLocalMediaRegistry } from './lib/localMedia';
 import { onAuthStateChange, signOut as authSignOut, fetchCurrentProfile, getSession } from './lib/auth';
 import BottomNav from './components/BottomNav';
 import OnboardingOverlay from './components/OnboardingOverlay';
@@ -219,6 +220,9 @@ function App() {
         if ('Notification' in window && Notification.permission !== 'denied') {
             Notification.requestPermission();
         }
+
+        // Initialize persistent local media storage
+        initLocalMediaRegistry().catch(() => {});
     }, []);
 
     // ⚡ Preload top navigation routes during idle time so tab clicks are instantaneous (0ms)
