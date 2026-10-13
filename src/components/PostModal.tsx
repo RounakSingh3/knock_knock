@@ -79,12 +79,19 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     const hasAttachedVideo = Boolean(post.attached_link && isKnockVideoLink(post.attached_link));
 
     const handleOpenConnectedVideo = () => {
-        if (!post.attached_link) return;
+        if (!post.attached_link) {
+            if (isVideoUrl(post.image_url)) {
+                setConnectedVideoModal({ videoUrl: post.image_url, caption: post.caption || 'Knock Knock Video', username: post.username });
+            }
+            return;
+        }
         const parsed = parseKnockVideoLink(post.attached_link);
-        if (parsed) {
+        if (parsed && (parsed.videoUrl || (parsed.id && parsed.id !== 'undefined' && parsed.id !== 'null'))) {
             setConnectedVideoModal(parsed);
         } else if (isKnockVideoLink(post.attached_link)) {
             setConnectedVideoModal({ videoUrl: post.attached_link, caption: post.caption || 'Knock Knock Video' });
+        } else if (isVideoUrl(post.image_url)) {
+            setConnectedVideoModal({ videoUrl: post.image_url, caption: post.caption || 'Knock Knock Video', username: post.username });
         } else {
             window.open(post.attached_link, '_blank', 'noopener,noreferrer');
         }

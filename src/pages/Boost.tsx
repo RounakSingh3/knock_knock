@@ -173,8 +173,9 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
         const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
         touchStartPosRef.current = null;
 
-        // Swipe LEFT 👈 (> 35px displacement and greater horizontal than vertical)
-        if (diffX < -35 && Math.abs(diffX) > Math.abs(diffY)) {
+        // Horizontal swipe (> 35px displacement and greater horizontal than vertical)
+        // Supports both left swipe and right swipe
+        if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
             if (hasAttachedVideo) {
                 onOpenConnectedVideo?.(story);
             }
@@ -374,12 +375,19 @@ const Boost: React.FC = () => {
                 try { link = decodeURIComponent(m[1].split('|')[0]); } catch { link = m[1].split('|')[0]; }
             }
         }
-        if (!link) return;
+        if (!link) {
+            if (isVideoUrl(story.image_url)) {
+                setConnectedCardVideo({ videoUrl: story.image_url, caption: story.caption || 'Knock Knock Video', username: story.username });
+            }
+            return;
+        }
         const parsed = parseKnockVideoLink(link);
-        if (parsed) {
+        if (parsed && (parsed.videoUrl || (parsed.id && parsed.id !== 'undefined' && parsed.id !== 'null'))) {
             setConnectedCardVideo(parsed);
         } else if (isKnockVideoLink(link)) {
             setConnectedCardVideo({ videoUrl: link, caption: story.caption || 'Knock Knock Video' });
+        } else if (isVideoUrl(story.image_url)) {
+            setConnectedCardVideo({ videoUrl: story.image_url, caption: story.caption || 'Knock Knock Video', username: story.username });
         }
     }, []);
 
@@ -1117,7 +1125,7 @@ const Boost: React.FC = () => {
 
             // Step 2: Compute effective link (Attached Knock Video for swipe feature or custom promo URL)
             const effectiveLink = attachedKnockVideo
-                ? formatKnockVideoLink(attachedKnockVideo.videoUrl, attachedKnockVideo.id, attachedKnockVideo.username, attachedKnockVideo.caption)
+                ? formatKnockVideoLink(attachedKnockVideo)
                 : (hasAdLink && adLinkUrl.trim() ? adLinkUrl.trim() : undefined);
             const effectiveCta = attachedKnockVideo ? 'Watch Connected Video' : (hasAdLink ? adLinkCta : undefined);
             const effectiveSponsored = attachedKnockVideo ? false : (hasAdLink ? isSponsoredAd : undefined);

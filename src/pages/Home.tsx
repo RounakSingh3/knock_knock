@@ -80,8 +80,8 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
         const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
         touchStartPosRef.current = null;
 
-        // Swipe LEFT 👈 (> 35px displacement and more horizontal than vertical)
-        if (diffX < -35 && Math.abs(diffX) > Math.abs(diffY)) {
+        // Horizontal swipe (> 35px displacement and more horizontal than vertical)
+        if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
             if (post.attached_link && isKnockVideoLink(post.attached_link)) {
                 onOpenConnectedVideo?.(post);
             }
@@ -647,12 +647,20 @@ const Home = () => {
     const handleSharePost = useCallback((p: PostData) => { setPostToShare(p); setIsShareOpen(true); }, []);
     const handleOpenComments = useCallback((pid: string) => { setCommentsPostId(pid); setIsCommentsOpen(true); }, []);
     const handleOpenConnectedVideo = useCallback((p: PostData) => {
-        if (!p.attached_link) return;
-        const parsed = parseKnockVideoLink(p.attached_link);
-        if (parsed) {
+        let link = p.attached_link;
+        if (!link) {
+            if (isVideoUrl(p.image_url)) {
+                setConnectedPostVideo({ videoUrl: p.image_url, caption: p.caption || 'Knock Knock Video', username: p.username });
+            }
+            return;
+        }
+        const parsed = parseKnockVideoLink(link);
+        if (parsed && (parsed.videoUrl || (parsed.id && parsed.id !== 'undefined' && parsed.id !== 'null'))) {
             setConnectedPostVideo(parsed);
-        } else if (isKnockVideoLink(p.attached_link)) {
-            setConnectedPostVideo({ videoUrl: p.attached_link, caption: p.caption || 'Knock Knock Video' });
+        } else if (isKnockVideoLink(link)) {
+            setConnectedPostVideo({ videoUrl: link, caption: p.caption || 'Knock Knock Video' });
+        } else if (isVideoUrl(p.image_url)) {
+            setConnectedPostVideo({ videoUrl: p.image_url, caption: p.caption || 'Knock Knock Video', username: p.username });
         }
     }, []);
 

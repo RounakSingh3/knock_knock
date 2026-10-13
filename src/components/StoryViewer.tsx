@@ -170,23 +170,30 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
     const handleOpenLinkedVideo = useCallback(() => {
         const link = getStoryLink(currentStory);
-        if (!link) return;
+        if (!link) {
+            if (isVideoUrl(currentStory?.image_url)) {
+                setConnectedVideoModal({ videoUrl: currentStory?.image_url, caption: currentStory?.caption || 'Knock Knock Video', username: currentGroup?.username });
+            }
+            return;
+        }
         setIsPaused(true);
 
         const parsed = parseKnockVideoLink(link);
-        if (parsed) {
+        if (parsed && (parsed.videoUrl || (parsed.id && parsed.id !== 'undefined' && parsed.id !== 'null'))) {
             setConnectedVideoModal(parsed);
         } else if (isKnockVideoLink(link)) {
             setConnectedVideoModal({ videoUrl: link, caption: 'Knock Knock Video' });
+        } else if (isVideoUrl(currentStory?.image_url)) {
+            setConnectedVideoModal({ videoUrl: currentStory?.image_url, caption: currentStory?.caption || 'Knock Knock Video', username: currentGroup?.username });
         } else {
             window.open(link, '_blank', 'noopener,noreferrer');
         }
-    }, [currentStory, getStoryLink]);
+    }, [currentStory, currentGroup, getStoryLink]);
 
     // Resolve video URL if only ID was stored in the link
     useEffect(() => {
-        if (connectedVideoModal?.id && !connectedVideoModal.videoUrl) {
-            fetchPostById(connectedVideoModal.id).then(post => {
+        if (connectedVideoModal?.id && String(connectedVideoModal.id) !== 'undefined' && String(connectedVideoModal.id) !== 'null' && !connectedVideoModal.videoUrl) {
+            fetchPostById(String(connectedVideoModal.id)).then(post => {
                 if (post && post.image_url) {
                     setConnectedVideoModal(prev => prev ? {
                         ...prev,
@@ -195,7 +202,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         username: prev.username || post.username
                     } : null);
                 }
-            });
+            }).catch(() => {});
         }
     }, [connectedVideoModal?.id]);
 

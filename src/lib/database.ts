@@ -758,8 +758,10 @@ export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[
 }
 
 export async function fetchPostById(id: string): Promise<PostData | null> {
-    if (!id) return null;
-    const strId = String(id);
+    if (!id || id === 'undefined' || id === 'null') return null;
+    const strId = String(id).trim();
+    if (!strId || strId === 'undefined' || strId === 'null') return null;
+
     try {
         if (!isSupabaseQuotaRestricted()) {
             const { data, error } = await supabase
@@ -791,17 +793,40 @@ export async function fetchPostById(id: string): Promise<PostData | null> {
 }
 
 /** Formats a Knock Knock video attachment into a standardized internal link */
-export function formatKnockVideoLink(video: {
-    id: string | number;
-    videoUrl: string;
-    caption?: string;
-    username?: string;
-}): string {
+export function formatKnockVideoLink(
+    videoOrUrl: { id?: string | number; videoUrl?: string; image_url?: string; caption?: string; username?: string } | string,
+    idArg?: string | number,
+    usernameArg?: string,
+    captionArg?: string
+): string {
     const params = new URLSearchParams();
-    params.set('id', String(video.id));
-    if (video.videoUrl) params.set('v', video.videoUrl);
-    if (video.caption) params.set('caption', video.caption.slice(0, 80));
-    if (video.username) params.set('user', video.username);
+    let id: string | undefined;
+    let videoUrl: string | undefined;
+    let caption: string | undefined;
+    let username: string | undefined;
+
+    if (typeof videoOrUrl === 'object' && videoOrUrl !== null) {
+        if (videoOrUrl.id && String(videoOrUrl.id) !== 'undefined' && String(videoOrUrl.id) !== 'null') {
+            id = String(videoOrUrl.id);
+        }
+        videoUrl = videoOrUrl.videoUrl || videoOrUrl.image_url;
+        caption = videoOrUrl.caption;
+        username = videoOrUrl.username;
+    } else if (typeof videoOrUrl === 'string') {
+        if (idArg && String(idArg) !== 'undefined' && String(idArg) !== 'null') {
+            id = String(idArg);
+        }
+        if (videoOrUrl && videoOrUrl !== 'undefined' && videoOrUrl !== 'null') {
+            videoUrl = videoOrUrl;
+        }
+        username = usernameArg;
+        caption = captionArg;
+    }
+
+    if (id && id !== 'undefined' && id !== 'null') params.set('id', id);
+    if (videoUrl && videoUrl !== 'undefined' && videoUrl !== 'null') params.set('v', videoUrl);
+    if (caption && caption !== 'undefined' && caption !== 'null') params.set('caption', caption.slice(0, 80));
+    if (username && username !== 'undefined' && username !== 'null') params.set('user', username);
     return `/reels?${params.toString()}`;
 }
 
@@ -835,14 +860,23 @@ export function parseKnockVideoLink(url?: string | null): {
             const queryIndex = trimmed.indexOf('?');
             const queryString = queryIndex !== -1 ? trimmed.slice(queryIndex + 1) : '';
             const params = new URLSearchParams(queryString);
-            const id = params.get('id') || params.get('postId') || undefined;
-            const videoUrl = params.get('v') || params.get('url') || params.get('video') || params.get('media') || undefined;
-            const caption = params.get('caption') || params.get('desc') || undefined;
-            const username = params.get('user') || params.get('username') || params.get('author') || undefined;
+            const rawId = params.get('id') || params.get('postId') || undefined;
+            const id = (rawId && rawId !== 'undefined' && rawId !== 'null') ? rawId : undefined;
+            const rawVideoUrl = params.get('v') || params.get('url') || params.get('video') || params.get('media') || undefined;
+            const videoUrl = (rawVideoUrl && rawVideoUrl !== 'undefined' && rawVideoUrl !== 'null') ? rawVideoUrl : undefined;
+            const rawCaption = params.get('caption') || params.get('desc') || undefined;
+            const caption = (rawCaption && rawCaption !== 'undefined' && rawCaption !== 'null') ? rawCaption : undefined;
+            const rawUser = params.get('user') || params.get('username') || params.get('author') || undefined;
+            const username = (rawUser && rawUser !== 'undefined' && rawUser !== 'null') ? rawUser : undefined;
+
+            if (!id && !videoUrl) return null;
             return { id, videoUrl, caption, username };
         }
         if (trimmed.startsWith('kk:video:')) {
-            return { id: trimmed.replace('kk:video:', '').trim() };
+            const rawId = trimmed.replace('kk:video:', '').trim();
+            if (rawId && rawId !== 'undefined' && rawId !== 'null') {
+                return { id: rawId };
+            }
         }
         if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(trimmed) || isVideoUrl(trimmed)) {
             return { videoUrl: trimmed };

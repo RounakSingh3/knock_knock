@@ -251,7 +251,11 @@ function postToReel(post: PostData): ReelData {
 const Reels: React.FC = () => {
     const { user, blockedIds } = useContext(AppContext);
     const [searchParams] = useSearchParams();
-    const targetReelId = searchParams.get('id');
+    const rawTargetId = searchParams.get('id');
+    const targetReelId = (rawTargetId && rawTargetId !== 'undefined' && rawTargetId !== 'null') ? rawTargetId : null;
+    const targetVideoUrl = searchParams.get('v') || searchParams.get('url');
+    const targetCaption = searchParams.get('caption');
+    const targetUser = searchParams.get('user');
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
@@ -344,7 +348,24 @@ const Reels: React.FC = () => {
             const todayKey = new Date().toISOString().slice(0, 10);
             const ranked = rankReels(merged, hybridProfile, user?.id, todayKey);
 
-            if (targetReelId) {
+            if (targetVideoUrl) {
+                const directReel: ReelData = {
+                    id: targetReelId || `direct_${Date.now()}`,
+                    videoUrl: targetVideoUrl,
+                    posterUrl: targetVideoUrl,
+                    creator: targetUser || 'creator',
+                    creatorAvatar: `https://i.pravatar.cc/150?u=${targetUser || 'user'}`,
+                    caption: targetCaption || '',
+                    song: 'Original Sound',
+                    likes: 1250,
+                    comments: 24,
+                    shares: 42,
+                    category: 'Uploads',
+                };
+                ranked.unshift(directReel);
+                setSelectedReelIndex(0);
+                setActiveIndex(0);
+            } else if (targetReelId) {
                 let targetIdx = ranked.findIndex(r => String(r.id) === String(targetReelId));
                 if (targetIdx === -1) {
                     try {

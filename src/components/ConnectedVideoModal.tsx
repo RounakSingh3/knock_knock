@@ -23,12 +23,21 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
 }) => {
     const navigate = useNavigate();
     const [resolvedVideo, setResolvedVideo] = useState<ConnectedVideoData | null>(video);
+    const [loadError, setLoadError] = useState(false);
     const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
     useEffect(() => {
         setResolvedVideo(video);
-        if (video?.id && !video.videoUrl) {
-            fetchPostById(video.id).then(post => {
+        setLoadError(false);
+
+        const timer = setTimeout(() => {
+            if (!video?.videoUrl && (!resolvedVideo || !resolvedVideo.videoUrl)) {
+                setLoadError(true);
+            }
+        }, 3500);
+
+        if (video?.id && String(video.id) !== 'undefined' && String(video.id) !== 'null' && !video.videoUrl) {
+            fetchPostById(String(video.id)).then(post => {
                 if (post && post.image_url) {
                     setResolvedVideo(prev => prev ? {
                         ...prev,
@@ -36,9 +45,17 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                         caption: prev.caption || post.caption,
                         username: prev.username || post.username,
                     } : null);
+                    setLoadError(false);
+                } else {
+                    setLoadError(true);
                 }
+            }).catch(e => {
+                console.warn('[ConnectedVideoModal] fetch error:', e);
+                setLoadError(true);
             });
         }
+
+        return () => clearTimeout(timer);
     }, [video]);
 
     if (!video) return null;
@@ -126,12 +143,17 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {activeData.id && (
+                    {activeData.id && String(activeData.id) !== 'undefined' && String(activeData.id) !== 'null' && (
                         <button
                             type="button"
                             onClick={() => {
                                 onClose();
-                                navigate(`/reels?id=${activeData.id}`);
+                                const params = new URLSearchParams();
+                                params.set('id', String(activeData.id));
+                                if (activeData.videoUrl) params.set('v', activeData.videoUrl);
+                                if (activeData.caption) params.set('caption', activeData.caption);
+                                if (activeData.username) params.set('user', activeData.username);
+                                navigate(`/reels?${params.toString()}`);
                             }}
                             style={{
                                 background: 'linear-gradient(135deg, #f5a524, #ff6b35)',
@@ -189,8 +211,34 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                         controls
                         playsInline
                         loop
+                        onError={() => setLoadError(true)}
                         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
+                ) : loadError ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', color: '#fff', textAlign: 'center', padding: '24px' }}>
+                        <Film size={40} color="#f5a524" />
+                        <span style={{ fontSize: '15px', fontWeight: 700, color: '#f5a524' }}>Connected Video</span>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)', maxWidth: '280px' }}>
+                            This video could not be loaded or is processing.
+                        </span>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            style={{
+                                marginTop: '8px',
+                                background: 'rgba(245, 165, 36, 0.2)',
+                                border: '1px solid rgba(245, 165, 36, 0.4)',
+                                color: '#f5a524',
+                                padding: '8px 18px',
+                                borderRadius: '20px',
+                                fontWeight: 700,
+                                fontSize: '12px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            Close (or swipe right)
+                        </button>
+                    </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', color: '#f5a524' }}>
                         <Loader2 size={36} className="animate-spin" />

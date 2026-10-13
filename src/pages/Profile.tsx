@@ -91,12 +91,19 @@ const Profile = () => {
     const [connectedPostVideo, setConnectedPostVideo] = useState<ConnectedVideoData | null>(null);
 
     const handleOpenConnectedVideo = (link?: string | null) => {
-        if (!link) return;
+        if (!link) {
+            if (selectedPost && isVideoUrl(selectedPost.image_url)) {
+                setConnectedPostVideo({ videoUrl: selectedPost.image_url, caption: selectedPost.caption || 'Knock Knock Video', username: selectedPost.username });
+            }
+            return;
+        }
         const parsed = parseKnockVideoLink(link);
-        if (parsed) {
+        if (parsed && (parsed.videoUrl || (parsed.id && parsed.id !== 'undefined' && parsed.id !== 'null'))) {
             setConnectedPostVideo(parsed);
         } else if (isKnockVideoLink(link)) {
             setConnectedPostVideo({ videoUrl: link, caption: selectedPost?.caption || 'Knock Knock Video' });
+        } else if (selectedPost && isVideoUrl(selectedPost.image_url)) {
+            setConnectedPostVideo({ videoUrl: selectedPost.image_url, caption: selectedPost.caption || 'Knock Knock Video', username: selectedPost.username });
         }
     };
 
