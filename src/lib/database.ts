@@ -1912,6 +1912,34 @@ export function normalizeStory(story: StoryData): StoryData {
     };
 }
 
+export function storyToPostData(story: StoryData): PostData {
+    const isVid = isVideoUrl(story.image_url);
+    const creatorUsername = story.username || 'user';
+    const expiresAt = new Date(new Date(story.created_at).getTime() + 24 * 60 * 60 * 1000).toISOString();
+    return {
+        id: story.id,
+        user_id: story.user_id || undefined,
+        username: creatorUsername,
+        avatar_url: `https://i.pravatar.cc/150?u=${creatorUsername}`,
+        image_url: story.image_url,
+        caption: story.caption || '',
+        likes_count: (story as any).likes_count || (story.is_boosted ? 24 : 12),
+        imps_count: story.screens_delivered || 0,
+        comments_count: (story as any).comments_count || 0,
+        shares_count: (story as any).shares_count || 0,
+        created_at: story.created_at,
+        attached_link: story.attached_link || story.link_url,
+        media_type: isVid ? 'video' : 'image',
+        category: (story as any).category || 'General',
+        css_filter: story.filter_name || undefined,
+        boost_expires_at: expiresAt,
+        boost_impressions_remaining: story.target_screens ? Math.max(0, story.target_screens - (story.screens_delivered || 0)) : undefined,
+        music_title: story.music_title,
+        music_artist: story.music_artist,
+        music_url: story.music_url,
+    };
+}
+
 export interface UserStoryGroup {
     userId: string;
     username: string;

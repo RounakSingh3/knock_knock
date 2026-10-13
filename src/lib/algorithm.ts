@@ -1429,3 +1429,66 @@ export function rankBoostLoopStories(
     return result;
 }
 
+/**
+ * Dedicated 24-Hour Ephemeral Instagram Explore Model
+ * 
+ * Orders 24-hour Knocks into an authentic Instagram Explore rhythm:
+ * 1. Strict 24-Hour Lifespan: Excludes any media older than 24 hours.
+ * 2. Freshness & Decay: High dopamine for new uploads (0–6h) + last-chance urgency for expiring items.
+ * 3. Delivery Guarantee: Paces boosted content to fulfill target screen reach.
+ * 4. Micro-Niche & Hashtag Affinity: Aligns with implicit dwell, watch time, and hashtag interactions.
+ * 5. Media Grid Rhythm: Interleaves photos and video reels to provide Instagram Explore's visual balance.
+ * 6. Absolute Deduplication: Ensures 0 duplicate posts by ID or sanitized media URL.
+ */
+export function rank24HourExploreFeed(
+    stories: StoryData[],
+    currentUserId?: string,
+    userFriends: string[] = [],
+    hybridProfile?: UserInterestProfile,
+    activeFilter?: 'all' | 'boosted' | 'friends' | 'videos' | 'photos' | null
+): StoryData[] {
+    if (!stories || stories.length === 0) return [];
+
+    let candidates = stories;
+    if (activeFilter === 'boosted') {
+        candidates = stories.filter(s => s.is_boosted);
+    } else if (activeFilter === 'friends') {
+        candidates = stories.filter(s => s.user_id && userFriends.includes(s.user_id));
+    } else if (activeFilter === 'videos') {
+        candidates = stories.filter(s => isVideoUrl(s.image_url));
+    } else if (activeFilter === 'photos') {
+        candidates = stories.filter(s => !isVideoUrl(s.image_url));
+    }
+
+    const ranked = rankBoostLoopStories(candidates, currentUserId, userFriends, hybridProfile);
+
+    // If 'all', create Instagram Explore rhythm (balance video reels with photos)
+    if (!activeFilter || activeFilter === 'all') {
+        const vids: StoryData[] = [];
+        const photos: StoryData[] = [];
+        for (const s of ranked) {
+            if (isVideoUrl(s.image_url)) {
+                vids.push(s);
+            } else {
+                photos.push(s);
+            }
+        }
+
+        if (vids.length > 0 && photos.length > 0) {
+            // Instagram rhythm: 2 photos, 1 reel, 2 photos, 1 reel...
+            const rhythm: StoryData[] = [];
+            let v = 0;
+            let p = 0;
+            while (v < vids.length || p < photos.length) {
+                if (p < photos.length) rhythm.push(photos[p++]);
+                if (p < photos.length) rhythm.push(photos[p++]);
+                if (v < vids.length) rhythm.push(vids[v++]);
+            }
+            return rhythm;
+        }
+    }
+
+    return ranked;
+}
+
+

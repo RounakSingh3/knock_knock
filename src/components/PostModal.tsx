@@ -250,7 +250,30 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                             >
                                 {post.username}
                             </span>
-                            <span className="modal-time">{getTimeAgo(post.created_at)}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span className="modal-time">{getTimeAgo(post.created_at)}</span>
+                                {post.boost_expires_at && (() => {
+                                    const diff = new Date(post.boost_expires_at).getTime() - Date.now();
+                                    if (diff <= 0) return null;
+                                    const hrs = Math.ceil(diff / (1000 * 60 * 60));
+                                    return (
+                                        <span style={{
+                                            fontSize: '10px',
+                                            fontWeight: 800,
+                                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.25), rgba(255, 107, 53, 0.25))',
+                                            border: '1px solid rgba(245, 165, 36, 0.6)',
+                                            color: '#f5a524',
+                                            padding: '1px 6px',
+                                            borderRadius: '10px',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                        }}>
+                                            ⏳ 24h • {hrs}h left
+                                        </span>
+                                    );
+                                })()}
+                            </div>
                         </div>
                     </div>
                 </div>

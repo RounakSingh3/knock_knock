@@ -52,17 +52,23 @@ import {
     fetchUserEngagements,
     deduplicateStories,
     normalizeStory,
+    storyToPostData,
     type StoryData, 
-    type UserStoryGroup 
+    type UserStoryGroup,
+    type PostData
 } from '../lib/database';
 import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster, compressVideo } from '../lib/media';
-import { rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
+import { rank24HourExploreFeed, rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
+import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import PostMedia from '../components/PostMedia';
 import ConnectedVideoModal, { type ConnectedVideoData } from '../components/ConnectedVideoModal';
 import { MusicPickerModal, type Track } from '../components/MusicPickerModal';
 import KnockVideoPickerModal, { type KnockVideoItem } from '../components/KnockVideoPickerModal';
 import UploadRewardModal from '../components/UploadRewardModal';
+
+const CommentsSheet = React.lazy(() => import('../components/CommentsSheet'));
+const ShareModal = React.lazy(() => import('../components/ShareModal'));
 
 const FILTERS = [
     { name: 'Normal', style: '' },
@@ -249,6 +255,34 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
                 </div>
             )}
 
+            {/* 24-Hour Expiration Time Left Badge */}
+            <div style={{
+                position: 'absolute',
+                top: isBig ? '10px' : '6px',
+                right: isVideo ? (isBig ? '78px' : '48px') : (isBig ? '10px' : '6px'),
+                zIndex: 4,
+                background: 'rgba(0,0,0,0.65)',
+                backdropFilter: 'blur(6px)',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.18)',
+                padding: '2px 5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '3px',
+                fontSize: isBig ? '10px' : '8px',
+                fontWeight: '800',
+                color: '#f5a524',
+                pointerEvents: 'none'
+            }}>
+                <Clock size={isBig ? 10 : 8} color="#f5a524" />
+                <span>{(() => {
+                    if (!story.created_at) return '24h';
+                    const diff = (new Date(story.created_at).getTime() + 24 * 60 * 60 * 1000) - Date.now();
+                    if (diff <= 0) return '0h';
+                    return `${Math.ceil(diff / (1000 * 60 * 60))}h`;
+                })()}</span>
+            </div>
+
             {/* Attached Knock Video (Swipe Left Feature) Badge */}
             {hasAttachedVideo && (
                 <button
@@ -361,8 +395,15 @@ const Boost: React.FC = () => {
         }
     });
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [filterTab, setFilterTab] = useState<'all' | 'boosted' | 'friends' | 'videos'>('all');
+    const [filterTab, setFilterTab] = useState<'all' | 'trending' | 'videos' | 'photos' | 'friends' | 'boosted'>('all');
     const [userFriends, setUserFriends] = useState<string[]>([]);
+
+    // Instagram Explore Feed Viewer State (24-Hour Ephemeral Posts)
+    const [activeFeedState, setActiveFeedState] = useState<{ posts: PostData[]; index: number } | null>(null);
+    const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
+    const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+    const [postToShare, setPostToShare] = useState<PostData | null>(null);
+    const [isShareOpen, setIsShareOpen] = useState(false);
 
     // Connected Knock Video Modal for card-level left swipes
     const [connectedCardVideo, setConnectedCardVideo] = useState<ConnectedVideoData | null>(null);
@@ -414,6 +455,7 @@ const Boost: React.FC = () => {
 
     // Upload / Knock Creator Modal State
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [aspectRatioMode, setAspectRatioMode] = useState<'1:1' | '4:5' | '9:16'>('1:1');
     const [isCameraActive, setIsCameraActive] = useState(false);
     const [capturedMediaUrl, setCapturedMediaUrl] = useState<string | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -645,10 +687,10 @@ const Boost: React.FC = () => {
         }));
     }, [stories, user?.id, userFriends]);
 
-    // ⚡ Adaptive Addictive Loop Engine: real-time taste chasing & recency frequency boost
+    // ⚡ Dedicated 24h Instagram Explore Algorithm: real-time taste chasing, recency frequency, and 3-column media rhythm
     const rankedStories = useMemo(() => {
-        return rankBoostLoopStories(combinedStories, user?.id, userFriends, hybridProfile);
-    }, [combinedStories, user?.id, userFriends, hybridProfile]);
+        return rank24HourExploreFeed(combinedStories, user?.id, userFriends, hybridProfile, filterTab === 'all' ? 'all' : filterTab as any);
+    }, [combinedStories, user?.id, userFriends, hybridProfile, filterTab]);
 
     // Enhanced 24h Discovery filtering (Filter Tab + #Hashtag + Search Query)
     const filteredStories = useMemo(() => {
@@ -657,6 +699,8 @@ const Boost: React.FC = () => {
             if (filterTab === 'boosted' && !s.is_boosted && !s.is_sponsored) return false;
             if (filterTab === 'friends' && (!s.user_id || !userFriends.includes(s.user_id))) return false;
             if (filterTab === 'videos' && !isVideoUrl(s.image_url)) return false;
+            if (filterTab === 'photos' && isVideoUrl(s.image_url)) return false;
+            if (filterTab === 'trending' && (!s.is_boosted && !isVideoUrl(s.image_url))) return false;
 
             // 2. Hashtag filter — connects all 24h videos sharing this hashtag!
             if (selectedHashtag) {
@@ -684,6 +728,11 @@ const Boost: React.FC = () => {
             return true;
         });
     }, [rankedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
+
+    // Top 24h Video Reels for horizontal Trending strip
+    const trendingReels = useMemo(() => {
+        return rankedStories.filter(s => isVideoUrl(s.image_url)).slice(0, 15);
+    }, [rankedStories]);
 
     // ── Unique 24h Explore Stream (Instagram Style, Strictly Unique Items — Zero Repeats) ──
     const [displayLimit, setDisplayLimit] = useState(24);
@@ -762,6 +811,31 @@ const Boost: React.FC = () => {
     const handleCardRef = useCallback((id: string, el: HTMLElement | null) => {
         cardRefs.current[id] = el;
     }, []);
+
+    // Open 24h Instagram Explore Feed Viewer (Authentic Instagram Explore Experience!)
+    const handleOpenExploreFeed = useCallback((story: StoryData, index?: number) => {
+        if (user && story.id) {
+            recordScreenDelivery(story.id, user.id);
+        }
+        const isVid = isVideoUrl(story.image_url);
+        recordBoostSignal({
+            storyId: story.id,
+            creatorId: story.user_id || undefined,
+            hashtags: extractHashtags(story.caption),
+            category: (story as any).category || undefined,
+            isVideo: isVid,
+            type: 'view'
+        });
+
+        // Convert filtered 24h stories to PostData list with 24h expiration tags
+        const activeStories = filteredStories.length > 0 ? filteredStories : rankedStories;
+        const postList = activeStories.map(storyToPostData);
+        const targetIdx = index !== undefined ? index : postList.findIndex(p => p.id === story.id);
+        setActiveFeedState({
+            posts: postList,
+            index: targetIdx !== -1 ? targetIdx : 0
+        });
+    }, [user, filteredStories, rankedStories]);
 
     // Open Story Viewer (bulletproof fallback resolution with continuous interest queue)
     const handleOpenStory = useCallback((story: StoryData) => {
@@ -874,12 +948,64 @@ const Boost: React.FC = () => {
         if (videoRef.current && canvasRef.current) {
             const video = videoRef.current;
             const canvas = canvasRef.current;
-            canvas.width = video.videoWidth || 720;
-            canvas.height = video.videoHeight || 1280;
+            const vw = video.videoWidth || 720;
+            const vh = video.videoHeight || 1280;
+
+            let targetW = 1080;
+            let targetH = 1080;
+            let srcX = 0;
+            let srcY = 0;
+            let srcW = vw;
+            let srcH = vh;
+
+            if (aspectRatioMode === '1:1') {
+                targetW = 1080;
+                targetH = 1080;
+                const side = Math.min(vw, vh);
+                srcX = (vw - side) / 2;
+                srcY = (vh - side) / 2;
+                srcW = side;
+                srcH = side;
+            } else if (aspectRatioMode === '4:5') {
+                targetW = 1080;
+                targetH = 1350;
+                const idealW = vh * (4 / 5);
+                if (idealW <= vw) {
+                    srcW = idealW;
+                    srcH = vh;
+                    srcX = (vw - idealW) / 2;
+                    srcY = 0;
+                } else {
+                    const idealH = vw * (5 / 4);
+                    srcW = vw;
+                    srcH = idealH;
+                    srcX = 0;
+                    srcY = (vh - idealH) / 2;
+                }
+            } else { // '9:16'
+                targetW = 1080;
+                targetH = 1920;
+                const idealW = vh * (9 / 16);
+                if (idealW <= vw) {
+                    srcW = idealW;
+                    srcH = vh;
+                    srcX = (vw - idealW) / 2;
+                    srcY = 0;
+                } else {
+                    const idealH = vw * (16 / 9);
+                    srcW = vw;
+                    srcH = idealH;
+                    srcX = 0;
+                    srcY = (vh - idealH) / 2;
+                }
+            }
+
+            canvas.width = targetW;
+            canvas.height = targetH;
             const ctx = canvas.getContext('2d');
             if (ctx) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.90);
                 setCapturedMediaUrl(dataUrl);
                 setIsVideo(false);
                 stopCamera();
@@ -1532,9 +1658,11 @@ const Boost: React.FC = () => {
                 }}>
                     {[
                         { id: 'all', label: 'All Knocks', icon: Sparkles },
-                        { id: 'boosted', label: 'Boosted 🔥', icon: Flame },
+                        { id: 'trending', label: 'Trending 🔥', icon: Flame },
+                        { id: 'videos', label: 'Reels 🎬', icon: Play },
+                        { id: 'photos', label: 'Photos 📸', icon: ImageIcon },
                         { id: 'friends', label: 'Friends 👥', icon: Users },
-                        { id: 'videos', label: 'Videos 🎬', icon: Play },
+                        { id: 'boosted', label: 'Boosted ⚡', icon: Zap },
                     ].map(tab => {
                         const active = filterTab === tab.id;
                         const Icon = tab.icon;
@@ -1559,6 +1687,90 @@ const Boost: React.FC = () => {
                         );
                     })}
                 </div>
+
+                {/* ── Trending 24h Reels Horizontal Scroller (Instagram Explore Style) ── */}
+                {trendingReels.length > 0 && filterTab !== 'photos' && (
+                    <div style={{ padding: '16px 12px 8px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Flame size={17} color="#f5a524" />
+                                <span style={{ fontWeight: '800', fontSize: '14px', color: 'var(--text-active)', letterSpacing: '-0.2px' }}>
+                                    Trending 24h Reels
+                                </span>
+                                <span style={{ fontSize: '11px', color: 'var(--text-inactive)', opacity: 0.8 }}>
+                                    ({trendingReels.length})
+                                </span>
+                            </div>
+                            <span style={{ fontSize: '10px', color: '#f5a524', fontWeight: '800', background: 'rgba(245, 165, 36, 0.12)', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(245, 165, 36, 0.3)' }}>
+                                ⏳ 24h Limit
+                            </span>
+                        </div>
+                        <div style={{
+                            display: 'flex',
+                            gap: '10px',
+                            overflowX: 'auto',
+                            paddingBottom: '6px',
+                            WebkitOverflowScrolling: 'touch'
+                        }}>
+                            {trendingReels.map((reel) => {
+                                const timeText = getTimeRemaining(reel.created_at).text;
+                                return (
+                                    <div
+                                        key={`trending-reel-${reel.id}`}
+                                        onClick={() => handleOpenExploreFeed(reel)}
+                                        style={{
+                                            width: '105px',
+                                            height: '160px',
+                                            borderRadius: '12px',
+                                            overflow: 'hidden',
+                                            position: 'relative',
+                                            flexShrink: 0,
+                                            cursor: 'pointer',
+                                            background: '#18181b',
+                                            boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
+                                            transition: 'transform 0.15s ease',
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.transform = 'scale(0.97)'}
+                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        <PostMedia
+                                            post={{
+                                                image_url: reel.image_url,
+                                                media_type: 'video',
+                                                category: (reel as any).category || 'General'
+                                            } as any}
+                                            thumbnail={true}
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                        <div style={{
+                                            position: 'absolute', top: '6px', right: '6px',
+                                            background: 'rgba(0,0,0,0.65)', borderRadius: '50%',
+                                            width: '22px', height: '22px', display: 'flex',
+                                            alignItems: 'center', justifyContent: 'center'
+                                        }}>
+                                            <Play size={10} color="#fff" fill="#fff" />
+                                        </div>
+                                        <div style={{
+                                            position: 'absolute', top: '6px', left: '6px',
+                                            background: 'rgba(245, 165, 36, 0.95)', color: '#000',
+                                            borderRadius: '8px', padding: '1px 5px', fontSize: '8px', fontWeight: '900'
+                                        }}>
+                                            {timeText}
+                                        </div>
+                                        <div style={{
+                                            position: 'absolute', bottom: 0, left: 0, right: 0,
+                                            background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
+                                            padding: '16px 6px 6px', fontSize: '10px', color: '#fff', fontWeight: '700',
+                                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                                        }}>
+                                            @{reel.username || 'user'}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
 
                 {/* ── 24-Hour Ephemeral Discovery Feed (Grid - Instagram Explore Style with Big Cards) ── */}
                 <div style={{ padding: '0 2px 24px 2px' }}>
@@ -1639,7 +1851,7 @@ const Boost: React.FC = () => {
                                             key={story.id}
                                             story={story}
                                             isBig={isBig}
-                                            onOpen={handleOpenStory}
+                                            onOpen={(s) => handleOpenExploreFeed(s, idx)}
                                             onCardRef={handleCardRef}
                                             onOpenConnectedVideo={handleOpenConnectedVideo}
                                         />
@@ -1737,12 +1949,48 @@ const Boost: React.FC = () => {
                         {/* Modal Body */}
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
+                            {/* Instagram Photo Aspect Ratio Selector */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2px' }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-inactive)', fontWeight: '700' }}>
+                                    Instagram Format:
+                                </span>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    {[
+                                        { id: '1:1', label: '1:1 Square' },
+                                        { id: '4:5', label: '4:5 Portrait' },
+                                        { id: '9:16', label: '9:16 Reel' },
+                                    ].map(ratio => (
+                                        <button
+                                            key={ratio.id}
+                                            type="button"
+                                            onClick={() => setAspectRatioMode(ratio.id as any)}
+                                            style={{
+                                                background: aspectRatioMode === ratio.id ? 'linear-gradient(135deg, #f5a524, #ff6b35)' : 'rgba(255,255,255,0.06)',
+                                                border: aspectRatioMode === ratio.id ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                                color: aspectRatioMode === ratio.id ? '#000' : 'var(--text-inactive)',
+                                                padding: '4px 10px',
+                                                borderRadius: '12px',
+                                                fontSize: '11px',
+                                                fontWeight: '800',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.15s ease'
+                                            }}
+                                        >
+                                            {ratio.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
                             {/* Viewfinder / Media Preview */}
                             <div style={{
-                                width: '100%', aspectRatio: '9 / 12', borderRadius: '16px',
+                                width: '100%',
+                                aspectRatio: aspectRatioMode === '1:1' ? '1 / 1' : aspectRatioMode === '4:5' ? '4 / 5' : '9 / 16',
+                                borderRadius: '16px',
                                 overflow: 'hidden', background: '#0a0a0a', position: 'relative',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                border: '1px solid rgba(255,255,255,0.1)'
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                transition: 'aspect-ratio 0.2s ease',
                             }}>
                                 {isCameraActive ? (
                                     <>
@@ -2432,6 +2680,30 @@ const Boost: React.FC = () => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ── 24-Hour Instagram Explore Feed Viewer ── */}
+            {activeFeedState && (
+                <ExploreFeedViewer
+                    key={`boost-explore-feed-${activeFeedState.index}-${activeFeedState.posts[activeFeedState.index]?.id || 'viewer'}`}
+                    posts={activeFeedState.posts}
+                    initialIndex={activeFeedState.index}
+                    onClose={() => setActiveFeedState(null)}
+                    onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
+                    onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
+                />
+            )}
+
+            {isCommentsOpen && commentsPostId && user && (
+                <React.Suspense fallback={null}>
+                    <CommentsSheet postId={commentsPostId} isOpen={isCommentsOpen} currentUser={user as any} onClose={() => setIsCommentsOpen(false)} />
+                </React.Suspense>
+            )}
+
+            {isShareOpen && postToShare && user && (
+                <React.Suspense fallback={null}>
+                    <ShareModal post={postToShare} isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} currentUser={user} />
+                </React.Suspense>
             )}
 
             {/* ── Fullscreen Story Viewer ── */}
