@@ -537,7 +537,10 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
         // Horizontal swipe (> 35px displacement and greater horizontal than vertical)
         if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
-            if (diffX < 0) {
+            if (effectiveLink && isKnockVideoLink(effectiveLink)) {
+                // Both left and right swipe open the connected video!
+                handleOpenLinkedVideo();
+            } else if (diffX < 0) {
                 // Swipe LEFT 👈 -> Open Connected Video or advance
                 if (effectiveLink) {
                     handleOpenLinkedVideo();
@@ -585,7 +588,9 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
         // Mouse drag left/right
         if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
-            if (diffX < 0) {
+            if (effectiveLink && isKnockVideoLink(effectiveLink)) {
+                handleOpenLinkedVideo();
+            } else if (diffX < 0) {
                 if (effectiveLink) {
                     handleOpenLinkedVideo();
                 } else {
@@ -1000,7 +1005,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                                     borderRadius: '12px',
                                     fontWeight: 800
                                 }}>
-                                    Swipe Left 👈
+                                    Swipe to Watch 🎥
                                 </span>
                             </button>
                         ) : (

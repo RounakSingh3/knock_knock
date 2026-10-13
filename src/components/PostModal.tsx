@@ -76,24 +76,37 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     const [connectedVideoModal, setConnectedVideoModal] = useState<ConnectedVideoData | null>(null);
     const touchStartPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
-    const hasAttachedVideo = Boolean(post.attached_link && isKnockVideoLink(post.attached_link));
+    const effectiveAttachedLink = post.attached_link || (post as any).link_url || (() => {
+        if (post.image_url && post.image_url.includes('#LINK:')) {
+            const m = post.image_url.match(/#LINK:([^#]+)/);
+            if (m && m[1]) {
+                try { return decodeURIComponent(m[1].split('|')[0]); } catch { return m[1].split('|')[0]; }
+            }
+        }
+        return undefined;
+    })();
+    const hasAttachedVideo = Boolean(
+        (effectiveAttachedLink && isKnockVideoLink(effectiveAttachedLink)) ||
+        isVideoUrl(post.image_url)
+    );
 
     const handleOpenConnectedVideo = () => {
-        if (!post.attached_link) {
+        const link = effectiveAttachedLink;
+        if (!link) {
             if (isVideoUrl(post.image_url)) {
                 setConnectedVideoModal({ videoUrl: post.image_url, caption: post.caption || 'Knock Knock Video', username: post.username });
             }
             return;
         }
-        const parsed = parseKnockVideoLink(post.attached_link);
+        const parsed = parseKnockVideoLink(link);
         if (parsed && (parsed.videoUrl || (parsed.id && parsed.id !== 'undefined' && parsed.id !== 'null'))) {
             setConnectedVideoModal(parsed);
-        } else if (isKnockVideoLink(post.attached_link)) {
-            setConnectedVideoModal({ videoUrl: post.attached_link, caption: post.caption || 'Knock Knock Video' });
+        } else if (isKnockVideoLink(link)) {
+            setConnectedVideoModal({ videoUrl: link, caption: post.caption || 'Knock Knock Video' });
         } else if (isVideoUrl(post.image_url)) {
             setConnectedVideoModal({ videoUrl: post.image_url, caption: post.caption || 'Knock Knock Video', username: post.username });
         } else {
-            window.open(post.attached_link, '_blank', 'noopener,noreferrer');
+            window.open(link, '_blank', 'noopener,noreferrer');
         }
     };
 
@@ -113,18 +126,14 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
         const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
         touchStartPosRef.current = null;
 
-        // Horizontal swipe (> 35px displacement and more horizontal than vertical)
-        if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
-            if (diffX < 0) {
-                // Swipe LEFT 👈 -> Open Connected Video
-                if (hasAttachedVideo) {
-                    handleOpenConnectedVideo();
-                }
-            } else if (diffX > 0) {
-                // Swipe RIGHT 👉 -> Dismiss video overlay if open
-                if (connectedVideoModal) {
-                    setConnectedVideoModal(null);
-                }
+        // Horizontal swipe (> 30px displacement and more horizontal than vertical)
+        if (Math.abs(diffX) > 30 && Math.abs(diffX) > Math.abs(diffY)) {
+            if (connectedVideoModal) {
+                // If video modal is open, swipe dismisses it and returns to post
+                setConnectedVideoModal(null);
+            } else if (hasAttachedVideo) {
+                // Both right swipe and left swipe open the connected video smoothly!
+                handleOpenConnectedVideo();
             }
         }
     };
@@ -330,10 +339,10 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                             backdropFilter: 'blur(8px)',
                             WebkitBackdropFilter: 'blur(8px)',
                         }}
-                        title="Swipe left or tap to watch connected video"
+                        title="Swipe or tap to watch connected video"
                     >
                         <Film size={14} color="#000" strokeWidth={2.4} />
-                        <span>Swipe Left 👈</span>
+                        <span>Swipe to Watch 🎥</span>
                     </button>
                 )}
                 {(post.music_url || post.music_title) && (

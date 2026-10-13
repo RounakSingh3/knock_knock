@@ -467,12 +467,23 @@ const Reels: React.FC = () => {
         };
     }, []);
 
+    const lastScrolledModalIndexRef = useRef<number | null>(null);
+
     // Auto-scroll to selected reel index when modal opens and play media immediately
     useEffect(() => {
-        if (selectedReelIndex !== null && modalScrollRef.current) {
-            const height = modalScrollRef.current.clientHeight;
-            modalScrollRef.current.scrollTo(0, height * selectedReelIndex);
-            setActiveIndex(selectedReelIndex);
+        if (selectedReelIndex === null) {
+            lastScrolledModalIndexRef.current = null;
+            return;
+        }
+
+        if (modalScrollRef.current) {
+            // Only scroll to selectedReelIndex when opening a new reel, NEVER when reelsList appends more items!
+            if (lastScrolledModalIndexRef.current !== selectedReelIndex) {
+                lastScrolledModalIndexRef.current = selectedReelIndex;
+                const height = modalScrollRef.current.clientHeight || window.innerHeight;
+                modalScrollRef.current.scrollTo(0, height * selectedReelIndex);
+                setActiveIndex(selectedReelIndex);
+            }
 
             const syncReelMedia = () => {
                 videoRefs.current.forEach((v, idx) => {
@@ -522,7 +533,7 @@ const Reels: React.FC = () => {
             const timer = setTimeout(syncReelMedia, 150);
             return () => clearTimeout(timer);
         }
-    }, [selectedReelIndex, mutedAll, reelsList, playReelAudio, primeNextVideo]);
+    }, [selectedReelIndex, mutedAll, playReelAudio, primeNextVideo]);
 
     // Centralized instant reel activation for both onScroll and IntersectionObserver
     const activateReel = useCallback((idx: number) => {

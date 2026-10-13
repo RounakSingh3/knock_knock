@@ -277,10 +277,10 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
                         backdropFilter: 'blur(8px)',
                         WebkitBackdropFilter: 'blur(8px)',
                     }}
-                    title="Swipe left or tap to watch connected video"
+                    title="Swipe or tap to watch connected video"
                 >
                     <Film size={isBig ? 12 : 10} color="#000" strokeWidth={2.5} />
-                    <span>Swipe Left 👈</span>
+                    <span>Swipe to Watch 🎥</span>
                 </button>
             )}
 

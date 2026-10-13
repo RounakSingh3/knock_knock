@@ -962,7 +962,19 @@ const Explore = () => {
                                                     if (isNewsPost(post)) {
                                                         setSelectedNews(postToNewsItem(post));
                                                     } else {
-                                                        setActiveFeedState({ posts: normalizedTrendingPosts, index: idx });
+                                                        const seenIds = new Set<string>();
+                                                        const seenUrls = new Set<string>();
+                                                        const combinedFeed: PostData[] = [];
+                                                        for (const p of [...normalizedTrendingPosts, ...normalizedDiscoverPosts]) {
+                                                            if (!p || !p.id) continue;
+                                                            const key = (p.image_url || '').split('?')[0].split('#')[0].toLowerCase().trim();
+                                                            if (seenIds.has(String(p.id)) || (key && seenUrls.has(key))) continue;
+                                                            seenIds.add(String(p.id));
+                                                            if (key) seenUrls.add(key);
+                                                            combinedFeed.push(p);
+                                                        }
+                                                        const targetIdx = combinedFeed.findIndex(p => p.id === post.id);
+                                                        setActiveFeedState({ posts: combinedFeed, index: targetIdx !== -1 ? targetIdx : idx });
                                                     }
                                                 }}
                                             >

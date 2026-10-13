@@ -37,25 +37,63 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     const watchTimers = useRef<Record<string, number>>({});
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+    const cleanMediaKey = (url?: string) => {
+        if (!url) return '';
+        return url.split('?')[0].split('#')[0].toLowerCase().trim();
+    };
+
+    const dedupePosts = useCallback((list: PostData[]): PostData[] => {
+        const seenIds = new Set<string>();
+        const seenUrls = new Set<string>();
+        const res: PostData[] = [];
+        for (const p of list) {
+            if (!p || !p.id) continue;
+            const key = cleanMediaKey(p.image_url);
+            if (seenIds.has(String(p.id))) continue;
+            if (key && seenUrls.has(key)) continue;
+            seenIds.add(String(p.id));
+            if (key) seenUrls.add(key);
+            res.push(p);
+        }
+        return res;
+    }, []);
+
     // Keep active stream in state with auto-replenish to guarantee next video is ALWAYS available
-    const [displayPosts, setDisplayPosts] = useState<PostData[]>(posts);
+    const [displayPosts, setDisplayPosts] = useState<PostData[]>(() => dedupePosts(posts));
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
+
     useEffect(() => {
         setDisplayPosts(prev => {
-            const existingIds = new Set(prev.map(p => p.id));
-            const newOnes = posts.filter(p => !existingIds.has(p.id));
+            const seenIds = new Set(prev.map(p => String(p.id)));
+            const seenUrls = new Set(prev.map(p => cleanMediaKey(p.image_url)));
+            const newOnes = posts.filter(p => {
+                const key = cleanMediaKey(p.image_url);
+                if (seenIds.has(String(p.id))) return false;
+                if (key && seenUrls.has(key)) return false;
+                seenIds.add(String(p.id));
+                if (key) seenUrls.add(key);
+                return true;
+            });
             return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
         });
     }, [posts]);
 
     // Auto-replenish feed if short (e.g. from single-post search) or approaching end
     useEffect(() => {
-        if (displayPosts.length < 5 || currentIndex >= displayPosts.length - 2) {
+        if (displayPosts.length < 6 || currentIndex >= displayPosts.length - 2) {
             fetchAllPostsForScoring(user?.id).then(extra => {
                 if (extra && extra.length > 0) {
                     setDisplayPosts(current => {
-                        const currentIds = new Set(current.map(p => p.id));
-                        const toAdd = extra.filter(p => !currentIds.has(p.id));
+                        const seenIds = new Set(current.map(p => String(p.id)));
+                        const seenUrls = new Set(current.map(p => cleanMediaKey(p.image_url)));
+                        const toAdd = extra.filter(p => {
+                            const key = cleanMediaKey(p.image_url);
+                            if (seenIds.has(String(p.id))) return false;
+                            if (key && seenUrls.has(key)) return false;
+                            seenIds.add(String(p.id));
+                            if (key) seenUrls.add(key);
+                            return true;
+                        });
                         if (toAdd.length === 0) return current;
                         return [...current, ...toAdd];
                     });
@@ -70,6 +108,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     useEffect(() => { activePostIdRef.current = activePostId; }, [activePostId]);
     const [isGlobalMuted, setIsGlobalMuted] = useState(() => getFeedMutedPreference());
     const isInitialMountRef = useRef(true);
+    const hasPositionedInitialRef = useRef(false);
 
     // Support Android/mobile hardware and gesture back button
     useEffect(() => {
@@ -129,12 +168,14 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         };
     }, [initialIndex, targetPost?.id]);
 
-    // Immediate positioning to guarantee target reel is aligned without layout jump
+    // Immediate positioning to guarantee target reel is aligned once on mount without layout jump
     useLayoutEffect(() => {
+        if (hasPositionedInitialRef.current) return;
         const container = scrollRef.current;
         if (!container) return;
 
         const scrollToTarget = () => {
+            if (hasPositionedInitialRef.current) return;
             const targetEl = targetPost ? itemRefs.current[targetPost.id] : null;
             const targetTop = (targetEl && targetEl.offsetTop > 0)
                 ? targetEl.offsetTop
@@ -146,14 +187,15 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         const rafId = requestAnimationFrame(scrollToTarget);
         const t1 = setTimeout(() => {
             scrollToTarget();
+            hasPositionedInitialRef.current = true;
             isInitialMountRef.current = false;
-        }, 150);
+        }, 120);
 
         return () => {
             cancelAnimationFrame(rafId);
             clearTimeout(t1);
         };
-    }, [initialIndex, targetPost]);
+    }, []);
 
     const scrollEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
