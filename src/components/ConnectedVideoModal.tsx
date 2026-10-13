@@ -24,11 +24,14 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
     const navigate = useNavigate();
     const [resolvedVideo, setResolvedVideo] = useState<ConnectedVideoData | null>(video);
     const [loadError, setLoadError] = useState(false);
+    const [fallbackVideoSrc, setFallbackVideoSrc] = useState<string | null>(null);
+    const videoRef = useRef<HTMLVideoElement | null>(null);
     const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
     useEffect(() => {
         setResolvedVideo(video);
         setLoadError(false);
+        setFallbackVideoSrc(null);
 
         const timer = setTimeout(() => {
             if (!video?.videoUrl && (!resolvedVideo || !resolvedVideo.videoUrl)) {
@@ -82,6 +85,23 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
     };
 
     const activeData = resolvedVideo || video;
+    const rawResolvedUrl = activeData?.videoUrl ? resolveLocalMediaUrl(activeData.videoUrl) : '';
+    const cleanVideoSrc = rawResolvedUrl ? rawResolvedUrl.split('#')[0] : '';
+    const currentVideoSrc = fallbackVideoSrc || cleanVideoSrc;
+
+    useEffect(() => {
+        const v = videoRef.current;
+        if (!v || !currentVideoSrc) return;
+        const playPromise = v.play();
+        if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+                if (err.name === 'AbortError') return;
+                console.warn('[ConnectedVideoModal] Autoplay muted fallback:', err);
+                v.muted = true;
+                v.play().catch(() => {});
+            });
+        }
+    }, [currentVideoSrc]);
 
     return (
         <div
@@ -204,14 +224,25 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                 background: '#000',
                 position: 'relative'
             }}>
-                {activeData.videoUrl ? (
+                {currentVideoSrc ? (
                     <video
-                        src={resolveLocalMediaUrl(activeData.videoUrl)}
+                        ref={videoRef}
+                        src={currentVideoSrc}
                         autoPlay
                         controls
                         playsInline
+                        // @ts-ignore
+                        webkit-playsinline="true"
+                        x5-playsinline="true"
                         loop
-                        onError={() => setLoadError(true)}
+                        onError={() => {
+                            if (!fallbackVideoSrc) {
+                                setFallbackVideoSrc('https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4');
+                                setLoadError(false);
+                                return;
+                            }
+                            setLoadError(true);
+                        }}
                         style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
                 ) : loadError ? (

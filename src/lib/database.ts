@@ -331,15 +331,15 @@ export const COMMON_TYPOS: Record<string, string[]> = {
 };
 
 export const REEL_CREATOR_POSTS: Record<string, { videoUrl: string; song: string; caption: string; category: string }[]> = {
-    'nature_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4', song: 'Chill Vibes — LofiBeats', caption: '🌅 Golden hour hits different when you\'re at the coast', category: 'Nature' }],
+    'nature_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/855564/855564-sd_640_360_24fps.mp4', song: 'Chill Vibes — LofiBeats', caption: '🌅 Golden hour hits different when you\'re at the coast', category: 'Nature' }],
     'city_explorer': [{ videoUrl: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4', song: 'After Dark — Mr.Kitty', caption: '🏙️ Neon lights and late-night bites in the city that never sleeps', category: 'Travel' }],
-    'ocean_dreams': [{ videoUrl: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4', song: 'Ocean Eyes — Billie Eilish', caption: '🌊 The ocean is calling and I must go 🐠', category: 'Nature' }],
+    'ocean_dreams': [{ videoUrl: 'https://videos.pexels.com/video-files/856973/856973-sd_640_360_25fps.mp4', song: 'Ocean Eyes — Billie Eilish', caption: '🌊 The ocean is calling and I must go 🐠', category: 'Nature' }],
     'fitness_freak': [{ videoUrl: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4', song: 'Stronger — Kanye West', caption: '💪 No shortcuts. Just grind. Who\'s in? 🔥', category: 'Sports' }],
     'foodie_fam': [{ videoUrl: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4', song: 'THAT\'S WHAT I WANT — Lil Nas X', caption: '🍕 Wait for it… the cheese pull is insane 🤤', category: 'Food' }],
     'sky_watcher': [{ videoUrl: 'https://videos.pexels.com/video-files/854669/854669-sd_640_360_30fps.mp4', song: 'Weightless — Marconi Union', caption: '☁️ Clouds moving in time-lapse is pure therapy', category: 'Nature' }],
-    'dance_queen': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Can\'t stop dancing to this beat! Tutorial coming soon 🔥', category: 'Dance' }],
-    'dance_central': [{ videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Tried this trend and nailed it on the first try 🎯', category: 'Dance' }],
-    'pet_paradise': [{ videoUrl: 'https://videos.pexels.com/video-files/1739010/1739010-sd_640_360_24fps.mp4', song: 'Happy — Pharrell Williams', caption: '🐶 When your dog has more personality than you 😂', category: 'Pets' }],
+    'dance_queen': [{ videoUrl: 'https://videos.pexels.com/video-files/3195394/3195394-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Can\'t stop dancing to this beat! Tutorial coming soon 🔥', category: 'Dance' }],
+    'dance_central': [{ videoUrl: 'https://videos.pexels.com/video-files/3195394/3195394-sd_640_360_25fps.mp4', song: 'Levitating — Dua Lipa', caption: '💃 Tried this trend and nailed it on the first try 🎯', category: 'Dance' }],
+    'pet_paradise': [{ videoUrl: 'https://videos.pexels.com/video-files/2022395/2022395-sd_640_360_30fps.mp4', song: 'Happy — Pharrell Williams', caption: '🐶 When your dog has more personality than you 😂', category: 'Pets' }],
     'adventure_co': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Adventure — Matthew Parker', caption: '🏔️ Life begins at the end of your comfort zone', category: 'Travel' }],
     'street_vibes': [{ videoUrl: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4', song: 'The Staunton Lick — Lemon Jelly', caption: '🎨 Street art is the voice of the city walls', category: 'Art' }],
     'art_daily': [{ videoUrl: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4', song: 'Golden Hour — JVKE', caption: '🎨 30 hours of work in 30 seconds. What should I paint next?', category: 'Art' }],

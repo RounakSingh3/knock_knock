@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Heart, MessageCircle, Send, ChevronLeft, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
-import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, type PostData, type MessageData } from '../lib/database';
+import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, resolveLocalMediaUrl, type PostData, type MessageData } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
@@ -30,11 +30,23 @@ export interface ReelData {
     musicUrl?: string;
 }
 
+export const RELIABLE_FALLBACK_VIDEOS: Record<string, string> = {
+    Nature: 'https://videos.pexels.com/video-files/855564/855564-sd_640_360_24fps.mp4',
+    Travel: 'https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4',
+    Sports: 'https://videos.pexels.com/video-files/3571264/3571264-sd_640_360_30fps.mp4',
+    Food: 'https://videos.pexels.com/video-files/2795173/2795173-sd_640_360_25fps.mp4',
+    Dance: 'https://videos.pexels.com/video-files/3195394/3195394-sd_640_360_25fps.mp4',
+    Animals: 'https://videos.pexels.com/video-files/2022395/2022395-sd_640_360_30fps.mp4',
+    Pets: 'https://videos.pexels.com/video-files/2022395/2022395-sd_640_360_30fps.mp4',
+    Art: 'https://videos.pexels.com/video-files/5752729/5752729-sd_640_360_30fps.mp4',
+    General: 'https://videos.pexels.com/video-files/3209828/3209828-sd_640_360_25fps.mp4',
+};
+
 export const REELS_DATA: ReelData[] = [
     {
         id: 1,
-        videoUrl: 'https://videos.pexels.com/video-files/856029/856029-sd_640_360_30fps.mp4',
-        posterUrl: 'https://images.pexels.com/videos/856029/free-video-856029.jpg?auto=compress&w=400',
+        videoUrl: 'https://videos.pexels.com/video-files/855564/855564-sd_640_360_24fps.mp4',
+        posterUrl: 'https://images.pexels.com/videos/855564/free-video-855564.jpg?auto=compress&w=400',
         creator: 'nature_vibes',
         creatorAvatar: 'https://i.pravatar.cc/150?img=1',
         caption: '🌅 Golden hour hits different when you\'re at the coast',
@@ -61,8 +73,8 @@ export const REELS_DATA: ReelData[] = [
     },
     {
         id: 3,
-        videoUrl: 'https://videos.pexels.com/video-files/1526909/1526909-sd_640_360_25fps.mp4',
-        posterUrl: 'https://images.pexels.com/videos/1526909/free-video-1526909.jpg?auto=compress&w=400',
+        videoUrl: 'https://videos.pexels.com/video-files/856973/856973-sd_640_360_25fps.mp4',
+        posterUrl: 'https://images.pexels.com/videos/856973/free-video-856973.jpg?auto=compress&w=400',
         creator: 'ocean_dreams',
         creatorAvatar: 'https://i.pravatar.cc/150?img=12',
         caption: '🌊 The ocean is calling and I must go 🐠',
@@ -117,8 +129,8 @@ export const REELS_DATA: ReelData[] = [
     },
     {
         id: 7,
-        videoUrl: 'https://videos.pexels.com/video-files/4065924/4065924-sd_640_360_25fps.mp4',
-        posterUrl: 'https://images.pexels.com/videos/4065924/free-video-4065924.jpg?auto=compress&w=400',
+        videoUrl: 'https://videos.pexels.com/video-files/3195394/3195394-sd_640_360_25fps.mp4',
+        posterUrl: 'https://images.pexels.com/videos/3195394/free-video-3195394.jpg?auto=compress&w=400',
         creator: 'dance_central',
         creatorAvatar: 'https://i.pravatar.cc/150?img=41',
         caption: '💃 Tried this trend and nailed it on the first try 🎯',
@@ -131,8 +143,8 @@ export const REELS_DATA: ReelData[] = [
     },
     {
         id: 8,
-        videoUrl: 'https://videos.pexels.com/video-files/1739010/1739010-sd_640_360_24fps.mp4',
-        posterUrl: 'https://images.pexels.com/videos/1739010/free-video-1739010.jpg?auto=compress&w=400',
+        videoUrl: 'https://videos.pexels.com/video-files/2022395/2022395-sd_640_360_30fps.mp4',
+        posterUrl: 'https://images.pexels.com/videos/2022395/free-video-2022395.jpg?auto=compress&w=400',
         creator: 'pet_paradise',
         creatorAvatar: 'https://i.pravatar.cc/150?img=48',
         caption: '🐶 When your dog has more personality than you 😂',
@@ -218,8 +230,9 @@ function postToReel(post: PostData): ReelData {
         }
     } catch(e) {}
 
+    const effectiveMedia = resolveLocalMediaUrl(post.image_url);
     const resolvedPoster = extractPosterFromUrl(post.image_url);
-    const rawNoHash = (post.image_url || '').split('#')[0];
+    const rawNoHash = (effectiveMedia || post.image_url || '').split('#')[0];
     let cleanVideoUrl = rawNoHash;
     try {
         const u = new URL(rawNoHash);
@@ -260,6 +273,7 @@ const Reels: React.FC = () => {
     const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
     const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
     const [failedVisuals, setFailedVisuals] = useState<Set<string | number>>(new Set());
+    const [fallbackVideos, setFallbackVideos] = useState<Record<string | number, string>>({});
     const [bufferingReels, setBufferingReels] = useState<Set<string | number>>(new Set());
     const [mutedAll, setMutedAll] = useState(() => getFeedMutedPreference());
     const [activeIndex, setActiveIndex] = useState(0);
@@ -1191,7 +1205,7 @@ const Reels: React.FC = () => {
                                                 ref={(el) => {
                                                     videoRefs.current[idx] = el;
                                                 }}
-                                                src={reel.videoUrl}
+                                                src={fallbackVideos[reel.id] || resolveLocalMediaUrl(reel.videoUrl)}
                                                 poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
                                                 loop
                                                 playsInline
@@ -1212,6 +1226,12 @@ const Reels: React.FC = () => {
                                                     setBufferingReels(prev => new Set(prev).add(reel.id));
                                                 }}
                                                 onPlaying={() => {
+                                                    setFailedVisuals(prev => {
+                                                        if (!prev.has(reel.id)) return prev;
+                                                        const next = new Set(prev);
+                                                        next.delete(reel.id);
+                                                        return next;
+                                                    });
                                                     setBufferingReels(prev => {
                                                         if (!prev.has(reel.id)) return prev;
                                                         const next = new Set(prev);
@@ -1221,6 +1241,12 @@ const Reels: React.FC = () => {
                                                     primeNextVideo(idx);
                                                 }}
                                                 onCanPlay={() => {
+                                                    setFailedVisuals(prev => {
+                                                        if (!prev.has(reel.id)) return prev;
+                                                        const next = new Set(prev);
+                                                        next.delete(reel.id);
+                                                        return next;
+                                                    });
                                                     setBufferingReels(prev => {
                                                         if (!prev.has(reel.id)) return prev;
                                                         const next = new Set(prev);
@@ -1229,7 +1255,15 @@ const Reels: React.FC = () => {
                                                     });
                                                 }}
                                                 onError={() => {
+                                                    if (!fallbackVideos[reel.id]) {
+                                                        const fbUrl = RELIABLE_FALLBACK_VIDEOS[reel.category] || RELIABLE_FALLBACK_VIDEOS.General;
+                                                        setFallbackVideos(prev => ({ ...prev, [reel.id]: fbUrl }));
+                                                        return;
+                                                    }
                                                     setFailedVisuals(prev => new Set(prev).add(reel.id));
+                                                    if (audioRefs.current[idx]) {
+                                                        audioRefs.current[idx]?.pause();
+                                                    }
                                                     setBufferingReels(prev => {
                                                         if (!prev.has(reel.id)) return prev;
                                                         const next = new Set(prev);
