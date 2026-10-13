@@ -11,7 +11,7 @@ import {
 } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, Video, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
-import { isVideoPost, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
+import { isVideoPost, isVideoUrl, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import EditProfileSheet from '../components/EditProfileSheet';
 import ConnectedVideoModal, { type ConnectedVideoData } from '../components/ConnectedVideoModal';

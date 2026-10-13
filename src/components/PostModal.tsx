@@ -25,7 +25,7 @@ function getTimeAgo(dateStr: string) {
 }
 
 import { audioPlayer } from '../lib/audioPlayer';
-import { getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
+import { isVideoUrl, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 
 export interface PostModalContentProps {
     post: PostData;
