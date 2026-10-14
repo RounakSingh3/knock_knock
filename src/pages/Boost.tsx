@@ -729,11 +729,6 @@ const Boost: React.FC = () => {
         });
     }, [rankedStories, filterTab, selectedHashtag, searchQuery, userFriends]);
 
-    // Top 24h Video Reels for horizontal Trending strip
-    const trendingReels = useMemo(() => {
-        return rankedStories.filter(s => isVideoUrl(s.image_url)).slice(0, 15);
-    }, [rankedStories]);
-
     // ── Unique 24h Explore Stream (Instagram Style, Strictly Unique Items — Zero Repeats) ──
     const [displayLimit, setDisplayLimit] = useState(24);
     const sentinelRef = useRef<HTMLDivElement>(null);
@@ -1687,90 +1682,6 @@ const Boost: React.FC = () => {
                         );
                     })}
                 </div>
-
-                {/* ── Trending 24h Reels Horizontal Scroller (Instagram Explore Style) ── */}
-                {trendingReels.length > 0 && filterTab !== 'photos' && (
-                    <div style={{ padding: '16px 12px 8px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <Flame size={17} color="#f5a524" />
-                                <span style={{ fontWeight: '800', fontSize: '14px', color: 'var(--text-active)', letterSpacing: '-0.2px' }}>
-                                    Trending 24h Reels
-                                </span>
-                                <span style={{ fontSize: '11px', color: 'var(--text-inactive)', opacity: 0.8 }}>
-                                    ({trendingReels.length})
-                                </span>
-                            </div>
-                            <span style={{ fontSize: '10px', color: '#f5a524', fontWeight: '800', background: 'rgba(245, 165, 36, 0.12)', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(245, 165, 36, 0.3)' }}>
-                                ⏳ 24h Limit
-                            </span>
-                        </div>
-                        <div style={{
-                            display: 'flex',
-                            gap: '10px',
-                            overflowX: 'auto',
-                            paddingBottom: '6px',
-                            WebkitOverflowScrolling: 'touch'
-                        }}>
-                            {trendingReels.map((reel) => {
-                                const timeText = getTimeRemaining(reel.created_at).text;
-                                return (
-                                    <div
-                                        key={`trending-reel-${reel.id}`}
-                                        onClick={() => handleOpenExploreFeed(reel)}
-                                        style={{
-                                            width: '105px',
-                                            height: '160px',
-                                            borderRadius: '12px',
-                                            overflow: 'hidden',
-                                            position: 'relative',
-                                            flexShrink: 0,
-                                            cursor: 'pointer',
-                                            background: '#18181b',
-                                            boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
-                                            transition: 'transform 0.15s ease',
-                                        }}
-                                        onMouseEnter={e => e.currentTarget.style.transform = 'scale(0.97)'}
-                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                                    >
-                                        <PostMedia
-                                            post={{
-                                                image_url: reel.image_url,
-                                                media_type: 'video',
-                                                category: (reel as any).category || 'General'
-                                            } as any}
-                                            thumbnail={true}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
-                                        <div style={{
-                                            position: 'absolute', top: '6px', right: '6px',
-                                            background: 'rgba(0,0,0,0.65)', borderRadius: '50%',
-                                            width: '22px', height: '22px', display: 'flex',
-                                            alignItems: 'center', justifyContent: 'center'
-                                        }}>
-                                            <Play size={10} color="#fff" fill="#fff" />
-                                        </div>
-                                        <div style={{
-                                            position: 'absolute', top: '6px', left: '6px',
-                                            background: 'rgba(245, 165, 36, 0.95)', color: '#000',
-                                            borderRadius: '8px', padding: '1px 5px', fontSize: '8px', fontWeight: '900'
-                                        }}>
-                                            {timeText}
-                                        </div>
-                                        <div style={{
-                                            position: 'absolute', bottom: 0, left: 0, right: 0,
-                                            background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
-                                            padding: '16px 6px 6px', fontSize: '10px', color: '#fff', fontWeight: '700',
-                                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
-                                        }}>
-                                            @{reel.username || 'user'}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
 
                 {/* ── 24-Hour Ephemeral Discovery Feed (Grid - Instagram Explore Style with Big Cards) ── */}
                 <div style={{ padding: '0 2px 24px 2px' }}>
