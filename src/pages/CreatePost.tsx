@@ -433,6 +433,16 @@ const CreatePost = () => {
                 finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(effectivePoster)}`;
                 videoPosterCache.set(finalUrl.split('#')[0], effectivePoster);
             }
+            if (videoPosterDataUrl) {
+                const cleanKey = publicUrl.split('#')[0];
+                videoPosterCache.set(cleanKey, videoPosterDataUrl);
+                try {
+                    const currentStored = sessionStorage.getItem('knock_video_posters');
+                    const parsed = currentStored ? JSON.parse(currentStored) : {};
+                    parsed[cleanKey] = videoPosterDataUrl;
+                    sessionStorage.setItem('knock_video_posters', JSON.stringify(parsed));
+                } catch (_) {}
+            }
             if (selectedFilter !== 'none') {
                 try {
                     const u = new URL(finalUrl);

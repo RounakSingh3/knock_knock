@@ -253,7 +253,7 @@ export async function extractVideoPoster(
                     if (w === 0 || h === 0) return;
                     captured = true;
                     const canvas = document.createElement('canvas');
-                    canvas.width = Math.min(w, 1080);
+                    canvas.width = Math.min(w, 400);
                     canvas.height = Math.round((h / w) * canvas.width);
                     const ctx = canvas.getContext('2d');
                     if (!ctx) {
@@ -273,7 +273,7 @@ export async function extractVideoPoster(
                         }
                     } catch (_) {}
 
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.70);
                     canvas.toBlob((blob) => {
                         cleanup();
                         if (blob) {
@@ -281,7 +281,7 @@ export async function extractVideoPoster(
                         } else {
                             resolve({ blob: new Blob([dataUrl], { type: 'image/jpeg' }), dataUrl, width: canvas.width, height: canvas.height });
                         }
-                    }, 'image/jpeg', 0.85);
+                    }, 'image/jpeg', 0.70);
                 } catch (e) {
                     cleanup();
                     resolve(null);

@@ -6,7 +6,7 @@ import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFe
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, recordHashtagSignal } from '../lib/algorithm';
-import { extractPosterFromUrl, getFallbackPoster, videoPosterCache } from '../components/PostMedia';
+import { extractPosterFromUrl, getFallbackPoster, videoPosterCache, isFallbackPoster } from '../components/PostMedia';
 
 // ⚡ Lazy-load heavy modals so Reels renders instantly
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
@@ -245,7 +245,7 @@ function postToReel(post: PostData): ReelData {
     return {
         id: post.id,
         videoUrl: cleanVideoUrl,
-        posterUrl: resolvedPoster || getFallbackPoster(post),
+        posterUrl: (resolvedPoster && !isFallbackPoster(resolvedPoster)) ? resolvedPoster : '',
         creator: post.username,
         creatorAvatar: post.avatar_url || `https://i.pravatar.cc/150?u=${post.username}`,
         caption: post.caption || '',
@@ -1040,9 +1040,11 @@ const Reels: React.FC = () => {
                         {(() => {
                             const clean = reel.videoUrl.split('#')[0].split('?')[0];
                             const cached = videoPosterCache.get(clean);
-                            const posterSrc = (reel.posterUrl && !isVideoUrl(reel.posterUrl))
-                                ? reel.posterUrl
-                                : (cached || extractPosterFromUrl(reel.videoUrl));
+                            const validCached = cached && !isFallbackPoster(cached) ? cached : undefined;
+                            const validPosterUrl = reel.posterUrl && !isVideoUrl(reel.posterUrl) && !isFallbackPoster(reel.posterUrl) ? reel.posterUrl : undefined;
+                            const urlPoster = extractPosterFromUrl(reel.videoUrl);
+                            const validUrlPoster = urlPoster && !isFallbackPoster(urlPoster) ? urlPoster : undefined;
+                            const posterSrc = validPosterUrl || validCached || validUrlPoster;
                             if (posterSrc) {
                                 return (
                                     <img
@@ -1206,7 +1208,7 @@ const Reels: React.FC = () => {
                                                     videoRefs.current[idx] = el;
                                                 }}
                                                 src={fallbackVideos[reel.id] || resolveLocalMediaUrl(reel.videoUrl)}
-                                                poster={isVideoUrl(reel.posterUrl) ? undefined : reel.posterUrl}
+                                                poster={isVideoUrl(reel.posterUrl) || isFallbackPoster(reel.posterUrl) ? undefined : reel.posterUrl}
                                                 loop
                                                 playsInline
                                                 // @ts-ignore
@@ -1277,7 +1279,7 @@ const Reels: React.FC = () => {
                                                     <div className="reel-spinner" />
                                                 </div>
                                             )}
-                                            {failedVisuals.has(reel.id) && reel.posterUrl && !isVideoUrl(reel.posterUrl) && (
+                                            {failedVisuals.has(reel.id) && reel.posterUrl && !isVideoUrl(reel.posterUrl) && !isFallbackPoster(reel.posterUrl) && (
                                                 <div style={{
                                                     position: 'absolute',
                                                     inset: 0,
@@ -1308,7 +1310,7 @@ const Reels: React.FC = () => {
                                                 justifyContent: 'center',
                                             }}
                                         >
-                                            {reel.posterUrl && !isVideoUrl(reel.posterUrl) ? (
+                                            {reel.posterUrl && !isVideoUrl(reel.posterUrl) && !isFallbackPoster(reel.posterUrl) ? (
                                                 <img
                                                     src={reel.posterUrl}
                                                     alt=""
