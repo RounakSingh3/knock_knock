@@ -94,17 +94,15 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
     if (!url) return undefined;
     if (url.includes('#POSTER:')) {
         try {
-            return decodeURIComponent(url.split('#POSTER:')[1]?.split('#')[0] || '');
+            const extracted = decodeURIComponent(url.split('#POSTER:')[1]?.split('#')[0] || '');
+            if (extracted) return extracted;
         } catch (_) {
             return url.split('#POSTER:')[1]?.split('#')[0];
         }
     }
-    if (url.includes('#FALLBACK:')) {
-        try {
-            return decodeURIComponent(url.split('#FALLBACK:')[1]?.split('#')[0] || '');
-        } catch (_) {
-            return url.split('#FALLBACK:')[1]?.split('#')[0];
-        }
+    // Local bundled videos poster mapping
+    if (url.includes('/videos/sonambajwa.mp4')) {
+        return '/videos/sonambajwa_poster.jpg';
     }
     // Auto-derive Supabase storage poster URL if video is in knock-knock-eight.versel/posts/
     if (url.includes('/knock-knock-eight.versel/posts/') && (url.includes('.mp4') || url.includes('.webm') || url.includes('.mov'))) {
@@ -117,6 +115,18 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
                 return `${parts[0]}/posts/posters/${posterName}`;
             }
         } catch (_) {}
+    }
+    return undefined;
+};
+
+export const extractFallbackFromUrl = (url?: string): string | undefined => {
+    if (!url) return undefined;
+    if (url.includes('#FALLBACK:')) {
+        try {
+            return decodeURIComponent(url.split('#FALLBACK:')[1]?.split('#')[0] || '');
+        } catch (_) {
+            return url.split('#FALLBACK:')[1]?.split('#')[0];
+        }
     }
     return undefined;
 };
@@ -174,18 +184,20 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     if (effectiveImageUrl) {
         const rawNoHash = effectiveImageUrl.split('#')[0];
         try {
-            const parsed = new URL(rawNoHash);
+            const parsed = new URL(rawNoHash, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
             if (parsed.searchParams.has('filter')) {
                 parsed.searchParams.delete('filter');
             }
-            cleanVideoUrl = parsed.toString();
+            cleanVideoUrl = rawNoHash.startsWith('http') ? parsed.toString() : (parsed.pathname + parsed.search);
         } catch (_) {
             cleanVideoUrl = rawNoHash;
         }
     }
 
+    const [fallbackVideoSrc, setFallbackVideoSrc] = useState<string | null>(null);
+
     // Pure clean URL for seamless progressive streaming without pipeline resets
-    const videoSrc = isVideo ? cleanVideoUrl : '';
+    const videoSrc = isVideo ? (fallbackVideoSrc || cleanVideoUrl) : '';
     const resolvedPosterFromUrl = extractPosterFromUrl(effectiveImageUrl);
     const categoryFallbackPoster = getFallbackPoster(post as any);
     const [capturedPoster, setCapturedPoster] = useState<string>(() => {
@@ -634,14 +646,27 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             setHasError(false);
             return;
         }
-        if (isVideo && !isPlayingMode && !fallbackUsedRef.current) {
+        if (isVideo && !fallbackUsedRef.current) {
             fallbackUsedRef.current = true;
-            const poster = extractPosterFromUrl(post.image_url);
-            if (poster) {
-                setCapturedPoster(poster);
-                setPosterFailed(false);
+            const fallbackUrl = extractFallbackFromUrl(post.image_url);
+            if (fallbackUrl && fallbackUrl !== videoSrc) {
+                setFallbackVideoSrc(fallbackUrl);
                 setHasError(false);
                 return;
+            }
+            if ((cleanUrl.includes('1790250320016') || post.caption?.includes('sonambajwa')) && !videoSrc.includes('sonambajwa.mp4')) {
+                setFallbackVideoSrc('/videos/sonambajwa.mp4');
+                setHasError(false);
+                return;
+            }
+            if (!isPlayingMode) {
+                const poster = extractPosterFromUrl(post.image_url);
+                if (poster) {
+                    setCapturedPoster(poster);
+                    setPosterFailed(false);
+                    setHasError(false);
+                    return;
+                }
             }
         }
         if (isVideo && videoCrossOrigin === 'anonymous') {

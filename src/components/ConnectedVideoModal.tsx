@@ -245,6 +245,11 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                         loop
                         onError={() => {
                             if (!fallbackVideoSrc) {
+                                if (cleanVideoSrc.includes('1790250320016') || activeData.caption?.includes('sonambajwa')) {
+                                    setFallbackVideoSrc('/videos/sonambajwa.mp4');
+                                    setLoadError(false);
+                                    return;
+                                }
                                 setFallbackVideoSrc('https://videos.pexels.com/video-files/3015510/3015510-sd_640_360_24fps.mp4');
                                 setLoadError(false);
                                 return;

@@ -899,8 +899,8 @@ export const SEED_POSTS: PostData[] = [
         "user_id": "1369cfe5-42f1-4346-82be-0f616247092d",
         "username": "ityourfavourite1",
         "avatar_url": "https://i.pravatar.cc/150?u=ityourfavourite1",
-        "image_url": "https://ktruosvlqnpcuzayrqkk.supabase.co/storage/v1/object/public/knock-knock-eight.versel/posts/1369cfe5-42f1-4346-82be-0f616247092d-1790250320016.mp4?filter=contrast%281.2%29+saturate%281.35%29#POSTER:https%3A%2F%2Fktruosvlqnpcuzayrqkk.supabase.co%2Fstorage%2Fv1%2Fobject%2Fpublic%2Fknock-knock-eight.versel%2Fposts%2Fposters%2F1369cfe5-42f1-4346-82be-0f616247092d-1790250320016.jpg",
-        "caption": "#trending",
+        "image_url": "/videos/sonambajwa.mp4#POSTER:/videos/sonambajwa_poster.jpg#FALLBACK:https%3A%2F%2Fktruosvlqnpcuzayrqkk.supabase.co%2Fstorage%2Fv1%2Fobject%2Fpublic%2Fknock-knock-eight.versel%2Fposts%2F1369cfe5-42f1-4346-82be-0f616247092d-1790250320016.mp4",
+        "caption": "#trending #sonambajwa #viral",
         "attached_link": null,
         "likes_count": 0,
         "created_at": "2026-09-24T11:45:31.08148+00:00",
@@ -7017,9 +7017,22 @@ export function getLocalPosts(): PostData[] {
             if (Array.isArray(parsed) && parsed.length > 0) {
                 // Filter out any obsolete generic mock seed IDs
                 const cleaned = parsed.filter((p: PostData) => p && !p.id.startsWith('seed-fav-') && !p.id.startsWith('seed-reel-') && !p.id.startsWith('seed-photo-') && !FAKE_ACCOUNTS.has(p.username) && !(p.media_type === 'image' && p.image_url?.includes('images.unsplash.com') && p.username !== 'popcorn05' && p.username !== 'ityourfavourite1'));
-                const existingIds = new Set(cleaned.map((p: PostData) => p.id));
+                const seedMap = new Map(SEED_POSTS.map(s => [s.id, s]));
+                const updatedCleaned = cleaned.map((p: PostData) => {
+                    const seed = seedMap.get(p.id);
+                    if (seed && (p.id === '52b23ede-dc9d-4c4d-8371-c01b5c916013' || (p.image_url && p.image_url.includes('1790250320016')))) {
+                        return {
+                            ...p,
+                            image_url: seed.image_url,
+                            caption: seed.caption,
+                            media_type: 'video'
+                        };
+                    }
+                    return p;
+                });
+                const existingIds = new Set(updatedCleaned.map((p: PostData) => p.id));
                 const missingSeeds = SEED_POSTS.filter(s => !existingIds.has(s.id));
-                const merged = [...cleaned, ...missingSeeds];
+                const merged = [...updatedCleaned, ...missingSeeds];
                 try {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
                     localStorage.setItem('knock_local_posts', JSON.stringify(merged));

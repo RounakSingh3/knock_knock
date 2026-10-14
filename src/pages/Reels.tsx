@@ -236,11 +236,11 @@ function postToReel(post: PostData): ReelData {
     const rawNoHash = (effectiveMedia || post.image_url || '').split('#')[0];
     let cleanVideoUrl = rawNoHash;
     try {
-        const u = new URL(rawNoHash);
+        const u = new URL(rawNoHash, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
         if (u.searchParams.has('filter')) {
             u.searchParams.delete('filter');
         }
-        cleanVideoUrl = u.toString();
+        cleanVideoUrl = rawNoHash.startsWith('http') ? u.toString() : (u.pathname + u.search);
     } catch (_) {}
 
     return {
@@ -1248,7 +1248,7 @@ const Reels: React.FC = () => {
                                                     }
                                                     videoRefs.current[idx] = el;
                                                 }}
-                                                src={fallbackVideos[reel.id] || resolveLocalMediaUrl(reel.rawMediaUrl || reel.videoUrl).split('#')[0]}
+                                                src={fallbackVideos[reel.id] || (reel.videoUrl ? reel.videoUrl.split('#')[0] : resolveLocalMediaUrl(reel.rawMediaUrl).split('#')[0])}
                                                 poster={isVideoUrl(reel.posterUrl) || isFallbackPoster(reel.posterUrl) ? undefined : reel.posterUrl}
                                                 loop
                                                 playsInline
@@ -1319,6 +1319,10 @@ const Reels: React.FC = () => {
                                                 }}
                                                 onError={() => {
                                                     if (!fallbackVideos[reel.id]) {
+                                                        if (String(reel.id) === '52b23ede-dc9d-4c4d-8371-c01b5c916013' || reel.rawMediaUrl?.includes('1790250320016') || reel.caption?.includes('sonambajwa')) {
+                                                            setFallbackVideos(prev => ({ ...prev, [reel.id]: '/videos/sonambajwa.mp4' }));
+                                                            return;
+                                                        }
                                                         const fbUrl = RELIABLE_FALLBACK_VIDEOS[reel.category] || RELIABLE_FALLBACK_VIDEOS.General;
                                                         setFallbackVideos(prev => ({ ...prev, [reel.id]: fbUrl }));
                                                         return;
