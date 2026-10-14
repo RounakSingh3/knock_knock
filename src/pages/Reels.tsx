@@ -16,6 +16,7 @@ export interface ReelData {
     id: string | number;
     videoUrl: string;
     posterUrl: string;
+    rawMediaUrl?: string;
     creator: string;
     creatorAvatar: string;
     caption: string;
@@ -246,6 +247,7 @@ function postToReel(post: PostData): ReelData {
         id: post.id,
         videoUrl: cleanVideoUrl,
         posterUrl: (resolvedPoster && !isFallbackPoster(resolvedPoster)) ? resolvedPoster : '',
+        rawMediaUrl: post.image_url,
         creator: post.username,
         creatorAvatar: post.avatar_url || `https://i.pravatar.cc/150?u=${post.username}`,
         caption: post.caption || '',
@@ -283,6 +285,7 @@ const Reels: React.FC = () => {
     const [heartBursts, setHeartBursts] = useState<{ id: number; x: number; y: number }[]>([]);
     // ⚡ Progress stored in ref (NOT state) to avoid re-rendering 3x/sec
     const progressesRef = useRef<number[]>(REELS_DATA.map(() => 0));
+    const bufferingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // If targetReelId is present on mount and exists in default REELS_DATA, open immediately
     useEffect(() => {
@@ -423,28 +426,18 @@ const Reels: React.FC = () => {
         const nextIdx = currentIdx + 1;
         if (nextIdx < reelsList.length) {
             const nextVideo = videoRefs.current[nextIdx];
-            if (nextVideo) {
-                if (nextVideo.preload !== 'auto') {
-                    nextVideo.preload = 'auto';
-                }
-                if (nextVideo.readyState < 2) {
-                    nextVideo.load();
-                }
-            }
-            // Pre-fetch 2 reels ahead in background idle cache
-            const nextNextReel = reelsList[currentIdx + 2];
-            if (nextNextReel?.videoUrl && typeof document !== 'undefined') {
-                const clean = nextNextReel.videoUrl.split('#')[0];
-                if (!document.querySelector(`link[href="${clean}"]`)) {
-                    const link = document.createElement('link');
-                    link.rel = 'prefetch';
-                    link.as = 'video';
-                    link.href = clean;
-                    document.head.appendChild(link);
-                }
+            if (nextVideo && nextVideo.preload !== 'auto') {
+                nextVideo.preload = 'auto';
             }
         }
-    }, [reelsList]);
+        const nextNextIdx = currentIdx + 2;
+        if (nextNextIdx < reelsList.length) {
+            const nextNextVideo = videoRefs.current[nextNextIdx];
+            if (nextNextVideo && nextNextVideo.preload === 'none') {
+                nextNextVideo.preload = 'metadata';
+            }
+        }
+    }, [reelsList.length]);
 
     // Helper to safely play audio with interaction fallback if browser blocks autoplay
     const playReelAudio = useCallback((audio: HTMLAudioElement | null) => {
@@ -630,7 +623,7 @@ const Reels: React.FC = () => {
         const snapIdx = Math.round(el.scrollTop / h);
         if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndexRef.current) {
             const distFromSnap = Math.abs(el.scrollTop - (snapIdx * h));
-            if (distFromSnap < 4) {
+            if (distFromSnap < 15) {
                 activateReel(snapIdx);
                 return;
             }
@@ -641,10 +634,10 @@ const Reels: React.FC = () => {
             const curH = el.clientHeight || window.innerHeight;
             if (curH <= 0) return;
             const targetIdx = Math.round(el.scrollTop / curH);
-            if (targetIdx >= 0 && targetIdx < reelsList.length && targetIdx !== activeIndexRef.current) {
+            if (targetIdx >= 0 && targetIdx < reelsList.length) {
                 activateReel(targetIdx);
             }
-        }, 20);
+        }, 50);
     }, [reelsList.length, activateReel]);
 
     // Native scrollend listener for instantaneous snap settlement without timer overhead
@@ -655,7 +648,7 @@ const Reels: React.FC = () => {
             const h = el.clientHeight || window.innerHeight;
             if (h <= 0) return;
             const snapIdx = Math.round(el.scrollTop / h);
-            if (snapIdx >= 0 && snapIdx < reelsList.length && snapIdx !== activeIndexRef.current) {
+            if (snapIdx >= 0 && snapIdx < reelsList.length) {
                 activateReel(snapIdx);
             }
         };
@@ -665,7 +658,48 @@ const Reels: React.FC = () => {
         };
     }, [selectedReelIndex, reelsList.length, activateReel]);
 
-    // IntersectionObserver with 0.5 threshold for instant activation when reel enters viewport center
+    // 💻 Laptop & Desktop keyboard navigation: ArrowUp, ArrowDown, PageUp, PageDown, Space, 'm'
+    useEffect(() => {
+        if (selectedReelIndex === null) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.isContentEditable) {
+                return;
+            }
+
+            const el = modalScrollRef.current;
+            const h = el ? (el.clientHeight || window.innerHeight) : window.innerHeight;
+
+            if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'j') {
+                e.preventDefault();
+                const nextIdx = Math.min(reelsList.length - 1, activeIndexRef.current + 1);
+                if (el) {
+                    el.scrollTo({ top: nextIdx * h, behavior: 'smooth' });
+                }
+            } else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'k') {
+                e.preventDefault();
+                const prevIdx = Math.max(0, activeIndexRef.current - 1);
+                if (el) {
+                    el.scrollTo({ top: prevIdx * h, behavior: 'smooth' });
+                }
+            } else if (e.key === ' ' || e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                togglePlay(activeIndexRef.current);
+            } else if (e.key.toLowerCase() === 'm') {
+                e.preventDefault();
+                setMutedAll(prev => {
+                    const next = !prev;
+                    setFeedMutedPreference(next);
+                    return next;
+                });
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [reelsList.length, togglePlay, selectedReelIndex]);
+
+    // IntersectionObserver with 0.35/0.60 threshold for instantaneous pre-snap activation
     useEffect(() => {
         if (selectedReelIndex === null) return;
         const observer = new IntersectionObserver(
@@ -676,11 +710,10 @@ const Reels: React.FC = () => {
                     const idx = idxStr !== null ? parseInt(idxStr, 10) : -1;
                     if (idx === -1) return;
 
-                    // ⚡ Use the ratio, not isIntersecting: isIntersecting stays true while a reel is
-                    // scrolling OUT (e.g. 40% visible), which used to re-activate the outgoing reel mid-swipe.
-                    if (entry.intersectionRatio >= 0.85) {
+                    // ⚡ Activate incoming reel as soon as it dominates 60% of viewport
+                    if (entry.intersectionRatio >= 0.60) {
                         activateReel(idx);
-                    } else if (entry.intersectionRatio < 0.15) {
+                    } else if (entry.intersectionRatio < 0.35) {
                         const video = videoRefs.current[idx];
                         if (video && !video.paused) video.pause();
                         if (audioRefs.current[idx]) {
@@ -692,7 +725,7 @@ const Reels: React.FC = () => {
             },
             { 
                 root: modalScrollRef.current,
-                threshold: [0.15, 0.85]
+                threshold: [0.35, 0.60]
             }
         );
 
@@ -1179,11 +1212,11 @@ const Reels: React.FC = () => {
                     <div className="reels-page" ref={modalScrollRef} onScroll={handleReelsScroll}>
                         {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
-                            const isNearby = Math.abs(idx - activeIndex) <= 1;
+                            const isNearby = (idx >= activeIndex - 1) && (idx <= activeIndex + 2);
 
                             // ⚡ Virtualization: far-away reels render as empty snap placeholders.
                             // Keeps scroll height & snap points identical while cutting DOM + re-render cost per swipe.
-                            if (Math.abs(idx - activeIndex) > 2) {
+                            if (idx < activeIndex - 1 || idx > activeIndex + 2) {
                                 return (
                                     <div
                                         className="reel-card"
@@ -1205,9 +1238,17 @@ const Reels: React.FC = () => {
                                         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                                             <video
                                                 ref={(el) => {
+                                                    const prev = videoRefs.current[idx];
+                                                    if (!el && prev) {
+                                                        try {
+                                                            prev.pause();
+                                                            prev.removeAttribute('src');
+                                                            prev.load();
+                                                        } catch (_) {}
+                                                    }
                                                     videoRefs.current[idx] = el;
                                                 }}
-                                                src={fallbackVideos[reel.id] || resolveLocalMediaUrl(reel.videoUrl)}
+                                                src={fallbackVideos[reel.id] || resolveLocalMediaUrl(reel.rawMediaUrl || reel.videoUrl).split('#')[0]}
                                                 poster={isVideoUrl(reel.posterUrl) || isFallbackPoster(reel.posterUrl) ? undefined : reel.posterUrl}
                                                 loop
                                                 playsInline
@@ -1218,16 +1259,25 @@ const Reels: React.FC = () => {
                                                 disablePictureInPicture={true}
                                                 // @ts-ignore
                                                 disableRemotePlayback={true}
-                                                preload={Math.abs(idx - activeIndex) <= 1 ? 'auto' : 'metadata'}
+                                                preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
                                                 autoPlay={idx === selectedReelIndex}
                                                 muted={Boolean(reel.musicUrl) || mutedAll}
                                                 className="reel-video"
                                                 style={{ filter: reel.css_filter || 'none' }}
                                                 onClick={(e) => handleDoubleTap(idx, e)}
                                                 onWaiting={() => {
-                                                    setBufferingReels(prev => new Set(prev).add(reel.id));
+                                                    if (idx === activeIndex) {
+                                                        if (bufferingTimeoutRef.current) clearTimeout(bufferingTimeoutRef.current);
+                                                        bufferingTimeoutRef.current = setTimeout(() => {
+                                                            setBufferingReels(prev => new Set(prev).add(reel.id));
+                                                        }, 250);
+                                                    }
                                                 }}
                                                 onPlaying={() => {
+                                                    if (bufferingTimeoutRef.current) {
+                                                        clearTimeout(bufferingTimeoutRef.current);
+                                                        bufferingTimeoutRef.current = null;
+                                                    }
                                                     setFailedVisuals(prev => {
                                                         if (!prev.has(reel.id)) return prev;
                                                         const next = new Set(prev);
@@ -1243,6 +1293,10 @@ const Reels: React.FC = () => {
                                                     primeNextVideo(idx);
                                                 }}
                                                 onCanPlay={() => {
+                                                    if (bufferingTimeoutRef.current) {
+                                                        clearTimeout(bufferingTimeoutRef.current);
+                                                        bufferingTimeoutRef.current = null;
+                                                    }
                                                     setFailedVisuals(prev => {
                                                         if (!prev.has(reel.id)) return prev;
                                                         const next = new Set(prev);
@@ -1255,6 +1309,13 @@ const Reels: React.FC = () => {
                                                         next.delete(reel.id);
                                                         return next;
                                                     });
+                                                }}
+                                                onTimeUpdate={(e) => {
+                                                    const v = e.currentTarget;
+                                                    const a = audioRefs.current[idx];
+                                                    if (a && !v.paused && !a.paused && v.currentTime < 0.35 && Math.abs(a.currentTime - v.currentTime) > 0.4) {
+                                                        a.currentTime = v.currentTime;
+                                                    }
                                                 }}
                                                 onError={() => {
                                                     if (!fallbackVideos[reel.id]) {

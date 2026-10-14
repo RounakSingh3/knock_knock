@@ -359,8 +359,9 @@ export async function compressVideo(
         onStatus
     } = options;
 
-    // Fast path: if file is already compact (<= 7MB), skip re-encoding for instant 1-2s upload
-    if (file.size <= 7 * 1024 * 1024) {
+    const isHevc = await isHevcVideoFile(file);
+    // Fast path: if file is already compact (<= 7MB) and NOT HEVC, skip re-encoding for instant 1-2s upload
+    if (file.size <= 7 * 1024 * 1024 && !isHevc) {
         return file;
     }
 
@@ -624,14 +625,15 @@ export async function prepareVideoForUpload(
 
     // ⚡ Fast compression: if video is larger than 7MB or is HEVC, compress to standard 720p HD (~2 Mbps)
     // Drops 30MB-50MB mobile recordings down to 3MB-6MB, speeding up upload by 5x-10x!
-    if (file.size > 7 * 1024 * 1024 || await isHevcVideoFile(file)) {
+    const isHevc = await isHevcVideoFile(file);
+    if (file.size > 7 * 1024 * 1024 || isHevc) {
         try {
-            if (onStatus) onStatus('Optimizing video for ultra-fast upload...');
+            if (onStatus) onStatus('Optimizing video for ultra-fast smooth playback...');
             const compressed = await compressVideo(file, {
                 onProgress,
                 onStatus
             });
-            if (compressed && compressed.size < file.size) {
+            if (compressed && (compressed.size < file.size || isHevc)) {
                 videoFile = compressed;
             }
         } catch (_) {

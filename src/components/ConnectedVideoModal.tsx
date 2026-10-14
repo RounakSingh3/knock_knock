@@ -101,6 +101,15 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                 v.play().catch(() => {});
             });
         }
+        return () => {
+            if (v) {
+                try {
+                    v.pause();
+                    v.removeAttribute('src');
+                    v.load();
+                } catch (_) {}
+            }
+        };
     }, [currentVideoSrc]);
 
     return (
@@ -228,7 +237,6 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                     <video
                         ref={videoRef}
                         src={currentVideoSrc}
-                        autoPlay
                         controls
                         playsInline
                         // @ts-ignore

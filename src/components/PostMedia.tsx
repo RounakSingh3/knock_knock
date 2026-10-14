@@ -464,6 +464,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         return () => {
             safePause();
+            const v = videoRef.current;
+            if (v && !thumbnail) {
+                try {
+                    v.removeAttribute('src');
+                    v.load();
+                } catch (_) {}
+            }
         };
     }, [isVideo, autoPlay, soundOn, videoSrc, startPlayback, safePause]);
 

@@ -2039,8 +2039,7 @@ body::before {
     height: 100%;
     object-fit: cover;
     cursor: pointer;
-    transform: translateZ(0);
-    backface-visibility: hidden;
+    background: #000;
 }
 
 /* Pause indicator */
