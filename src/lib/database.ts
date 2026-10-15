@@ -11,8 +11,11 @@ import {
     updateLocalPostLikes,
     getLocalLikes,
     toggleLocalLike,
+    isPostLikedLocally,
     getLocalComments,
     saveLocalComment,
+    updateLocalPostComments,
+    deleteLocalComment,
     SEED_POSTS,
     getKnownProfile,
     getAllKnownProfiles,
@@ -21,6 +24,7 @@ import {
     bumpLocalConnectionStreak,
     getLocalStories
 } from './fallbackData';
+export { isPostLikedLocally, getLocalLikes, getLocalComments };
 
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
@@ -1161,35 +1165,49 @@ export async function uploadStoryImage(dataUrl: string, userId: string): Promise
 
 // ── Likes ──────────────────────────────────────────────
 
-export async function checkIfLiked(userId: string, postId: string): Promise<boolean> {
-    const { data } = await supabase
-        .from('likes')
-        .select('user_id')
-        .eq('user_id', userId)
-        .eq('post_id', postId)
-        .maybeSingle();
-
-    return !!data;
-}
-
-// Batch check: fetch all liked post IDs in one query instead of N individual queries
-export async function checkIfLikedBatch(userId: string, postIds: string[]): Promise<Record<string, boolean>> {
-    if (postIds.length === 0) return {};
-    const result: Record<string, boolean> = {};
-    const localLikes = getLocalLikes();
-    postIds.forEach(id => {
-        result[id] = !!localLikes[`${userId}_${id}`];
-    });
+export async function checkIfLiked(userId: string, postId: string | number): Promise<boolean> {
+    const pIdStr = String(postId);
+    if (isPostLikedLocally(pIdStr, userId)) return true;
 
     try {
         const { data, error } = await supabase
             .from('likes')
-            .select('post_id')
+            .select('user_id')
             .eq('user_id', userId)
-            .in('post_id', postIds);
+            .eq('post_id', pIdStr)
+            .maybeSingle();
 
         if (!error && data) {
-            data.forEach((row: any) => { result[row.post_id] = true; });
+            return true;
+        }
+        if (error && isQuotaError(error)) {
+            setSupabaseQuotaRestricted(true);
+        }
+    } catch (_) {}
+
+    return isPostLikedLocally(pIdStr, userId);
+}
+
+// Batch check: fetch all liked post IDs in one query instead of N individual queries
+export async function checkIfLikedBatch(userId: string, postIds: (string | number)[]): Promise<Record<string, boolean>> {
+    if (postIds.length === 0) return {};
+    const result: Record<string, boolean> = {};
+    const localLikes = getLocalLikes();
+    postIds.forEach(id => {
+        const pIdStr = String(id);
+        result[pIdStr] = !!(localLikes[`${userId}_${pIdStr}`] || localLikes[pIdStr]);
+    });
+
+    try {
+        const strIds = postIds.map(String);
+        const { data, error } = await supabase
+            .from('likes')
+            .select('post_id')
+            .eq('user_id', userId)
+            .in('post_id', strIds);
+
+        if (!error && data) {
+            data.forEach((row: any) => { result[String(row.post_id)] = true; });
         } else if (error && isQuotaError(error)) {
             setSupabaseQuotaRestricted(true);
         }
@@ -1198,8 +1216,9 @@ export async function checkIfLikedBatch(userId: string, postIds: string[]): Prom
     return result;
 }
 
-export async function toggleLike(userId: string, postId: string, currentlyLiked: boolean) {
-    toggleLocalLike(postId, userId);
+export async function toggleLike(userId: string, postId: string | number, currentlyLiked: boolean) {
+    const pIdStr = String(postId);
+    toggleLocalLike(pIdStr, userId);
 
     try {
         if (currentlyLiked) {
@@ -1207,12 +1226,12 @@ export async function toggleLike(userId: string, postId: string, currentlyLiked:
                 .from('likes')
                 .delete()
                 .eq('user_id', userId)
-                .eq('post_id', postId);
+                .eq('post_id', pIdStr);
             if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
         } else {
             const { error } = await supabase
                 .from('likes')
-                .insert({ user_id: userId, post_id: postId });
+                .insert({ user_id: userId, post_id: pIdStr });
             if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
         }
     } catch (e) {
@@ -3785,15 +3804,20 @@ export async function addComment(
 }
 
 /** Delete a comment (own only — RLS enforced) */
-export async function deleteComment(commentId: string): Promise<void> {
-    const { error } = await supabase
-        .from('comments')
-        .delete()
-        .eq('id', commentId);
-
-    if (error) {
-        console.error('Error deleting comment:', error);
+export async function deleteComment(commentId: string, postId?: string | number): Promise<void> {
+    if (postId) {
+        deleteLocalComment(commentId, postId);
     }
+    try {
+        const { error } = await supabase
+            .from('comments')
+            .delete()
+            .eq('id', commentId);
+
+        if (error) {
+            console.error('Error deleting comment:', error);
+        }
+    } catch (_) {}
 }
 
 // ── Search ─────────────────────────────────────────────────

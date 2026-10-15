@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, Volume2, VolumeX, Coins, Rocket, Check, Film, ChevronLeft } from 'lucide-react';
 import PostMedia from './PostMedia';
 import { AppContext } from '../context/AppContext';
-import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, isKnockVideoLink, parseKnockVideoLink, type PostData } from '../lib/database';
+import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, isKnockVideoLink, parseKnockVideoLink, isPostLikedLocally, getLocalComments, type PostData } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
 import ConnectedVideoModal, { type ConnectedVideoData } from './ConnectedVideoModal';
 
@@ -63,7 +63,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
 }) => {
     const { user, points, setPoints } = useContext(AppContext);
     const navigate = useNavigate();
-    const [isLiked, setIsLiked] = useState(() => initialLiked ?? false);
+    const [isLiked, setIsLiked] = useState(() => initialLiked ?? isPostLikedLocally(post.id, user?.id));
     const [likeCount, setLikeCount] = useState(post.likes_count || 0);
     const [isImped, setIsImped] = useState(() => initialImped ?? false);
     const [impCount, setImpCount] = useState(post.imps_count || 0);
@@ -178,12 +178,19 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     }, [isMutedProp]);
 
     useEffect(() => {
-        if (user && isActive) {
-            if (initialLiked === undefined) {
-                checkIfLiked(user.id, post.id).then(setIsLiked);
+        if (isActive) {
+            const pId = String(post.id);
+            const uId = user?.id || '';
+            if (initialLiked !== undefined) {
+                setIsLiked(initialLiked);
+            } else {
+                setIsLiked(isPostLikedLocally(pId, uId));
+                if (uId) {
+                    checkIfLiked(uId, pId).then(setIsLiked);
+                }
             }
-            if (initialImped === undefined) {
-                fetchUserImps(user.id).then(imps => setIsImped(imps.includes(post.id)));
+            if (initialImped === undefined && uId) {
+                fetchUserImps(uId).then(imps => setIsImped(imps.includes(pId)));
             }
         }
     }, [user?.id, post.id, isActive, initialLiked, initialImped]);
@@ -203,7 +210,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
         setIsLiked(newStatus);
         setLikeCount(prev => newStatus ? prev + 1 : Math.max(0, prev - 1));
         if (onLikeToggleProp) onLikeToggleProp(post.id, newStatus);
-        await toggleLike(user.id, post.id, newStatus);
+        await toggleLike(user.id, post.id, isLiked);
     };
 
     const handleMuteToggle = (e: React.MouseEvent) => {
@@ -505,7 +512,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     aria-label="Comment"
                 >
                     <MessageCircle size={28} color="#fff" />
-                    <span>{post.comments_count || 0}</span>
+                    <span>{Math.max(post.comments_count || 0, getLocalComments(post.id).length)}</span>
                 </button>
                 <button
                     className="post-side-action-btn"

@@ -7,7 +7,7 @@ import {
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData,
     checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost,
-    isKnockVideoLink, parseKnockVideoLink
+    isKnockVideoLink, parseKnockVideoLink, isPostLikedLocally, getLocalComments
 } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, Video, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
@@ -110,6 +110,7 @@ const Profile = () => {
     // Sync like & imp status when selectedPost changes
     useEffect(() => {
         if (selectedPost && currentUser) {
+            setSelectedPostLiked(isPostLikedLocally(selectedPost.id, currentUser.id));
             checkIfLiked(currentUser.id, selectedPost.id).then(setSelectedPostLiked);
             setSelectedPostLikesCount(selectedPost.likes_count || 0);
             fetchUserImps(currentUser.id).then(imps => setSelectedPostImped(imps.includes(selectedPost.id)));
@@ -1422,7 +1423,7 @@ const Profile = () => {
                                         }}
                                     >
                                         <MessageCircle size={20} />
-                                        <span>{selectedPost.comments_count || 0}</span>
+                                        <span>{Math.max(selectedPost.comments_count || 0, getLocalComments(selectedPost.id).length)}</span>
                                     </button>
                                     <button
                                         className="modal-action-btn"

@@ -7082,6 +7082,18 @@ export function updateLocalPostLikes(postId: string, delta: number): void {
     } catch (_) {}
 }
 
+export function isPostLikedLocally(postId: string | number, userId?: string): boolean {
+    try {
+        if (typeof window === 'undefined') return false;
+        const pIdStr = String(postId);
+        const likes = getLocalLikes();
+        if (userId && likes[`${userId}_${pIdStr}`]) return true;
+        return !!likes[pIdStr];
+    } catch (_) {
+        return false;
+    }
+}
+
 export function getLocalLikes(): Record<string, boolean> {
     try {
         if (typeof window === 'undefined') return {};
@@ -7092,25 +7104,51 @@ export function getLocalLikes(): Record<string, boolean> {
     }
 }
 
-export function toggleLocalLike(postId: string, userId: string): boolean {
+export function toggleLocalLike(postId: string | number, userId?: string): boolean {
     try {
         if (typeof window === 'undefined') return true;
+        const pIdStr = String(postId);
         const likes = getLocalLikes();
-        const key = `${userId}_${postId}`;
-        const isLiked = !likes[key];
-        likes[key] = isLiked;
+        const userKey = userId ? `${userId}_${pIdStr}` : `guest_${pIdStr}`;
+        const isCurrentlyLiked = !!(likes[userKey] || likes[pIdStr]);
+        const newStatus = !isCurrentlyLiked;
+        
+        if (newStatus) {
+            likes[userKey] = true;
+            likes[pIdStr] = true;
+        } else {
+            delete likes[userKey];
+            delete likes[pIdStr];
+        }
         localStorage.setItem('knock_local_likes', JSON.stringify(likes));
-        updateLocalPostLikes(postId, isLiked ? 1 : -1);
-        return isLiked;
+        updateLocalPostLikes(pIdStr, newStatus ? 1 : -1);
+        return newStatus;
     } catch (_) {
         return true;
     }
 }
 
-export function getLocalComments(postId: string): CommentData[] {
+export function updateLocalPostComments(postId: string | number, delta: number): void {
+    try {
+        if (typeof window === 'undefined') return;
+        const pIdStr = String(postId);
+        const posts = getLocalPosts();
+        const updated = posts.map(p => {
+            if (String(p.id) === pIdStr) {
+                return { ...p, comments_count: Math.max(0, (p.comments_count || 0) + delta) };
+            }
+            return p;
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        localStorage.setItem('knock_local_posts', JSON.stringify(updated));
+    } catch (_) {}
+}
+
+export function getLocalComments(postId: string | number): CommentData[] {
     try {
         if (typeof window === 'undefined') return [];
-        const raw = localStorage.getItem(`knock_comments_${postId}`);
+        const pIdStr = String(postId);
+        const raw = localStorage.getItem(`knock_comments_${pIdStr}`);
         return raw ? JSON.parse(raw) : [];
     } catch (_) {
         return [];
@@ -7120,8 +7158,22 @@ export function getLocalComments(postId: string): CommentData[] {
 export function saveLocalComment(comment: CommentData): void {
     try {
         if (typeof window === 'undefined') return;
-        const comments = getLocalComments(comment.post_id);
-        const updated = [comment, ...comments];
-        localStorage.setItem(`knock_comments_${comment.post_id}`, JSON.stringify(updated));
+        const pIdStr = String(comment.post_id);
+        const comments = getLocalComments(pIdStr);
+        const exists = comments.some(c => c.id === comment.id);
+        const updated = exists ? comments : [comment, ...comments];
+        localStorage.setItem(`knock_comments_${pIdStr}`, JSON.stringify(updated));
+        updateLocalPostComments(pIdStr, 1);
+    } catch (_) {}
+}
+
+export function deleteLocalComment(commentId: string, postId: string | number): void {
+    try {
+        if (typeof window === 'undefined') return;
+        const pIdStr = String(postId);
+        const comments = getLocalComments(pIdStr);
+        const updated = comments.filter(c => c.id !== commentId);
+        localStorage.setItem(`knock_comments_${pIdStr}`, JSON.stringify(updated));
+        updateLocalPostComments(pIdStr, -1);
     } catch (_) {}
 }

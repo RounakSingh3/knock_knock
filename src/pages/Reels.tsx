@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Heart, MessageCircle, Send, ChevronLeft, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
-import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, resolveLocalMediaUrl, type PostData, type MessageData } from '../lib/database';
+import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, resolveLocalMediaUrl, toggleLike as toggleLikeDb, checkIfLikedBatch, isPostLikedLocally, getLocalLikes, getLocalComments, type PostData, type MessageData } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
@@ -11,6 +11,7 @@ import { extractPosterFromUrl, getFallbackPoster, videoPosterCache, isFallbackPo
 // ⚡ Lazy-load heavy modals so Reels renders instantly
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
 const ShareModal = lazy(() => import('../components/ShareModal'));
+const CommentsSheet = lazy(() => import('../components/CommentsSheet'));
 
 export interface ReelData {
     id: string | number;
@@ -278,7 +279,24 @@ const Reels: React.FC = () => {
     const targetCaption = searchParams.get('caption');
     const targetUser = searchParams.get('user');
     const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
-    const [likedReels, setLikedReels] = useState<Set<string | number>>(new Set());
+    const [likedReels, setLikedReels] = useState<Set<string | number>>(() => {
+        const set = new Set<string | number>();
+        try {
+            const local = getLocalLikes();
+            Object.entries(local).forEach(([k, v]) => {
+                if (v) {
+                    const parts = k.split('_');
+                    const rId = parts.length > 1 ? parts.slice(1).join('_') : k;
+                    set.add(rId);
+                    const asNum = Number(rId);
+                    if (!isNaN(asNum)) set.add(asNum);
+                }
+            });
+        } catch (_) {}
+        return set;
+    });
+    const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+    const [commentsReelId, setCommentsReelId] = useState<string | null>(null);
     const [impedReels, setImpedReels] = useState<Set<string | number>>(new Set());
     const [failedVisuals, setFailedVisuals] = useState<Set<string | number>>(new Set());
     const [fallbackVideos, setFallbackVideos] = useState<Record<string | number, string>>({});
@@ -302,6 +320,27 @@ const Reels: React.FC = () => {
             setActiveIndex(initialIdx);
         }
     }, [targetReelId]);
+
+    // Sync liked reels from database/local storage
+    useEffect(() => {
+        if (reelsList.length > 0) {
+            const ids = reelsList.map(r => r.id);
+            const uId = user?.id || '';
+            checkIfLikedBatch(uId, ids).then(likedMap => {
+                setLikedReels(prev => {
+                    const next = new Set(prev);
+                    Object.entries(likedMap).forEach(([id, isL]) => {
+                        if (isL) {
+                            next.add(id);
+                            const asNum = Number(id);
+                            if (!isNaN(asNum)) next.add(asNum);
+                        }
+                    });
+                    return next;
+                });
+            });
+        }
+    }, [user?.id, reelsList]);
 
 
     // Audio playback logic moved to native <audio> controls.
@@ -940,16 +979,51 @@ const Reels: React.FC = () => {
         [mutedAll]
     );
 
+    const toggleLike = useCallback(async (reelId: string | number) => {
+        const pIdStr = String(reelId);
+        const pIdNum = typeof reelId === 'number' ? reelId : Number(reelId);
+        const isCurrentlyLiked = likedReels.has(reelId) || likedReels.has(pIdStr) || (!isNaN(pIdNum) && likedReels.has(pIdNum));
+        const newLiked = !isCurrentlyLiked;
+
+        setLikedReels((prev) => {
+            const next = new Set(prev);
+            if (newLiked) {
+                next.add(reelId);
+                next.add(pIdStr);
+                if (!isNaN(pIdNum)) next.add(pIdNum);
+            } else {
+                next.delete(reelId);
+                next.delete(pIdStr);
+                if (!isNaN(pIdNum)) next.delete(pIdNum);
+            }
+            return next;
+        });
+
+        // Persist locally and sync with Supabase
+        const userId = user?.id || '';
+        await toggleLikeDb(userId, pIdStr, isCurrentlyLiked);
+
+        // Update likes count on the reel in reelsList
+        setReelsList((prev) => prev.map(r => {
+            if (String(r.id) === pIdStr) {
+                return { ...r, likes: Math.max(0, (r.likes || 0) + (newLiked ? 1 : -1)) };
+            }
+            return r;
+        }));
+    }, [user?.id, likedReels]);
+
     const handleDoubleTap = useCallback(
         (idx: number, e: React.MouseEvent | React.TouchEvent) => {
             const now = Date.now();
             if (now - lastTapRef.current < 300) {
                 // Double tap — like
-                setLikedReels((prev) => {
-                    const next = new Set(prev);
-                    next.add(reelsList[idx].id);
-                    return next;
-                });
+                const r = reelsList[idx];
+                if (r) {
+                    const isAlreadyLiked = likedReels.has(r.id) || likedReels.has(String(r.id));
+                    if (!isAlreadyLiked) {
+                        toggleLike(r.id);
+                    }
+                }
                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const clientX = 'touches' in e ? e.touches[0]?.clientX ?? rect.width / 2 : (e as React.MouseEvent).clientX;
                 const clientY = 'touches' in e ? e.touches[0]?.clientY ?? rect.height / 2 : (e as React.MouseEvent).clientY;
@@ -962,17 +1036,8 @@ const Reels: React.FC = () => {
             }
             lastTapRef.current = now;
         },
-        [togglePlay, reelsList]
+        [togglePlay, reelsList, likedReels, toggleLike]
     );
-
-    const toggleLike = useCallback((reelId: string | number) => {
-        setLikedReels((prev) => {
-            const next = new Set(prev);
-            if (next.has(reelId)) next.delete(reelId);
-            else next.add(reelId);
-            return next;
-        });
-    }, []);
 
     const toggleImpReel = useCallback(async (reelId: string | number) => {
         setImpedReels((prev) => {
@@ -1522,9 +1587,16 @@ const Reels: React.FC = () => {
                                             />
                                             <span>{formatCount(reel.likes + (isLiked ? 1 : 0))}</span>
                                         </button>
-                                        <button className="reel-action-btn">
+                                        <button
+                                            className="reel-action-btn"
+                                            onClick={() => {
+                                                setCommentsReelId(String(reel.id));
+                                                setIsCommentsOpen(true);
+                                            }}
+                                            aria-label="Comments"
+                                        >
                                             <MessageCircle size={28} />
-                                            <span>{formatCount(reel.comments)}</span>
+                                            <span>{formatCount(Math.max(reel.comments, getLocalComments(String(reel.id)).length))}</span>
                                         </button>
                                         <button 
                                             className="reel-action-btn"
@@ -1614,6 +1686,20 @@ const Reels: React.FC = () => {
                             setPostToShare(null);
                             setChatUserId(userId);
                             setIsChatOpen(true);
+                        }}
+                    />
+                </Suspense>
+            )}
+
+            {isCommentsOpen && commentsReelId && user && (
+                <Suspense fallback={null}>
+                    <CommentsSheet
+                        postId={commentsReelId}
+                        isOpen={isCommentsOpen}
+                        currentUser={{ id: user.id, username: user.username || 'user', avatar_url: user.avatar_url }}
+                        onClose={() => {
+                            setIsCommentsOpen(false);
+                            setCommentsReelId(null);
                         }}
                     />
                 </Suspense>

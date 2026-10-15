@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useContext, useCallback, useMemo, l
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, recordPostScreenDelivery, isKnockVideoLink, parseKnockVideoLink, type PostData, type MessageData } from '../lib/database';
-import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp } from '../lib/database';
+import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp, getLocalLikes, getLocalComments } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX, Film } from 'lucide-react';
 import PostMedia from '../components/PostMedia';
@@ -223,7 +223,7 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
                     onClick={(e) => { e.stopPropagation(); onOpenComments(post.id); }}
                     style={{ background: 'none', border: 'none', color: 'var(--text-inactive)', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
-                    <MessageCircle size={12} /> {post.comments_count || 0}
+                    <MessageCircle size={12} /> {Math.max(post.comments_count || 0, getLocalComments(post.id).length)}
                 </button>
             </div>
         </div>
@@ -264,8 +264,22 @@ const Home = () => {
         }
     });
     const [error, setError] = useState('');
-    const [activeFeedState, setActiveFeedState] = useState<{ posts: PostData[]; index: number } | null>(null);
-    const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>({});
+    const [likedPosts, setLikedPosts] = useState<Record<string, boolean>>(() => {
+        try {
+            const local = getLocalLikes();
+            const map: Record<string, boolean> = {};
+            Object.entries(local).forEach(([k, v]) => {
+                if (v) {
+                    const parts = k.split('_');
+                    const pId = parts.length > 1 ? parts.slice(1).join('_') : k;
+                    map[pId] = true;
+                }
+            });
+            return map;
+        } catch (_) {
+            return {};
+        }
+    });
     const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
     const [impCounts, setImpCounts] = useState<Record<string, number>>({});

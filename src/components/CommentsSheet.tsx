@@ -127,7 +127,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ isOpen, onClose, postId, 
     };
 
     const handleDelete = async (commentId: string) => {
-        await deleteComment(commentId);
+        await deleteComment(commentId, postId);
         setComments(prev => prev.filter(c => c.id !== commentId));
     };
 
