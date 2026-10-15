@@ -7018,7 +7018,11 @@ export function getLocalPosts(): PostData[] {
                 // Filter out obsolete generic mock seed IDs, but preserve ALL user-created posts and real uploads
                 const cleaned = parsed.filter((p: PostData) => {
                     if (!p) return false;
-                    const isUserCreated = Boolean(p.id?.startsWith('post-') || p.id?.startsWith('story-') || (p.created_at && !p.id?.startsWith('seed-')));
+                    // Exclude any 24h stories or story posters from permanent posts
+                    if (p.id?.startsWith('story-') || (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/')))) {
+                        return false;
+                    }
+                    const isUserCreated = Boolean(p.id?.startsWith('post-') || (p.created_at && !p.id?.startsWith('seed-')));
                     if (isUserCreated) return true;
                     if (FAKE_ACCOUNTS.has(p.username)) return false;
                     if (p.id.startsWith('seed-fav-') || p.id.startsWith('seed-reel-') || p.id.startsWith('seed-photo-')) return false;

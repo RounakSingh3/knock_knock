@@ -449,7 +449,7 @@ const Boost: React.FC = () => {
     const [adLinkUrl, setAdLinkUrl] = useState('');
     const [adLinkCta, setAdLinkCta] = useState('Shop Now');
     const [isSponsoredAd, setIsSponsoredAd] = useState(false);
-    const [postType, setPostType] = useState<'explore' | 'snap'>('explore');
+    const [postType, setPostType] = useState<'explore' | 'snap'>('snap');
     const [attachedKnockVideo, setAttachedKnockVideo] = useState<KnockVideoItem | null>(null);
     const [isVideoPickerOpen, setIsVideoPickerOpen] = useState(false);
     const [showRewardModal, setShowRewardModal] = useState(false);
@@ -1153,7 +1153,7 @@ const Boost: React.FC = () => {
         setAdLinkUrl('');
         setAdLinkCta('Shop Now');
         setIsSponsoredAd(false);
-        setPostType('explore');
+        setPostType('snap');
         setAttachedKnockVideo(null);
         setIsVideoPickerOpen(false);
         if (fileInputRef.current) {
@@ -1190,7 +1190,12 @@ const Boost: React.FC = () => {
             let uploadedPosterUrl: string | undefined = undefined;
 
             let fileToUpload = selectedFile;
-            const isVid = selectedFile ? isVideoFile(selectedFile) : isVideo;
+            const isVid = Boolean(
+                (selectedFile && isVideoFile(selectedFile)) ||
+                isVideo ||
+                (fileToUpload && isVideoFile(fileToUpload)) ||
+                (capturedMediaUrl && isVideoUrl(capturedMediaUrl))
+            );
 
             let currentPosterBlob = posterBlob;
             if (isVid && !currentPosterBlob) {
@@ -1391,6 +1396,7 @@ const Boost: React.FC = () => {
                     <button
                         onClick={() => {
                             setPointsToSpend(0);
+                            setPostType('snap');
                             setIsCreateModalOpen(true);
                         }}
                         style={{
@@ -1743,6 +1749,7 @@ const Boost: React.FC = () => {
                             <button
                                 onClick={() => {
                                     setPointsToSpend(0);
+                                    setPostType('snap');
                                     setIsCreateModalOpen(true);
                                 }}
                                 style={{

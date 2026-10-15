@@ -151,38 +151,7 @@ export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
         addPost(p);
     }
 
-    // 2. Also add active 24-hour photo knocks posted by users on Knockup
-    try {
-        if (typeof window !== 'undefined') {
-            const rawStories = localStorage.getItem('knock_boost_stories_cache_v2') || localStorage.getItem('knock_local_stories');
-            if (rawStories) {
-                const parsed = JSON.parse(rawStories);
-                if (Array.isArray(parsed)) {
-                    const now = Date.now();
-                    for (const s of parsed) {
-                        if (!s || !s.image_url || isSeedStory(s)) continue;
-                        const msOld = now - new Date(s.created_at || now).getTime();
-                        if (msOld >= 0 && msOld <= 24 * 60 * 60 * 1000) {
-                            addPost({
-                                id: s.id,
-                                user_id: s.user_id,
-                                username: s.username || 'user',
-                                avatar_url: s.avatar_url || `https://i.pravatar.cc/150?u=${s.username || 'user'}`,
-                                image_url: s.image_url,
-                                caption: s.caption || '',
-                                created_at: s.created_at || new Date().toISOString(),
-                                likes_count: s.likes_count || 0,
-                                media_type: (isVideoPost(s as any) || isVideoUrl(s.image_url)) ? 'video' : 'image',
-                                category: s.category || 'General',
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    } catch (_) {}
-
-    // 3. Live Database posts next
+    // 2. Live Database posts next
     for (const p of dbPosts) {
         addPost(p);
     }
@@ -485,15 +454,25 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
             if (error) {
                 if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
             } else {
-                dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+                dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => {
+                    if (!p) return false;
+                    if (p.id?.startsWith('story-') || (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/')))) {
+                        return false;
+                    }
+                    return true;
+                });
             }
         } catch (err: any) {
             if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         }
     }
 
-    // Always fetch matching local posts
+    // Always fetch matching local posts (strictly user-created posts, excluding 24h stories)
     const localPosts = getLocalPosts().filter(p => {
+        if (!p || p.id?.startsWith('story-')) return false;
+        if (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/'))) {
+            return false;
+        }
         const pUname = (p.username || '').toLowerCase();
         if (candidateUsernames.has(pUname)) return true;
         if (p.user_id && candidateUserIds.has(p.user_id)) return true;

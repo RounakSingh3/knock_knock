@@ -68,7 +68,7 @@ const Profile = () => {
     const [chatUserId, setChatUserId] = useState<string | null>(null);
     const [chatRefreshKey, setChatRefreshKey] = useState(0);
     const [pendingShare, setPendingShare] = useState<{ receiverId: string; message: any } | null>(null);
-    const [postFilter, setPostFilter] = useState<'all' | 'reels'>('all');
+    const [postFilter, setPostFilter] = useState<'all' | 'reels' | 'photos'>('all');
 
     // Selected post interaction states
     const [selectedPostLiked, setSelectedPostLiked] = useState(false);
@@ -869,8 +869,8 @@ const Profile = () => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <div 
                         className="upload-summary-card" 
-                        style={{ cursor: 'pointer', border: postFilter === 'all' && activeTab === 'posts' ? '1px solid rgba(255,51,102,0.4)' : undefined }}
-                        onClick={() => { setActiveTab('posts'); setPostFilter('all'); }}
+                        style={{ cursor: 'pointer', border: postFilter === 'photos' && activeTab === 'posts' ? '1px solid rgba(255,51,102,0.6)' : undefined }}
+                        onClick={() => { setActiveTab('posts'); setPostFilter('photos'); }}
                     >
                         <Grid size={20} color="#ff3366" />
                         <span className="font-bold">{photoPosts.length}</span>
@@ -887,7 +887,7 @@ const Profile = () => {
                     </div>
                     <div 
                         className="upload-summary-card" 
-                        style={{ cursor: 'pointer' }}
+                        style={{ cursor: 'pointer', border: postFilter === 'all' && activeTab === 'posts' ? '1px solid rgba(250,204,21,0.6)' : undefined }}
                         onClick={() => { setActiveTab('posts'); setPostFilter('all'); }}
                     >
                         <TrendingUp size={20} color="#facc15" />
@@ -924,9 +924,9 @@ const Profile = () => {
                 {/* Posts Tab */}
                 {activeTab === 'posts' && (
                     <>
-                        {/* Sub-filter chips: All Posts vs Reels */}
+                        {/* Sub-filter chips: All Posts vs Reels vs Photos */}
                         {posts.length > 0 && (
-                            <div style={{ display: 'flex', gap: '8px', padding: '8px 12px 10px', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '8px', padding: '8px 12px 10px', alignItems: 'center', overflowX: 'auto' }}>
                                 <button
                                     type="button"
                                     onClick={() => setPostFilter('all')}
@@ -938,7 +938,8 @@ const Profile = () => {
                                         color: postFilter === 'all' ? '#f5a524' : 'var(--text-inactive)',
                                         fontSize: '12px',
                                         fontWeight: '600',
-                                        cursor: 'pointer'
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap'
                                     }}
                                 >
                                     All Posts ({posts.length})
@@ -957,17 +958,43 @@ const Profile = () => {
                                         cursor: 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '4px'
+                                        gap: '4px',
+                                        whiteSpace: 'nowrap'
                                     }}
                                 >
                                     <Film size={12} />
                                     <span>Reels ({videoPosts.length})</span>
                                 </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPostFilter('photos')}
+                                    style={{
+                                        padding: '5px 12px',
+                                        borderRadius: '16px',
+                                        border: postFilter === 'photos' ? '1px solid #f5a524' : '1px solid rgba(255,255,255,0.1)',
+                                        background: postFilter === 'photos' ? 'rgba(245,165,36,0.15)' : 'rgba(255,255,255,0.04)',
+                                        color: postFilter === 'photos' ? '#f5a524' : 'var(--text-inactive)',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        whiteSpace: 'nowrap'
+                                    }}
+                                >
+                                    <Grid size={12} />
+                                    <span>Photos ({photoPosts.length})</span>
+                                </button>
                             </div>
                         )}
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
-                            {(postFilter === 'reels' ? videoPosts : posts).map(post => {
+                        {(() => {
+                            const displayedPosts = postFilter === 'reels' ? videoPosts : postFilter === 'photos' ? photoPosts : posts;
+                            return (
+                                <>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+                                        {displayedPosts.map(post => {
                                 const isVideo = isVideoPost(post);
                                 return (
                                     <div
@@ -1061,22 +1088,27 @@ const Profile = () => {
                                 );
                             })}
                         </div>
-                        {(postFilter === 'reels' ? videoPosts : posts).length === 0 && (
+                        {displayedPosts.length === 0 && (
                             <div style={{ textAlign: 'center', padding: '3rem 2rem', color: 'var(--text-inactive)' }}>
                                 <Grid size={40} color="#2c2c2e" style={{ margin: '0 auto 1rem' }} />
                                 <div className="font-bold" style={{ color: 'var(--text-active)', marginBottom: '4px' }}>
-                                    {postFilter === 'reels' ? 'No Reels Found' : 'No Posts Yet'}
+                                    {postFilter === 'reels' ? 'No Reels Found' : postFilter === 'photos' ? 'No Photos Found' : 'No Posts Yet'}
                                 </div>
                                 <p>
                                     {postFilter === 'reels' 
                                         ? `This account has not uploaded any video reels yet.`
+                                        : postFilter === 'photos'
+                                        ? `This account has not uploaded any photos yet.`
                                         : `When ${isOwnProfile ? 'you share' : `${displayUsername} shares`} photos and videos, they will appear here.`
                                     }
                                 </p>
                             </div>
                         )}
                     </>
-                )}
+                );
+            })()}
+        </>
+    )}
 
                 {/* Followers Tab */}
                 {activeTab === 'followers' && (
