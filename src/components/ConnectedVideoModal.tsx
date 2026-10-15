@@ -105,8 +105,6 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
             if (v) {
                 try {
                     v.pause();
-                    v.removeAttribute('src');
-                    v.load();
                 } catch (_) {}
             }
         };

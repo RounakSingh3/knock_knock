@@ -183,14 +183,18 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     let cleanVideoUrl = '';
     if (effectiveImageUrl) {
         const rawNoHash = effectiveImageUrl.split('#')[0];
-        try {
-            const parsed = new URL(rawNoHash, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
-            if (parsed.searchParams.has('filter')) {
-                parsed.searchParams.delete('filter');
-            }
-            cleanVideoUrl = rawNoHash.startsWith('http') ? parsed.toString() : (parsed.pathname + parsed.search);
-        } catch (_) {
+        if (rawNoHash.startsWith('blob:') || rawNoHash.startsWith('data:')) {
             cleanVideoUrl = rawNoHash;
+        } else {
+            try {
+                const parsed = new URL(rawNoHash, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+                if (parsed.searchParams.has('filter')) {
+                    parsed.searchParams.delete('filter');
+                }
+                cleanVideoUrl = rawNoHash.startsWith('http') ? parsed.toString() : (parsed.pathname + parsed.search);
+            } catch (_) {
+                cleanVideoUrl = rawNoHash;
+            }
         }
     }
 
@@ -422,6 +426,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         const video = videoRef.current;
         if (!video) return;
 
+        // Ensure video element src attribute is present
+        if (videoSrc && (!video.getAttribute('src') || video.getAttribute('src') === '')) {
+            video.src = videoSrc;
+        }
+
         if (autoPlay || soundOn) {
             video.muted = domMutedRef.current;
             // Guard against overlapping play requests on the same media element
@@ -463,7 +472,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         } else {
             safePause();
         }
-    }, [isVideo, autoPlay, soundOn, safePause]);
+    }, [isVideo, autoPlay, soundOn, videoSrc, safePause]);
 
     // Handle video play/pause & sound with resilient dual-stage autoplay
     useEffect(() => {
@@ -476,13 +485,6 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         return () => {
             safePause();
-            const v = videoRef.current;
-            if (v && !thumbnail) {
-                try {
-                    v.removeAttribute('src');
-                    v.load();
-                } catch (_) {}
-            }
         };
     }, [isVideo, autoPlay, soundOn, videoSrc, startPlayback, safePause]);
 

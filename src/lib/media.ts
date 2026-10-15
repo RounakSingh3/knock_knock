@@ -181,8 +181,8 @@ export function getCleanSongUrl(musicTitle?: string | null, musicUrl?: string | 
     return undefined;
 }
 
-// Global session preference for feed audio (Instagram-style continuity)
-let _isFeedMuted = false;
+// Global session preference for feed audio (Instagram-style continuity: start muted to guarantee browser autoplay)
+let _isFeedMuted = true;
 
 export function getFeedMutedPreference(): boolean {
     return _isFeedMuted;

@@ -42,12 +42,22 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         return url.split('?')[0].split('#')[0].toLowerCase().trim();
     };
 
+    const initialPost = posts[initialIndex] || posts[0];
+
     const dedupePosts = useCallback((list: PostData[]): PostData[] => {
         const seenIds = new Set<string>();
         const seenUrls = new Set<string>();
+        const targetId = list[initialIndex]?.id;
         const res: PostData[] = [];
         for (const p of list) {
             if (!p || !p.id) continue;
+            if (targetId && p.id === targetId) {
+                seenIds.add(String(p.id));
+                const key = cleanMediaKey(p.image_url);
+                if (key) seenUrls.add(key);
+                res.push(p);
+                continue;
+            }
             const key = cleanMediaKey(p.image_url);
             if (seenIds.has(String(p.id))) continue;
             if (key && seenUrls.has(key)) continue;
@@ -56,53 +66,17 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
             res.push(p);
         }
         return res;
-    }, []);
+    }, [initialIndex]);
 
     // Keep active stream in state with auto-replenish to guarantee next video is ALWAYS available
     const [displayPosts, setDisplayPosts] = useState<PostData[]>(() => dedupePosts(posts));
-    const [currentIndex, setCurrentIndex] = useState(initialIndex);
 
-    useEffect(() => {
-        setDisplayPosts(prev => {
-            const seenIds = new Set(prev.map(p => String(p.id)));
-            const seenUrls = new Set(prev.map(p => cleanMediaKey(p.image_url)));
-            const newOnes = posts.filter(p => {
-                const key = cleanMediaKey(p.image_url);
-                if (seenIds.has(String(p.id))) return false;
-                if (key && seenUrls.has(key)) return false;
-                seenIds.add(String(p.id));
-                if (key) seenUrls.add(key);
-                return true;
-            });
-            return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
-        });
-    }, [posts]);
+    // Resolve target post in deduped stream
+    const resolvedInitialIndex = displayPosts.findIndex(p => p.id === initialPost?.id);
+    const effectiveIndex = resolvedInitialIndex !== -1 ? resolvedInitialIndex : (initialIndex < displayPosts.length ? initialIndex : 0);
+    const targetPost = displayPosts[effectiveIndex] || initialPost;
 
-    // Auto-replenish feed if short (e.g. from single-post search) or approaching end
-    useEffect(() => {
-        if (displayPosts.length < 6 || currentIndex >= displayPosts.length - 2) {
-            fetchAllPostsForScoring(user?.id).then(extra => {
-                if (extra && extra.length > 0) {
-                    setDisplayPosts(current => {
-                        const seenIds = new Set(current.map(p => String(p.id)));
-                        const seenUrls = new Set(current.map(p => cleanMediaKey(p.image_url)));
-                        const toAdd = extra.filter(p => {
-                            const key = cleanMediaKey(p.image_url);
-                            if (seenIds.has(String(p.id))) return false;
-                            if (key && seenUrls.has(key)) return false;
-                            seenIds.add(String(p.id));
-                            if (key) seenUrls.add(key);
-                            return true;
-                        });
-                        if (toAdd.length === 0) return current;
-                        return [...current, ...toAdd];
-                    });
-                }
-            }).catch(() => {});
-        }
-    }, [currentIndex, displayPosts.length, user?.id]);
-
-    const targetPost = displayPosts[initialIndex] || displayPosts[0] || posts[0];
+    const [currentIndex, setCurrentIndex] = useState(effectiveIndex);
     const [activePostId, setActivePostId] = useState<string | null>(targetPost?.id || null);
     const activePostIdRef = useRef<string | null>(targetPost?.id || null);
     useEffect(() => { activePostIdRef.current = activePostId; }, [activePostId]);
@@ -140,7 +114,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
 
     // Keep isInitialMountRef active only until initial scroll positions so IntersectionObserver doesn't override target reel
     useEffect(() => {
-        if (initialIndex === 0) {
+        if (effectiveIndex === 0) {
             isInitialMountRef.current = false;
             return;
         }
@@ -166,7 +140,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 container.removeEventListener('wheel', onUserTouch);
             }
         };
-    }, [initialIndex, targetPost?.id]);
+    }, [effectiveIndex, targetPost?.id]);
 
     // Immediate positioning to guarantee target reel is aligned once on mount without layout jump
     useLayoutEffect(() => {
@@ -179,7 +153,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
             const targetEl = targetPost ? itemRefs.current[targetPost.id] : null;
             const targetTop = (targetEl && targetEl.offsetTop > 0)
                 ? targetEl.offsetTop
-                : (container.clientHeight || window.innerHeight) * initialIndex;
+                : (container.clientHeight || window.innerHeight) * effectiveIndex;
             container.scrollTo({ top: targetTop, behavior: 'instant' as ScrollBehavior });
         };
 
@@ -327,7 +301,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         >
             {displayPosts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNearActive = (index === initialIndex) || Math.abs(index - currentIndex) <= 2;
+                const isNearActive = (index === effectiveIndex) || Math.abs(index - currentIndex) <= 2;
                 return (
                     <div 
                         key={post.id} 
