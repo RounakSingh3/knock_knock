@@ -1033,40 +1033,34 @@ export function rankExploreGrid(
         return likes + imps + cat + tagScore;
     });
 
-    // Segregate photos and videos
-    // Recent user photos go directly to the front of the photo pool!
-    const recentPhotos = recentPosts.filter(p => !isVideoPost(p));
-    const recentVideos = recentPosts.filter(p => isVideoPost(p));
-    const catalogPhotos = catalogScheduled.filter(p => !isVideoPost(p));
-    const catalogVideos = catalogScheduled.filter(p => isVideoPost(p));
+    // Combine recent user uploads first with catalog posts
+    const combined = [...recentPosts, ...catalogScheduled];
 
-    // Photo pool prioritizes recent user photos first, followed by rich catalog photos
-    const photoPool = [...recentPhotos, ...catalogPhotos];
-    // Video pool prioritizes recent user videos first, followed by catalog videos
-    const videoPool = [...recentVideos, ...catalogVideos];
-
-    // Instagram Explore 10-item rhythm: slots 2 & 5 are tall reels, slots 0,1,3,4,6,7,8,9 are posts/photos
-    const rhythm: PostData[] = [];
-    let v = 0;
-    let p = 0;
-    const total = videoPool.length + photoPool.length;
-    for (let i = 0; i < total; i++) {
-        const isReelSlot = (i % 10 === 2) || (i % 10 === 5);
-        if (isReelSlot) {
-            if (v < videoPool.length) {
-                rhythm.push(videoPool[v++]);
-            } else if (p < photoPool.length) {
-                rhythm.push(photoPool[p++]);
-            }
+    // Balance reels (video posts) and photo posts so everyday rotation guarantees fresh reels and posts
+    const videoPosts: PostData[] = [];
+    const photoPosts: PostData[] = [];
+    for (const p of combined) {
+        if (isVideoPost(p)) {
+            videoPosts.push(p);
         } else {
-            if (p < photoPool.length) {
-                rhythm.push(photoPool[p++]);
-            } else if (v < videoPool.length) {
-                rhythm.push(videoPool[v++]);
-            }
+            photoPosts.push(p);
         }
     }
-    return rhythm;
+
+    // Interleave reels and posts with high presence (1 video reel every 2 photo posts)
+    if (videoPosts.length > 0 && photoPosts.length > 0) {
+        const interleavedMedia: PostData[] = [];
+        let v = 0;
+        let p = 0;
+        while (v < videoPosts.length || p < photoPosts.length) {
+            if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
+            if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
+            if (v < videoPosts.length) interleavedMedia.push(videoPosts[v++]);
+        }
+        return interleavedMedia;
+    }
+
+    return combined;
 }
 
 // ── Surface 4: Stories Model (rankStoryGroups) ──────────────

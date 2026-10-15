@@ -95,7 +95,7 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
     const isVideo = isVideoPost(post);
     const hasMusic = Boolean(post.music_url || post.music_title);
     const hasLikes = (post.likes_count || 0) >= 5 && !isSurprise;
-    const isTallReel = (index % 10 === 2) || (index % 10 === 5);
+    const isBig = (index % 12 === 0) || (index % 12 === 8);
     const creatorUsername = post.username || (post as any).user?.username || 'user';
     const creatorAvatar = post.avatar_url || (post as any).user?.avatar_url || `https://i.pravatar.cc/150?u=${creatorUsername}`;
 
@@ -107,18 +107,16 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
         <div
             ref={trackViewRef}
             data-postid={post.id}
-            className={`explore-grid-item ${isTallReel ? 'explore-grid-item-tall' : ''}`}
+            className={`explore-grid-item ${isBig ? 'explore-grid-item-big' : ''}`}
             style={{
-                gridColumn: 'span 1',
-                gridRow: isTallReel ? 'span 2' : 'span 1',
-                aspectRatio: isTallReel ? undefined : '1 / 1',
+                aspectRatio: '1',
+                gridColumn: isBig ? 'span 2' : 'span 1',
+                gridRow: isBig ? 'span 2' : 'span 1',
                 position: 'relative',
                 cursor: 'pointer',
                 overflow: 'hidden',
-                borderRadius: '2px',
+                borderRadius: '4px',
                 background: '#18181b',
-                contain: 'layout paint',
-                transition: 'transform 0.15s ease',
             }}
             onClick={handleClick}
         >
@@ -135,26 +133,21 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
             {isVideo && (
                 <div style={{
                     position: 'absolute',
-                    top: isTallReel ? '8px' : '6px',
-                    right: isTallReel ? '8px' : '6px',
+                    top: isBig ? '10px' : '6px',
+                    right: isBig ? '10px' : '6px',
                     zIndex: 4,
                     pointerEvents: 'none',
-                    background: isTallReel ? 'rgba(0,0,0,0.68)' : 'rgba(0,0,0,0.55)',
-                    backdropFilter: 'blur(4px)',
-                    WebkitBackdropFilter: 'blur(4px)',
-                    borderRadius: isTallReel ? '12px' : '50%',
-                    padding: isTallReel ? '3px 7px' : '0',
-                    width: isTallReel ? 'auto' : '22px',
-                    height: isTallReel ? 'auto' : '22px',
+                    background: isBig ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.55)',
+                    borderRadius: isBig ? '16px' : '6px',
+                    padding: isBig ? '4px 8px' : '2px 4px',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
                     gap: '4px',
                     boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
                 }}>
-                    <Play size={10} color="#fff" fill="#fff" style={{ marginLeft: isTallReel ? '0' : '1px' }} />
-                    {isTallReel && (
-                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.4px' }}>
+                    <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
+                    {isBig && (
+                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
                             REEL
                         </span>
                     )}
@@ -163,58 +156,93 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
             {hasMusic && (
                 <div style={{
                     position: 'absolute',
-                    top: isTallReel ? '8px' : '6px',
-                    left: isTallReel ? '8px' : '6px',
+                    top: isBig ? '10px' : '6px',
+                    left: isBig ? '10px' : '6px',
                     zIndex: 5,
                     display: 'flex', alignItems: 'center', gap: '4px',
-                    background: 'rgba(0,0,0,0.68)',
-                    backdropFilter: 'blur(4px)',
-                    WebkitBackdropFilter: 'blur(4px)',
-                    padding: isTallReel ? '3px 8px' : '2px 6px',
+                    background: 'rgba(0,0,0,0.72)',
+                    padding: isBig ? '3px 8px' : '2px 6px',
                     borderRadius: '10px', color: '#fff',
-                    fontSize: isTallReel ? '10px' : '9px', fontWeight: '600', pointerEvents: 'none',
+                    fontSize: isBig ? '11px' : '9px', fontWeight: '600', pointerEvents: 'none',
                 }}>
-                    <Music size={isTallReel ? 10 : 9} color="#f5a524" />
+                    <Music size={isBig ? 11 : 9} color="#f5a524" />
                     <span>{post.music_title || '♪'}</span>
                 </div>
             )}
-            {/* Bottom details */}
-            <div style={{
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                zIndex: 4,
-                background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
-                padding: isTallReel ? '24px 8px 6px 8px' : '14px 6px 4px 6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                pointerEvents: 'none',
-                gap: '4px',
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
-                    <img
-                        src={creatorAvatar}
-                        alt=""
-                        onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${creatorUsername}`;
-                        }}
-                        style={{ width: isTallReel ? '18px' : '15px', height: isTallReel ? '18px' : '15px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.4)', flexShrink: 0 }}
-                    />
-                    <span style={{ fontSize: isTallReel ? '11px' : '10px', fontWeight: '600', color: 'rgba(255,255,255,0.95)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        @{creatorUsername}
-                    </span>
-                </div>
-                {(hasLikes || (post.likes_count || 0) > 0) && (
-                    <div style={{
-                        fontSize: isTallReel ? '10px' : '9px', color: '#f5a524', fontWeight: '700',
-                        display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0
-                    }}>
-                        <Flame size={isTallReel ? 10 : 9} fill="#f5a524" color="#f5a524" /> {post.likes_count}
+            {/* Bottom details: for big cards show creator avatar & username & likes; for standard cards show creator avatar, username & likes */}
+            {isBig ? (
+                <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 4,
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
+                    padding: '28px 10px 8px 10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    pointerEvents: 'none',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                        <img
+                            src={creatorAvatar}
+                            alt=""
+                            onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${creatorUsername}`;
+                            }}
+                            style={{ width: '22px', height: '22px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid rgba(255,255,255,0.4)', flexShrink: 0 }}
+                        />
+                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            @{creatorUsername}
+                        </span>
                     </div>
-                )}
-            </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                        {(post.likes_count || 0) > 0 && (
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Flame size={12} fill="#f5a524" /> {post.likes_count}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <div style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 4,
+                    background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.82) 100%)',
+                    padding: '16px 6px 5px 6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    pointerEvents: 'none',
+                    gap: '4px',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                        <img
+                            src={creatorAvatar}
+                            alt=""
+                            onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://i.pravatar.cc/150?u=${creatorUsername}`;
+                            }}
+                            style={{ width: '15px', height: '15px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }}
+                        />
+                        <span style={{ fontSize: '10px', fontWeight: '600', color: 'rgba(255,255,255,0.92)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            @{creatorUsername}
+                        </span>
+                    </div>
+                    {hasLikes && (
+                        <div style={{
+                            fontSize: '9px', color: '#f5a524', fontWeight: '700',
+                            display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0
+                        }}>
+                            <Flame size={9} fill="#f5a524" color="#f5a524" /> {post.likes_count}
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 });
@@ -390,7 +418,7 @@ const Explore = () => {
     const rawPostsCacheRef = useRef<any[]>([]);
     const userProfileRef = useRef<any>(null);
 
-    const PAGE_SIZE = 24;
+    const PAGE_SIZE = 18;
     const discoverPostsRef = useRef(discoverPosts);
     useEffect(() => {
         discoverPostsRef.current = discoverPosts;

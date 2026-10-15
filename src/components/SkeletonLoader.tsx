@@ -8,22 +8,10 @@ const shimmerStyle: React.CSSProperties = {
 
 /** Grid skeleton for Explore page */
 export const GridSkeleton: React.FC<{ count?: number }> = ({ count = 6 }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gridAutoFlow: 'dense', gap: '2px' }}>
-        {Array.from({ length: count }).map((_, i) => {
-            const isTall = (i % 10 === 2) || (i % 10 === 5);
-            return (
-                <div
-                    key={i}
-                    style={{
-                        gridColumn: 'span 1',
-                        gridRow: isTall ? 'span 2' : 'span 1',
-                        aspectRatio: isTall ? undefined : '1 / 1',
-                        borderRadius: '2px',
-                        ...shimmerStyle
-                    }}
-                />
-            );
-        })}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px' }}>
+        {Array.from({ length: count }).map((_, i) => (
+            <div key={i} style={{ aspectRatio: '1', ...shimmerStyle }} />
+        ))}
         <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
     </div>
 );
