@@ -705,6 +705,32 @@ const Reels: React.FC = () => {
         };
     }, [selectedReelIndex, reelsList.length, activateReel]);
 
+    const togglePlay = useCallback(
+        (idx: number) => {
+            const video = videoRefs.current[idx];
+            const audio = audioRefs.current[idx];
+            if (!video) return;
+            if (video.paused) {
+                video.play().catch(() => { });
+                if (audio && !mutedAll) audio.play().catch(() => { });
+                setPlayStates((prev) => {
+                    const next = [...prev];
+                    next[idx] = true;
+                    return next;
+                });
+            } else {
+                video.pause();
+                if (audio) audio.pause();
+                setPlayStates((prev) => {
+                    const next = [...prev];
+                    next[idx] = false;
+                    return next;
+                });
+            }
+        },
+        [mutedAll]
+    );
+
     // 💻 Laptop & Desktop keyboard navigation: ArrowUp, ArrowDown, PageUp, PageDown, Space, 'm'
     useEffect(() => {
         if (selectedReelIndex === null) return;
@@ -952,32 +978,6 @@ const Reels: React.FC = () => {
         rafId = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(rafId);
     }, [selectedReelIndex, activeIndex, reelsList, user]);
-
-    const togglePlay = useCallback(
-        (idx: number) => {
-            const video = videoRefs.current[idx];
-            const audio = audioRefs.current[idx];
-            if (!video) return;
-            if (video.paused) {
-                video.play().catch(() => { });
-                if (audio && !mutedAll) audio.play().catch(() => { });
-                setPlayStates((prev) => {
-                    const next = [...prev];
-                    next[idx] = true;
-                    return next;
-                });
-            } else {
-                video.pause();
-                if (audio) audio.pause();
-                setPlayStates((prev) => {
-                    const next = [...prev];
-                    next[idx] = false;
-                    return next;
-                });
-            }
-        },
-        [mutedAll]
-    );
 
     const toggleLike = useCallback(async (reelId: string | number) => {
         const pIdStr = String(reelId);

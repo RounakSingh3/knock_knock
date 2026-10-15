@@ -284,8 +284,7 @@ const Home = () => {
     const [impedPosts, setImpedPosts] = useState<Record<string, boolean>>({});
     const [impCounts, setImpCounts] = useState<Record<string, number>>({});
     const [connectedPostVideo, setConnectedPostVideo] = useState<ConnectedVideoData | null>(null);
-
-
+    const [activeFeedState, setActiveFeedState] = useState<{ posts: PostData[]; index: number } | null>(null);
 
     // Feed mode toggle
     const [feedMode, setFeedMode] = useState<'foryou' | 'connections'>('foryou');
