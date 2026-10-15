@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
@@ -312,17 +312,17 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_posts_cache_v7');
+                const cached = localStorage.getItem('knock_explore_posts_cache_v8');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id)));
                     }
                 }
             } else {
                 // New day detected! Clear stale caches to trigger fresh everyday reshuffle
-                localStorage.removeItem('knock_explore_posts_cache_v7');
-                localStorage.removeItem('knock_explore_trending_cache_v8');
+                localStorage.removeItem('knock_explore_posts_cache_v8');
+                localStorage.removeItem('knock_explore_trending_cache_v9');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
@@ -333,7 +333,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_posts_cache_v7');
+            const cached = localStorage.getItem('knock_explore_posts_cache_v8');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -357,11 +357,11 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_trending_cache_v8');
+                const cached = localStorage.getItem('knock_explore_trending_cache_v9');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p));
+                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id)));
                     }
                 }
             }
@@ -373,7 +373,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_trending_cache_v8');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v9');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -438,7 +438,7 @@ const Explore = () => {
                 .filter((p): p is PostData => Boolean(p));
             setTrendingPosts(filtered);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v8', JSON.stringify(filtered));
+                localStorage.setItem('knock_explore_trending_cache_v9', JSON.stringify(filtered));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
@@ -453,13 +453,13 @@ const Explore = () => {
         observedPostsRef.current.clear();
         try {
             let rawPosts = await fetchDiscoverPosts(selectedCategory, 200, 0);
-            rawPosts = rawPosts.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            rawPosts = rawPosts.filter(p => (!p.user_id || !blockedIds.includes(p.user_id)) && (p.id && !BROKEN_POST_IDS.has(p.id)));
             
             // Strictly deduplicate by image_url and id
             const seenUrls = new Set<string>();
             const seenIds = new Set<string>();
             let uniqueRaw = rawPosts.filter(p => {
-                if (!p.image_url || seenUrls.has(p.image_url) || seenIds.has(p.id)) return false;
+                if (!p.image_url || seenUrls.has(p.image_url) || seenIds.has(p.id) || BROKEN_POST_IDS.has(p.id)) return false;
                 seenUrls.add(p.image_url);
                 seenIds.add(p.id);
                 return true;
@@ -477,7 +477,7 @@ const Explore = () => {
             const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
-                localStorage.setItem('knock_explore_posts_cache_v7', JSON.stringify(fresh));
+                localStorage.setItem('knock_explore_posts_cache_v8', JSON.stringify(fresh));
                 localStorage.setItem('knock_explore_cache_date', getTodayKey());
             } catch (e) {}
             setHasMore(true);

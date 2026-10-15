@@ -31,7 +31,7 @@ const STORAGE_BUCKET =
 
 // These specific posts have broken Unsplash URLs (HTTP 404) or failed media.
 // Filter them out at the app layer to keep the feed completely clean.
-const BROKEN_POST_IDS = new Set([
+export const BROKEN_POST_IDS = new Set([
     'ae1b9027-acbe-4782-a71f-ea709c23688f',
     '35d1da81-ed85-496d-9356-205a912a389a',
     '9349a62b-f4c9-4b5b-8544-232e05602079',
@@ -44,6 +44,10 @@ const BROKEN_POST_IDS = new Set([
     '0c718c71-7597-41a6-8be0-dc565ee0b383',
     '868a6af7-f1b5-4f26-bb76-e32e8c77c581',
     '6791a5fa-3716-45a4-9fcd-89a0cfd0b55c',
+    'a9add1d0-2022-487e-a95c-6f0bf2b6ba9d',
+    '3184babf-1fb1-47f8-b25e-5a94428977d7',
+    'a0e88fbb-e13d-40c6-9978-15cf747c5afc',
+    '652fd7fd-c442-4927-a7f2-ebfafd0f0df7',
 ]);
 
 // Inappropriate or test accounts filtered out from feeds and search to keep app clean

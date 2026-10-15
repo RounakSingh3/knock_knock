@@ -6,7 +6,7 @@ import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFe
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
 import { rankReels, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, recordHashtagSignal } from '../lib/algorithm';
-import { extractPosterFromUrl, getFallbackPoster, videoPosterCache, isFallbackPoster } from '../components/PostMedia';
+import { extractPosterFromUrl, getFallbackPoster, videoPosterCache, isFallbackPoster, INLINE_FALLBACK_SVG } from '../components/PostMedia';
 
 // ⚡ Lazy-load heavy modals so Reels renders instantly
 const ChatPanel = lazy(() => import('../components/ChatPanel'));
@@ -1159,7 +1159,7 @@ const Reels: React.FC = () => {
                                     decoding="async"
                                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                     onError={(e) => {
-                                        (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
+                                        (e.currentTarget as HTMLImageElement).src = INLINE_FALLBACK_SVG;
                                     }}
                                 />
                             );

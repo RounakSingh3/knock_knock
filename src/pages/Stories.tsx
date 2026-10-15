@@ -24,7 +24,7 @@ import {
 } from '../lib/database';
 import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { rankStoryGroups, getHybridInterestProfile, extractHashtags } from '../lib/algorithm';
-import { extractPosterFromUrl, videoPosterCache } from '../components/PostMedia';
+import { extractPosterFromUrl, videoPosterCache, INLINE_FALLBACK_SVG } from '../components/PostMedia';
 
 // ⚡ Lazy load heavy modals
 const StoryViewer = lazy(() => import('../components/StoryViewer'));
@@ -934,7 +934,7 @@ const Stories = () => {
                                                 decoding="async" 
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                                                 onError={(e) => {
-                                                    (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
+                                                    (e.currentTarget as HTMLImageElement).src = INLINE_FALLBACK_SVG;
                                                 }}
                                             />
                                         );
@@ -1095,7 +1095,7 @@ const Stories = () => {
                                                 decoding="async" 
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                                                 onError={(e) => {
-                                                    (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
+                                                    (e.currentTarget as HTMLImageElement).src = INLINE_FALLBACK_SVG;
                                                 }}
                                             />
                                         );

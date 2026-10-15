@@ -44,7 +44,7 @@ const CATEGORY_IMAGES: Record<string, string[]> = {
     'Tech & AI': [
         'https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=600&auto=format&fit=crop',
         'https://images.unsplash.com/photo-1677442136019-21780efad99a?w=600&auto=format&fit=crop',
-        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=600&auto=format&fit=crop',
     ],
     'Business & World': [
         'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=600&auto=format&fit=crop',
@@ -142,7 +142,7 @@ export const FALLBACK_NEWS: NewsItem[] = [
         source: 'MIT Technology Review',
         publishedAt: '3h ago',
         category: 'Tech & AI',
-        imageUrl: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop',
+        imageUrl: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=600&auto=format&fit=crop',
         likesCount: 2470,
     },
     {

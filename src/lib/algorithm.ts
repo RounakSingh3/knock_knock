@@ -1013,6 +1013,56 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
 // ── Surface 3: Explore Model (rankExploreGrid) ──────────────
 
 /**
+ * Guarantees that posts from the same author are spaced apart by at least `minDistance` slots
+ * so that no creator dominates or clusters consecutively in grids or feeds.
+ */
+export function enforceAuthorDiversity(posts: PostData[], minDistance = 5): PostData[] {
+    if (!posts || posts.length <= 1) return posts;
+    const result: PostData[] = [];
+    const pool = [...posts];
+    const recentAuthors: string[] = [];
+
+    while (pool.length > 0) {
+        let chosenIdx = -1;
+        // 1. First pass: find candidate whose author is NOT in recent window
+        for (let i = 0; i < pool.length; i++) {
+            const author = (pool[i].username || pool[i].user_id || 'unknown').toLowerCase();
+            if (!recentAuthors.includes(author)) {
+                chosenIdx = i;
+                break;
+            }
+        }
+
+        // 2. Second pass: if every candidate is in recent window, pick candidate whose author appeared least recently
+        if (chosenIdx === -1) {
+            let bestDistance = -1;
+            for (let i = 0; i < pool.length; i++) {
+                const author = (pool[i].username || pool[i].user_id || 'unknown').toLowerCase();
+                const distFromEnd = recentAuthors.length - 1 - recentAuthors.lastIndexOf(author);
+                if (distFromEnd > bestDistance) {
+                    bestDistance = distFromEnd;
+                    chosenIdx = i;
+                }
+            }
+        }
+
+        if (chosenIdx === -1) {
+            chosenIdx = 0;
+        }
+
+        const chosen = pool.splice(chosenIdx, 1)[0];
+        result.push(chosen);
+        const author = (chosen.username || chosen.user_id || 'unknown').toLowerCase();
+        recentAuthors.push(author);
+        if (recentAuthors.length > minDistance) {
+            recentAuthors.shift();
+        }
+    }
+
+    return result;
+}
+
+/**
  * Model 3: Dedicated Explore Discovery Model
  * Focuses on category discovery, visual micro-niches, everyday content reshuffle,
  * and guaranteed balanced rotation of both reels and photo posts.
@@ -1055,6 +1105,28 @@ export function rankExploreGrid(
 
     // Sort recent user uploads newest first so freshly posted photos/videos appear immediately!
     recentPosts.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+    // Author anti-clustering for recent posts so one creator doesn't dominate the top
+    const recentAuthorGrouped: Record<string, PostData[]> = {};
+    for (const p of recentPosts) {
+        const author = (p.username || p.user_id || 'unknown').toLowerCase();
+        if (!recentAuthorGrouped[author]) recentAuthorGrouped[author] = [];
+        recentAuthorGrouped[author].push(p);
+    }
+    const recentKeys = Object.keys(recentAuthorGrouped);
+    const dispersedRecent: PostData[] = [];
+    let rIdx = 0;
+    let hasMoreR = true;
+    while (hasMoreR) {
+        hasMoreR = false;
+        for (const k of recentKeys) {
+            if (rIdx < recentAuthorGrouped[k].length) {
+                dispersedRecent.push(recentAuthorGrouped[k][rIdx]);
+                hasMoreR = true;
+            }
+        }
+        rIdx++;
+    }
 
     // ⚡ Everyday Reshuffle: Permute evergreen candidate catalog by date seed so users get new content every day
     let catalogFiltered = dailyReshuffle(catalogPosts, dateStr);
@@ -1141,8 +1213,8 @@ export function rankExploreGrid(
         return likes + imps + cat + tagScore;
     });
 
-    // Combine recent user uploads first with catalog posts
-    const combined = [...recentPosts, ...catalogScheduled];
+    // Combine author-dispersed recent user uploads first with catalog posts
+    const combined = [...dispersedRecent, ...catalogScheduled];
 
     // Balance reels (video posts) and photo posts so everyday rotation guarantees fresh reels and posts
     const videoPosts: PostData[] = [];
@@ -1156,6 +1228,7 @@ export function rankExploreGrid(
     }
 
     // Interleave reels and posts with high presence (1 video reel every 2 photo posts)
+    let finalInterleaved: PostData[];
     if (videoPosts.length > 0 && photoPosts.length > 0) {
         const interleavedMedia: PostData[] = [];
         let v = 0;
@@ -1165,10 +1238,13 @@ export function rankExploreGrid(
             if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
             if (v < videoPosts.length) interleavedMedia.push(videoPosts[v++]);
         }
-        return interleavedMedia;
+        finalInterleaved = interleavedMedia;
+    } else {
+        finalInterleaved = combined;
     }
 
-    return combined;
+    // ⚡ Final strict author anti-clustering: guarantees no creator appears multiple times in a row
+    return enforceAuthorDiversity(finalInterleaved, 5);
 }
 
 // ── Surface 4: Stories Model (rankStoryGroups) ──────────────

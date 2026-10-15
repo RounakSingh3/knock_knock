@@ -49,7 +49,9 @@ try {
     }
 } catch (_) {}
 
-const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
+export const INLINE_FALLBACK_SVG = 'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22600%22%20height%3D%22600%22%20viewBox%3D%220%200%20600%20600%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22bg%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%22100%25%22%20y2%3D%22100%25%22%3E%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%2318181b%22%2F%3E%3Cstop%20offset%3D%2250%25%22%20stop-color%3D%22%2327272a%22%2F%3E%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%2318181b%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%22600%22%20height%3D%22600%22%20fill%3D%22url(%23bg)%22%2F%3E%3Ccircle%20cx%3D%22300%22%20cy%3D%22300%22%20r%3D%2236%22%20fill%3D%22rgba(255%2C255%2C255%2C0.08)%22%2F%3E%3Cpolygon%20points%3D%22292%2C288%20314%2C300%20292%2C312%22%20fill%3D%22%23f5a524%22%2F%3E%3C%2Fsvg%3E';
+
+const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
     Lifestyle: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=800&auto=format&fit=crop',
     Music: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
@@ -69,12 +71,13 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
     Fitness: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=800&auto=format&fit=crop',
     Memes: 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=800&auto=format&fit=crop',
     Bollywood: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
-    General: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop'
+    General: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop'
 };
 
 export const isFallbackPoster = (url?: string | null): boolean => {
     if (!url) return true;
     if (url === UNIVERSAL_FALLBACK_IMAGE) return true;
+    if (url === INLINE_FALLBACK_SVG) return true;
     if (url.includes('photo-1618005182384-a83a8bd57fbe')) return true;
     if (url.includes('photo-1518770660439-4636190af475')) return true;
     if (url.startsWith('data:image/svg+xml')) return true;
@@ -796,8 +799,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         }}
                         onError={(e) => {
                             const target = e.currentTarget;
-                            if (target.src !== UNIVERSAL_FALLBACK_IMAGE) {
-                                target.src = UNIVERSAL_FALLBACK_IMAGE;
+                            if (target.src !== INLINE_FALLBACK_SVG) {
+                                target.src = INLINE_FALLBACK_SVG;
                             }
                         }}
                     />
@@ -905,6 +908,28 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         setPosterImageFailed(true);
                                     }}
                                 />
+                            ) : !videoThumbnailFailed && videoSrc ? (
+                                <video
+                                    src={`${videoSrc}#t=0.001`}
+                                    preload="metadata"
+                                    muted
+                                    playsInline
+                                    // @ts-ignore
+                                    webkit-playsinline="true"
+                                    style={{
+                                        ...style,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: resolvedObjectFit,
+                                        display: 'block',
+                                        transform: 'translateZ(0)',
+                                        backfaceVisibility: 'hidden',
+                                        pointerEvents: 'none',
+                                    }}
+                                    onError={() => {
+                                        setVideoThumbnailFailed(true);
+                                    }}
+                                />
                             ) : (
                                 <img
                                     src={capturedPoster || categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE}
@@ -922,8 +947,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     decoding="async"
                                     onError={(e) => {
                                         const target = e.currentTarget;
-                                        if (target.src !== UNIVERSAL_FALLBACK_IMAGE) {
-                                            target.src = UNIVERSAL_FALLBACK_IMAGE;
+                                        if (target.src !== INLINE_FALLBACK_SVG) {
+                                            target.src = INLINE_FALLBACK_SVG;
                                         }
                                     }}
                                 />
