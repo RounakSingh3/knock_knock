@@ -138,6 +138,16 @@ const CreatePost = () => {
         videoPosterDataUrl: string | null;
     }> | null>(null);
 
+    // ⚡ Background pre-upload: media starts uploading the moment it's selected,
+    // so by the time the user finishes caption/music/hashtags it's already (mostly) uploaded.
+    const preUploadRef = useRef<{
+        file: File;
+        promise: Promise<{ publicUrl: string; fileName: string; fileToUpload: File }>;
+    } | null>(null);
+    const isPostingRef = useRef(false);
+    const [bgUploadPct, setBgUploadPct] = useState<number | null>(null);
+    const [bgUploadFailed, setBgUploadFailed] = useState(false);
+
     // 🏷️ Add / Mention Friend State
     const [taggedFriend, setTaggedFriend] = useState<ProfileData | null>(null);
     const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState(false);
@@ -318,6 +328,44 @@ const CreatePost = () => {
                 }
                 return { fileToUpload: selectedFile, videoPosterBlob: null, videoPosterDataUrl: null };
             })();
+
+            // ⚡ Start uploading immediately in the background while the user writes the caption
+            setBgUploadFailed(false);
+            if (user?.id && !(getMediaTypeFromFile(selectedFile) === 'video' && selectedFile.size > 80 * 1024 * 1024)) {
+                const userId = user.id;
+                const prepPromise = preparedMediaPromiseRef.current;
+                setBgUploadPct(0);
+                const promise = (async () => {
+                    const prepared = await prepPromise;
+                    const fileToUpload = prepared.fileToUpload;
+                    const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
+                    const fileName = `${userId}-${Date.now()}.${fileExt}`;
+                    const publicUrl = await uploadMedia(fileToUpload, `posts/${fileName}`, (progress) => {
+                        // Ignore progress from a stale upload if the user picked a different file
+                        if (preUploadRef.current?.file !== selectedFile) return;
+                        const total = progress.total || fileToUpload.size || 1;
+                        const percentage = Math.min(100, Math.round((progress.loaded / total) * 100));
+                        setBgUploadPct(percentage);
+                        if (isPostingRef.current) {
+                            setUploadProgress({
+                                percentage,
+                                loadedMB: (progress.loaded / (1024 * 1024)).toFixed(1),
+                                totalMB: (total / (1024 * 1024)).toFixed(1),
+                            });
+                            if (percentage === 100) setUploadStatusText('Finalizing post...');
+                        }
+                    });
+                    if (!publicUrl) throw new Error('Background upload failed');
+                    return { publicUrl, fileName, fileToUpload };
+                })();
+                promise
+                    .then(() => { if (preUploadRef.current?.file === selectedFile) setBgUploadPct(100); })
+                    .catch(() => { if (preUploadRef.current?.file === selectedFile) setBgUploadFailed(true); });
+                preUploadRef.current = { file: selectedFile, promise };
+            } else {
+                preUploadRef.current = null;
+                setBgUploadPct(null);
+            }
         }
     };
 
@@ -327,6 +375,9 @@ const CreatePost = () => {
         setPreviewUrl(null);
         setSelectedFilter('none');
         preparedMediaPromiseRef.current = null;
+        preUploadRef.current = null;
+        setBgUploadPct(null);
+        setBgUploadFailed(false);
         setUploadStatusText('');
     };
 
@@ -391,24 +442,52 @@ const CreatePost = () => {
                 }
             }
 
-            setUploadStatusText('Uploading at high speed...');
-            const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
-            setUploadProgress({ percentage: 0, loadedMB: '0.0', totalMB: initialTotalMB });
-            const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
-            const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-            const path = `posts/${fileName}`;
+            let publicUrl = '';
+            let fileName = '';
 
-            // ⚡ Dedicated high-speed upload: Give 100% network bandwidth to main media with active progress
-            const publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
-                const total = progress.total || fileToUpload.size || 1;
-                const percentage = Math.min(100, Math.round((progress.loaded / total) * 100));
-                const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
-                const totalMB = (total / (1024 * 1024)).toFixed(1);
-                setUploadProgress({ percentage, loadedMB, totalMB });
-                if (percentage === 100) {
-                    setUploadStatusText('Finalizing post...');
+            // ⚡ Reuse the background upload that started when the file was selected
+            const pre = preUploadRef.current;
+            if (pre && pre.file === file) {
+                isPostingRef.current = true;
+                setUploadStatusText('Uploading at high speed...');
+                const pct = bgUploadPct ?? 0;
+                const totalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
+                setUploadProgress({
+                    percentage: pct,
+                    loadedMB: ((fileToUpload.size * (pct / 100)) / (1024 * 1024)).toFixed(1),
+                    totalMB,
+                });
+                try {
+                    const res = await pre.promise;
+                    publicUrl = res.publicUrl;
+                    fileName = res.fileName;
+                    fileToUpload = res.fileToUpload;
+                } catch (bgErr) {
+                    console.warn('[CreatePost] Background upload failed, retrying in foreground:', bgErr);
+                    preUploadRef.current = null;
                 }
-            });
+            }
+
+            if (!publicUrl) {
+                setUploadStatusText('Uploading at high speed...');
+                const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
+                setUploadProgress({ percentage: 0, loadedMB: '0.0', totalMB: initialTotalMB });
+                const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
+                fileName = `${user.id}-${Date.now()}.${fileExt}`;
+                const path = `posts/${fileName}`;
+
+                // ⚡ Dedicated high-speed upload: Give 100% network bandwidth to main media with active progress
+                publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
+                    const total = progress.total || fileToUpload.size || 1;
+                    const percentage = Math.min(100, Math.round((progress.loaded / total) * 100));
+                    const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
+                    const totalMB = (total / (1024 * 1024)).toFixed(1);
+                    setUploadProgress({ percentage, loadedMB, totalMB });
+                    if (percentage === 100) {
+                        setUploadStatusText('Finalizing post...');
+                    }
+                });
+            }
 
             if (!publicUrl) {
                 throw new Error('Media upload failed. Please check your internet connection and try again.');
@@ -543,6 +622,7 @@ const CreatePost = () => {
             const message = err instanceof Error ? err.message : 'An error occurred during upload.';
             setError(message);
         } finally {
+            isPostingRef.current = false;
             setLoading(false);
             setUploadProgress(null);
         }
@@ -616,10 +696,23 @@ const CreatePost = () => {
                 </div>
             )}
 
-            {file && file.type.startsWith('video/') && file.size > 10 * 1024 * 1024 && (
-                <div style={{ marginBottom: '16px', padding: '10px 14px', background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '12px', fontSize: '12px', color: '#4ade80', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>⚡</span>
-                    <span>Ultra-Fast Upload Active: Automatically compressing your {(file.size / (1024 * 1024)).toFixed(1)} MB video into crisp 720p HD so it posts in seconds!</span>
+            {file && bgUploadPct !== null && !loading && (
+                <div style={{ marginBottom: '16px', padding: '10px 14px', background: bgUploadFailed ? 'rgba(245, 165, 36, 0.1)' : 'rgba(34, 197, 94, 0.1)', border: `1px solid ${bgUploadFailed ? 'rgba(245, 165, 36, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`, borderRadius: '12px', fontSize: '12px', color: bgUploadFailed ? '#f5a524' : '#4ade80' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: bgUploadFailed || bgUploadPct >= 100 ? 0 : '6px' }}>
+                        <span>{bgUploadFailed ? '⚠️' : bgUploadPct >= 100 ? '✅' : '⚡'}</span>
+                        <span>
+                            {bgUploadFailed
+                                ? 'Background upload paused — it will retry when you tap Post.'
+                                : bgUploadPct >= 100
+                                    ? 'Media uploaded! Tap Post whenever you\'re ready.'
+                                    : `Uploading in background while you write… ${bgUploadPct}%`}
+                        </span>
+                    </div>
+                    {!bgUploadFailed && bgUploadPct < 100 && (
+                        <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                            <div style={{ width: `${bgUploadPct}%`, height: '100%', background: '#4ade80', transition: 'width 0.2s ease-out' }} />
+                        </div>
+                    )}
                 </div>
             )}
 
