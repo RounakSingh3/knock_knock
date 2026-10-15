@@ -1005,7 +1005,7 @@ export function rankExploreGrid(
     }
 
     // Apply Variable Reward slot-machine scheduling with recency boost for fresh real uploads
-    return scheduleVariableRewards(filtered, (p: PostData) => {
+    const scheduled = scheduleVariableRewards(filtered, (p: PostData) => {
         const likes = p.likes_count || 0;
         const imps = (p.imps_count || 0) * 8;
         const cat = profile.categoryScores[p.category || 'General'] || 0;
@@ -1039,6 +1039,43 @@ export function rankExploreGrid(
 
         return likes + imps + cat + tagScore + recencyBonus;
     });
+
+    // Instagram Explore 10-item rhythm: slots 2 & 5 are tall reels, slots 0,1,3,4,6,7,8,9 are posts/photos
+    const vids: PostData[] = [];
+    const photos: PostData[] = [];
+    for (const p of scheduled) {
+        if (isVideoPost(p)) {
+            vids.push(p);
+        } else {
+            photos.push(p);
+        }
+    }
+
+    if (vids.length > 0 && photos.length > 0) {
+        const rhythm: PostData[] = [];
+        let v = 0;
+        let p = 0;
+        const total = vids.length + photos.length;
+        for (let i = 0; i < total; i++) {
+            const isReelSlot = (i % 10 === 2) || (i % 10 === 5);
+            if (isReelSlot) {
+                if (v < vids.length) {
+                    rhythm.push(vids[v++]);
+                } else if (p < photos.length) {
+                    rhythm.push(photos[p++]);
+                }
+            } else {
+                if (p < photos.length) {
+                    rhythm.push(photos[p++]);
+                } else if (v < vids.length) {
+                    rhythm.push(vids[v++]);
+                }
+            }
+        }
+        return rhythm;
+    }
+
+    return scheduled;
 }
 
 // ── Surface 4: Stories Model (rankStoryGroups) ──────────────
@@ -1475,14 +1512,26 @@ export function rank24HourExploreFeed(
         }
 
         if (vids.length > 0 && photos.length > 0) {
-            // Instagram rhythm: 2 photos, 1 reel, 2 photos, 1 reel...
+            // Instagram Explore 10-item rhythm: slots 2 & 5 are tall reels, slots 0,1,3,4,6,7,8,9 are posts/photos
             const rhythm: StoryData[] = [];
             let v = 0;
             let p = 0;
-            while (v < vids.length || p < photos.length) {
-                if (p < photos.length) rhythm.push(photos[p++]);
-                if (p < photos.length) rhythm.push(photos[p++]);
-                if (v < vids.length) rhythm.push(vids[v++]);
+            const total = vids.length + photos.length;
+            for (let i = 0; i < total; i++) {
+                const isReelSlot = (i % 10 === 2) || (i % 10 === 5);
+                if (isReelSlot) {
+                    if (v < vids.length) {
+                        rhythm.push(vids[v++]);
+                    } else if (p < photos.length) {
+                        rhythm.push(photos[p++]);
+                    }
+                } else {
+                    if (p < photos.length) {
+                        rhythm.push(photos[p++]);
+                    } else if (v < vids.length) {
+                        rhythm.push(vids[v++]);
+                    }
+                }
             }
             return rhythm;
         }

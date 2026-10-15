@@ -134,7 +134,8 @@ const TRENDING_HASHTAGS = [
 
 interface BoostStoryCardProps {
     story: StoryData;
-    isBig: boolean;
+    isTallReel?: boolean;
+    isReelsTab?: boolean;
     onOpen: (story: StoryData) => void;
     onCardRef: (id: string, el: HTMLElement | null) => void;
     onOpenConnectedVideo?: (story: StoryData) => void;
@@ -142,7 +143,8 @@ interface BoostStoryCardProps {
 
 const BoostStoryCard = React.memo(function BoostStoryCard({
     story,
-    isBig,
+    isTallReel = false,
+    isReelsTab = false,
     onOpen,
     onCardRef,
     onOpenConnectedVideo,
@@ -180,7 +182,6 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
         touchStartPosRef.current = null;
 
         // Horizontal swipe (> 35px displacement and greater horizontal than vertical)
-        // Supports both left swipe and right swipe
         if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
             if (hasAttachedVideo) {
                 onOpenConnectedVideo?.(story);
@@ -196,13 +197,13 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
             onTouchStart={handleCardTouchStart}
             onTouchEnd={handleCardTouchEnd}
             style={{
-                aspectRatio: '1',
-                gridColumn: isBig ? 'span 2' : 'span 1',
-                gridRow: isBig ? 'span 2' : 'span 1',
+                gridColumn: 'span 1',
+                gridRow: isTallReel ? 'span 2' : 'span 1',
+                aspectRatio: isReelsTab ? '9 / 16' : (isTallReel ? undefined : '1 / 1'),
                 position: 'relative',
                 cursor: 'pointer',
                 overflow: 'hidden',
-                borderRadius: '4px',
+                borderRadius: '2px',
                 background: '#18181b',
                 contain: 'layout paint',
                 transition: 'transform 0.15s ease',
@@ -234,21 +235,26 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
             {isVideo && (
                 <div style={{
                     position: 'absolute',
-                    top: isBig ? '10px' : '6px',
-                    right: isBig ? '10px' : '6px',
+                    top: isTallReel ? '8px' : '6px',
+                    right: isTallReel ? '8px' : '6px',
                     zIndex: 4,
                     pointerEvents: 'none',
-                    background: isBig ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.55)',
-                    borderRadius: isBig ? '16px' : '6px',
-                    padding: isBig ? '4px 8px' : '2px 4px',
+                    background: isTallReel ? 'rgba(0,0,0,0.68)' : 'rgba(0,0,0,0.55)',
+                    backdropFilter: 'blur(4px)',
+                    WebkitBackdropFilter: 'blur(4px)',
+                    borderRadius: isTallReel ? '12px' : '50%',
+                    padding: isTallReel ? '3px 7px' : '0',
+                    width: isTallReel ? 'auto' : '22px',
+                    height: isTallReel ? 'auto' : '22px',
                     display: 'flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     gap: '4px',
                     boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
                 }}>
-                    <Play size={isBig ? 14 : 12} color="#fff" fill="#fff" />
-                    {isBig && (
-                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.5px' }}>
+                    <Play size={10} color="#fff" fill="#fff" style={{ marginLeft: isTallReel ? '0' : '1px' }} />
+                    {isTallReel && (
+                        <span style={{ fontSize: '10px', fontWeight: '800', color: '#fff', letterSpacing: '0.4px' }}>
                             REEL
                         </span>
                     )}
@@ -258,23 +264,24 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
             {/* 24-Hour Expiration Time Left Badge */}
             <div style={{
                 position: 'absolute',
-                top: isBig ? '10px' : '6px',
-                right: isVideo ? (isBig ? '78px' : '48px') : (isBig ? '10px' : '6px'),
+                top: isTallReel ? '8px' : '6px',
+                left: isTallReel ? '8px' : '6px',
                 zIndex: 4,
-                background: 'rgba(0,0,0,0.65)',
+                background: 'rgba(0,0,0,0.68)',
                 backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
                 borderRadius: '8px',
-                border: '1px solid rgba(255,255,255,0.18)',
+                border: '1px solid rgba(245, 165, 36, 0.35)',
                 padding: '2px 5px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '3px',
-                fontSize: isBig ? '10px' : '8px',
+                fontSize: isTallReel ? '9px' : '8px',
                 fontWeight: '800',
                 color: '#f5a524',
                 pointerEvents: 'none'
             }}>
-                <Clock size={isBig ? 10 : 8} color="#f5a524" />
+                <Clock size={isTallReel ? 10 : 8} color="#f5a524" />
                 <span>{(() => {
                     if (!story.created_at) return '24h';
                     const diff = (new Date(story.created_at).getTime() + 24 * 60 * 60 * 1000) - Date.now();
@@ -293,28 +300,28 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
                     }}
                     style={{
                         position: 'absolute',
-                        top: isBig ? '10px' : '6px',
-                        left: isBig ? '10px' : '6px',
+                        top: isTallReel ? '36px' : '28px',
+                        left: isTallReel ? '8px' : '6px',
                         zIndex: 5,
                         background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95), rgba(255, 107, 53, 0.95))',
                         color: '#000',
-                        border: '1.5px solid rgba(255, 255, 255, 0.45)',
-                        borderRadius: isBig ? '14px' : '10px',
-                        padding: isBig ? '4px 8px' : '2px 6px',
+                        border: '1px solid rgba(255, 255, 255, 0.45)',
+                        borderRadius: '10px',
+                        padding: '2px 6px',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '4px',
-                        fontSize: isBig ? '11px' : '9px',
+                        gap: '3px',
+                        fontSize: '9px',
                         fontWeight: 800,
                         cursor: 'pointer',
-                        boxShadow: '0 4px 15px rgba(245, 165, 36, 0.5)',
+                        boxShadow: '0 4px 12px rgba(245, 165, 36, 0.4)',
                         backdropFilter: 'blur(8px)',
                         WebkitBackdropFilter: 'blur(8px)',
                     }}
                     title="Swipe or tap to watch connected video"
                 >
-                    <Film size={isBig ? 12 : 10} color="#000" strokeWidth={2.5} />
-                    <span>Swipe to Watch 🎥</span>
+                    <Film size={10} color="#000" strokeWidth={2.5} />
+                    <span>Watch 🎥</span>
                 </button>
             )}
 
@@ -322,13 +329,13 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
             {story.is_sponsored && !hasAttachedVideo && (
                 <div style={{
                     position: 'absolute',
-                    top: isBig ? '10px' : '6px',
-                    left: isBig ? '10px' : '6px',
+                    top: isTallReel ? '36px' : '28px',
+                    left: isTallReel ? '8px' : '6px',
                     zIndex: 4,
                     background: 'linear-gradient(135deg, #ff3366, #f5a524)',
                     borderRadius: '6px',
-                    padding: isBig ? '2px 8px' : '1px 5px',
-                    fontSize: isBig ? '10px' : '9px',
+                    padding: '1px 5px',
+                    fontSize: '9px',
                     fontWeight: '800',
                     color: '#fff',
                     textTransform: 'uppercase',
@@ -344,18 +351,18 @@ const BoostStoryCard = React.memo(function BoostStoryCard({
             <div style={{
                 position: 'absolute', bottom: 0, left: 0, right: 0,
                 background: 'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 100%)',
-                padding: isBig ? '28px 10px 8px 10px' : '12px 6px 4px 6px',
+                padding: isTallReel ? '24px 8px 6px 8px' : '14px 6px 4px 6px',
                 zIndex: 3,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 pointerEvents: 'none'
             }}>
-                <span style={{ fontSize: isBig ? '12px' : '10px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: isTallReel ? '11px' : '10px', fontWeight: '700', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     @{story.username || 'user'}
                 </span>
                 {isBoosted && (
-                    <span style={{ fontSize: isBig ? '11px' : '9px', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '3px', fontWeight: '700' }}>
-                        <Flame size={isBig ? 13 : 10} fill="#f5a524" />
-                        {isBig && 'Boosted'}
+                    <span style={{ fontSize: isTallReel ? '10px' : '9px', color: '#f5a524', display: 'flex', alignItems: 'center', gap: '2px', fontWeight: '800' }}>
+                        <Flame size={isTallReel ? 12 : 9} fill="#f5a524" />
+                        {isTallReel && 'Boosted'}
                     </span>
                 )}
             </div>
@@ -1683,7 +1690,7 @@ const Boost: React.FC = () => {
                     })}
                 </div>
 
-                {/* ── 24-Hour Ephemeral Discovery Feed (Grid - Instagram Explore Style with Big Cards) ── */}
+                {/* ── 24-Hour Ephemeral Discovery Feed (Grid - Instagram Explore Style with Vertical Reels) ── */}
                 <div style={{ padding: '0 2px 24px 2px' }}>
                     {isLoading && stories.length === 0 ? (
                         <div style={{
@@ -1692,23 +1699,24 @@ const Boost: React.FC = () => {
                             gridAutoFlow: 'dense',
                             gap: '2px'
                         }}>
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i, idx) => {
-                                const isBig = (idx % 12 === 0) || (idx % 12 === 8);
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i, idx) => {
+                                const isReelsTab = filterTab === 'videos';
+                                const isTallReel = !isReelsTab && filterTab !== 'photos' && ((idx % 10 === 2) || (idx % 10 === 5));
                                 return (
                                     <div
                                         key={i}
                                         style={{
-                                            aspectRatio: '1',
-                                            gridColumn: isBig ? 'span 2' : 'span 1',
-                                            gridRow: isBig ? 'span 2' : 'span 1',
-                                            borderRadius: '4px',
+                                            gridColumn: 'span 1',
+                                            gridRow: isTallReel ? 'span 2' : 'span 1',
+                                            aspectRatio: isReelsTab ? '9 / 16' : (isTallReel ? undefined : '1 / 1'),
+                                            borderRadius: '2px',
                                             background: 'rgba(255,255,255,0.04)',
                                             border: '1px solid rgba(255,255,255,0.06)',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                             opacity: 0.7
                                         }}
                                     >
-                                        <Rocket size={isBig ? 32 : 20} color="rgba(245, 165, 36, 0.4)" />
+                                        <Rocket size={isTallReel ? 28 : 18} color="rgba(245, 165, 36, 0.4)" />
                                     </div>
                                 );
                             })}
@@ -1756,12 +1764,14 @@ const Boost: React.FC = () => {
                                 gap: '2px'
                             }}>
                                 {displayedStories.map((story, idx) => {
-                                    const isBig = (idx % 12 === 0) || (idx % 12 === 8);
+                                    const isReelsTab = filterTab === 'videos';
+                                    const isTallReel = !isReelsTab && filterTab !== 'photos' && ((idx % 10 === 2) || (idx % 10 === 5));
                                     return (
                                         <BoostStoryCard
                                             key={story.id}
                                             story={story}
-                                            isBig={isBig}
+                                            isTallReel={isTallReel}
+                                            isReelsTab={isReelsTab}
                                             onOpen={(s) => handleOpenExploreFeed(s, idx)}
                                             onCardRef={handleCardRef}
                                             onOpenConnectedVideo={handleOpenConnectedVideo}
