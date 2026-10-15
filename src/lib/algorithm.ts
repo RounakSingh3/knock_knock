@@ -485,6 +485,22 @@ export function calculatePostScore(
     const decay = decayFactor(hoursOld);
     score *= decay;
 
+    // 4b. Guaranteed Community Cold-Start Exploration (Equal-Opportunity Test Impressions)
+    // If a post is new (within 7 days) or user-created, grant it a generous exploration quota
+    // so it is guaranteed to reach viewers' screens even if it has 0 likes or 0 comments!
+    const isUserCreated = !post.id || post.id.startsWith('post-') || post.id.startsWith('story-') || !post.id.startsWith('seed-');
+    if (hoursOld < 168 || isUserCreated) {
+        const freshnessTier = hoursOld < 24 ? 350 : (hoursOld < 48 ? 250 : (hoursOld < 96 ? 180 : 100));
+        score += freshnessTier;
+
+        // Equal-opportunity test impressions: if post has low initial engagement, grant test bonus
+        const likes = post.likes_count || 0;
+        const comments = ((post as any).comments_count || 0);
+        if (likes < 15 && comments < 5) {
+            score += Math.max(0, (15 - likes) * 15 + (5 - comments) * 10);
+        }
+    }
+
     // 5. Active user's own fresh uploads
     if (currentUserId && post.user_id && post.user_id === currentUserId && hoursOld < 48) {
         score += 1000;
@@ -503,12 +519,16 @@ export function blendFeed(
     if (scoredPosts.length <= 1) return scoredPosts;
 
     const ownFreshPosts: ScoredPost[] = [];
+    const communityFreshPosts: ScoredPost[] = [];
     const regularPosts: ScoredPost[] = [];
 
     for (const item of scoredPosts) {
         const hoursOld = Math.max(0, (Date.now() - new Date(item.post.created_at).getTime()) / (1000 * 60 * 60));
+        const isUserCreated = !item.post.id || item.post.id.startsWith('post-') || item.post.id.startsWith('story-') || !item.post.id.startsWith('seed-');
         if (currentUserId && item.post.user_id === currentUserId && hoursOld < 48) {
             ownFreshPosts.push(item);
+        } else if (hoursOld < 72 || (isUserCreated && (item.post.likes_count || 0) < 25)) {
+            communityFreshPosts.push(item);
         } else {
             regularPosts.push(item);
         }
@@ -516,6 +536,8 @@ export function blendFeed(
 
     // Sort regular candidates by score descending
     regularPosts.sort((a, b) => b.score - a.score);
+    // Sort community fresh posts by score descending (with high cold-start bonus)
+    communityFreshPosts.sort((a, b) => b.score - a.score);
 
     const surprisePool: ScoredPost[] = [];
     const mainPool: ScoredPost[] = [];
@@ -537,6 +559,17 @@ export function blendFeed(
     const blended: ScoredPost[] = [];
     for (const own of ownFreshPosts) {
         blended.push(own);
+    }
+
+    // ⚡ Guaranteed Community Exposure: Interleave fresh community uploads right into the top 6 feed positions!
+    let commIdx = 0;
+    while (commIdx < communityFreshPosts.length && blended.length < 6) {
+        blended.push(communityFreshPosts[commIdx++]);
+    }
+
+    // Push any remaining community fresh posts to the front of mainPool so they are prioritized next
+    if (commIdx < communityFreshPosts.length) {
+        mainPool.unshift(...communityFreshPosts.slice(commIdx));
     }
 
     const usedIds = new Set<string>();
@@ -763,7 +796,12 @@ export function rankFeedPosts(
         const imps = (p.imps_count || 0) * 10;
         const comments = ((p as any).comments_count || 0) * 5;
         const catScore = profile.categoryScores[p.category || 'General'] || 0;
-        return likes + imps + comments + catScore;
+        const hoursOld = Math.max(0, (Date.now() - new Date(p.created_at || 0).getTime()) / (1000 * 60 * 60));
+        // Cold-start exploration: guarantee new uploads match Tier A/B scores so they get immediate screen time!
+        const isFresh = hoursOld < 168 || p.id?.startsWith('post-') || p.id?.startsWith('story-');
+        const freshBonus = isFresh ? (hoursOld < 48 ? 400 : 250) : 0;
+        const testImpressionBonus = (likes < 15) ? (15 - likes) * 20 : 0;
+        return likes + imps + comments + catScore + freshBonus + testImpressionBonus;
     });
 
     // 2. Blend for author diversity, creator capping, and format mixing (DEFINITIVE final step)
@@ -816,7 +854,7 @@ export function dailyReshuffle<T>(items: T[], dateStr?: string): T[] {
  * Prioritizes high completion probability, popular sound sync, category affinity,
  * daily permutation so everyday brings new reels, and stochastically paces viral hits.
  */
-export function rankReels<T extends { id: any; category?: string; music_url?: string; music_title?: string; likes?: number; shares?: number; creator?: string }>(
+export function rankReels<T extends { id: any; category?: string; music_url?: string; music_title?: string; likes?: number; shares?: number; creator?: string; is_user_upload?: boolean; created_at?: string; creator_id?: string }>(
     reels: T[],
     profile: UserInterestProfile,
     currentUserId?: string,
@@ -824,11 +862,41 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
 ): T[] {
     if (!reels || reels.length === 0) return [];
 
-    // ⚡ Everyday Reshuffle: Apply daily seed shuffle so new video content is served each day
-    const dailyReels = dailyReshuffle(reels, dateStr);
+    const now = Date.now();
+    const isCommunityUpload = (r: T): boolean => {
+        if ((r as any).is_user_upload) return true;
+        const idStr = String(r.id);
+        if (idStr.startsWith('reel-') || idStr.startsWith('post-') || !idStr.match(/^\d+$/)) return true;
+        if ((r as any).created_at) {
+            const msOld = now - new Date((r as any).created_at).getTime();
+            if (msOld >= 0 && msOld < 14 * 24 * 60 * 60 * 1000) return true;
+        }
+        return false;
+    };
 
-    // Calculate watch-retention score for each reel
-    const scoredReels = dailyReels.map(reel => {
+    const communityFresh: T[] = [];
+    const catalogReels: T[] = [];
+
+    for (const r of reels) {
+        if (isCommunityUpload(r)) {
+            communityFresh.push(r);
+        } else {
+            catalogReels.push(r);
+        }
+    }
+
+    // Sort community uploads newest first so newly uploaded videos get discovered immediately
+    communityFresh.sort((a, b) => {
+        const timeA = new Date((a as any).created_at || 0).getTime();
+        const timeB = new Date((b as any).created_at || 0).getTime();
+        return timeB - timeA;
+    });
+
+    // ⚡ Everyday Reshuffle: Only reshuffle the evergreen catalog so fresh user videos stay prioritized
+    const reshuffledCatalog = dailyReshuffle(catalogReels, dateStr);
+
+    // Calculate watch-retention score for catalog reels
+    const scoredCatalog = reshuffledCatalog.map(reel => {
         let score = 5.0;
         const cat = reel.category || 'General';
         score += (profile.categoryScores[cat] || 0) * 0.8;
@@ -858,23 +926,18 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
         if (reel.likes) score += reel.likes * 0.05;
         if (reel.shares) score += reel.shares * 0.1;
 
-        // Boost active user's own reels
-        if (currentUserId && (reel as any).creator_id === currentUserId) {
-            score += 500;
-        }
-
         return { reel, score };
     });
 
-    // Author anti-clustering for reels (spread same creator)
-    const authorGrouped: Record<string, typeof scoredReels> = {};
-    for (const item of scoredReels) {
+    // Author anti-clustering for catalog reels
+    const authorGrouped: Record<string, typeof scoredCatalog> = {};
+    for (const item of scoredCatalog) {
         const creator = item.reel.creator || 'unknown';
         if (!authorGrouped[creator]) authorGrouped[creator] = [];
         authorGrouped[creator].push(item);
     }
 
-    const dispersed: T[] = [];
+    const dispersedCatalog: T[] = [];
     const activeKeys = Object.keys(authorGrouped);
 
     while (activeKeys.length > 0) {
@@ -882,7 +945,7 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
             const key = activeKeys[i];
             const nextItem = authorGrouped[key].shift();
             if (nextItem) {
-                dispersed.push(nextItem.reel);
+                dispersedCatalog.push(nextItem.reel);
             }
             if (authorGrouped[key].length === 0) {
                 activeKeys.splice(i, 1);
@@ -890,8 +953,8 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
         }
     }
 
-    // Apply Variable Reward slot-machine scheduling
-    return scheduleVariableRewards(dispersed, (r: T) => {
+    // Apply Variable Reward slot-machine scheduling to catalog
+    const scheduledCatalog = scheduleVariableRewards(dispersedCatalog, (r: T) => {
         const catScore = profile.categoryScores[r.category || 'General'] || 0;
         let tagScore = 0;
         const tags = extractHashtags((r as any).caption);
@@ -900,6 +963,51 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
         }
         return (r.likes || 0) + (r.shares || 0) * 2 + catScore + tagScore;
     });
+
+    // ⚡ Guaranteed Cold-Start Discovery:
+    // Community videos (even with 0 likes and 0 comments) are interleaved right into the top positions!
+    const finalReels: T[] = [];
+    let commIdx = 0;
+    let catIdx = 0;
+
+    // Check if there is an active user's own reel
+    if (currentUserId) {
+        const ownIdx = communityFresh.findIndex(r => (r as any).creator_id === currentUserId);
+        if (ownIdx !== -1) {
+            finalReels.push(communityFresh.splice(ownIdx, 1)[0]);
+        }
+    }
+
+    // Interleave remaining community uploads with scheduled catalog
+    while (commIdx < communityFresh.length || catIdx < scheduledCatalog.length) {
+        const lastCreator = finalReels.length > 0 ? (finalReels[finalReels.length - 1].creator || '') : '';
+
+        // Prioritize community uploads: ensure at least 1 community upload every 2-3 videos
+        if (commIdx < communityFresh.length && (finalReels.length === 0 || finalReels.length % 2 === 1 || catIdx >= scheduledCatalog.length)) {
+            const candidate = communityFresh[commIdx];
+            if (candidate.creator !== lastCreator || catIdx >= scheduledCatalog.length) {
+                finalReels.push(candidate);
+                commIdx++;
+                continue;
+            }
+        }
+
+        if (catIdx < scheduledCatalog.length) {
+            const catItem = scheduledCatalog[catIdx++];
+            if (catItem.creator !== lastCreator || commIdx >= communityFresh.length) {
+                finalReels.push(catItem);
+            } else if (commIdx < communityFresh.length) {
+                finalReels.push(communityFresh[commIdx++]);
+                finalReels.push(catItem);
+            } else {
+                finalReels.push(catItem);
+            }
+        } else if (commIdx < communityFresh.length) {
+            finalReels.push(communityFresh[commIdx++]);
+        }
+    }
+
+    return finalReels;
 }
 
 // ── Surface 3: Explore Model (rankExploreGrid) ──────────────

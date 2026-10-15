@@ -220,7 +220,7 @@ export async function fetchPosts(): Promise<PostData[]> {
 export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
     try {
         const connectionIds = await fetchConnectionUserIds(userId);
-        const excludeIds = [...connectionIds, userId];
+        const excludeIds = [...connectionIds, userId].filter((id): id is string => Boolean(id) && typeof id === 'string' && id.trim().length > 0);
 
         let query = supabase
             .from('posts')
@@ -237,13 +237,13 @@ export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
             console.warn('[fetchForYouPosts] Supabase unavailable, returning resilient local posts:', error.message);
-            return getLocalPosts().filter(p => !excludeIds.includes(p.user_id || ''));
+            return getLocalPosts().filter(p => !p.user_id || !excludeIds.includes(p.user_id));
         }
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
         if (normalized.length === 0) {
-            return getLocalPosts().filter(p => !excludeIds.includes(p.user_id || ''));
+            return getLocalPosts().filter(p => !p.user_id || !excludeIds.includes(p.user_id));
         }
-        return mergePostsWithFallback(normalized).filter(p => !excludeIds.includes(p.user_id || ''));
+        return mergePostsWithFallback(normalized).filter(p => !p.user_id || !excludeIds.includes(p.user_id));
     } catch (err: any) {
         if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         return getLocalPosts();
@@ -774,21 +774,41 @@ export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[
 
     if (rawVideos.length <= 1) return rawVideos;
 
-    // Apply author anti-clustering so bulk uploads from a single account don't monopolize the top
+    // Apply author anti-clustering and prioritize fresh community video uploads so 0-engagement videos get immediate screen delivery
     const ownRecent: PostData[] = [];
+    const communityRecent: PostData[] = [];
     const regular: PostData[] = [];
 
     for (const v of rawVideos) {
         const hoursOld = Math.max(0, (Date.now() - new Date(v.created_at).getTime()) / (1000 * 60 * 60));
+        const isUserVideo = !v.id?.startsWith('seed-') || v.id?.startsWith('post-') || v.id?.startsWith('reel-') || hoursOld < 168;
         if (currentUserId && v.user_id === currentUserId && hoursOld < 48) {
             ownRecent.push(v);
+        } else if (isUserVideo && hoursOld < 168) {
+            communityRecent.push(v);
         } else {
             regular.push(v);
         }
     }
 
+    // Sort community uploads newest first so fresh user videos appear immediately
+    communityRecent.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
     const blended: PostData[] = [...ownRecent];
-    const pool = [...regular];
+
+    // Interleave community fresh videos with author anti-clustering
+    let commIdx = 0;
+    while (commIdx < communityRecent.length && blended.length < 10) {
+        const lastAuthor = blended.length > 0 ? (blended[blended.length - 1].username || blended[blended.length - 1].user_id) : '';
+        const foundIdx = communityRecent.findIndex((v, i) => i >= commIdx && (v.username || v.user_id) !== lastAuthor);
+        if (foundIdx !== -1) {
+            blended.push(communityRecent.splice(foundIdx, 1)[0]);
+        } else {
+            blended.push(communityRecent[commIdx++]);
+        }
+    }
+
+    const pool = [...communityRecent.slice(commIdx), ...regular];
     let lastAuthor = blended.length > 0 ? (blended[blended.length - 1].username || blended[blended.length - 1].user_id) : '';
 
     while (pool.length > 0) {

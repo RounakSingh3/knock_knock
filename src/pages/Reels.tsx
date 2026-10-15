@@ -29,6 +29,9 @@ export interface ReelData {
     css_filter?: string;
     attachedLink?: string;
     musicUrl?: string;
+    is_user_upload?: boolean;
+    created_at?: string;
+    creator_id?: string;
 }
 
 export const RELIABLE_FALLBACK_VIDEOS: Record<string, string> = {
@@ -254,12 +257,15 @@ function postToReel(post: PostData): ReelData {
         song: post.music_title ? `${post.music_title} — ${post.music_artist || post.username}` : 'Original Sound',
         likes: post.likes_count || 0,
         imps: post.imps_count || 0,
-        comments: 0,
-        shares: 0,
-        category: 'Uploads',
+        comments: (post as any).comments_count || 0,
+        shares: post.shares_count || 0,
+        category: post.category || 'Uploads',
         css_filter: filter,
         attachedLink: post.attached_link,
         musicUrl: cleanMusicUrl,
+        is_user_upload: true,
+        created_at: post.created_at,
+        creator_id: post.user_id,
     };
 }
 
@@ -328,9 +334,11 @@ const Reels: React.FC = () => {
                 const cleanUrl = getCleanSongUrl(p.music_title, p.music_url);
                 return { ...p, music_url: cleanUrl || p.music_url };
             });
-            const userReels = resolvedPosts.filter((p): p is PostData => Boolean(p)).map(postToReel);
+            const userReels = resolvedPosts
+                .filter((p): p is PostData => Boolean(p))
+                .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+                .map(postToReel);
 
-            
             // Interleave userReels and REELS_DATA with author anti-clustering
             const merged: ReelData[] = [];
             const pexelsPool = [...REELS_DATA];
@@ -338,7 +346,7 @@ const Reels: React.FC = () => {
 
             // If user has recent reels, prioritize them first
             if (user) {
-                const myReelIdx = userPool.findIndex(r => r.creator === user.username);
+                const myReelIdx = userPool.findIndex(r => r.creator === user.username || (r.creator_id && r.creator_id === user.id));
                 if (myReelIdx !== -1) {
                     merged.push(userPool.splice(myReelIdx, 1)[0]);
                 }
@@ -347,9 +355,9 @@ const Reels: React.FC = () => {
             while (userPool.length > 0 || pexelsPool.length > 0) {
                 const lastCreator = merged.length > 0 ? merged[merged.length - 1].creator : '';
 
-                // Try to pick from userPool if author is different from lastCreator
+                // Try to pick from userPool if author is different from lastCreator, prioritizing community uploads in top positions
                 let chosenFromUserIdx = userPool.findIndex(r => r.creator !== lastCreator);
-                if (chosenFromUserIdx !== -1 && (merged.length % 2 === 0 || pexelsPool.length === 0)) {
+                if (chosenFromUserIdx !== -1 && (merged.length < 6 || merged.length % 2 === 0 || pexelsPool.length === 0)) {
                     merged.push(userPool.splice(chosenFromUserIdx, 1)[0]);
                 } else if (pexelsPool.length > 0 && (pexelsPool[0].creator !== lastCreator || userPool.length === 0)) {
                     merged.push(pexelsPool.shift()!);
