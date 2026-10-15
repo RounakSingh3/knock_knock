@@ -1242,8 +1242,6 @@ const Reels: React.FC = () => {
                                                     if (!el && prev) {
                                                         try {
                                                             prev.pause();
-                                                            prev.removeAttribute('src');
-                                                            prev.load();
                                                         } catch (_) {}
                                                     }
                                                     videoRefs.current[idx] = el;
@@ -1255,6 +1253,8 @@ const Reels: React.FC = () => {
                                                 // @ts-ignore
                                                 webkit-playsinline="true"
                                                 x5-playsinline="true"
+                                                x5-video-player-type="h5"
+                                                x5-video-orientation="portrait"
                                                 // @ts-ignore
                                                 disablePictureInPicture={true}
                                                 // @ts-ignore
@@ -1263,7 +1263,18 @@ const Reels: React.FC = () => {
                                                 autoPlay={idx === selectedReelIndex}
                                                 muted={Boolean(reel.musicUrl) || mutedAll}
                                                 className="reel-video"
-                                                style={{ filter: reel.css_filter || 'none' }}
+                                                style={{
+                                                    filter: reel.css_filter || 'none',
+                                                    transform: 'translateZ(0)',
+                                                    WebkitTransform: 'translateZ(0)',
+                                                    willChange: 'transform',
+                                                }}
+                                                onEnded={(e) => {
+                                                    const v = e.currentTarget;
+                                                    v.currentTime = 0;
+                                                    const p = v.play();
+                                                    if (p !== undefined) p.catch(() => {});
+                                                }}
                                                 onClick={(e) => handleDoubleTap(idx, e)}
                                                 onWaiting={() => {
                                                     if (idx === activeIndex) {

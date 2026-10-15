@@ -241,6 +241,11 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                         webkit-playsinline="true"
                         x5-playsinline="true"
                         loop
+                        preload="auto"
+                        // @ts-ignore
+                        disablePictureInPicture={true}
+                        // @ts-ignore
+                        disableRemotePlayback={true}
                         onError={() => {
                             if (!fallbackVideoSrc) {
                                 if (cleanVideoSrc.includes('1790250320016') || activeData.caption?.includes('sonambajwa')) {
@@ -254,7 +259,14 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
                             }
                             setLoadError(true);
                         }}
-                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                            transform: 'translateZ(0)',
+                            WebkitTransform: 'translateZ(0)',
+                            willChange: 'transform',
+                        }}
                     />
                 ) : loadError ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', color: '#fff', textAlign: 'center', padding: '24px' }}>

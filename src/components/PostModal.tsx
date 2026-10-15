@@ -41,6 +41,7 @@ export interface PostModalContentProps {
     onMuteToggle?: (muted: boolean) => void;
     initialLiked?: boolean;
     initialImped?: boolean;
+    preload?: 'auto' | 'metadata' | 'none';
 }
 
 export const PostModalContent: React.FC<PostModalContentProps> = ({
@@ -57,6 +58,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
     onMuteToggle,
     initialLiked,
     initialImped,
+    preload,
 }) => {
     const { user, points, setPoints } = useContext(AppContext);
     const navigate = useNavigate();
@@ -304,6 +306,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     loop={true}
                     thumbnail={false}
                     objectFit="contain"
+                    preload={preload}
                     onDoubleTapLike={handleLikeToggle}
                     onMuteChange={(muted) => {
                         setLocalMuted(muted);

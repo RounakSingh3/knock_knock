@@ -301,7 +301,9 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         >
             {displayPosts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNearActive = (index === effectiveIndex) || Math.abs(index - currentIndex) <= 2;
+                const isNearActive = (index === effectiveIndex) || Math.abs(index - currentIndex) <= 1;
+                const isNext = index === currentIndex + 1;
+                const preloadMode: 'auto' | 'metadata' = (post.id === activePostId || isNext) ? 'auto' : 'metadata';
                 return (
                     <div 
                         key={post.id} 
@@ -335,6 +337,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                                 isEmbedded={true}
                                 isActive={post.id === activePostId}
                                 isMuted={isGlobalMuted}
+                                preload={preloadMode}
                                 onMuteToggle={(muted) => {
                                     setIsGlobalMuted(muted);
                                     setFeedMutedPreference(muted);

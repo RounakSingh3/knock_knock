@@ -25,6 +25,7 @@ interface PostMediaProps {
     onDoubleTapLike?: () => void;
     onTogglePlay?: (isPlaying: boolean) => void;
     onMuteChange?: (muted: boolean) => void;
+    preload?: 'auto' | 'metadata' | 'none';
 }
 
 // In-memory cache for resolved iTunes preview URLs to prevent redundant network fetches
@@ -147,6 +148,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     onDoubleTapLike,
     onTogglePlay,
     onMuteChange,
+    preload,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -154,6 +156,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const isPlayingMode = autoPlay || soundOn || controls;
     const [isLoaded, setIsLoaded] = useState(false);
     const [isBuffering, setIsBuffering] = useState(false);
+    const bufferingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [hasError, setHasError] = useState(false);
     const [isAudioBlocked, setIsAudioBlocked] = useState(false);
     const [isAutoplayFallbackMuted, setIsAutoplayFallbackMuted] = useState(false);
@@ -435,6 +438,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             video.muted = domMutedRef.current;
             // Guard against overlapping play requests on the same media element
             if (playPromiseRef.current) return;
+            // ⚡ Zero-interruption: If already actively playing, don't restart play cycle
+            if (!video.paused) {
+                setIsPlaying(true);
+                return;
+            }
 
             const playPromise = video.play();
             if (playPromise !== undefined) {
@@ -474,7 +482,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     }, [isVideo, autoPlay, soundOn, videoSrc, safePause]);
 
-    // Handle video play/pause & sound with resilient dual-stage autoplay
+    // Handle video play/pause based on props (does not pause during ongoing playback)
     useEffect(() => {
         if (!isVideo) return;
         if (autoPlay || soundOn) {
@@ -482,11 +490,37 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         } else {
             safePause();
         }
+    }, [isVideo, autoPlay, soundOn, startPlayback, safePause]);
 
+    // Pause cleanly when component unmounts
+    useEffect(() => {
         return () => {
             safePause();
+            if (bufferingTimeoutRef.current) {
+                clearTimeout(bufferingTimeoutRef.current);
+                bufferingTimeoutRef.current = null;
+            }
         };
-    }, [isVideo, autoPlay, soundOn, videoSrc, startPlayback, safePause]);
+    }, [safePause]);
+
+    // Debounced buffer & playback event handlers to prevent spinner flashing on micro-stalls
+    const handleWaiting = useCallback(() => {
+        if (!isPlayingMode) return;
+        if (!bufferingTimeoutRef.current) {
+            bufferingTimeoutRef.current = setTimeout(() => {
+                setIsBuffering(true);
+            }, 250);
+        }
+    }, [isPlayingMode]);
+
+    const handlePlaying = useCallback(() => {
+        if (bufferingTimeoutRef.current) {
+            clearTimeout(bufferingTimeoutRef.current);
+            bufferingTimeoutRef.current = null;
+        }
+        setIsBuffering(false);
+        setIsLoaded(true);
+    }, []);
 
     const handleMediaClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!isPlayingMode) return;
@@ -909,7 +943,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     objectFit: resolvedObjectFit,
                                     display: 'block',
                                     transform: 'translateZ(0)',
+                                    WebkitTransform: 'translateZ(0)',
                                     backfaceVisibility: 'hidden',
+                                    WebkitBackfaceVisibility: 'hidden',
+                                    willChange: 'transform',
                                     position: 'relative',
                                     zIndex: 1,
                                 }}
@@ -925,42 +962,33 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 disablePictureInPicture={true}
                                 // @ts-ignore
                                 disableRemotePlayback={true}
-                                preload="auto"
+                                preload={preload || (autoPlay || soundOn ? 'auto' : 'metadata')}
                                 onError={() => {
                                     setIsBuffering(false);
                                     handleMediaError();
                                 }}
-                                onWaiting={() => {
-                                    if (isPlayingMode) setIsBuffering(true);
-                                }}
-                                onPlaying={() => {
-                                    setIsBuffering(false);
-                                    setIsLoaded(true);
+                                onWaiting={handleWaiting}
+                                onPlaying={handlePlaying}
+                                onCanPlay={handlePlaying}
+                                onLoadedData={handlePlaying}
+                                onEnded={(e) => {
+                                    if (loop) {
+                                        const v = e.currentTarget;
+                                        v.currentTime = 0;
+                                        const p = v.play();
+                                        if (p !== undefined) p.catch(() => {});
+                                    }
                                 }}
                                 onLoadedMetadata={() => {
                                     if (isPlayingMode && (autoPlay || soundOn)) {
                                         startPlayback();
                                     }
                                 }}
-                                onLoadedData={() => {
-                                    setIsBuffering(false);
-                                    setIsLoaded(true);
-                                    if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
-                                        startPlayback();
-                                    }
-                                }}
-                                onCanPlay={() => {
-                                    setIsBuffering(false);
-                                    setIsLoaded(true);
-                                    if (isPlayingMode && (autoPlay || soundOn) && videoRef.current?.paused) {
-                                        startPlayback();
-                                    }
-                                }}
                                 onTimeUpdate={(e) => {
                                     const v = e.currentTarget;
                                     if (isPlayingMode && v.duration && progressBarRef.current) {
-                                        const pct = (v.currentTime / v.duration) * 100;
-                                        progressBarRef.current.style.width = `${pct}%`;
+                                        const scale = Math.min(1, Math.max(0, v.currentTime / v.duration));
+                                        progressBarRef.current.style.transform = `scaleX(${scale})`;
                                     }
                                 }}
                                 onMouseEnter={() => {
@@ -1068,8 +1096,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 ref={progressBarRef}
                                 style={{
                                     height: '100%',
-                                    width: '0%',
+                                    width: '100%',
                                     backgroundColor: '#f5a524',
+                                    transform: 'scaleX(0)',
+                                    transformOrigin: 'left',
+                                    willChange: 'transform',
                                 }}
                             />
                         </div>
