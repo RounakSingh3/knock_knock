@@ -107,6 +107,18 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
     if (url.includes('/videos/sonambajwa.mp4')) {
         return '/videos/sonambajwa_poster.jpg';
     }
+    // Pexels video poster mapping
+    if (url.includes('pexels.com/video-files/')) {
+        const m = url.match(/video-files\/(\d+)\//);
+        if (m && m[1]) {
+            return `https://images.pexels.com/videos/${m[1]}/free-video-${m[1]}.jpg?auto=compress&w=500`;
+        }
+    }
+    // Supabase posts video poster mapping
+    if (url.includes('/posts/') && url.includes('.mp4')) {
+        const clean = url.split('?')[0].split('#')[0];
+        return clean.replace('/posts/', '/posts/posters/').replace(/\.mp4$/, '.jpg');
+    }
     return undefined;
 };
 
@@ -893,53 +905,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         setPosterImageFailed(true);
                                     }}
                                 />
-                            ) : videoSrc && isInView && !videoThumbnailFailed ? (
-                                <video
-                                    src={`${videoSrc}#t=0.001`}
-                                    style={{
-                                        ...style,
-                                        filter: extractedFilter,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: resolvedObjectFit,
-                                        display: 'block',
-                                        transform: 'translateZ(0)',
-                                        backfaceVisibility: 'hidden',
-                                        pointerEvents: 'none',
-                                    }}
-                                    muted
-                                    playsInline
-                                    // @ts-ignore
-                                    webkit-playsinline="true"
-                                    preload="metadata"
-                                    onLoadedData={(e) => {
-                                        try {
-                                            const v = e.currentTarget;
-                                            if (v.videoWidth > 0 && v.videoHeight > 0 && cleanUrl) {
-                                                const canvas = document.createElement('canvas');
-                                                const targetW = Math.min(v.videoWidth, 360);
-                                                const scale = targetW / v.videoWidth;
-                                                canvas.width = targetW;
-                                                canvas.height = Math.round(v.videoHeight * scale);
-                                                const ctx = canvas.getContext('2d');
-                                                if (ctx) {
-                                                    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-                                                    const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
-                                                    if (dataUrl && dataUrl.length > 100) {
-                                                        videoPosterCache.set(cleanUrl, dataUrl);
-                                                        setCapturedPoster(dataUrl);
-                                                    }
-                                                }
-                                            }
-                                        } catch (_) {}
-                                    }}
-                                    onError={() => {
-                                        setVideoThumbnailFailed(true);
-                                    }}
-                                />
                             ) : (
                                 <img
-                                    src={categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE}
+                                    src={capturedPoster || categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE}
                                     alt={alt}
                                     style={{
                                         ...style,
@@ -947,7 +915,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         height: '100%',
                                         objectFit: resolvedObjectFit,
                                         display: 'block',
+                                        transform: 'translateZ(0)',
+                                        backfaceVisibility: 'hidden',
                                     }}
+                                    loading="lazy"
+                                    decoding="async"
                                     onError={(e) => {
                                         const target = e.currentTarget;
                                         if (target.src !== UNIVERSAL_FALLBACK_IMAGE) {
@@ -1014,8 +986,18 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 }}
                                 onWaiting={handleWaiting}
                                 onPlaying={handlePlaying}
-                                onCanPlay={handlePlaying}
-                                onLoadedData={handlePlaying}
+                                onCanPlay={() => {
+                                    handlePlaying();
+                                    if (isPlayingMode && (autoPlay || soundOn)) {
+                                        startPlayback();
+                                    }
+                                }}
+                                onLoadedData={() => {
+                                    handlePlaying();
+                                    if (isPlayingMode && (autoPlay || soundOn)) {
+                                        startPlayback();
+                                    }
+                                }}
                                 onEnded={(e) => {
                                     if (loop) {
                                         const v = e.currentTarget;

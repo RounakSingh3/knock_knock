@@ -1150,28 +1150,17 @@ const Reels: React.FC = () => {
                             const validPosterUrl = reel.posterUrl && !isVideoUrl(reel.posterUrl) && !isFallbackPoster(reel.posterUrl) ? reel.posterUrl : undefined;
                             const urlPoster = extractPosterFromUrl(reel.videoUrl);
                             const validUrlPoster = urlPoster && !isFallbackPoster(urlPoster) ? urlPoster : undefined;
-                            const posterSrc = validPosterUrl || validCached || validUrlPoster;
-                            if (posterSrc) {
-                                return (
-                                    <img
-                                        src={posterSrc}
-                                        alt={reel.caption || 'Reel'}
-                                        loading="lazy"
-                                        decoding="async"
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                                        onError={(e) => {
-                                            (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
-                                        }}
-                                    />
-                                );
-                            }
+                            const posterSrc = validPosterUrl || validCached || validUrlPoster || getFallbackPoster(reel as any);
                             return (
-                                <video
-                                    src={`${reel.videoUrl.split('#')[0]}#t=0.001`}
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', pointerEvents: 'none' }}
-                                    muted
-                                    playsInline
-                                    preload="metadata"
+                                <img
+                                    src={posterSrc}
+                                    alt={reel.caption || 'Reel'}
+                                    loading="lazy"
+                                    decoding="async"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                    onError={(e) => {
+                                        (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
+                                    }}
                                 />
                             );
                         })()}

@@ -173,15 +173,44 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
 
     const scrollEndTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // Debounced scroll listener to smoothly activate post when scroll snap settles without mid-drag stutter
+    // High-performance scroll listener to immediately activate post on snap point
     const handleScroll = useCallback(() => {
         const container = scrollRef.current;
         if (!container) return;
         // Do NOT switch active post while programmatic initial scroll is positioning
         if (isInitialMountRef.current) return;
 
+        const h = container.clientHeight || window.innerHeight;
+        if (h <= 0) return;
+        const snapIndex = Math.round(container.scrollTop / h);
+        if (snapIndex >= 0 && snapIndex < displayPosts.length) {
+            const distFromSnap = Math.abs(container.scrollTop - (snapIndex * h));
+            if (distFromSnap < 20) {
+                const target = displayPosts[snapIndex];
+                if (target && target.id !== activePostIdRef.current) {
+                    activatePost(target.id, snapIndex);
+                    return;
+                }
+            }
+        }
+
         if (scrollEndTimeoutRef.current) clearTimeout(scrollEndTimeoutRef.current);
         scrollEndTimeoutRef.current = setTimeout(() => {
+            const snapIndex = Math.round(container.scrollTop / h);
+            if (snapIndex >= 0 && snapIndex < displayPosts.length) {
+                const target = displayPosts[snapIndex];
+                if (target && target.id !== activePostIdRef.current) {
+                    activatePost(target.id, snapIndex);
+                }
+            }
+        }, 30);
+    }, [displayPosts, activatePost]);
+
+    // Native scrollend event listener for instantaneous snap activation
+    useEffect(() => {
+        const container = scrollRef.current;
+        if (!container) return;
+        const onScrollEnd = () => {
             const h = container.clientHeight || window.innerHeight;
             if (h <= 0) return;
             const snapIndex = Math.round(container.scrollTop / h);
@@ -191,7 +220,9 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                     activatePost(target.id, snapIndex);
                 }
             }
-        }, 50);
+        };
+        container.addEventListener('scrollend', onScrollEnd, { passive: true });
+        return () => container.removeEventListener('scrollend', onScrollEnd);
     }, [displayPosts, activatePost]);
 
     // Responsive IntersectionObserver for swiping/scrolling between reels
@@ -201,7 +232,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
         const observer = new IntersectionObserver((entries) => {
             if (isInitialMountRef.current) return;
 
-            const intersecting = entries.filter(e => e.isIntersecting && e.intersectionRatio >= 0.65);
+            const intersecting = entries.filter(e => e.isIntersecting && e.intersectionRatio >= 0.50);
             if (intersecting.length > 0) {
                 const dominant = intersecting.reduce((prev, curr) => 
                     curr.intersectionRatio > prev.intersectionRatio ? curr : prev
@@ -230,7 +261,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
             });
         }, {
             root: scrollRef.current,
-            threshold: [0.65, 0.85]
+            threshold: [0.40, 0.60]
         });
 
         Object.values(itemRefs.current).forEach(el => {
@@ -294,14 +325,13 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                 background: '#000',
                 display: 'block',
                 willChange: 'scroll-position',
-                transform: 'translateZ(0)',
             }} 
             ref={scrollRef}
             onScroll={handleScroll}
         >
             {displayPosts.map((rawPost, index) => {
                 const post = normalizePost(rawPost) || rawPost;
-                const isNearActive = (index === effectiveIndex) || Math.abs(index - currentIndex) <= 1;
+                const isNearActive = (index >= currentIndex - 1) && (index <= currentIndex + 2);
                 const isNext = index === currentIndex + 1;
                 const preloadMode: 'auto' | 'metadata' = (post.id === activePostId || isNext) ? 'auto' : 'metadata';
                 return (
@@ -311,10 +341,10 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                         data-postid={post.id}
                         data-category={post.category || 'General'}
                         style={{ 
-                            height: '100dvh', 
-                            minHeight: '100dvh',
-                            maxHeight: '100dvh',
-                            width: '100vw',
+                            height: '100%', 
+                            minHeight: '100%',
+                            maxHeight: '100%',
+                            width: '100%',
                             scrollSnapAlign: 'start', 
                             scrollSnapStop: 'always', 
                             position: 'relative',
@@ -322,7 +352,6 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                             boxSizing: 'border-box',
                             flexShrink: 0,
                             background: '#000',
-                            transform: 'translateZ(0)',
                         }}
                     >
                         {isNearActive ? (
