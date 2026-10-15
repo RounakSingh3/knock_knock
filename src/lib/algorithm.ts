@@ -922,37 +922,39 @@ export function rankExploreGrid(
         filtered = posts.filter(p => p.category === activeCategory);
     }
 
-    // ⚡ Everyday Reshuffle: Permute candidate pool by date seed so users get new content every day
-    filtered = dailyReshuffle(filtered, dateStr);
+    const now = Date.now();
+    const isRecent = (p: PostData): boolean => {
+        if (!p) return false;
+        // User created posts (offline / persistent local posts or story knocks)
+        if (p.id && (p.id.startsWith('post-local-') || p.id.startsWith('story-local-') || p.id.startsWith('story-') || p.id.startsWith('post-'))) return true;
+        // Uploaded in last 14 days
+        if (p.created_at) {
+            const msOld = now - new Date(p.created_at).getTime();
+            if (msOld >= 0 && msOld <= 14 * 24 * 60 * 60 * 1000) return true;
+        }
+        return false;
+    };
 
-    // Balance reels (video posts) and photo posts so everyday rotation guarantees fresh reels and posts
-    const videoPosts: PostData[] = [];
-    const photoPosts: PostData[] = [];
+    const recentPosts: PostData[] = [];
+    const catalogPosts: PostData[] = [];
     for (const p of filtered) {
-        if (isVideoPost(p)) {
-            videoPosts.push(p);
+        if (isRecent(p)) {
+            recentPosts.push(p);
         } else {
-            photoPosts.push(p);
+            catalogPosts.push(p);
         }
     }
 
-    // Interleave reels and posts with high presence (1 video reel every 2 photo posts)
-    if (videoPosts.length > 0 && photoPosts.length > 0) {
-        const interleavedMedia: PostData[] = [];
-        let v = 0;
-        let p = 0;
-        while (v < videoPosts.length || p < photoPosts.length) {
-            if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
-            if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
-            if (v < videoPosts.length) interleavedMedia.push(videoPosts[v++]);
-        }
-        filtered = interleavedMedia;
-    }
+    // Sort recent user uploads newest first so freshly posted photos/videos appear immediately!
+    recentPosts.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
-    // Interleave categories if "All" is active
+    // ⚡ Everyday Reshuffle: Permute evergreen candidate catalog by date seed so users get new content every day
+    let catalogFiltered = dailyReshuffle(catalogPosts, dateStr);
+
+    // Interleave categories if "All" is active for catalog posts
     if (!activeCategory || activeCategory === 'All') {
         const catMap = new Map<string, PostData[]>();
-        for (const p of filtered) {
+        for (const p of catalogFiltered) {
             const cat = p.category || 'General';
             if (!catMap.has(cat)) catMap.set(cat, []);
             catMap.get(cat)!.push(p);
@@ -976,12 +978,12 @@ export function rankExploreGrid(
             }
             round++;
         }
-        filtered = interleaved;
+        catalogFiltered = interleaved;
     }
 
-    // Author anti-clustering: disperse posts from the same creator so no single creator monopolizes the grid
+    // Author anti-clustering: disperse catalog posts from the same creator
     const authorGrouped: Record<string, PostData[]> = {};
-    for (const p of filtered) {
+    for (const p of catalogFiltered) {
         const author = p.username || 'unknown';
         if (!authorGrouped[author]) authorGrouped[author] = [];
         authorGrouped[author].push(p);
@@ -1001,11 +1003,11 @@ export function rankExploreGrid(
         authorRound++;
     }
     if (dispersedByAuthor.length > 0) {
-        filtered = dispersedByAuthor;
+        catalogFiltered = dispersedByAuthor;
     }
 
-    // Apply Variable Reward slot-machine scheduling with recency boost for fresh real uploads
-    const scheduled = scheduleVariableRewards(filtered, (p: PostData) => {
+    // Apply Variable Reward slot-machine scheduling for evergreen catalog
+    const catalogScheduled = scheduleVariableRewards(catalogFiltered, (p: PostData) => {
         const likes = p.likes_count || 0;
         const imps = (p.imps_count || 0) * 8;
         const cat = profile.categoryScores[p.category || 'General'] || 0;
@@ -1028,54 +1030,43 @@ export function rankExploreGrid(
             }
         }
 
-        // Recency discovery bonus (within last 30 days) to guarantee real creators appear prominently
-        let recencyBonus = 0;
-        if (p.created_at) {
-            const ageHours = (Date.now() - new Date(p.created_at).getTime()) / (1000 * 60 * 60);
-            if (ageHours < 720) { // Within 30 days
-                recencyBonus = Math.max(15, Math.floor(120 - (ageHours / 720) * 90));
-            }
-        }
-
-        return likes + imps + cat + tagScore + recencyBonus;
+        return likes + imps + cat + tagScore;
     });
 
-    // Instagram Explore 10-item rhythm: slots 2 & 5 are tall reels, slots 0,1,3,4,6,7,8,9 are posts/photos
-    const vids: PostData[] = [];
-    const photos: PostData[] = [];
-    for (const p of scheduled) {
-        if (isVideoPost(p)) {
-            vids.push(p);
-        } else {
-            photos.push(p);
-        }
-    }
+    // Segregate photos and videos
+    // Recent user photos go directly to the front of the photo pool!
+    const recentPhotos = recentPosts.filter(p => !isVideoPost(p));
+    const recentVideos = recentPosts.filter(p => isVideoPost(p));
+    const catalogPhotos = catalogScheduled.filter(p => !isVideoPost(p));
+    const catalogVideos = catalogScheduled.filter(p => isVideoPost(p));
 
-    if (vids.length > 0 && photos.length > 0) {
-        const rhythm: PostData[] = [];
-        let v = 0;
-        let p = 0;
-        const total = vids.length + photos.length;
-        for (let i = 0; i < total; i++) {
-            const isReelSlot = (i % 10 === 2) || (i % 10 === 5);
-            if (isReelSlot) {
-                if (v < vids.length) {
-                    rhythm.push(vids[v++]);
-                } else if (p < photos.length) {
-                    rhythm.push(photos[p++]);
-                }
-            } else {
-                if (p < photos.length) {
-                    rhythm.push(photos[p++]);
-                } else if (v < vids.length) {
-                    rhythm.push(vids[v++]);
-                }
+    // Photo pool prioritizes recent user photos first, followed by rich catalog photos
+    const photoPool = [...recentPhotos, ...catalogPhotos];
+    // Video pool prioritizes recent user videos first, followed by catalog videos
+    const videoPool = [...recentVideos, ...catalogVideos];
+
+    // Instagram Explore 10-item rhythm: slots 2 & 5 are tall reels, slots 0,1,3,4,6,7,8,9 are posts/photos
+    const rhythm: PostData[] = [];
+    let v = 0;
+    let p = 0;
+    const total = videoPool.length + photoPool.length;
+    for (let i = 0; i < total; i++) {
+        const isReelSlot = (i % 10 === 2) || (i % 10 === 5);
+        if (isReelSlot) {
+            if (v < videoPool.length) {
+                rhythm.push(videoPool[v++]);
+            } else if (p < photoPool.length) {
+                rhythm.push(photoPool[p++]);
+            }
+        } else {
+            if (p < photoPool.length) {
+                rhythm.push(photoPool[p++]);
+            } else if (v < videoPool.length) {
+                rhythm.push(videoPool[v++]);
             }
         }
-        return rhythm;
     }
-
-    return scheduled;
+    return rhythm;
 }
 
 // ── Surface 4: Stories Model (rankStoryGroups) ──────────────

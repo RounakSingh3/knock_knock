@@ -7015,8 +7015,15 @@ export function getLocalPosts(): PostData[] {
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
-                // Filter out any obsolete generic mock seed IDs
-                const cleaned = parsed.filter((p: PostData) => p && !p.id.startsWith('seed-fav-') && !p.id.startsWith('seed-reel-') && !p.id.startsWith('seed-photo-') && !FAKE_ACCOUNTS.has(p.username) && !(p.media_type === 'image' && p.image_url?.includes('images.unsplash.com') && p.username !== 'popcorn05' && p.username !== 'ityourfavourite1'));
+                // Filter out obsolete generic mock seed IDs, but preserve ALL user-created posts and real uploads
+                const cleaned = parsed.filter((p: PostData) => {
+                    if (!p) return false;
+                    const isUserCreated = Boolean(p.id?.startsWith('post-') || p.id?.startsWith('story-') || (p.created_at && !p.id?.startsWith('seed-')));
+                    if (isUserCreated) return true;
+                    if (FAKE_ACCOUNTS.has(p.username)) return false;
+                    if (p.id.startsWith('seed-fav-') || p.id.startsWith('seed-reel-') || p.id.startsWith('seed-photo-')) return false;
+                    return true;
+                });
                 const seedMap = new Map(SEED_POSTS.map(s => [s.id, s]));
                 const updatedCleaned = cleaned.map((p: PostData) => {
                     const seed = seedMap.get(p.id);

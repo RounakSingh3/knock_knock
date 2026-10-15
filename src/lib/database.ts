@@ -119,29 +119,74 @@ export interface PostData {
 
 export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
     const seen = new Set<string>();
+    const seenUrls = new Set<string>();
     const merged: PostData[] = [];
 
-    // Live Database posts first (Supabase is the primary source of truth!)
-    for (const p of dbPosts) {
-        if (!p || !p.id || seen.has(p.id) || BROKEN_POST_IDS.has(p.id) || p.image_url?.startsWith('blob:') || isRemovedUser(p.user_id, p.username)) continue;
-        seen.add(p.id);
-        merged.push(p);
-    }
+    const isClean = (p: PostData): boolean => {
+        if (!p || !p.id || BROKEN_POST_IDS.has(p.id)) return false;
+        if (p.image_url?.startsWith('blob:')) return false;
+        if (isRemovedUser(p.user_id, p.username)) return false;
+        const cleanUrl = (p.image_url || '').split('?')[0].split('#')[0].toLowerCase().trim();
+        if (cleanUrl && seenUrls.has(cleanUrl)) return false;
+        if (seen.has(p.id)) return false;
+        return true;
+    };
 
-    // Local user created / offline posts next
+    const addPost = (p: PostData) => {
+        if (!isClean(p)) return;
+        seen.add(p.id);
+        const cleanUrl = (p.image_url || '').split('?')[0].split('#')[0].toLowerCase().trim();
+        if (cleanUrl) seenUrls.add(cleanUrl);
+        merged.push(p);
+    };
+
+    // 1. Local user created / freshly posted posts FIRST (so newly created photos/posts appear immediately!)
     const local = getLocalPosts();
-    for (const p of local) {
-        if (!p || !p.id || seen.has(p.id) || BROKEN_POST_IDS.has(p.id) || p.image_url?.startsWith('blob:') || isRemovedUser(p.user_id, p.username)) continue;
-        seen.add(p.id);
-        merged.push(p);
+    const sortedLocal = [...local].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    for (const p of sortedLocal) {
+        addPost(p);
     }
 
+    // 2. Also add active 24-hour photo knocks posted by users on Knockup
+    try {
+        if (typeof window !== 'undefined') {
+            const rawStories = localStorage.getItem('knock_boost_stories_cache_v2') || localStorage.getItem('knock_local_stories');
+            if (rawStories) {
+                const parsed = JSON.parse(rawStories);
+                if (Array.isArray(parsed)) {
+                    const now = Date.now();
+                    for (const s of parsed) {
+                        if (!s || !s.image_url || isSeedStory(s)) continue;
+                        const msOld = now - new Date(s.created_at || now).getTime();
+                        if (msOld >= 0 && msOld <= 24 * 60 * 60 * 1000) {
+                            addPost({
+                                id: s.id,
+                                user_id: s.user_id,
+                                username: s.username || 'user',
+                                avatar_url: s.avatar_url || `https://i.pravatar.cc/150?u=${s.username || 'user'}`,
+                                image_url: s.image_url,
+                                caption: s.caption || '',
+                                created_at: s.created_at || new Date().toISOString(),
+                                likes_count: s.likes_count || 0,
+                                media_type: (isVideoPost(s as any) || isVideoUrl(s.image_url)) ? 'video' : 'image',
+                                category: s.category || 'General',
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    } catch (_) {}
+
+    // 3. Live Database posts next
+    for (const p of dbPosts) {
+        addPost(p);
+    }
+
+    // 4. Fallback to SEED_POSTS if still empty
     if (merged.length === 0) {
         for (const p of SEED_POSTS) {
-            if (!seen.has(p.id)) {
-                seen.add(p.id);
-                merged.push(p);
-            }
+            addPost(p);
         }
     }
 
@@ -3935,7 +3980,7 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         const { data, error } = await query;
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-            const local = getLocalPosts();
+            const local = mergePostsWithFallback([]);
             if (category && category !== 'All') {
                 return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
             }
@@ -3943,16 +3988,17 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         }
         
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-        if (normalized.length === 0) {
-            const local = getLocalPosts();
-            if (category && category !== 'All') {
-                return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
-            }
-            return local;
+        const merged = mergePostsWithFallback(normalized);
+        if (category && category !== 'All') {
+            return merged.filter(p => p.category?.toLowerCase() === category.toLowerCase());
         }
-        return mergePostsWithFallback(normalized);
+        return merged;
     } catch (_) {
-        return getLocalPosts();
+        const local = mergePostsWithFallback([]);
+        if (category && category !== 'All') {
+            return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
+        }
+        return local;
     }
 }
 

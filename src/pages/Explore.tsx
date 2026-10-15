@@ -390,7 +390,7 @@ const Explore = () => {
     const rawPostsCacheRef = useRef<any[]>([]);
     const userProfileRef = useRef<any>(null);
 
-    const PAGE_SIZE = 18;
+    const PAGE_SIZE = 24;
     const discoverPostsRef = useRef(discoverPosts);
     useEffect(() => {
         discoverPostsRef.current = discoverPosts;
