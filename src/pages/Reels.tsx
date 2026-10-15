@@ -1094,6 +1094,9 @@ const Reels: React.FC = () => {
                                         loading="lazy"
                                         decoding="async"
                                         style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                        onError={(e) => {
+                                            (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
+                                        }}
                                     />
                                 );
                             }

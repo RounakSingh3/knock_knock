@@ -49,7 +49,7 @@ try {
     }
 } catch (_) {}
 
-const UNIVERSAL_FALLBACK_IMAGE = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><rect width="600" height="600" fill="%2318181b"/><circle cx="300" cy="300" r="44" fill="%2327272a"/><polygon points="292,284 322,300 292,316" fill="%23f5a524"/></svg>';
+const UNIVERSAL_FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop';
 const CATEGORY_FALLBACKS: Record<string, string> = {
     Lifestyle: 'https://images.unsplash.com/photo-1513151233558-d860c5398176?w=800&auto=format&fit=crop',
     Music: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
@@ -69,13 +69,14 @@ const CATEGORY_FALLBACKS: Record<string, string> = {
     Fitness: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=800&auto=format&fit=crop',
     Memes: 'https://images.unsplash.com/photo-1527224857830-43a7acc85260?w=800&auto=format&fit=crop',
     Bollywood: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800&auto=format&fit=crop',
-    General: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><rect width="600" height="600" fill="%2318181b"/><circle cx="300" cy="300" r="44" fill="%2327272a"/><polygon points="292,284 322,300 292,316" fill="%23f5a524"/></svg>'
+    General: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop'
 };
 
 export const isFallbackPoster = (url?: string | null): boolean => {
     if (!url) return true;
     if (url === UNIVERSAL_FALLBACK_IMAGE) return true;
     if (url.includes('photo-1618005182384-a83a8bd57fbe')) return true;
+    if (url.includes('photo-1518770660439-4636190af475')) return true;
     if (url.startsWith('data:image/svg+xml')) return true;
     for (const fb of Object.values(CATEGORY_FALLBACKS)) {
         if (url === fb) return true;
@@ -105,18 +106,6 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
     // Local bundled videos poster mapping
     if (url.includes('/videos/sonambajwa.mp4')) {
         return '/videos/sonambajwa_poster.jpg';
-    }
-    // Auto-derive Supabase storage poster URL if video is in knock-knock-eight.versel/posts/
-    if (url.includes('/knock-knock-eight.versel/posts/') && (url.includes('.mp4') || url.includes('.webm') || url.includes('.mov'))) {
-        try {
-            const clean = url.split('#')[0].split('?')[0];
-            const parts = clean.split('/posts/');
-            if (parts.length === 2 && parts[1] && !parts[1].startsWith('posters/')) {
-                const filename = parts[1];
-                const posterName = filename.replace(/\.(mp4|webm|mov)$/i, '.jpg');
-                return `${parts[0]}/posts/posters/${posterName}`;
-            }
-        } catch (_) {}
     }
     return undefined;
 };
@@ -217,18 +206,21 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
         return resolvedPosterFromUrl || (isVideo ? '' : categoryFallbackPoster);
     });
-    const [posterFailed, setPosterFailed] = useState<boolean>(false);
+    const [posterImageFailed, setPosterImageFailed] = useState<boolean>(false);
+    const [videoThumbnailFailed, setVideoThumbnailFailed] = useState<boolean>(false);
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
 
-    const hasRealPoster = Boolean(
+    const hasRealPoster = !posterImageFailed && Boolean(
         (capturedPoster && !isFallbackPoster(capturedPoster)) ||
         (resolvedPosterFromUrl && !isFallbackPoster(resolvedPosterFromUrl))
     );
-    const effectiveRealPoster = (capturedPoster && !isFallbackPoster(capturedPoster))
-        ? capturedPoster
-        : (resolvedPosterFromUrl && !isFallbackPoster(resolvedPosterFromUrl))
-            ? resolvedPosterFromUrl
-            : '';
+    const effectiveRealPoster = !posterImageFailed ? (
+        (capturedPoster && !isFallbackPoster(capturedPoster))
+            ? capturedPoster
+            : (resolvedPosterFromUrl && !isFallbackPoster(resolvedPosterFromUrl))
+                ? resolvedPosterFromUrl
+                : ''
+    ) : '';
 
     // ⚡ Viewport-aware video lazy mounting: do NOT mount native video decoders if thumbnail is off-screen
     const [isInView, setIsInView] = useState(() => !thumbnail || isPlayingMode || hasRealPoster);
@@ -260,7 +252,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         setHasError(false);
         setIsAudioBlocked(false);
         setIsLoaded(false);
-        setPosterFailed(false);
+        setPosterImageFailed(false);
+        setVideoThumbnailFailed(false);
         retryCountRef.current = 0;
         fallbackUsedRef.current = false;
         setCurrentImgSrc(isVideo ? '' : getOptimizedImageUrl(post.image_url, targetWidth));
@@ -739,7 +732,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 const poster = extractPosterFromUrl(post.image_url);
                 if (poster) {
                     setCapturedPoster(poster);
-                    setPosterFailed(false);
+                    setPosterImageFailed(false);
                     setHasError(false);
                     return;
                 }
@@ -762,7 +755,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     const resolvedObjectFit = objectFit || style?.objectFit || (controls || soundOn ? 'contain' : 'cover');
 
     if (hasError || !post.image_url) {
-        const poster = hasRealPoster ? effectiveRealPoster : (!isVideo && thumbnail ? getFallbackPoster(post) : undefined);
+        const poster = hasRealPoster ? effectiveRealPoster : (thumbnail ? (categoryFallbackPoster || getFallbackPoster(post)) : undefined);
         return (
             <div 
                 className={className}
@@ -788,6 +781,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             height: '100%',
                             objectFit: resolvedObjectFit,
                             display: 'block'
+                        }}
+                        onError={(e) => {
+                            const target = e.currentTarget;
+                            if (target.src !== UNIVERSAL_FALLBACK_IMAGE) {
+                                target.src = UNIVERSAL_FALLBACK_IMAGE;
+                            }
                         }}
                     />
                 ) : (
@@ -874,7 +873,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 background: '#18181b',
                             }}
                         >
-                            {hasRealPoster ? (
+                            {hasRealPoster && effectiveRealPoster ? (
                                 <img
                                     src={effectiveRealPoster}
                                     alt={alt}
@@ -891,10 +890,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     loading="lazy"
                                     decoding="async"
                                     onError={() => {
-                                        setPosterFailed(true);
+                                        setPosterImageFailed(true);
                                     }}
                                 />
-                            ) : videoSrc && isInView && !posterFailed ? (
+                            ) : videoSrc && isInView && !videoThumbnailFailed ? (
                                 <video
                                     src={`${videoSrc}#t=0.001`}
                                     style={{
@@ -925,7 +924,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                                 const ctx = canvas.getContext('2d');
                                                 if (ctx) {
                                                     ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-                                                    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                                                    const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
                                                     if (dataUrl && dataUrl.length > 100) {
                                                         videoPosterCache.set(cleanUrl, dataUrl);
                                                         setCapturedPoster(dataUrl);
@@ -935,12 +934,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         } catch (_) {}
                                     }}
                                     onError={() => {
-                                        setPosterFailed(true);
+                                        setVideoThumbnailFailed(true);
                                     }}
                                 />
                             ) : (
                                 <img
-                                    src={UNIVERSAL_FALLBACK_IMAGE}
+                                    src={categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE}
                                     alt={alt}
                                     style={{
                                         ...style,
@@ -948,6 +947,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         height: '100%',
                                         objectFit: resolvedObjectFit,
                                         display: 'block',
+                                    }}
+                                    onError={(e) => {
+                                        const target = e.currentTarget;
+                                        if (target.src !== UNIVERSAL_FALLBACK_IMAGE) {
+                                            target.src = UNIVERSAL_FALLBACK_IMAGE;
+                                        }
                                     }}
                                 />
                             )}

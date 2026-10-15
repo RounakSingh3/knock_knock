@@ -507,7 +507,7 @@ const CreatePost = () => {
             }
 
             let finalUrl = publicUrl;
-            const effectivePoster = (videoPosterDataUrl && videoPosterDataUrl.length < 50000 ? videoPosterDataUrl : undefined);
+            const effectivePoster = (videoPosterDataUrl && videoPosterDataUrl.length < 90000 ? videoPosterDataUrl : undefined);
             if (effectivePoster) {
                 finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(effectivePoster)}`;
                 videoPosterCache.set(finalUrl.split('#')[0], effectivePoster);
