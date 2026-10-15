@@ -7,7 +7,7 @@ import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import { AppContext } from '../context/AppContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import PullToRefresh from '../components/PullToRefresh';
-import { isVideoPost, isVideoUrl } from '../lib/media';
+import { isVideoPost, isVideoUrl, setFeedMutedPreference } from '../lib/media';
 import { GridSkeleton, TrendingSkeleton } from '../components/SkeletonLoader';
 
 import DailyNewsFeed from '../components/DailyNewsFeed';
@@ -771,6 +771,7 @@ const Explore = () => {
         if (isNewsPost(post)) {
             setSelectedNews(postToNewsItem(post));
         } else {
+            setFeedMutedPreference(false);
             const targetIdx = normalizedDiscoverPosts.findIndex(p => p.id === post.id);
             setActiveFeedState({ posts: normalizedDiscoverPosts, index: targetIdx !== -1 ? targetIdx : index });
         }
@@ -785,6 +786,7 @@ const Explore = () => {
         if (isNewsPost(post)) {
             setSelectedNews(postToNewsItem(post));
         } else {
+            setFeedMutedPreference(false);
             // Append broader discovery posts after search results so user can endlessly swipe through next posts!
             const seenIds = new Set(normalizedSearchPosts.map(p => p.id));
             const remainingDiscover = normalizedDiscoverPosts.filter(p => !seenIds.has(p.id));
@@ -905,6 +907,7 @@ const Explore = () => {
                                                             combinedFeed.push(p);
                                                         }
                                                         const targetIdx = combinedFeed.findIndex(p => p.id === post.id);
+                                                        setFeedMutedPreference(false);
                                                         setActiveFeedState({ posts: combinedFeed, index: targetIdx !== -1 ? targetIdx : idx });
                                                     }
                                                 }}

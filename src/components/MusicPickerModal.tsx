@@ -12,6 +12,7 @@ export interface Track {
     duration: string;
     isCustom?: boolean;
     isITunes?: boolean;
+    file?: File;
 }
 
 export const FREE_MUSIC_TRACKS: Track[] = [
@@ -205,7 +206,8 @@ export const MusicPickerModal: React.FC<MusicPickerModalProps> = ({
                 url: fileUrl,
                 cover: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150',
                 duration: 'Custom',
-                isCustom: true
+                isCustom: true,
+                file: file
             };
 
             setCustomTracks(prev => [newTrack, ...prev]);

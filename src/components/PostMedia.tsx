@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, memo, useCallback } from 'react';
 import { VolumeX, Play, Pause, Heart } from 'lucide-react';
 import { isVideoPost, isVideoUrl, getOptimizedImageUrl, getCleanSongUrl } from '../lib/media';
 import { resolveLocalMediaUrl } from '../lib/localMedia';
+import { audioPlayer } from '../lib/audioPlayer';
 import type { PostData } from '../lib/database';
 
 interface PostMediaProps {
@@ -281,19 +282,31 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     }, [post.image_url, isVideo, cleanUrl, targetWidth]);
 
 
-    const staticCleanUrl = getCleanSongUrl(post.music_title, post.music_url);
-    const isDirectCleanUrl = post.music_url && !post.music_url.includes('soundhelix');
+    const effectiveMusicUrl = resolveLocalMediaUrl(post.music_url);
+    const staticCleanUrl = getCleanSongUrl(post.music_title, effectiveMusicUrl);
+    const isDirectCleanUrl = effectiveMusicUrl && !effectiveMusicUrl.includes('soundhelix');
     const queryKey = post.music_title ? `${post.music_title} ${post.music_artist || ''}`.trim().toLowerCase() : '';
     
     const [asyncMusicUrl, setAsyncMusicUrl] = useState<string | undefined>(() => {
         if (staticCleanUrl) return staticCleanUrl;
-        if (isDirectCleanUrl) return post.music_url!;
+        if (isDirectCleanUrl) return effectiveMusicUrl!;
         if (queryKey && itunesCache.has(queryKey)) return itunesCache.get(queryKey);
         return undefined;
     });
 
-    const resolvedMusicUrl = staticCleanUrl || (isDirectCleanUrl ? post.music_url : asyncMusicUrl);
+    const resolvedMusicUrl = staticCleanUrl || (isDirectCleanUrl ? effectiveMusicUrl : asyncMusicUrl);
     const hasMusic = Boolean(resolvedMusicUrl);
+
+    // Track whether user explicitly requested audio (unmuted or soundOn)
+    const userWantsAudio = soundOn || muted === false;
+
+    // Reset autoplay fallback flags whenever audio is explicitly requested
+    useEffect(() => {
+        if (userWantsAudio) {
+            setIsAutoplayFallbackMuted(false);
+            setIsAudioBlocked(false);
+        }
+    }, [userWantsAudio]);
 
     // If post has a music track, the video element should be muted so only the song plays!
     // If post does not have music, the video's own sound plays when soundOn / unmuted.
@@ -302,8 +315,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         : (muted !== undefined ? muted : (soundOn ? false : true));
 
     // Fallback-aware DOM muted state:
-    const domMuted = hasMusic ? true : (isAutoplayFallbackMuted || effectiveMuted);
-    const isAudioActive = soundOn || (autoPlay && !domMuted);
+    // When user explicitly wants sound, bypass isAutoplayFallbackMuted entirely!
+    const domMuted = hasMusic ? true : (userWantsAudio ? false : (isAutoplayFallbackMuted || effectiveMuted));
+    const isAudioActive = userWantsAudio || (autoPlay && !domMuted);
 
     // Resolve missing or unknown music_url from music_title via iTunes API only if active and needed
     useEffect(() => {
@@ -364,14 +378,22 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             }
         }
         const audio = audioRef.current;
-        if (audio && hasMusic) {
+        if (audio && hasMusic && resolvedMusicUrl) {
             audio.muted = false;
             audio.volume = 1;
             if (audio.paused) {
-                audio.play().catch(() => {});
+                audio.play().catch(() => {
+                    try {
+                        audioPlayer.play(resolvedMusicUrl);
+                    } catch (_) {}
+                });
             }
+        } else if (hasMusic && resolvedMusicUrl) {
+            try {
+                audioPlayer.play(resolvedMusicUrl);
+            } catch (_) {}
         }
-    }, [hasMusic, onMuteChange]);
+    }, [hasMusic, resolvedMusicUrl, onMuteChange]);
 
     // When audio is blocked by browser autoplay policy, listen for any user tap anywhere to seamlessly unmute
     useEffect(() => {
@@ -395,8 +417,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         video.muted = domMuted;
         if (!domMuted) {
             video.volume = 1;
+            if (video.paused && (autoPlay || soundOn)) {
+                video.play().catch(() => {});
+            }
         }
-    }, [isVideo, domMuted]);
+    }, [isVideo, domMuted, autoPlay, soundOn]);
 
     // Resilient dual-stage playback logic
     const domMutedRef = useRef(domMuted);
@@ -606,11 +631,18 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                         if (e.name === 'AbortError' || isCancelled) return;
                         console.warn('[PostMedia] Audio autoplay deferred until tap:', e);
                         setIsAudioBlocked(true);
+                        try {
+                            audioPlayer.play(resolvedMusicUrl);
+                        } catch (_) {}
                         const onUserTap = () => {
                             if (isCancelled) return;
                             audio.muted = false;
                             audio.volume = 1;
-                            audio.play().then(() => setIsAudioBlocked(false)).catch(() => {});
+                            audio.play().then(() => setIsAudioBlocked(false)).catch(() => {
+                                try {
+                                    audioPlayer.play(resolvedMusicUrl);
+                                } catch (_) {}
+                            });
                         };
                         window.addEventListener('click', onUserTap, { once: true, capture: true });
                         window.addEventListener('touchstart', onUserTap, { once: true, capture: true });
@@ -623,6 +655,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         } else {
             audio.pause();
             audio.currentTime = 0;
+            try {
+                if (audioPlayer.isPlaying()) {
+                    audioPlayer.stop();
+                }
+            } catch (_) {}
         }
 
         return () => {
@@ -631,6 +668,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             try {
                 audio.pause();
                 audio.currentTime = 0;
+            } catch (_) {}
+            try {
+                audioPlayer.stop();
             } catch (_) {}
         };
     }, [autoPlay, soundOn, muted, resolvedMusicUrl]);
@@ -1145,7 +1185,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             ))}
 
             
-            {resolvedMusicUrl && isAudioActive && (
+            {resolvedMusicUrl && (
                 <audio
                     ref={audioRef}
                     src={resolvedMusicUrl}
@@ -1153,6 +1193,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                     preload="auto"
                     style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
                     playsInline
+                    onError={() => {
+                        // If external audio preview stream fails, unmute original video so user still hears original video sound
+                        if (videoRef.current && userWantsAudio) {
+                            videoRef.current.muted = false;
+                            videoRef.current.volume = 1;
+                        }
+                    }}
                 />
             )}
         </div>

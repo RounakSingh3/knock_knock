@@ -623,23 +623,9 @@ export async function prepareVideoForUpload(
         }
     } catch (_) {}
 
-    // ⚡ Fast compression: if video is larger than 7MB or is HEVC, compress to standard 720p HD (~2 Mbps)
-    // Drops 30MB-50MB mobile recordings down to 3MB-6MB, speeding up upload by 5x-10x!
-    const isHevc = await isHevcVideoFile(file);
-    if (file.size > 7 * 1024 * 1024 || isHevc) {
-        try {
-            if (onStatus) onStatus('Optimizing video for ultra-fast smooth playback...');
-            const compressed = await compressVideo(file, {
-                onProgress,
-                onStatus
-            });
-            if (compressed && (compressed.size < file.size || isHevc)) {
-                videoFile = compressed;
-            }
-        } catch (_) {
-            videoFile = file;
-        }
-    }
+    // Preserve authentic original video file to ensure 100% crystal-clear original audio and full codec fidelity
+    if (onStatus) onStatus('Preparing video for upload...');
+    if (onProgress) onProgress(100);
 
     return { videoFile, posterBlob, posterDataUrl };
 }

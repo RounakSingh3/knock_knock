@@ -635,6 +635,9 @@ const Home = () => {
         const norm = normalizePost(p) || p;
         const currentList = postsRef.current;
         const idx = currentList.findIndex(item => item.id === norm.id);
+        if (norm.music_url || norm.music_title || isVideoPost(norm) || isVideoUrl(norm.image_url)) {
+            setFeedMutedPreference(false);
+        }
         setActiveFeedState({
             posts: currentList,
             index: idx !== -1 ? idx : 0,
@@ -875,6 +878,9 @@ const Home = () => {
                                         onClickPost={(post) => {
                                             const norm = normalizePost(post) || post;
                                             const idx = connectionPosts.findIndex(p => p.id === norm.id);
+                                            if (norm.music_url || norm.music_title || isVideoPost(norm) || isVideoUrl(norm.image_url)) {
+                                                setFeedMutedPreference(false);
+                                            }
                                             setActiveFeedState({
                                                 posts: connectionPosts,
                                                 index: idx !== -1 ? idx : 0,

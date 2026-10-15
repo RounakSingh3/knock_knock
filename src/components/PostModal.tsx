@@ -25,7 +25,8 @@ function getTimeAgo(dateStr: string) {
 }
 
 import { audioPlayer } from '../lib/audioPlayer';
-import { isVideoUrl, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
+import { isVideoUrl, getFeedMutedPreference, setFeedMutedPreference, getCleanSongUrl } from '../lib/media';
+import { resolveLocalMediaUrl } from '../lib/localMedia';
 
 export interface PostModalContentProps {
     post: PostData;
@@ -211,6 +212,20 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
         setLocalMuted(nextMuted);
         setFeedMutedPreference(nextMuted);
         if (onMuteToggle) onMuteToggle(nextMuted);
+
+        if (!nextMuted) {
+            const effectiveMusic = resolveLocalMediaUrl(post.music_url);
+            const cleanMusic = getCleanSongUrl(post.music_title, effectiveMusic) || effectiveMusic;
+            if (cleanMusic) {
+                try {
+                    audioPlayer.play(cleanMusic);
+                } catch (_) {}
+            }
+        } else {
+            try {
+                audioPlayer.stop();
+            } catch (_) {}
+        }
     };
 
     return (

@@ -1,7 +1,7 @@
 import React, { useState, useContext, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, resolveLocalMediaUrl, type ProfileData } from '../lib/database';
+import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, resolveLocalMediaUrl, createLocalFallbackMediaUrl, type ProfileData } from '../lib/database';
 import { getMediaTypeFromFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { CONTENT_CATEGORIES, extractHashtags, recordHashtagSignal } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles, AtSign, UserPlus, Search, Check, Hash, Plus, Layers } from 'lucide-react';
@@ -455,6 +455,21 @@ const CreatePost = () => {
                 }
             }
 
+            // Upload custom audio file if attached so audio URL is durable across sessions/devices
+            let finalMusicUrl = selectedTrack?.url;
+            if (selectedTrack?.isCustom && selectedTrack.file) {
+                try {
+                    const audioExt = selectedTrack.file.name.split('.').pop() || 'mp3';
+                    const audioFileName = `audio/${Date.now()}_custom_${Math.random().toString(36).substring(2, 8)}.${audioExt}`;
+                    finalMusicUrl = await uploadMedia(selectedTrack.file, audioFileName);
+                } catch (_) {
+                    try {
+                        const fallback = await createLocalFallbackMediaUrl(selectedTrack.file);
+                        finalMusicUrl = fallback.fallbackUrl;
+                    } catch (_) {}
+                }
+            }
+
             // Expiry is 24 hours from now
             const boostExpiresAt = boostToSpotlight 
                 ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
@@ -474,7 +489,7 @@ const CreatePost = () => {
                 boost_impressions_remaining: boostToSpotlight ? boostAmount : 0,
                 music_title: selectedTrack?.title,
                 music_artist: selectedTrack?.artist,
-                music_url: selectedTrack?.url
+                music_url: finalMusicUrl || selectedTrack?.url
             });
 
             // Send mention notification to tagged friend in background
