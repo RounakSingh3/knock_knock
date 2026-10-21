@@ -6920,7 +6920,23 @@ export function bumpLocalConnectionStreak(connectionId: string): number {
 const STORAGE_KEY = 'knock_local_posts_v6';
 const FAKE_ACCOUNTS = new Set(['bollywood_superstars', 'baklol_kumar', 'meme_hub_insta', 'epic_fun_page', 'relatable_postss']);
 
+// ⚡ In-memory cache so getLocalPosts() executes in O(1) without synchronous JSON.parse / localStorage.setItem on every read
+let _localPostsCache: PostData[] | null = null;
+
+function persistLocalPosts(posts: PostData[]): void {
+    _localPostsCache = posts;
+    if (typeof window === 'undefined') return;
+    try {
+        const serialized = JSON.stringify(posts);
+        localStorage.setItem(STORAGE_KEY, serialized);
+        localStorage.setItem('knock_local_posts', serialized);
+    } catch (_) {}
+}
+
 export function getLocalPosts(): PostData[] {
+    if (_localPostsCache) {
+        return _localPostsCache;
+    }
     try {
         if (typeof window === 'undefined') return SEED_POSTS;
         const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('knock_local_posts');
@@ -6956,20 +6972,17 @@ export function getLocalPosts(): PostData[] {
                 const existingIds = new Set(updatedCleaned.map((p: PostData) => p.id));
                 const missingSeeds = SEED_POSTS.filter(s => !existingIds.has(s.id));
                 const merged = [...updatedCleaned, ...missingSeeds];
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-                    localStorage.setItem('knock_local_posts', JSON.stringify(merged));
-                } catch (_) {}
+                _localPostsCache = merged;
+                if (missingSeeds.length > 0 || cleaned.length !== parsed.length) {
+                    persistLocalPosts(merged);
+                }
                 return merged;
             }
         }
     } catch (_) {}
 
     // Initialize storage with authentic posts
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_POSTS));
-        localStorage.setItem('knock_local_posts', JSON.stringify(SEED_POSTS));
-    } catch (_) {}
+    persistLocalPosts(SEED_POSTS);
     return SEED_POSTS;
 }
 
@@ -6978,8 +6991,7 @@ export function saveLocalPost(post: PostData): void {
         if (typeof window === 'undefined') return;
         const posts = getLocalPosts();
         const updated = [post, ...posts.filter(p => p.id !== post.id)];
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        localStorage.setItem('knock_local_posts', JSON.stringify(updated));
+        persistLocalPosts(updated);
     } catch (_) {}
 }
 
@@ -6993,8 +7005,7 @@ export function updateLocalPostLikes(postId: string, delta: number): void {
             }
             return p;
         });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        localStorage.setItem('knock_local_posts', JSON.stringify(updated));
+        persistLocalPosts(updated);
     } catch (_) {}
 }
 
@@ -7055,8 +7066,7 @@ export function updateLocalPostComments(postId: string | number, delta: number):
             }
             return p;
         });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        localStorage.setItem('knock_local_posts', JSON.stringify(updated));
+        persistLocalPosts(updated);
     } catch (_) {}
 }
 

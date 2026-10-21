@@ -130,25 +130,36 @@ export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
     const seenUrls = new Set<string>();
     const merged: PostData[] = [];
 
+    const getDedupUrlKey = (url?: string): string => {
+        if (!url) return '';
+        const localMatch = url.match(/#LOCAL_ID:([^#]+)/);
+        if (localMatch && localMatch[1]) return `local:${localMatch[1].toLowerCase()}`;
+        return url.split('?')[0].split('#')[0].toLowerCase().trim();
+    };
+
     const isClean = (p: PostData): boolean => {
         if (!p || !p.id || BROKEN_POST_IDS.has(p.id)) return false;
-        if (p.image_url?.startsWith('blob:')) return false;
+        const hasLocalId = Boolean(p.image_url && (p.image_url.includes('#LOCAL_ID:') || p.image_url.startsWith('local-media://')));
+        if (p.image_url?.startsWith('blob:') && !hasLocalId) return false;
         if (isRemovedUser(p.user_id, p.username)) return false;
-        const cleanUrl = (p.image_url || '').split('?')[0].split('#')[0].toLowerCase().trim();
+        const cleanUrl = getDedupUrlKey(p.image_url);
         if (cleanUrl && seenUrls.has(cleanUrl)) return false;
         if (seen.has(p.id)) return false;
         return true;
     };
 
-    const addPost = (p: PostData) => {
+    const addPost = (rawPost: PostData) => {
+        const p = rawPost.image_url && (rawPost.image_url.includes('#LOCAL_ID:') || rawPost.image_url.startsWith('local-media://'))
+            ? { ...rawPost, image_url: resolveLocalMediaUrl(rawPost.image_url) }
+            : rawPost;
         if (!isClean(p)) return;
         seen.add(p.id);
-        const cleanUrl = (p.image_url || '').split('?')[0].split('#')[0].toLowerCase().trim();
+        const cleanUrl = getDedupUrlKey(p.image_url);
         if (cleanUrl) seenUrls.add(cleanUrl);
         merged.push(p);
     };
 
-    // 1. Local user created / freshly posted posts FIRST (so newly created photos/posts appear immediately!)
+    // 1. Local user created / freshly posted posts FIRST (so newly created photos/videos appear immediately!)
     const local = getLocalPosts();
     const sortedLocal = [...local].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     for (const p of sortedLocal) {
@@ -171,6 +182,9 @@ export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
+    if (isSupabaseQuotaRestricted()) {
+        return mergePostsWithFallback([]);
+    }
     try {
         const { data, error } = await supabase
             .from('posts')
@@ -181,20 +195,20 @@ export async function fetchPosts(): Promise<PostData[]> {
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
             console.warn('[fetchPosts] Supabase unavailable, returning resilient local posts:', error.message);
-            return getLocalPosts();
+            return mergePostsWithFallback([]);
         }
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-        if (normalized.length === 0) {
-            return getLocalPosts();
-        }
         return mergePostsWithFallback(normalized);
     } catch (err: any) {
         if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
-        return getLocalPosts();
+        return mergePostsWithFallback([]);
     }
 }
 
 export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
+    if (isSupabaseQuotaRestricted()) {
+        return mergePostsWithFallback([]).filter(p => !p.user_id || p.user_id !== userId);
+    }
     try {
         const connectionIds = await fetchConnectionUserIds(userId);
         const excludeIds = [...connectionIds, userId].filter((id): id is string => Boolean(id) && typeof id === 'string' && id.trim().length > 0);
@@ -575,7 +589,9 @@ export async function uploadMedia(
         token = supabaseKey;
     }
 
-    const MAX_RETRIES = 2;
+    const isLargeOrVideo = Boolean(file.type?.startsWith('video/') || file.size > 1500000);
+    const MAX_RETRIES = isLargeOrVideo ? 0 : 1;
+    const STALL_TIMEOUT_MS = 15000;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -593,18 +609,18 @@ export async function uploadMedia(
                         xhr.setRequestHeader('Content-Type', file.type);
                     }
 
-                    // Stall detection: only timeout if connection completely freezes without transferring data for 45s
+                    // Stall detection: timeout if connection freezes without transferring data for 15s
                     let stallTimeout = setTimeout(() => {
                         xhr.abort();
-                        reject(new Error('Upload connection stalled. Retrying...'));
-                    }, 45000);
+                        reject(new Error('Upload connection stalled.'));
+                    }, STALL_TIMEOUT_MS);
 
                     const resetStallTimer = () => {
                         clearTimeout(stallTimeout);
                         stallTimeout = setTimeout(() => {
                             xhr.abort();
-                            reject(new Error('Upload connection stalled. Retrying...'));
-                        }, 45000);
+                            reject(new Error('Upload connection stalled.'));
+                        }, STALL_TIMEOUT_MS);
                     };
 
                     xhr.upload.onprogress = (e) => {
@@ -643,8 +659,7 @@ export async function uploadMedia(
                         reject(new Error('Upload aborted'));
                     };
 
-                    // Total timeout safety net: 300 seconds (5 minutes)
-                    xhr.timeout = 300000;
+                    xhr.timeout = 120000;
 
                     xhr.send(file);
                 });
@@ -652,33 +667,26 @@ export async function uploadMedia(
                 try {
                     await runXhr(token);
                 } catch (xhrErr: any) {
-                    const isAuthError = xhrErr.status === 401 || 
-                                       xhrErr.status === 403 || 
+                    const status = xhrErr?.status;
+                    const isFatalQuotaOrSize = status === 402 || status === 413 || status === 400 || isQuotaError(xhrErr);
+                    if (isFatalQuotaOrSize) {
+                        throw xhrErr;
+                    }
+                    const isAuthError = status === 401 || 
+                                       status === 403 || 
                                        String(xhrErr.message).toLowerCase().includes('jwt') ||
                                        String(xhrErr.message).toLowerCase().includes('unauthorized');
                     if (isAuthError && token !== supabaseKey) {
                         console.warn('[uploadMedia] User auth token rejected. Retrying immediately with anon key...');
                         token = supabaseKey;
                         await runXhr(supabaseKey);
-                    } else if (attempt < MAX_RETRIES) {
-                        token = supabaseKey;
-                        throw xhrErr;
                     } else {
-                        // Fallback attempt with official Supabase storage SDK upload
-                        console.warn('[uploadMedia] XHR failed, trying official Supabase SDK upload as fallback...');
-                        const { error: sdkErr } = await supabase.storage
-                            .from(STORAGE_BUCKET)
-                            .upload(cleanPath, file, {
-                                cacheControl: '3600',
-                                upsert: true,
-                                contentType: file.type || undefined,
-                            });
-                        if (sdkErr) throw sdkErr;
+                        throw xhrErr;
                     }
                 }
             } else {
                 // Direct Supabase SDK upload (no progress needed)
-                let { error: sdkErr } = await supabase.storage
+                const { error: sdkErr } = await supabase.storage
                     .from(STORAGE_BUCKET)
                     .upload(cleanPath, file, {
                         cacheControl: '3600',
@@ -687,21 +695,7 @@ export async function uploadMedia(
                     });
 
                 if (sdkErr) {
-                    const res = await fetch(uploadUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${supabaseKey}`,
-                            'apikey': supabaseKey,
-                            'x-upsert': 'true',
-                            'cache-control': 'max-age=3600',
-                            ...(file.type ? { 'Content-Type': file.type } : {}),
-                        },
-                        body: file,
-                    });
-                    if (!res.ok) {
-                        const errBody = await res.json().catch(() => ({}));
-                        throw new Error(errBody.message || errBody.error || `Upload failed with status ${res.status}`);
-                    }
+                    throw sdkErr;
                 }
             }
 
@@ -716,8 +710,12 @@ export async function uploadMedia(
             lastError = err instanceof Error ? err : new Error(String(err));
             console.warn(`[uploadMedia] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, lastError.message);
             token = supabaseKey;
+            const status = err?.status || err?.statusCode;
+            if (status === 402 || status === 403 || status === 413 || isQuotaError(err)) {
+                break;
+            }
             if (attempt < MAX_RETRIES) {
-                await new Promise(r => setTimeout(r, 600));
+                await new Promise(r => setTimeout(r, 300));
             }
         }
     }
@@ -739,24 +737,28 @@ export async function uploadMedia(
 
 export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[]> {
     let rawVideos: PostData[] = [];
-    try {
-        const { data, error } = await supabase
-            .from('posts')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(100);
+    if (isSupabaseQuotaRestricted()) {
+        rawVideos = mergePostsWithFallback([]).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+    } else {
+        try {
+            const { data, error } = await supabase
+                .from('posts')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(100);
 
-        if (error) {
-            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-            console.warn('[fetchVideoPosts] Supabase unavailable, returning local video posts:', error.message);
-            rawVideos = getLocalPosts().filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
-        } else {
-            const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && (isVideoPost(p) || isVideoUrl(p.image_url)));
-            rawVideos = normalized.length > 0 ? mergePostsWithFallback(normalized).filter(p => isVideoPost(p) || isVideoUrl(p.image_url)) : getLocalPosts().filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+            if (error) {
+                if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+                console.warn('[fetchVideoPosts] Supabase unavailable, returning local video posts:', error.message);
+                rawVideos = mergePostsWithFallback([]).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+            } else {
+                const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && (isVideoPost(p) || isVideoUrl(p.image_url)));
+                rawVideos = mergePostsWithFallback(normalized).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+            }
+        } catch (err: any) {
+            if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+            rawVideos = mergePostsWithFallback([]).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
         }
-    } catch (err: any) {
-        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
-        rawVideos = getLocalPosts().filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
     }
 
     if (rawVideos.length <= 1) return rawVideos;
@@ -1030,6 +1032,39 @@ export async function createNewPost(post: {
         finalCaption += `\n\n[MUSIC:${post.music_url}|${post.music_title || ''}|${post.music_artist || ''}]`;
     }
 
+    const buildLocalPost = (): PostData => ({
+        id: `post-local-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        user_id: post.user_id,
+        username: post.username,
+        avatar_url: post.avatar_url,
+        image_url: post.image_url,
+        caption: finalCaption,
+        likes_count: 0,
+        imps_count: 0,
+        comments_count: 0,
+        shares_count: 0,
+        attached_link: post.attached_link,
+        media_type: post.media_type || 'image',
+        category: post.category || 'General',
+        boost_expires_at: post.boost_expires_at,
+        boost_impressions_remaining: post.boost_impressions_remaining || 0,
+        music_title: post.music_title,
+        music_artist: post.music_artist,
+        music_url: post.music_url,
+        created_at: new Date().toISOString(),
+    });
+
+    const isLocalIndexedDbMedia = Boolean(
+        post.image_url && (post.image_url.includes('#LOCAL_ID:') || post.image_url.startsWith('local-media://'))
+    );
+
+    if (isSupabaseQuotaRestricted() || isLocalIndexedDbMedia) {
+        const localPost = buildLocalPost();
+        saveLocalPost(localPost);
+        invalidateCache();
+        return [localPost];
+    }
+
     const row: Record<string, unknown> = {
         username: post.username,
         avatar_url: post.avatar_url,
@@ -1068,27 +1103,7 @@ export async function createNewPost(post: {
     if (error) {
         if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
         console.warn('Error creating post in Supabase (saving resilient local post):', error.message);
-        const localPost: PostData = {
-            id: `post-local-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-            user_id: post.user_id,
-            username: post.username,
-            avatar_url: post.avatar_url,
-            image_url: post.image_url,
-            caption: finalCaption,
-            likes_count: 0,
-            imps_count: 0,
-            comments_count: 0,
-            shares_count: 0,
-            attached_link: post.attached_link,
-            media_type: post.media_type || 'image',
-            category: post.category || 'General',
-            boost_expires_at: post.boost_expires_at,
-            boost_impressions_remaining: post.boost_impressions_remaining || 0,
-            music_title: post.music_title,
-            music_artist: post.music_artist,
-            music_url: post.music_url,
-            created_at: new Date().toISOString(),
-        };
+        const localPost = buildLocalPost();
         saveLocalPost(localPost);
         invalidateCache();
         return [localPost];
@@ -4178,17 +4193,21 @@ export async function fetchTrendingPosts(
     }
 
     const assembleLocalTrending = (): PostData[] => {
-        const local = getLocalPosts();
-        const favVids = local.filter(p => (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && (isVideoPost(p) || isVideoUrl(p.image_url)));
-        const userVids = currentUserId ? local.filter(p => p.user_id === currentUserId && (isVideoPost(p) || isVideoUrl(p.image_url))) : [];
-        const otherVids = local.filter(p => p.username !== 'ityourfavourite1' && p.user_id !== currentUserId && (isVideoPost(p) || isVideoUrl(p.image_url)));
+        const local = mergePostsWithFallback([]);
+        const freshUserVids = local.filter(p =>
+            (p.id?.startsWith('post-local-') || (currentUserId && p.user_id === currentUserId)) &&
+            (isVideoPost(p) || isVideoUrl(p.image_url))
+        );
+        const freshIds = new Set(freshUserVids.map(p => p.id));
+        const favVids = local.filter(p => !freshIds.has(p.id) && (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && (isVideoPost(p) || isVideoUrl(p.image_url)));
+        const otherVids = local.filter(p => !freshIds.has(p.id) && p.username !== 'ityourfavourite1' && !p.username?.includes('favourite') && (isVideoPost(p) || isVideoUrl(p.image_url)));
         const favImages = local.filter(p => (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && !isVideoPost(p) && !isVideoUrl(p.image_url));
 
-        // Pool all authentic videos
-        const allVideos = [...favVids, ...userVids, ...otherVids];
+        // Pool remaining authentic videos for rotation
+        const poolVideos = [...favVids, ...otherVids];
 
         // Fisher-Yates shuffle for a fresh, vibrant rotation of trending videos
-        const shuffledVideos = [...allVideos];
+        const shuffledVideos = [...poolVideos];
         for (let i = shuffledVideos.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [shuffledVideos[i], shuffledVideos[j]] = [shuffledVideos[j], shuffledVideos[i]];
@@ -4196,9 +4215,10 @@ export async function fetchTrendingPosts(
 
         const seen = new Set<string>();
         const res: PostData[] = [];
-        // Prioritize shuffled videos first so trending video carousel is completely filled with rich videos
-        for (const p of [...shuffledVideos, ...favImages]) {
-            const cleanUrl = (p.image_url || '').split('?')[0].split('#')[0];
+        // Prioritize fresh user uploads FIRST, then shuffled videos, then images
+        for (const p of [...freshUserVids, ...shuffledVideos, ...favImages]) {
+            const localMatch = (p.image_url || '').match(/#LOCAL_ID:([^#]+)/);
+            const cleanUrl = localMatch ? `local:${localMatch[1]}` : (p.image_url || '').split('?')[0].split('#')[0];
             if (!seen.has(p.id) && !seen.has(cleanUrl)) {
                 seen.add(p.id);
                 seen.add(cleanUrl);
@@ -4212,6 +4232,12 @@ export async function fetchTrendingPosts(
         }
         return res;
     };
+
+    if (isSupabaseQuotaRestricted()) {
+        const fallback = assembleLocalTrending();
+        setInCache(cacheKey, fallback);
+        return fallback;
+    }
 
     try {
         // 1. Fetch all posts from 'ityourfavourite1' (favorite user)
@@ -4249,10 +4275,12 @@ export async function fetchTrendingPosts(
 
         const addPost = (raw: any, isFav: boolean = false) => {
             if (!raw || !raw.id || !raw.image_url) return;
-            if (typeof raw.image_url === 'string' && (raw.image_url.startsWith('blob:') || raw.image_url.startsWith('data:'))) return;
+            const hasLocalId = typeof raw.image_url === 'string' && (raw.image_url.includes('#LOCAL_ID:') || raw.image_url.startsWith('local-media://'));
+            if (typeof raw.image_url === 'string' && ((raw.image_url.startsWith('blob:') && !hasLocalId) || raw.image_url.startsWith('data:'))) return;
             const norm = normalizePost(raw);
             if (!norm) return;
-            const cleanUrl = (norm.image_url || '').split('?')[0].split('#')[0];
+            const localMatch = (norm.image_url || '').match(/#LOCAL_ID:([^#]+)/);
+            const cleanUrl = localMatch ? `local:${localMatch[1]}` : (norm.image_url || '').split('?')[0].split('#')[0];
             if (seenIds.has(norm.id) || seenUrls.has(cleanUrl)) return;
             seenIds.add(norm.id);
             seenUrls.add(cleanUrl);
@@ -4265,6 +4293,9 @@ export async function fetchTrendingPosts(
             }
             result.push(norm);
         };
+
+        // Priority 0: Any locally uploaded user videos first
+        getLocalPosts().filter(p => p.id?.startsWith('post-local-') && (isVideoPost(p) || isVideoUrl(p.image_url))).forEach(p => addPost(p, true));
 
         // Priority 1: All video posts from ityourfavourite1 ("our favorite")
         (favRes.data || []).forEach(p => {

@@ -115,6 +115,7 @@ const CreatePost = () => {
 
     const [file, setFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [posterPreviewUrl, setPosterPreviewUrl] = useState<string | null>(null);
     const [selectedFilter, setSelectedFilter] = useState('none');
     const [caption, setCaption] = useState('');
     const [attachedLink, setAttachedLink] = useState('');
@@ -142,7 +143,7 @@ const CreatePost = () => {
     // so by the time the user finishes caption/music/hashtags it's already (mostly) uploaded.
     const preUploadRef = useRef<{
         file: File;
-        promise: Promise<{ publicUrl: string; fileName: string; fileToUpload: File }>;
+        promise: Promise<{ publicUrl: string; posterUrl?: string; fileName: string; fileToUpload: File }>;
     } | null>(null);
     const isPostingRef = useRef(false);
     const [bgUploadPct, setBgUploadPct] = useState<number | null>(null);
@@ -292,7 +293,9 @@ const CreatePost = () => {
         if (e.target.files && e.target.files[0]) {
             const selectedFile = e.target.files[0];
             setFile(selectedFile);
-            setPreviewUrl(URL.createObjectURL(selectedFile));
+            const objUrl = URL.createObjectURL(selectedFile);
+            setPreviewUrl(objUrl);
+            setPosterPreviewUrl(selectedFile.type.startsWith('image/') ? objUrl : null);
 
             // ⚡ Instant background pre-processing: extract poster and compress media while user writes caption
             preparedMediaPromiseRef.current = (async () => {
@@ -317,6 +320,9 @@ const CreatePost = () => {
                                 }));
                             }
                         );
+                        if (prepared.posterDataUrl) {
+                            setPosterPreviewUrl(prepared.posterDataUrl);
+                        }
                         return {
                             fileToUpload: prepared.videoFile,
                             videoPosterBlob: prepared.posterBlob,
@@ -340,6 +346,15 @@ const CreatePost = () => {
                     const fileToUpload = prepared.fileToUpload;
                     const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
                     const fileName = `${userId}-${Date.now()}.${fileExt}`;
+                    const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
+
+                    const posterUploadPromise = prepared.videoPosterBlob
+                        ? uploadMedia(
+                            new File([prepared.videoPosterBlob], posterFileName, { type: 'image/jpeg' }),
+                            `posts/posters/${posterFileName}`
+                        ).catch(() => undefined)
+                        : Promise.resolve(undefined);
+
                     const publicUrl = await uploadMedia(fileToUpload, `posts/${fileName}`, (progress) => {
                         // Ignore progress from a stale upload if the user picked a different file
                         if (preUploadRef.current?.file !== selectedFile) return;
@@ -355,8 +370,9 @@ const CreatePost = () => {
                             if (percentage === 100) setUploadStatusText('Finalizing post...');
                         }
                     });
+                    const posterUrl = await posterUploadPromise;
                     if (!publicUrl) throw new Error('Background upload failed');
-                    return { publicUrl, fileName, fileToUpload };
+                    return { publicUrl, posterUrl, fileName, fileToUpload };
                 })();
                 promise
                     .then(() => { if (preUploadRef.current?.file === selectedFile) setBgUploadPct(100); })
@@ -373,6 +389,7 @@ const CreatePost = () => {
         setFile(null);
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
+        setPosterPreviewUrl(null);
         setSelectedFilter('none');
         preparedMediaPromiseRef.current = null;
         preUploadRef.current = null;
@@ -443,6 +460,7 @@ const CreatePost = () => {
             }
 
             let publicUrl = '';
+            let uploadedPosterUrl: string | undefined = undefined;
             let fileName = '';
 
             // ⚡ Reuse the background upload that started when the file was selected
@@ -460,6 +478,7 @@ const CreatePost = () => {
                 try {
                     const res = await pre.promise;
                     publicUrl = res.publicUrl;
+                    uploadedPosterUrl = res.posterUrl;
                     fileName = res.fileName;
                     fileToUpload = res.fileToUpload;
                 } catch (bgErr) {
@@ -475,6 +494,14 @@ const CreatePost = () => {
                 const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
                 fileName = `${user.id}-${Date.now()}.${fileExt}`;
                 const path = `posts/${fileName}`;
+                const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
+
+                const posterUploadPromise = videoPosterBlob
+                    ? uploadMedia(
+                        new File([videoPosterBlob], posterFileName, { type: 'image/jpeg' }),
+                        `posts/posters/${posterFileName}`
+                    ).catch(() => undefined)
+                    : Promise.resolve(undefined);
 
                 // ⚡ Dedicated high-speed upload: Give 100% network bandwidth to main media with active progress
                 publicUrl = await uploadMedia(fileToUpload, path, (progress) => {
@@ -487,38 +514,35 @@ const CreatePost = () => {
                         setUploadStatusText('Finalizing post...');
                     }
                 });
+                uploadedPosterUrl = await posterUploadPromise;
             }
 
             if (!publicUrl) {
                 throw new Error('Media upload failed. Please check your internet connection and try again.');
             }
 
-            // ⚡ Background poster frame upload: does not block post creation or steal main bandwidth
-            if (videoPosterBlob) {
-                const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
-                uploadMedia(
-                    new File([videoPosterBlob], posterFileName, { type: 'image/jpeg' }),
-                    `posts/posters/${posterFileName}`
-                ).then(posterUrl => {
-                    if (posterUrl && !posterUrl.startsWith('blob:')) {
-                        videoPosterCache.set(publicUrl.split('#')[0], posterUrl);
-                    }
-                }).catch(() => {});
+            if (!uploadedPosterUrl && videoPosterBlob) {
+                try {
+                    const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
+                    uploadedPosterUrl = await uploadMedia(
+                        new File([videoPosterBlob], posterFileName, { type: 'image/jpeg' }),
+                        `posts/posters/${posterFileName}`
+                    );
+                } catch (_) {}
             }
 
             let finalUrl = publicUrl;
-            const effectivePoster = (videoPosterDataUrl && videoPosterDataUrl.length < 90000 ? videoPosterDataUrl : undefined);
-            if (effectivePoster) {
-                finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(effectivePoster)}`;
-                videoPosterCache.set(finalUrl.split('#')[0], effectivePoster);
+            if (uploadedPosterUrl && !uploadedPosterUrl.startsWith('data:')) {
+                finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
             }
-            if (videoPosterDataUrl) {
-                const cleanKey = publicUrl.split('#')[0];
-                videoPosterCache.set(cleanKey, videoPosterDataUrl);
+            const cleanKey = publicUrl.split('#')[0].split('?')[0];
+            const bestInMemoryPoster = videoPosterDataUrl || (uploadedPosterUrl ? resolveLocalMediaUrl(uploadedPosterUrl).split('#')[0] : undefined);
+            if (bestInMemoryPoster) {
+                videoPosterCache.set(cleanKey, bestInMemoryPoster);
                 try {
                     const currentStored = sessionStorage.getItem('knock_video_posters');
                     const parsed = currentStored ? JSON.parse(currentStored) : {};
-                    parsed[cleanKey] = videoPosterDataUrl;
+                    parsed[cleanKey] = bestInMemoryPoster;
                     sessionStorage.setItem('knock_video_posters', JSON.stringify(parsed));
                 } catch (_) {}
             }
@@ -581,10 +605,14 @@ const CreatePost = () => {
                 }).catch(e => console.warn('Failed to send add mention notification:', e));
             }
 
-            // Invalidate feed caches so newly uploaded content appears immediately at top of Home & Explore
+            // Invalidate all feed caches so newly uploaded content appears immediately at top of Home, Explore & Reels
             try {
                 localStorage.removeItem('knock_home_posts_cache');
                 localStorage.removeItem('knock_explore_posts_cache_v7');
+                localStorage.removeItem('knock_explore_posts_cache_v8');
+                localStorage.removeItem('knock_explore_trending_cache_v8');
+                localStorage.removeItem('knock_explore_trending_cache_v9');
+                sessionStorage.removeItem('knock_reels_instant_v1');
             } catch (e) {}
 
             // Immediately train recommendation algorithm for active user's posted topics
@@ -736,8 +764,12 @@ const CreatePost = () => {
                                     background: 'var(--border-color)', marginBottom: '8px', overflow: 'hidden',
                                     border: selectedFilter === f.filter ? '2px solid #f5a524' : '2px solid transparent'
                                 }}>
-                                    {file?.type.startsWith('video/') ? (
-                                        <video src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: f.filter }} muted />
+                                    {posterPreviewUrl ? (
+                                        <img src={posterPreviewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: f.filter }} alt="" />
+                                    ) : file?.type.startsWith('video/') ? (
+                                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #27272a, #18181b)', filter: f.filter }}>
+                                            <Film size={20} color="#f5a524" />
+                                        </div>
                                     ) : (
                                         <img src={previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: f.filter }} alt="" />
                                     )}

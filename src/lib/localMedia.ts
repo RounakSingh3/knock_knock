@@ -18,7 +18,8 @@ export interface StoredMediaRecord {
 // In-memory cache mapping local media ID to active browser Object URL (URL.createObjectURL)
 const localBlobUrlCache = new Map<string, string>();
 let dbPromise: Promise<IDBDatabase> | null = null;
-let isInitialized = false;
+let initPromise: Promise<void> | null = null;
+let isInitComplete = false;
 
 function openMediaDB(): Promise<IDBDatabase> {
     if (dbPromise) return dbPromise;
@@ -54,36 +55,42 @@ function openMediaDB(): Promise<IDBDatabase> {
  * Initialize local media registry on application start.
  * Restores active browser Object URLs for all previously stored local media.
  */
-export async function initLocalMediaRegistry(): Promise<void> {
-    if (isInitialized) return;
-    isInitialized = true;
+export function initLocalMediaRegistry(): Promise<void> {
+    if (isInitComplete) return Promise.resolve();
+    if (initPromise) return initPromise;
 
-    try {
-        const db = await openMediaDB();
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
-        const req = store.getAll();
+    initPromise = (async () => {
+        try {
+            const db = await openMediaDB();
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.getAll();
 
-        await new Promise<void>((resolve, reject) => {
-            req.onsuccess = () => {
-                const records: StoredMediaRecord[] = req.result || [];
-                records.forEach(rec => {
-                    if (rec && rec.id && rec.blob) {
-                        try {
-                            const objUrl = URL.createObjectURL(rec.blob);
-                            localBlobUrlCache.set(rec.id, objUrl);
-                        } catch (e) {
-                            console.warn('[localMedia] Failed to recreate blob URL for', rec.id, e);
+            await new Promise<void>((resolve, reject) => {
+                req.onsuccess = () => {
+                    const records: StoredMediaRecord[] = req.result || [];
+                    records.forEach(rec => {
+                        if (rec && rec.id && rec.blob && !localBlobUrlCache.has(rec.id)) {
+                            try {
+                                const objUrl = URL.createObjectURL(rec.blob);
+                                localBlobUrlCache.set(rec.id, objUrl);
+                            } catch (e) {
+                                console.warn('[localMedia] Failed to recreate blob URL for', rec.id, e);
+                            }
                         }
-                    }
-                });
-                resolve();
-            };
-            req.onerror = () => reject(req.error);
-        });
-    } catch (err) {
-        console.warn('[localMedia] Registry initialization failed (continuing in-memory):', err);
-    }
+                    });
+                    resolve();
+                };
+                req.onerror = () => reject(req.error);
+            });
+        } catch (err) {
+            console.warn('[localMedia] Registry initialization failed (continuing in-memory):', err);
+        } finally {
+            isInitComplete = true;
+        }
+    })();
+
+    return initPromise;
 }
 
 /**
@@ -165,37 +172,44 @@ export async function createLocalFallbackMediaUrl(
 }
 
 /**
+ * Returns true once the IndexedDB local media registry has finished restoring on startup.
+ */
+export function isLocalMediaReady(): boolean {
+    return isInitComplete;
+}
+
+/**
  * Resolves a media URL containing a `#LOCAL_ID:xxx` fragment to an active browser Object URL.
  * Preserves all metadata fragments (#POSTER:, #MUSIC:, #LINK:, #BOOST:, #video.mp4).
  */
 export function resolveLocalMediaUrl(url: string | null | undefined): string {
     if (!url) return '';
 
+    let resolved = url;
+
     // Check for #LOCAL_ID:xxx fragment
-    const localIdMatch = url.match(/#LOCAL_ID:([^#]+)/);
+    const localIdMatch = resolved.match(/#LOCAL_ID:([^#]+)/);
     if (localIdMatch && localIdMatch[1]) {
         const localId = localIdMatch[1];
         const activeBlob = localBlobUrlCache.get(localId);
         if (activeBlob) {
             // Replace the dead or old base URL with the active live blob URL
-            const hashIndex = url.indexOf('#');
-            const fragments = hashIndex !== -1 ? url.substring(hashIndex) : '';
-            return `${activeBlob}${fragments}`;
+            const hashIndex = resolved.indexOf('#');
+            const fragments = hashIndex !== -1 ? resolved.substring(hashIndex) : '';
+            resolved = `${activeBlob}${fragments}`;
         }
-    }
-
-    // Check for local-media:// protocol format
-    if (url.startsWith('local-media://')) {
-        const pathPart = url.replace('local-media://', '');
+    } else if (resolved.startsWith('local-media://')) {
+        // Check for local-media:// protocol format
+        const pathPart = resolved.replace('local-media://', '');
         const [localId, ...hashParts] = pathPart.split('#');
         const activeBlob = localBlobUrlCache.get(localId);
         if (activeBlob) {
             const extraHash = hashParts.length > 0 ? `#${hashParts.join('#')}` : '';
-            return `${activeBlob}${extraHash}`;
+            resolved = `${activeBlob}${extraHash}`;
         }
     }
 
-    return url;
+    return resolved;
 }
 
 // Automatically initiate registry restore on client-side startup

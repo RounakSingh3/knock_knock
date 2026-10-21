@@ -1245,15 +1245,15 @@ const Boost: React.FC = () => {
                 throw new Error('Failed to upload media. Please try again.');
             }
 
-            // Upload poster in background without taking bandwidth away from main video
+            // Upload poster so story/post has instant thumbnail without video decoder overhead
             if (currentPosterBlob) {
-                const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
-                uploadMedia(posterFile, pPath).then(url => {
-                    uploadedPosterUrl = url;
-                }).catch(pe => {
+                try {
+                    const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                    const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
+                    uploadedPosterUrl = await uploadMedia(posterFile, pPath);
+                } catch (pe) {
                     console.warn('Poster upload skipped:', pe);
-                });
+                }
             }
 
             // Step 2: Compute effective link (Attached Knock Video for swipe feature or custom promo URL)
@@ -1266,11 +1266,14 @@ const Boost: React.FC = () => {
             // If user selected Explore Video / Ad post type, also publish to Explore & Home feed
             if (postType === 'explore') {
                 try {
+                    const exploreMediaUrl = uploadedPosterUrl && !uploadedPosterUrl.startsWith('data:')
+                        ? `${uploadedUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`
+                        : uploadedUrl;
                     await createNewPost({
                         user_id: user.id,
                         username: user.username || user.name,
                         avatar_url: user.avatar_url || 'https://i.pravatar.cc/150',
-                        image_url: uploadedUrl,
+                        image_url: exploreMediaUrl,
                         caption: caption.trim(),
                         attached_link: effectiveLink,
                         media_type: isVid ? 'video' : 'image',
@@ -1281,6 +1284,14 @@ const Boost: React.FC = () => {
                         music_artist: selectedTrack?.artist,
                         music_url: selectedTrack?.url,
                     });
+                    try {
+                        localStorage.removeItem('knock_home_posts_cache');
+                        localStorage.removeItem('knock_explore_posts_cache_v7');
+                        localStorage.removeItem('knock_explore_posts_cache_v8');
+                        localStorage.removeItem('knock_explore_trending_cache_v8');
+                        localStorage.removeItem('knock_explore_trending_cache_v9');
+                        sessionStorage.removeItem('knock_reels_instant_v1');
+                    } catch (_) {}
                 } catch (pe) {
                     console.warn('[handleLaunchBoostKnock] Explore post creation non-fatal:', pe);
                 }
