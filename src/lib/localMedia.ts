@@ -212,6 +212,50 @@ export function resolveLocalMediaUrl(url: string | null | undefined): string {
     return resolved;
 }
 
+/**
+ * Deletes any IndexedDB local media blobs and revokes Object URLs associated with a media URL.
+ */
+export async function deleteLocalMediaByUrl(url: string | null | undefined): Promise<void> {
+    if (!url) return;
+    const idsToDelete = new Set<string>();
+
+    const extractIds = (str: string) => {
+        const localMatch = str.match(/#LOCAL_ID:([^#]+)/);
+        if (localMatch && localMatch[1]) idsToDelete.add(localMatch[1]);
+        if (str.startsWith('local-media://')) {
+            const id = str.replace('local-media://', '').split('#')[0];
+            if (id) idsToDelete.add(id);
+        }
+    };
+
+    extractIds(url);
+    if (url.includes('#POSTER:')) {
+        try {
+            const posterRaw = decodeURIComponent(url.split('#POSTER:')[1]?.split('#')[0] || '');
+            if (posterRaw) extractIds(posterRaw);
+        } catch (_) {}
+    }
+
+    if (idsToDelete.size === 0) return;
+
+    idsToDelete.forEach(id => {
+        const blobUrl = localBlobUrlCache.get(id);
+        if (blobUrl) {
+            try { URL.revokeObjectURL(blobUrl); } catch (_) {}
+            localBlobUrlCache.delete(id);
+        }
+    });
+
+    try {
+        const db = await openMediaDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        idsToDelete.forEach(id => {
+            try { store.delete(id); } catch (_) {}
+        });
+    } catch (_) {}
+}
+
 // Automatically initiate registry restore on client-side startup
 if (typeof window !== 'undefined' && typeof indexedDB !== 'undefined') {
     initLocalMediaRegistry().catch(() => {});

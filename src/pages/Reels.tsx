@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Heart, MessageCircle, Send, ChevronLeft, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame } from 'lucide-react';
-import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, resolveLocalMediaUrl, toggleLike as toggleLikeDb, checkIfLikedBatch, isPostLikedLocally, getLocalLikes, getLocalComments, type PostData, type MessageData } from '../lib/database';
+import { Heart, MessageCircle, Send, ChevronLeft, Music, Play, Pause, Volume2, VolumeX, Link as LinkIcon, Flame, Trash2 } from 'lucide-react';
+import { fetchVideoPosts, fetchUserEngagements, trackEngagement, toggleImp, normalizePost, fetchPostById, resolveLocalMediaUrl, toggleLike as toggleLikeDb, checkIfLikedBatch, isPostLikedLocally, isPostDeletedLocally, deletePost, getLocalLikes, getLocalComments, type PostData, type MessageData } from '../lib/database';
 import { getCleanSongUrl, isVideoUrl, isVideoPost, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import { AppContext } from '../context/AppContext';
 import { audioPlayer } from '../lib/audioPlayer';
@@ -278,7 +278,7 @@ const Reels: React.FC = () => {
     const targetVideoUrl = searchParams.get('v') || searchParams.get('url');
     const targetCaption = searchParams.get('caption');
     const targetUser = searchParams.get('user');
-    const [reelsList, setReelsList] = useState<ReelData[]>(REELS_DATA);
+    const [reelsList, setReelsList] = useState<ReelData[]>(() => REELS_DATA.filter(r => !isPostDeletedLocally(String(r.id))));
     const [likedReels, setLikedReels] = useState<Set<string | number>>(() => {
         const set = new Set<string | number>();
         try {
@@ -380,8 +380,8 @@ const Reels: React.FC = () => {
 
             // Interleave userReels and REELS_DATA with author anti-clustering
             const merged: ReelData[] = [];
-            const pexelsPool = [...REELS_DATA];
-            const userPool = [...userReels];
+            const pexelsPool = REELS_DATA.filter(r => !isPostDeletedLocally(String(r.id)));
+            const userPool = userReels.filter(r => !isPostDeletedLocally(String(r.id)));
 
             // If user has recent reels, prioritize them first
             if (user) {
@@ -1624,6 +1624,39 @@ const Reels: React.FC = () => {
                                             />
                                             <span>{formatCount((reel.imps || 0) + (impedReels.has(reel.id) ? 1 : 0))}</span>
                                         </button>
+                                        {Boolean(
+                                            user && (
+                                                (reel.creator_id && user.id && reel.creator_id === user.id) ||
+                                                (reel.creator && user.username && reel.creator.replace(/^@+/, '').trim().toLowerCase() === user.username.replace(/^@+/, '').trim().toLowerCase())
+                                            )
+                                        ) && (
+                                            <button
+                                                className="reel-action-btn"
+                                                style={{ color: '#ff3b30' }}
+                                                onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    if (confirm('Delete this video permanently?')) {
+                                                        const cleanId = String(reel.id).replace(/_p\d+_\d+$/, '');
+                                                        await deletePost(cleanId);
+                                                        setRawReelPool(prev => prev.filter(r => String(r.id) !== String(reel.id) && String(r.id).replace(/_p\d+_\d+$/, '') !== cleanId));
+                                                        setReelsList(prev => {
+                                                            const next = prev.filter(r => String(r.id) !== String(reel.id) && String(r.id).replace(/_p\d+_\d+$/, '') !== cleanId);
+                                                            if (next.length === 0) {
+                                                                setSelectedReelIndex(null);
+                                                            } else if (activeIndex >= next.length) {
+                                                                setActiveIndex(Math.max(0, next.length - 1));
+                                                            }
+                                                            return next;
+                                                        });
+                                                    }
+                                                }}
+                                                title="Delete video"
+                                                aria-label="Delete"
+                                            >
+                                                <Trash2 size={24} color="#ff3b30" />
+                                                <span style={{ color: '#ff3b30' }}>Delete</span>
+                                            </button>
+                                        )}
                                         <div
                                             className="reel-disc"
                                             style={{ animationPlayState: idx === activeIndex && playStates[idx] ? 'running' : 'paused' }}

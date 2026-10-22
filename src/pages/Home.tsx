@@ -34,6 +34,7 @@ interface MasonryPostCardProps {
     isImped: boolean;
     likeCount: number;
     currentUserId?: string;
+    currentUsername?: string;
     onSelect: (post: PostData) => void;
     onDoubleTap: (post: PostData) => void;
     onLikeToggle: (postId: string) => void;
@@ -41,6 +42,7 @@ interface MasonryPostCardProps {
     onOpenChat: (userId: string) => void;
     onShare: (post: PostData) => void;
     onOpenComments: (postId: string) => void;
+    onDelete?: (postId: string) => void;
     onOpenConnectedVideo?: (post: PostData) => void;
     onObserveCard?: (node: HTMLDivElement | null, postId: string, category: string) => void;
 }
@@ -52,6 +54,7 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
     isImped,
     likeCount,
     currentUserId,
+    currentUsername,
     onSelect,
     onDoubleTap,
     onLikeToggle,
@@ -59,11 +62,16 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
     onOpenChat,
     onShare,
     onOpenComments,
+    onDelete,
     onOpenConnectedVideo,
     onObserveCard,
 }) => {
     const navigate = useNavigate();
     const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+    const isOwnPost = Boolean(
+        (currentUserId && post.user_id && post.user_id === currentUserId) ||
+        (currentUsername && post.username && post.username.replace(/^@+/, '').trim().toLowerCase() === currentUsername.replace(/^@+/, '').trim().toLowerCase())
+    );
 
     const handleCardTouchStart = (e: React.TouchEvent) => {
         if (e.touches[0]) {
@@ -147,6 +155,20 @@ const MasonryPostCard = React.memo<MasonryPostCardProps>(({
             >
                 <Flame size={16} fill={isImped ? '#ff4500' : 'none'} color={isImped ? '#ff4500' : 'var(--text-active)'} />
             </button>
+            {isOwnPost && onDelete && (
+                <button
+                    className="masonry-like-btn"
+                    style={{ top: '172px', right: '12px', border: '1px solid rgba(255,59,48,0.4)' }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(post.id);
+                    }}
+                    title="Delete post"
+                    aria-label="Delete post"
+                >
+                    <Trash2 size={15} color="#ff3b30" />
+                </button>
+            )}
             {currentUserId && post.user_id && post.user_id !== currentUserId && (
                 <div style={{ position: 'absolute', bottom: '144px', right: '8px', zIndex: 5 }}>
                     <VoiceReaction
@@ -662,6 +684,14 @@ const Home = () => {
     const handleOpenChat = useCallback((uid: string) => { setChatUserId(uid); setIsChatOpen(true); }, []);
     const handleSharePost = useCallback((p: PostData) => { setPostToShare(p); setIsShareOpen(true); }, []);
     const handleOpenComments = useCallback((pid: string) => { setCommentsPostId(pid); setIsCommentsOpen(true); }, []);
+    const handleDeleteCardPost = useCallback(async (postId: string) => {
+        if (!window.confirm('Delete this post permanently?')) return;
+        const cleanId = String(postId).replace(/_p\d+_\d+$/, '');
+        await deletePost(cleanId);
+        const notDeleted = (p: PostData) => p.id !== postId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanId;
+        setPosts(prev => prev.filter(notDeleted));
+        setUnifiedConnectionItems(prev => prev.filter(item => !item.post || notDeleted(item.post)));
+    }, []);
     const handleOpenConnectedVideo = useCallback((p: PostData) => {
         let link = p.attached_link;
         if (!link) {
@@ -942,6 +972,7 @@ const Home = () => {
                                     isImped={!!impedPosts[post.id]}
                                     likeCount={likeCounts[post.id] ?? post.likes_count ?? 0}
                                     currentUserId={user?.id}
+                                    currentUsername={user?.username}
                                     onSelect={handleSelectPost}
                                     onDoubleTap={handleDoubleTap}
                                     onLikeToggle={handleLikeToggle}
@@ -949,6 +980,7 @@ const Home = () => {
                                     onOpenChat={handleOpenChat}
                                     onShare={handleSharePost}
                                     onOpenComments={handleOpenComments}
+                                    onDelete={handleDeleteCardPost}
                                     onOpenConnectedVideo={handleOpenConnectedVideo}
                                     onObserveCard={observeCard}
                                 />
@@ -1031,8 +1063,16 @@ const Home = () => {
                         setImpCounts(prev => ({ ...prev, [postId]: Math.max(0, (prev[postId] || 0) + (imped ? 1 : -1)) }));
                     }}
                     onDelete={(postId) => {
-                        setPosts(prev => prev.filter(p => p.id !== postId));
-                        setActiveFeedState(null);
+                        const cleanId = String(postId).replace(/_p\d+_\d+$/, '');
+                        const notDeleted = (p: PostData) => p.id !== postId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanId;
+                        setPosts(prev => prev.filter(notDeleted));
+                        setUnifiedConnectionItems(prev => prev.filter(item => !item.post || notDeleted(item.post)));
+                        setActiveFeedState(prev => {
+                            if (!prev) return null;
+                            const remaining = prev.posts.filter(notDeleted);
+                            if (remaining.length === 0) return null;
+                            return { posts: remaining, index: Math.min(prev.index, remaining.length - 1) };
+                        });
                     }}
                     likedPosts={likedPosts}
                     impedPosts={impedPosts}

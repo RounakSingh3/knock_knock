@@ -1,13 +1,15 @@
 import { supabase } from './supabase';
 import { isVideoPost, isVideoUrl, getCleanSongUrl, type MediaType } from './media';
-import { createLocalFallbackMediaUrl, resolveLocalMediaUrl, initLocalMediaRegistry, storeLocalMedia, getLocalMedia } from './localMedia';
-export { createLocalFallbackMediaUrl, resolveLocalMediaUrl, initLocalMediaRegistry, storeLocalMedia, getLocalMedia };
+import { createLocalFallbackMediaUrl, resolveLocalMediaUrl, initLocalMediaRegistry, storeLocalMedia, getLocalMedia, deleteLocalMediaByUrl } from './localMedia';
+export { createLocalFallbackMediaUrl, resolveLocalMediaUrl, initLocalMediaRegistry, storeLocalMedia, getLocalMedia, deleteLocalMediaByUrl };
 import {
     isSupabaseQuotaRestricted,
     setSupabaseQuotaRestricted,
     isQuotaError,
     getLocalPosts,
     saveLocalPost,
+    removeLocalPost,
+    isPostDeletedLocally,
     updateLocalPostLikes,
     getLocalLikes,
     toggleLocalLike,
@@ -24,7 +26,7 @@ import {
     bumpLocalConnectionStreak,
     getLocalStories
 } from './fallbackData';
-export { isPostLikedLocally, getLocalLikes, getLocalComments };
+export { isPostLikedLocally, isPostDeletedLocally, getLocalLikes, getLocalComments };
 
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
@@ -138,7 +140,7 @@ export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
     };
 
     const isClean = (p: PostData): boolean => {
-        if (!p || !p.id || BROKEN_POST_IDS.has(p.id)) return false;
+        if (!p || !p.id || BROKEN_POST_IDS.has(p.id) || isPostDeletedLocally(p.id)) return false;
         const hasLocalId = Boolean(p.image_url && (p.image_url.includes('#LOCAL_ID:') || p.image_url.startsWith('local-media://')));
         if (p.image_url?.startsWith('blob:') && !hasLocalId) return false;
         if (isRemovedUser(p.user_id, p.username)) return false;
@@ -473,7 +475,7 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
                 if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
             } else {
                 dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => {
-                    if (!p) return false;
+                    if (!p || isPostDeletedLocally(p.id)) return false;
                     if (p.id?.startsWith('story-') || (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/')))) {
                         return false;
                     }
@@ -487,7 +489,7 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
 
     // Always fetch matching local posts (strictly user-created posts, excluding 24h stories)
     const localPosts = getLocalPosts().filter(p => {
-        if (!p || p.id?.startsWith('story-')) return false;
+        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id)) return false;
         if (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/'))) {
             return false;
         }
@@ -502,8 +504,9 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
     const mergedPosts: PostData[] = [];
 
     for (const p of [...dbPosts, ...localPosts]) {
-        if (p.id && !seenPostIds.has(p.id)) {
+        if (p.id && !seenPostIds.has(p.id) && !isPostDeletedLocally(p.id)) {
             seenPostIds.add(p.id);
+            p.image_url = resolveLocalMediaUrl(p.image_url);
             mergedPosts.push(p);
         }
     }
@@ -515,19 +518,21 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
     // Fallback: If no DB or local posts exist, check if this is a known reel creator from REEL_CREATOR_POSTS
     for (const u of candidateUsernames) {
         if (REEL_CREATOR_POSTS[u]) {
-            return REEL_CREATOR_POSTS[u].map((p, idx) => ({
-                id: `reel-${u}-${idx}`,
-                user_id: `creator-${u}`,
-                username: u,
-                avatar_url: `https://i.pravatar.cc/150?u=${u}`,
-                image_url: p.videoUrl,
-                caption: p.caption,
-                likes_count: 1200 + idx * 350,
-                media_type: 'video',
-                category: p.category,
-                music_title: p.song,
-                created_at: new Date().toISOString()
-            }));
+            return REEL_CREATOR_POSTS[u]
+                .map((p, idx) => ({
+                    id: `reel-${u}-${idx}`,
+                    user_id: `creator-${u}`,
+                    username: u,
+                    avatar_url: `https://i.pravatar.cc/150?u=${u}`,
+                    image_url: p.videoUrl,
+                    caption: p.caption,
+                    likes_count: 1200 + idx * 350,
+                    media_type: 'video' as const,
+                    category: p.category,
+                    music_title: p.song,
+                    created_at: new Date().toISOString()
+                }))
+                .filter(p => !isPostDeletedLocally(p.id));
         }
     }
 
@@ -957,7 +962,7 @@ export async function awardUploadPoints(userId: string, pointsAwarded: number, c
 
 export function normalizePost(post: PostData): PostData {
     if (!post) return null as any;
-    if (BROKEN_POST_IDS.has(post.id)) return null as any;
+    if (BROKEN_POST_IDS.has(post.id) || isPostDeletedLocally(post.id)) return null as any;
 
     // Filter out posts with empty, null, or invalid image_url, or non-portable blob/data URLs
     if (!post.image_url || typeof post.image_url !== 'string') return null as any;
@@ -1833,6 +1838,7 @@ export interface StoryData {
 
 export function normalizeStory(story: StoryData): StoryData {
     if (!story) return story;
+    if (story.id && isPostDeletedLocally(story.id)) return null as any;
     const rawUrl = story.image_url || '';
     const cleanBaseUrl = rawUrl.split('#')[0];
 
@@ -2064,7 +2070,7 @@ export function isSeedStory(s: any): boolean {
 }
 
 export function getFallbackStories(): StoryData[] {
-    const local = getLocalStories().filter(s => !isSeedStory(s));
+    const local = getLocalStories().filter(s => !isSeedStory(s) && !isPostDeletedLocally(s.id));
     if (typeof window === 'undefined' || !window.localStorage) return local;
     try {
         const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
@@ -2074,13 +2080,14 @@ export function getFallbackStories(): StoryData[] {
         const valid = parsed.filter(s => 
             s && s.id && 
             !isSeedStory(s) && 
+            !isPostDeletedLocally(s.id) &&
             s.created_at && 
             new Date(s.created_at).getTime() > twentyFourHoursAgo
         );
         if (valid.length !== parsed.length) {
             localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(valid));
         }
-        const normalized = valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s));
+        const normalized = valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s) && !isPostDeletedLocally(s.id));
         const seenIds = new Set(normalized.map(s => s.id));
         const merged = [...normalized, ...local.filter(s => !seenIds.has(s.id))];
         return merged;
@@ -2102,12 +2109,15 @@ export function saveFallbackStory(story: any) {
 }
 
 export function deleteFallbackStory(storyId: string) {
+    if (!storyId) return;
+    const cleanId = String(storyId).replace(/_p\d+_\d+$/, '');
+    removeLocalPost(cleanId);
     if (typeof window === 'undefined' || !window.localStorage) return;
     try {
         const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
         if (!raw) return;
         const existing: any[] = JSON.parse(raw);
-        const filtered = existing.filter(s => s && s.id !== storyId);
+        const filtered = existing.filter(s => s && s.id !== storyId && s.id !== cleanId);
         localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(filtered));
     } catch (e) {
         console.warn('Could not delete fallback story:', e);
@@ -2140,7 +2150,7 @@ export function deduplicateStories(storiesList: StoryData[]): StoryData[] {
 function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string): StoryData[] {
     const now = Date.now();
     const fallback = getFallbackStories().filter(s => {
-        if (isSeedStory(s)) return false;
+        if (isSeedStory(s) || isPostDeletedLocally(s.id)) return false;
         if (!s.created_at) return false;
         const msOld = now - new Date(s.created_at).getTime();
         return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
@@ -2148,7 +2158,7 @@ function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string)
     const filteredFallback = userIdFilter 
         ? fallback.filter(s => s.user_id === userIdFilter)
         : fallback;
-    const sanitizedDb = dbStories.filter(s => !isSeedStory(s));
+    const sanitizedDb = dbStories.filter(s => !isSeedStory(s) && !isPostDeletedLocally(s.id));
     const existingIds = new Set(sanitizedDb.map(s => s.id));
     const toAdd = filteredFallback.filter(s => !existingIds.has(s.id));
     return deduplicateStories([...toAdd, ...sanitizedDb]);
@@ -2594,16 +2604,36 @@ export async function updateStreak(userId: string, currentStreak: number, lastSt
 
 /** Delete a story by its ID */
 export async function deleteStory(storyId: string) {
-    deleteFallbackStory(storyId);
+    if (!storyId) return;
+    const cleanId = String(storyId).replace(/_p\d+_\d+$/, '');
+    try {
+        const stories = getFallbackStories();
+        const target = stories.find(s => s.id === storyId || s.id === cleanId);
+        if (target?.image_url) {
+            deleteLocalMediaByUrl(target.image_url);
+        }
+    } catch (_) {}
+
+    deleteFallbackStory(cleanId);
     invalidateCache('recent_stories');
     invalidateCache('24h_boost_stories');
 
-    const { error } = await supabase
-        .from('stories')
-        .delete()
-        .eq('id', storyId);
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('knock-post-deleted', { detail: { postId: cleanId } }));
+    }
 
-    if (error) console.error('Error deleting story:', error);
+    if (!isSupabaseQuotaRestricted()) {
+        try {
+            const { error } = await supabase
+                .from('stories')
+                .delete()
+                .eq('id', cleanId);
+
+            if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        } catch (err: any) {
+            if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        }
+    }
 }
 
 /**
@@ -4048,20 +4078,75 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
 
 /** Delete a post (only your own) */
 export async function deletePost(postId: string): Promise<boolean> {
+    if (!postId) return false;
+    const cleanId = String(postId).replace(/_p\d+_\d+$/, '');
     try {
         if (typeof window !== 'undefined') {
-            const posts = getLocalPosts().filter(p => p.id !== postId);
-            localStorage.setItem('knock_local_posts', JSON.stringify(posts));
-        }
-        const { error } = await supabase
-            .from('posts')
-            .delete()
-            .eq('id', postId);
+            // 1. Clean up IndexedDB media blob if present
+            try {
+                const existing = getLocalPosts();
+                const target = existing.find(p => p.id === postId || p.id === cleanId);
+                if (target?.image_url) {
+                    deleteLocalMediaByUrl(target.image_url);
+                }
+            } catch (_) {}
 
-        if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            // 2. Remove from _localPostsCache, knock_local_posts_v6, knock_local_posts, knock_local_stories, and blacklist ID
+            removeLocalPost(cleanId);
+            deleteFallbackStory(cleanId);
+
+            // 3. Purge from all localStorage feed caches so deleted post never flashes on reload
+            const lsCacheKeys = [
+                'knock_home_posts_cache',
+                'knock_explore_posts_cache_v7',
+                'knock_explore_posts_cache_v8',
+                'knock_explore_trending_cache_v8',
+                'knock_explore_trending_cache_v9',
+            ];
+            for (const key of lsCacheKeys) {
+                try {
+                    const raw = localStorage.getItem(key);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed)) {
+                            const filtered = parsed.filter((p: any) => p && p.id !== postId && p.id !== cleanId && String(p.id || '').replace(/_p\d+_\d+$/, '') !== cleanId);
+                            if (filtered.length !== parsed.length) {
+                                localStorage.setItem(key, JSON.stringify(filtered));
+                            }
+                        }
+                    }
+                } catch (_) {}
+            }
+
+            // 4. Purge from sessionStorage reels instant cache
+            try {
+                const rawReels = sessionStorage.getItem('knock_reels_instant_v1');
+                if (rawReels) {
+                    const parsedReels = JSON.parse(rawReels);
+                    if (Array.isArray(parsedReels)) {
+                        const filteredReels = parsedReels.filter((r: any) => r && r.id !== postId && r.id !== cleanId && String(r.id || '').replace(/_p\d+_\d+$/, '') !== cleanId);
+                        sessionStorage.setItem('knock_reels_instant_v1', JSON.stringify(filteredReels));
+                    }
+                }
+            } catch (_) {}
+
+            // 5. Broadcast deletion event to all mounted pages/components
+            window.dispatchEvent(new CustomEvent('knock-post-deleted', { detail: { postId: cleanId } }));
+        }
+
         invalidateCache();
+
+        if (!isSupabaseQuotaRestricted()) {
+            const { error } = await supabase
+                .from('posts')
+                .delete()
+                .eq('id', cleanId);
+
+            if (error && isQuotaError(error)) setSupabaseQuotaRestricted(true);
+        }
         return true;
     } catch (_) {
+        invalidateCache();
         return true;
     }
 }
@@ -4275,6 +4360,7 @@ export async function fetchTrendingPosts(
 
         const addPost = (raw: any, isFav: boolean = false) => {
             if (!raw || !raw.id || !raw.image_url) return;
+            if (isPostDeletedLocally(raw.id)) return;
             const hasLocalId = typeof raw.image_url === 'string' && (raw.image_url.includes('#LOCAL_ID:') || raw.image_url.startsWith('local-media://'));
             if (typeof raw.image_url === 'string' && ((raw.image_url.startsWith('blob:') && !hasLocalId) || raw.image_url.startsWith('data:'))) return;
             const norm = normalizePost(raw);

@@ -53,6 +53,7 @@ import {
     deduplicateStories,
     normalizeStory,
     storyToPostData,
+    deleteStory,
     type StoryData, 
     type UserStoryGroup,
     type PostData
@@ -2630,6 +2631,17 @@ const Boost: React.FC = () => {
                     onClose={() => setActiveFeedState(null)}
                     onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
                     onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
+                    onDelete={(deletedId) => {
+                        const cleanId = String(deletedId).replace(/_p\d+_\d+$/, '');
+                        deleteStory(cleanId);
+                        setStories(prev => prev.filter(s => s.id !== deletedId && String(s.id).replace(/_p\d+_\d+$/, '') !== cleanId));
+                        setActiveFeedState(prev => {
+                            if (!prev) return null;
+                            const remaining = prev.posts.filter(p => p.id !== deletedId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanId);
+                            if (remaining.length === 0) return null;
+                            return { posts: remaining, index: Math.min(prev.index, remaining.length - 1) };
+                        });
+                    }}
                 />
             )}
 

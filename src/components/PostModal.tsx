@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Heart, MessageCircle, Send, Link as LinkIcon, Trash2, Flame, Music, Volume2, VolumeX, Coins, Rocket, Check, Film, ChevronLeft } from 'lucide-react';
 import PostMedia from './PostMedia';
 import { AppContext } from '../context/AppContext';
-import { deletePost, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, isKnockVideoLink, parseKnockVideoLink, isPostLikedLocally, getLocalComments, type PostData } from '../lib/database';
+import { deletePost, deleteStory, checkIfLiked, toggleLike, toggleImp, fetchUserImps, givePointsToContent, isKnockVideoLink, parseKnockVideoLink, isPostLikedLocally, getLocalComments, type PostData } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
 import ConnectedVideoModal, { type ConnectedVideoData } from './ConnectedVideoModal';
 
@@ -541,19 +541,36 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                     <Coins size={26} color="#10b981" />
                     <span style={{ color: '#10b981' }}>Boost</span>
                 </button>
-                {user && post.user_id === user.id && onDelete && (
+                {Boolean(
+                    user && (
+                        (post.user_id && user.id && post.user_id === user.id) ||
+                        (post.username && user.username && post.username.replace(/^@+/, '').trim().toLowerCase() === user.username.replace(/^@+/, '').trim().toLowerCase())
+                    )
+                ) && (
                     <button
                         className="post-side-action-btn"
                         style={{ color: '#ff3b30' }}
-                        onClick={async () => {
-                            if (confirm('Delete this post?')) {
+                        onClick={async (e) => {
+                            e.stopPropagation();
+                            if (confirm('Delete this post permanently?')) {
                                 const ok = await deletePost(post.id);
-                                if (ok) onDelete(post.id);
+                                if (String(post.id).startsWith('story-')) {
+                                    await deleteStory(post.id);
+                                }
+                                if (ok) {
+                                    if (onDelete) {
+                                        onDelete(post.id);
+                                    } else {
+                                        onClose();
+                                    }
+                                }
                             }
                         }}
+                        title="Delete post"
                         aria-label="Delete"
                     >
                         <Trash2 size={24} color="#ff3b30" />
+                        <span style={{ color: '#ff3b30' }}>Delete</span>
                     </button>
                 )}
             </div>

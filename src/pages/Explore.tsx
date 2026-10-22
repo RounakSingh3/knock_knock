@@ -1160,6 +1160,20 @@ const Explore = () => {
                     onClose={() => setActiveFeedState(null)}
                     onCommentClick={(postId) => { setCommentsPostId(postId); setIsCommentsOpen(true); }}
                     onShareClick={(post) => { setPostToShare(post); setIsShareOpen(true); }}
+                    onDelete={(deletedId) => {
+                        const cleanId = String(deletedId).replace(/_p\d+_\d+$/, '');
+                        const notDeleted = (p: PostData) => p.id !== deletedId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanId;
+                        setDiscoverPosts(prev => prev.filter(notDeleted));
+                        setTrendingPosts(prev => prev.filter(notDeleted));
+                        setPostResults(prev => prev.filter(notDeleted));
+                        rawPostsCacheRef.current = rawPostsCacheRef.current.filter((p: any) => p && notDeleted(p));
+                        setActiveFeedState(prev => {
+                            if (!prev) return null;
+                            const remaining = prev.posts.filter(notDeleted);
+                            if (remaining.length === 0) return null;
+                            return { posts: remaining, index: Math.min(prev.index, remaining.length - 1) };
+                        });
+                    }}
                 />
             )}
 

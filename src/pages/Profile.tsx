@@ -144,15 +144,24 @@ const Profile = () => {
         await toggleImp(currentUser.id, selectedPost.id, selectedPostImped);
     };
 
-    const handleDeleteSelectedPost = async () => {
-        if (!currentUser || !selectedPost) return;
-        if (window.confirm('Delete this post?')) {
-            const ok = await deletePost(selectedPost.id);
+    const handleDeletePostById = async (postId: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (!currentUser || !postId) return;
+        if (window.confirm('Delete this post permanently?')) {
+            const cleanId = String(postId).replace(/_p\d+_\d+$/, '');
+            const ok = await deletePost(cleanId);
             if (ok) {
-                setPosts(prev => prev.filter(p => p.id !== selectedPost.id));
-                setSelectedPost(null);
+                setPosts(prev => prev.filter(p => p.id !== postId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanId));
+                if (selectedPost && (selectedPost.id === postId || String(selectedPost.id).replace(/_p\d+_\d+$/, '') === cleanId)) {
+                    setSelectedPost(null);
+                }
             }
         }
+    };
+
+    const handleDeleteSelectedPost = async () => {
+        if (!selectedPost) return;
+        await handleDeletePostById(selectedPost.id);
     };
 
     const isBlocked = profile ? blockedIds.includes(profile.id) : false;
@@ -1049,6 +1058,36 @@ const Profile = () => {
                                             <Send size={13} />
                                         </button>
 
+                                        {/* Quick Delete Post / Video Button directly on own profile card */}
+                                        {isOwnProfile && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleDeletePostById(post.id, e)}
+                                                title={isVideo ? "Delete Video" : "Delete Photo"}
+                                                aria-label="Delete"
+                                                style={{
+                                                    position: 'absolute',
+                                                    bottom: '6px',
+                                                    right: '6px',
+                                                    zIndex: 6,
+                                                    background: 'rgba(0,0,0,0.72)',
+                                                    backdropFilter: 'blur(8px)',
+                                                    border: '1px solid rgba(255,59,48,0.45)',
+                                                    borderRadius: '50%',
+                                                    width: '28px',
+                                                    height: '28px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    color: '#ff3b30',
+                                                    cursor: 'pointer',
+                                                    boxShadow: '0 2px 6px rgba(0,0,0,0.4)'
+                                                }}
+                                            >
+                                                <Trash2 size={13} color="#ff3b30" />
+                                            </button>
+                                        )}
+
                                         {isVideo && (
                                             <div
                                                 style={{
@@ -1263,6 +1302,30 @@ const Profile = () => {
                                     >
                                         {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
                                     </button>
+                                    {isOwnProfile && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleDeletePostById(selectedPost.id, e)}
+                                            title="Delete Post"
+                                            aria-label="Delete Post"
+                                            style={{
+                                                width: '34px',
+                                                height: '34px',
+                                                borderRadius: '50%',
+                                                background: 'rgba(255, 59, 48, 0.18)',
+                                                backdropFilter: 'blur(8px)',
+                                                WebkitBackdropFilter: 'blur(8px)',
+                                                border: '1px solid rgba(255, 59, 48, 0.45)',
+                                                color: '#ff3b30',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            <Trash2 size={17} color="#ff3b30" />
+                                        </button>
+                                    )}
                                     <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
                                         <X size={22} />
                                     </button>

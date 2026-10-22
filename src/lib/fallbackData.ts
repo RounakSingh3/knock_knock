@@ -6651,9 +6651,9 @@ export function getLocalStories(): StoryData[] {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
                 const now = Date.now();
-                // Filter out any mock/seed stories and expired stories (> 24 hours)
+                // Filter out any mock/seed stories, deleted stories, and expired stories (> 24 hours)
                 const realStories = parsed.filter((s: StoryData) => {
-                    if (!s || !s.id) return false;
+                    if (!s || !s.id || isPostDeletedLocally(s.id)) return false;
                     if (
                         s.id.startsWith('story-coral-') ||
                         s.id.startsWith('story-fav-') ||
@@ -6918,10 +6918,70 @@ export function bumpLocalConnectionStreak(connectionId: string): number {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'knock_local_posts_v6';
+const DELETED_POSTS_KEY = 'knock_deleted_post_ids_v1';
 const FAKE_ACCOUNTS = new Set(['bollywood_superstars', 'baklol_kumar', 'meme_hub_insta', 'epic_fun_page', 'relatable_postss']);
 
 // ⚡ In-memory cache so getLocalPosts() executes in O(1) without synchronous JSON.parse / localStorage.setItem on every read
 let _localPostsCache: PostData[] | null = null;
+let _deletedPostIdsCache: Set<string> | null = null;
+
+export function getDeletedPostIds(): Set<string> {
+    if (_deletedPostIdsCache) return _deletedPostIdsCache;
+    _deletedPostIdsCache = new Set<string>();
+    if (typeof window === 'undefined') return _deletedPostIdsCache;
+    try {
+        const raw = localStorage.getItem(DELETED_POSTS_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                parsed.forEach(id => {
+                    if (id !== undefined && id !== null) {
+                        _deletedPostIdsCache!.add(String(id));
+                    }
+                });
+            }
+        }
+    } catch (_) {}
+    return _deletedPostIdsCache;
+}
+
+export function isPostDeletedLocally(postId?: string | number | null): boolean {
+    if (postId === undefined || postId === null) return false;
+    const rawStr = String(postId);
+    const cleanStr = rawStr.replace(/_p\d+_\d+$/, '');
+    const deleted = getDeletedPostIds();
+    return deleted.has(rawStr) || deleted.has(cleanStr);
+}
+
+export function removeLocalPost(postId: string | number): void {
+    try {
+        if (typeof window === 'undefined') return;
+        const rawStr = String(postId);
+        const cleanStr = rawStr.replace(/_p\d+_\d+$/, '');
+        const deleted = getDeletedPostIds();
+        deleted.add(rawStr);
+        deleted.add(cleanStr);
+        try {
+            localStorage.setItem(DELETED_POSTS_KEY, JSON.stringify(Array.from(deleted)));
+        } catch (_) {}
+
+        const posts = getLocalPosts();
+        const updated = posts.filter(p => String(p.id) !== rawStr && String(p.id) !== cleanStr);
+        persistLocalPosts(updated);
+
+        // Also remove from knock_local_stories if present
+        try {
+            const storedStories = localStorage.getItem('knock_local_stories');
+            if (storedStories) {
+                const parsedStories = JSON.parse(storedStories);
+                if (Array.isArray(parsedStories)) {
+                    const filteredStories = parsedStories.filter((s: any) => s && String(s.id) !== rawStr && String(s.id) !== cleanStr);
+                    localStorage.setItem('knock_local_stories', JSON.stringify(filteredStories));
+                }
+            }
+        } catch (_) {}
+    } catch (_) {}
+}
 
 function persistLocalPosts(posts: PostData[]): void {
     _localPostsCache = posts;
@@ -6935,17 +6995,18 @@ function persistLocalPosts(posts: PostData[]): void {
 
 export function getLocalPosts(): PostData[] {
     if (_localPostsCache) {
-        return _localPostsCache;
+        return _localPostsCache.filter(p => !isPostDeletedLocally(p.id));
     }
     try {
-        if (typeof window === 'undefined') return SEED_POSTS;
+        const deleted = getDeletedPostIds();
+        if (typeof window === 'undefined') return SEED_POSTS.filter(s => !deleted.has(s.id));
         const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('knock_local_posts');
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
-                // Filter out obsolete generic mock seed IDs, but preserve ALL user-created posts and real uploads
+                // Filter out obsolete generic mock seed IDs and deleted posts, but preserve ALL user-created posts and real uploads
                 const cleaned = parsed.filter((p: PostData) => {
-                    if (!p) return false;
+                    if (!p || !p.id || isPostDeletedLocally(p.id)) return false;
                     // Exclude any 24h stories or story posters from permanent posts
                     if (p.id?.startsWith('story-') || (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/')))) {
                         return false;
@@ -6970,7 +7031,7 @@ export function getLocalPosts(): PostData[] {
                     return p;
                 });
                 const existingIds = new Set(updatedCleaned.map((p: PostData) => p.id));
-                const missingSeeds = SEED_POSTS.filter(s => !existingIds.has(s.id));
+                const missingSeeds = SEED_POSTS.filter(s => !existingIds.has(s.id) && !isPostDeletedLocally(s.id));
                 const merged = [...updatedCleaned, ...missingSeeds];
                 _localPostsCache = merged;
                 if (missingSeeds.length > 0 || cleaned.length !== parsed.length) {
@@ -6982,8 +7043,9 @@ export function getLocalPosts(): PostData[] {
     } catch (_) {}
 
     // Initialize storage with authentic posts
-    persistLocalPosts(SEED_POSTS);
-    return SEED_POSTS;
+    const initialSeeds = SEED_POSTS.filter(s => !isPostDeletedLocally(s.id));
+    persistLocalPosts(initialSeeds);
+    return initialSeeds;
 }
 
 export function saveLocalPost(post: PostData): void {

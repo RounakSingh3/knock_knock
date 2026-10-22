@@ -362,7 +362,24 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                                 onShareClick={onShareClick} 
                                 onLikeToggle={onLikeToggle}
                                 onImpToggle={onImpToggle}
-                                onDelete={onDelete}
+                                onDelete={(deletedId) => {
+                                    const cleanDeleted = String(deletedId).replace(/_p\d+_\d+$/, '');
+                                    setDisplayPosts(prev => {
+                                        const next = prev.filter(p => p.id !== deletedId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanDeleted);
+                                        if (next.length === 0) {
+                                            setTimeout(() => onClose(), 0);
+                                        } else {
+                                            const nextIdx = Math.min(index, next.length - 1);
+                                            const nextPost = next[nextIdx];
+                                            if (nextPost) {
+                                                setActivePostId(nextPost.id);
+                                                setCurrentIndex(nextIdx);
+                                            }
+                                        }
+                                        return next;
+                                    });
+                                    if (onDelete) onDelete(deletedId);
+                                }}
                                 isEmbedded={true}
                                 isActive={post.id === activePostId}
                                 isMuted={isGlobalMuted}
