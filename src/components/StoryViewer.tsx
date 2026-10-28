@@ -347,13 +347,18 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
     useEffect(() => {
         if (bgAudioRef.current) {
             bgAudioRef.current.muted = musicMuted;
+            bgAudioRef.current.volume = isVideo ? 0.35 : 1;
             if (isPaused || !audioPlaying) {
                 bgAudioRef.current.pause();
             } else {
                 bgAudioRef.current.play().catch(e => {
                     console.warn('[StoryViewer] Audio play blocked, waiting for tap:', e);
                     const onStoryTap = () => {
-                        bgAudioRef.current?.play().catch(() => {});
+                        if (bgAudioRef.current) {
+                            bgAudioRef.current.muted = false;
+                            bgAudioRef.current.volume = isVideo ? 0.35 : 1;
+                            bgAudioRef.current.play().catch(() => {});
+                        }
                         window.removeEventListener('click', onStoryTap);
                         window.removeEventListener('touchstart', onStoryTap);
                     };
@@ -362,7 +367,13 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 });
             }
         }
-    }, [isPaused, audioPlaying, musicMuted, currentStory]);
+        if (storyVideoRef.current) {
+            storyVideoRef.current.muted = musicMuted;
+            if (!musicMuted) {
+                storyVideoRef.current.volume = 1;
+            }
+        }
+    }, [isPaused, audioPlaying, musicMuted, currentStory, isVideo]);
 
     // Reset state when story changes
     useEffect(() => {
@@ -371,9 +382,27 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
         setAudioPlaying(true);
         setIsPaused(false);
         setVideoHasVisual(true);
-        if (storyVideoRef.current) {
-            storyVideoRef.current.currentTime = 0;
-            storyVideoRef.current.play().catch(() => {});
+        const vid = storyVideoRef.current;
+        if (vid) {
+            vid.currentTime = 0;
+            vid.muted = musicMuted;
+            vid.volume = 1;
+            vid.play().catch(() => {
+                // Fallback to muted play if browser autoplay policy requires gesture, then unmute on first tap
+                vid.muted = true;
+                vid.play().catch(() => {});
+                const unmuteOnTap = () => {
+                    if (storyVideoRef.current && !musicMuted) {
+                        storyVideoRef.current.muted = false;
+                        storyVideoRef.current.volume = 1;
+                        storyVideoRef.current.play().catch(() => {});
+                    }
+                    window.removeEventListener('click', unmuteOnTap, { capture: true });
+                    window.removeEventListener('touchstart', unmuteOnTap, { capture: true });
+                };
+                window.addEventListener('click', unmuteOnTap, { once: true, capture: true });
+                window.addEventListener('touchstart', unmuteOnTap, { once: true, capture: true });
+            });
         }
     }, [currentStory]);
 
@@ -383,10 +412,12 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             if (isPaused) {
                 storyVideoRef.current.pause();
             } else {
+                storyVideoRef.current.muted = musicMuted;
+                if (!musicMuted) storyVideoRef.current.volume = 1;
                 storyVideoRef.current.play().catch(() => {});
             }
         }
-    }, [isPaused]);
+    }, [isPaused, musicMuted]);
 
     const toggleAudioPlay = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -514,6 +545,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
 
     // Swipe & Gesture Navigation Handlers
     const handleTouchStart = (e: React.TouchEvent) => {
+        if ((e.target as HTMLElement).closest('button, a, .story-header, .story-caption-overlay, .connected-video-player')) return;
         if (e.touches[0]) {
             touchStartPosRef.current = {
                 x: e.touches[0].clientX,
@@ -767,6 +799,16 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                             <span>Convert Knockup</span>
                         </button>
                     )}
+                    {(isVideo || currentStory.music_url || currentStory.music_title) && (
+                        <button
+                            onClick={toggleMute}
+                            className="icon-btn"
+                            title={musicMuted ? 'Unmute audio' : 'Mute audio'}
+                            style={{ marginRight: 12 }}
+                        >
+                            {musicMuted ? <VolumeX size={24} color="#f5a524" /> : <Volume2 size={24} color="var(--text-active)" />}
+                        </button>
+                    )}
                     {isOwner && (
                         <button onClick={handleDelete} className="icon-btn" style={{ marginRight: 15 }}>
                             <Trash2 size={24} color="var(--text-active)" />
@@ -788,7 +830,7 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                         autoPlay
                         preload="auto"
                         playsInline
-                        muted={Boolean(currentStory.music_url || currentStory.music_title)}
+                        muted={musicMuted}
                         className="story-image"
                         onWaiting={() => setIsStoryBuffering(true)}
                         onPlaying={() => setIsStoryBuffering(false)}

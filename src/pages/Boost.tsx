@@ -908,22 +908,30 @@ const Boost: React.FC = () => {
             }
 
             let stream: MediaStream;
+            const wantAudio = mode === 'video';
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: 'user', width: { ideal: 1280 } },
-                    audio: mode === 'video'
+                    audio: wantAudio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false
                 });
             } catch (mediaErr) {
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({ 
                         video: { facingMode: 'user' },
-                        audio: false 
+                        audio: wantAudio
                     });
                 } catch {
-                    stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: true,
-                        audio: false 
-                    });
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ 
+                            video: true,
+                            audio: wantAudio
+                        });
+                    } catch {
+                        stream = await navigator.mediaDevices.getUserMedia({ 
+                            video: true,
+                            audio: false 
+                        });
+                    }
                 }
             }
             streamRef.current = stream;
@@ -1025,9 +1033,36 @@ const Boost: React.FC = () => {
         }
     };
 
-    const startVideoRecording = () => {
+    const startVideoRecording = async () => {
         if (!videoRef.current || !videoRef.current.srcObject) return;
         const stream = videoRef.current.srcObject as MediaStream;
+
+        // Ensure microphone audio track is attached and enabled before recording
+        if (stream.getAudioTracks().length === 0 && navigator.mediaDevices?.getUserMedia) {
+            try {
+                const audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+                });
+                audioStream.getAudioTracks().forEach(track => {
+                    track.enabled = true;
+                    stream.addTrack(track);
+                });
+            } catch {
+                try {
+                    const fallbackAudio = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    fallbackAudio.getAudioTracks().forEach(track => {
+                        track.enabled = true;
+                        stream.addTrack(track);
+                    });
+                } catch {
+                    // Proceed with video-only if microphone permission is denied
+                }
+            }
+        } else {
+            stream.getAudioTracks().forEach(track => {
+                track.enabled = true;
+            });
+        }
 
         let mimeType = 'video/webm';
         if (typeof MediaRecorder !== 'undefined') {
@@ -2155,8 +2190,12 @@ const Boost: React.FC = () => {
                                                     src={capturedMediaUrl}
                                                     autoPlay
                                                     loop
-                                                    muted
+                                                    controls
                                                     playsInline
+                                                    onLoadedMetadata={(e) => {
+                                                        e.currentTarget.muted = false;
+                                                        e.currentTarget.volume = 1;
+                                                    }}
                                                     style={{
                                                         width: '100%', height: '100%', objectFit: 'cover',
                                                         filter: FILTERS[activeFilterIndex].style

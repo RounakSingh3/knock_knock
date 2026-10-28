@@ -92,13 +92,26 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
     useEffect(() => {
         const v = videoRef.current;
         if (!v || !currentVideoSrc) return;
+        v.muted = false;
+        v.volume = 1;
         const playPromise = v.play();
         if (playPromise !== undefined) {
             playPromise.catch((err) => {
                 if (err.name === 'AbortError') return;
-                console.warn('[ConnectedVideoModal] Autoplay muted fallback:', err);
+                console.warn('[ConnectedVideoModal] Autoplay muted fallback until tap:', err);
                 v.muted = true;
                 v.play().catch(() => {});
+                const unmuteOnTap = () => {
+                    if (videoRef.current) {
+                        videoRef.current.muted = false;
+                        videoRef.current.volume = 1;
+                        videoRef.current.play().catch(() => {});
+                    }
+                    window.removeEventListener('click', unmuteOnTap, { capture: true });
+                    window.removeEventListener('touchstart', unmuteOnTap, { capture: true });
+                };
+                window.addEventListener('click', unmuteOnTap, { once: true, capture: true });
+                window.addEventListener('touchstart', unmuteOnTap, { once: true, capture: true });
             });
         }
         return () => {

@@ -544,18 +544,31 @@ const Reels: React.FC = () => {
                     if (!v) return;
                     const reel = reelsList[idx];
                     const hasMusic = Boolean(reel?.musicUrl);
-                    v.muted = hasMusic ? true : mutedAll;
+                    const shouldMuteVideo = (hasMusic && !reel?.is_user_upload) ? true : mutedAll;
+                    v.muted = shouldMuteVideo;
+                    if (!shouldMuteVideo) v.volume = 1;
                     if (idx === selectedReelIndex) {
                         if (v.paused) {
                             const playPromise = v.play();
                             if (playPromise !== undefined) {
                                 playPromise.then(() => primeNextVideo(selectedReelIndex)).catch((err) => {
                                     if (err.name === 'AbortError') return;
-                                    console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
-                                    setMutedAll(true);
-                                    setFeedMutedPreference(true);
+                                    console.warn('[Reels] Autoplay rejected, falling back to muted play until tap:', err);
                                     v.muted = true;
                                     v.play().then(() => primeNextVideo(selectedReelIndex)).catch(() => {});
+                                    const unmuteOnTap = () => {
+                                        const curVid = videoRefs.current[activeIndexRef.current];
+                                        const curReel = reelsList[activeIndexRef.current];
+                                        if (curVid && !mutedAll) {
+                                            curVid.muted = (Boolean(curReel?.musicUrl) && !curReel?.is_user_upload);
+                                            curVid.volume = 1;
+                                            curVid.play().catch(() => {});
+                                        }
+                                        window.removeEventListener('click', unmuteOnTap, { capture: true });
+                                        window.removeEventListener('touchstart', unmuteOnTap, { capture: true });
+                                    };
+                                    window.addEventListener('click', unmuteOnTap, { once: true, capture: true });
+                                    window.addEventListener('touchstart', unmuteOnTap, { once: true, capture: true });
                                 });
                             }
                         } else {
@@ -568,6 +581,7 @@ const Reels: React.FC = () => {
                 audioRefs.current.forEach((a, idx) => {
                     if (!a) return;
                     a.muted = mutedAll;
+                    a.volume = reelsList[idx]?.is_user_upload ? 0.35 : 1;
                     if (idx === selectedReelIndex && !mutedAll) {
                         playReelAudio(a);
                     } else if (!a.paused) {
@@ -605,11 +619,13 @@ const Reels: React.FC = () => {
 
         const reel = reelsList[idx];
         const hasMusic = Boolean(reel?.musicUrl);
+        const shouldMuteVideo = (hasMusic && !reel?.is_user_upload) ? true : mutedAll;
 
         // Immediate zero-latency play on target video
         const targetVideo = videoRefs.current[idx];
         if (targetVideo) {
-            targetVideo.muted = hasMusic ? true : mutedAll;
+            targetVideo.muted = shouldMuteVideo;
+            if (!shouldMuteVideo) targetVideo.volume = 1;
             if (targetVideo.paused) {
                 const playPromise = targetVideo.play();
                 if (playPromise !== undefined) {
@@ -617,11 +633,20 @@ const Reels: React.FC = () => {
                         primeNextVideo(idx);
                     }).catch((err) => {
                         if (err.name === 'AbortError') return;
-                        console.warn('[Reels] Autoplay rejected, falling back to muted play:', err);
-                        setMutedAll(true);
-                        setFeedMutedPreference(true);
+                        console.warn('[Reels] Autoplay rejected, falling back to muted play until tap:', err);
                         targetVideo.muted = true;
                         targetVideo.play().then(() => primeNextVideo(idx)).catch(() => {});
+                        const unmuteOnTap = () => {
+                            if (targetVideo && !mutedAll) {
+                                targetVideo.muted = shouldMuteVideo;
+                                targetVideo.volume = 1;
+                                targetVideo.play().catch(() => {});
+                            }
+                            window.removeEventListener('click', unmuteOnTap, { capture: true });
+                            window.removeEventListener('touchstart', unmuteOnTap, { capture: true });
+                        };
+                        window.addEventListener('click', unmuteOnTap, { once: true, capture: true });
+                        window.addEventListener('touchstart', unmuteOnTap, { once: true, capture: true });
                     });
                 }
             } else {
@@ -640,6 +665,7 @@ const Reels: React.FC = () => {
         audioRefs.current.forEach((a, i) => {
             if (a) {
                 a.muted = mutedAll;
+                a.volume = reelsList[i]?.is_user_upload ? 0.35 : 1;
                 if (i === idx && !mutedAll) {
                     playReelAudio(a);
                 } else if (!a.paused) {
@@ -1247,13 +1273,16 @@ const Reels: React.FC = () => {
                                 }
                                 videoRefs.current.forEach((v, vIdx) => {
                                     if (v) {
-                                        const hasMusic = Boolean(reelsList[vIdx]?.musicUrl);
-                                        v.muted = hasMusic ? true : newMuted;
+                                        const rItem = reelsList[vIdx];
+                                        const hasMusic = Boolean(rItem?.musicUrl);
+                                        v.muted = (hasMusic && !rItem?.is_user_upload) ? true : newMuted;
+                                        if (!v.muted) v.volume = 1;
                                     }
                                 });
                                 audioRefs.current.forEach((a, idx) => {
                                     if (!a) return;
                                     a.muted = newMuted;
+                                    a.volume = reelsList[idx]?.is_user_upload ? 0.35 : 1;
                                     if (idx === activeIndex) {
                                         if (newMuted) {
                                             a.pause();
@@ -1326,7 +1355,7 @@ const Reels: React.FC = () => {
                                                 disableRemotePlayback={true}
                                                 preload={idx === activeIndex || idx === activeIndex + 1 ? 'auto' : 'metadata'}
                                                 autoPlay={idx === selectedReelIndex}
-                                                muted={Boolean(reel.musicUrl) || mutedAll}
+                                                muted={(Boolean(reel.musicUrl) && !reel.is_user_upload) || mutedAll}
                                                 className="reel-video"
                                                 style={{
                                                     filter: reel.css_filter || 'none',

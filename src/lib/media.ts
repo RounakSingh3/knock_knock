@@ -182,8 +182,8 @@ export function getCleanSongUrl(musicTitle?: string | null, musicUrl?: string | 
     return undefined;
 }
 
-// Global session preference for feed audio (Instagram-style continuity: start muted to guarantee browser autoplay)
-let _isFeedMuted = true;
+// Global session preference for feed audio (default unmuted so uploaded video voice & audio are always heard)
+let _isFeedMuted = false;
 
 export function getFeedMutedPreference(): boolean {
     return _isFeedMuted;

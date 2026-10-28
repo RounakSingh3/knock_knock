@@ -459,15 +459,12 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         }
     }, [userWantsAudio]);
 
-    // If post has a music track, the video element should be muted so only the song plays!
-    // If post does not have music, the video's own sound plays when soundOn / unmuted.
-    const effectiveMuted = hasMusic 
-        ? true 
-        : (muted !== undefined ? muted : (soundOn ? false : true));
+    // Always allow original video audio (voice) to play when unmuted / soundOn, even if background music is also attached!
+    const effectiveMuted = muted !== undefined ? muted : (soundOn ? false : true);
 
     // Fallback-aware DOM muted state:
     // When user explicitly wants sound, bypass isAutoplayFallbackMuted entirely!
-    const domMuted = hasMusic ? true : (userWantsAudio ? false : (isAutoplayFallbackMuted || effectiveMuted));
+    const domMuted = userWantsAudio ? false : (isAutoplayFallbackMuted || effectiveMuted);
     const isAudioActive = userWantsAudio || (autoPlay && !domMuted);
 
     // Resolve missing or unknown music_url from music_title via iTunes API only if active and needed
@@ -513,7 +510,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         const video = videoRef.current;
         if (video) {
-            video.muted = hasMusic ? true : false;
+            video.muted = false;
             video.volume = 1;
             if (video.paused && !playPromiseRef.current) {
                 const p = video.play();
@@ -531,7 +528,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
         const audio = audioRef.current;
         if (audio && hasMusic && resolvedMusicUrl) {
             audio.muted = false;
-            audio.volume = 1;
+            audio.volume = isVideo ? 0.35 : 1;
             if (audio.paused) {
                 audio.play().catch(() => {
                     try {
@@ -544,7 +541,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 audioPlayer.play(resolvedMusicUrl);
             } catch (_) {}
         }
-    }, [hasMusic, resolvedMusicUrl, onMuteChange]);
+    }, [hasMusic, isVideo, resolvedMusicUrl, onMuteChange]);
 
     // When audio is blocked by browser autoplay policy, listen for any user tap anywhere to seamlessly unmute
     useEffect(() => {
@@ -717,8 +714,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             return;
         }
 
-        // Single tap — if audio was blocked, unmute on tap
-        if (isAudioBlocked) {
+        // Single tap — if audio was blocked or video is currently muted, unmute on tap so user immediately hears voice
+        if (isAudioBlocked || domMuted || (videoRef.current && videoRef.current.muted)) {
             handleUnmute(e);
             return;
         }
@@ -771,7 +768,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
 
         if (shouldPlayAudio) {
             audio.muted = false;
-            audio.volume = 1;
+            audio.volume = isVideo ? 0.35 : 1;
             const playPromise = audio.play();
             if (playPromise !== undefined) {
                 playPromise
