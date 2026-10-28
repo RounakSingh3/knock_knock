@@ -160,8 +160,11 @@ export async function createLocalFallbackMediaUrl(
     customExt?: string
 ): Promise<{ fallbackUrl: string; id: string; activeBlobUrl: string }> {
     const isVid = file.type.startsWith('video/') || (file instanceof File && /\.(mp4|webm|mov|m4v|mkv|avi)/i.test(file.name));
-    const rawExt = customExt || (file instanceof File ? file.name.split('.').pop() : '') || (isVid ? 'mp4' : 'jpg');
-    const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
+    const rawExt = customExt || (file instanceof File && file.name.includes('.') ? file.name.split('.').pop() : '') || (isVid ? 'mp4' : 'jpg');
+    const cleanExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const ext = /^(mp4|webm|mov|m4v|mkv|avi|jpg|jpeg|png|webp|gif|bmp|mp3|wav|ogg|m4a|aac)$/i.test(cleanExt)
+        ? cleanExt
+        : (isVid ? 'mp4' : 'jpg');
     const id = `local-media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
     const activeBlobUrl = await storeLocalMedia(id, file);

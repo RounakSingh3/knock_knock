@@ -1962,22 +1962,34 @@ export function normalizeStory(story: StoryData): StoryData {
         boost_meta.screensDelivered = Math.min(boost_meta.targetScreens, screensDelivered);
     }
 
-    // 5. Preserve local media fallback tags (#LOCAL_ID:xxx and #video.mp4)
+    // 5. Preserve local media fallback tags (#LOCAL_ID:xxx, #video.mp4, #POSTER:, #LINK:, #MUSIC:, #BOOST:)
     const localIdMatch = rawUrl.match(/#LOCAL_ID:([^#]+)/);
-    const hasVideoTag = rawUrl.includes('#video.mp4') || rawUrl.includes('#video.webm');
+    const hasVideoTag =
+        rawUrl.includes('#video.mp4') ||
+        rawUrl.includes('#video.webm') ||
+        (story as any).media_type === 'video' ||
+        isVideoUrl(rawUrl);
 
     let finalImageUrl = cleanBaseUrl;
     if (localIdMatch) {
         finalImageUrl = `${finalImageUrl}#LOCAL_ID:${localIdMatch[1]}`;
     }
-    if (hasVideoTag) {
+    if (hasVideoTag && !/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(cleanBaseUrl)) {
+        finalImageUrl = `${finalImageUrl}#video.mp4`;
+    } else if (rawUrl.includes('#video.mp4')) {
         finalImageUrl = `${finalImageUrl}#video.mp4`;
     }
     if (poster_url) {
         finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(poster_url)}`;
     }
+    if (music_url) {
+        finalImageUrl = `${finalImageUrl}#MUSIC:${encodeURIComponent(music_url)}|${encodeURIComponent(music_title || '')}|${encodeURIComponent(music_artist || '')}`;
+    }
     if (link_url) {
         finalImageUrl = `${finalImageUrl}#LINK:${encodeURIComponent(link_url)}|${encodeURIComponent(link_cta || 'Watch Connected Video')}|${is_sponsored ? '1' : '0'}`;
+    }
+    if (boost_meta) {
+        finalImageUrl = `${finalImageUrl}#BOOST:${boost_meta.targetScreens}|${boost_meta.friendsCount}|${boost_meta.pointsSpent}`;
     }
 
     const resolvedImageUrl = resolveLocalMediaUrl(finalImageUrl);
@@ -2051,6 +2063,7 @@ export async function fetchBoostedStories(): Promise<StoryData[]> {
 
 // ── Fallback 24h Story Local Storage ──────────────────────────────────────
 const FALLBACK_STORIES_KEY = 'knock_fallback_stories_v1';
+let _fallbackStoriesMemoryCache: any[] = [];
 
 export function isSeedStory(s: any): boolean {
     if (!s) return false;
@@ -2070,39 +2083,112 @@ export function isSeedStory(s: any): boolean {
 }
 
 export function getFallbackStories(): StoryData[] {
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
     const local = getLocalStories().filter(s => !isSeedStory(s) && !isPostDeletedLocally(s.id));
-    if (typeof window === 'undefined' || !window.localStorage) return local;
+
+    // Also include recent (<24h) user-uploaded posts from getLocalPosts() so videos uploaded on CreatePost or Boost always appear on the 2nd page
+    const recentUserPostsAsStories: any[] = [];
     try {
-        const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
-        if (!raw) return local;
-        const parsed: any[] = JSON.parse(raw);
-        const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
-        const valid = parsed.filter(s => 
-            s && s.id && 
-            !isSeedStory(s) && 
-            !isPostDeletedLocally(s.id) &&
-            s.created_at && 
-            new Date(s.created_at).getTime() > twentyFourHoursAgo
-        );
-        if (valid.length !== parsed.length) {
-            localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(valid));
+        const localPosts = getLocalPosts();
+        for (const p of localPosts) {
+            if (
+                p &&
+                p.id &&
+                String(p.id).startsWith('post-local-') &&
+                !isPostDeletedLocally(p.id) &&
+                p.image_url &&
+                p.created_at &&
+                new Date(p.created_at).getTime() > twentyFourHoursAgo
+            ) {
+                const isVid = p.media_type === 'video' || isVideoUrl(p.image_url);
+                let imgUrl = p.image_url;
+                if (isVid && !imgUrl.includes('#video.mp4') && !/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(imgUrl.split('#')[0])) {
+                    imgUrl = `${imgUrl}#video.mp4`;
+                }
+                recentUserPostsAsStories.push({
+                    id: p.id,
+                    user_id: p.user_id || '',
+                    username: p.username || 'You',
+                    image_url: imgUrl,
+                    filter_name: p.css_filter || 'Normal',
+                    is_boosted: Boolean((p.boost_impressions_remaining || 0) > 0),
+                    caption: p.caption,
+                    music_title: p.music_title,
+                    music_artist: p.music_artist,
+                    music_url: p.music_url,
+                    attached_link: p.attached_link,
+                    link_url: p.attached_link,
+                    created_at: p.created_at,
+                });
+            }
         }
-        const normalized = valid.map(normalizeStory).filter((s): s is StoryData => Boolean(s) && !isSeedStory(s) && !isPostDeletedLocally(s.id));
-        const seenIds = new Set(normalized.map(s => s.id));
-        const merged = [...normalized, ...local.filter(s => !seenIds.has(s.id))];
-        return merged;
-    } catch (e) {
-        return local;
+    } catch (_) {}
+
+    let storedItems: any[] = [];
+    if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+            const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) storedItems = parsed;
+            }
+        } catch (_) {}
     }
+
+    const combinedRaw = [..._fallbackStoriesMemoryCache, ...storedItems, ...recentUserPostsAsStories];
+    const seenRawIds = new Set<string>();
+    const valid: any[] = [];
+    for (const s of combinedRaw) {
+        if (
+            s &&
+            s.id &&
+            !seenRawIds.has(s.id) &&
+            !isSeedStory(s) &&
+            !isPostDeletedLocally(s.id) &&
+            s.created_at &&
+            new Date(s.created_at).getTime() > twentyFourHoursAgo
+        ) {
+            seenRawIds.add(s.id);
+            valid.push(s);
+        }
+    }
+
+    const normalized = valid
+        .map(normalizeStory)
+        .filter((s): s is StoryData => Boolean(s) && !isSeedStory(s) && !isPostDeletedLocally(s.id));
+    const seenIds = new Set(normalized.map(s => s.id));
+    const merged = [...normalized, ...local.filter(s => !seenIds.has(s.id))];
+    return deduplicateStories(merged);
 }
 
 export function saveFallbackStory(story: any) {
+    if (!story) return;
+    _fallbackStoriesMemoryCache = [
+        story,
+        ..._fallbackStoriesMemoryCache.filter(s => s && s.id !== story.id)
+    ].slice(0, 40);
+
     if (typeof window === 'undefined' || !window.localStorage) return;
     try {
         const raw = localStorage.getItem(FALLBACK_STORIES_KEY);
         const existing: any[] = raw ? JSON.parse(raw) : [];
-        existing.unshift(story);
-        localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(existing.slice(0, 30)));
+        const updated = [story, ...existing.filter(s => s && s.id !== story.id)].slice(0, 30);
+        try {
+            localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(updated));
+        } catch (quotaErr) {
+            // Evict heavy non-essential feed caches and retry so story is persisted
+            try {
+                localStorage.removeItem('knock_explore_posts_cache_v7');
+                localStorage.removeItem('knock_explore_posts_cache_v8');
+                localStorage.removeItem('knock_explore_trending_cache_v8');
+                localStorage.removeItem('knock_explore_trending_cache_v9');
+                localStorage.removeItem('knock_home_posts_cache');
+                localStorage.removeItem('knock_boost_stories_cache_v2');
+                localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(updated.slice(0, 15)));
+            } catch (e2) {
+                console.warn('Could not persist fallback story to localStorage (kept in memory):', e2);
+            }
+        }
     } catch (e) {
         console.warn('Could not save fallback story:', e);
     }
@@ -2111,6 +2197,9 @@ export function saveFallbackStory(story: any) {
 export function deleteFallbackStory(storyId: string) {
     if (!storyId) return;
     const cleanId = String(storyId).replace(/_p\d+_\d+$/, '');
+    _fallbackStoriesMemoryCache = _fallbackStoriesMemoryCache.filter(
+        s => s && s.id !== storyId && s.id !== cleanId
+    );
     removeLocalPost(cleanId);
     if (typeof window === 'undefined' || !window.localStorage) return;
     try {
@@ -2128,7 +2217,8 @@ export function deduplicateStories(storiesList: StoryData[]): StoryData[] {
     const map = new Map<string, StoryData>();
     for (const story of storiesList) {
         if (!story || !story.image_url) continue;
-        const cleanMedia = story.image_url.split('#')[0].trim();
+        const localMatch = story.image_url.match(/#LOCAL_ID:([^#]+)/);
+        const cleanMedia = localMatch ? `local:${localMatch[1]}` : story.image_url.split('#')[0].trim();
         const key = `${(story.username || story.user_id || 'anon').toLowerCase()}::${cleanMedia}`;
         const existing = map.get(key);
         if (!existing) {
@@ -2153,7 +2243,7 @@ function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string)
         if (isSeedStory(s) || isPostDeletedLocally(s.id)) return false;
         if (!s.created_at) return false;
         const msOld = now - new Date(s.created_at).getTime();
-        return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+        return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
     });
     const filteredFallback = userIdFilter 
         ? fallback.filter(s => s.user_id === userIdFilter)
@@ -2215,30 +2305,33 @@ export async function createStory(
     musicTitle?: string,
     musicArtist?: string,
     musicUrl?: string
-): Promise<{ error: Error | null }> {
+): Promise<{ error: Error | null; story?: StoryData }> {
     // Fallback: If DB table doesn't have username/caption/music columns yet, retry with base payload
     // We encode the music into the image_url to survive the fallback safely.
-    if (musicUrl) {
+    if (musicUrl && !imageUrl.includes('#MUSIC:')) {
         imageUrl = `${imageUrl}#MUSIC:${encodeURIComponent(musicUrl)}|${encodeURIComponent(musicTitle || '')}|${encodeURIComponent(musicArtist || '')}`;
     }
 
+    const localStoryObj = {
+        id: `story-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        user_id: userId,
+        image_url: imageUrl,
+        filter_name: filterName,
+        is_boosted: isBoosted,
+        username: username || 'You',
+        caption: caption,
+        music_title: musicTitle,
+        music_artist: musicArtist,
+        music_url: musicUrl,
+        created_at: new Date().toISOString(),
+    };
+    const normalizedLocalStory = normalizeStory(localStoryObj) || (localStoryObj as StoryData);
+
     if (isSupabaseQuotaRestricted()) {
-        saveFallbackStory({
-            id: `story-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            user_id: userId,
-            image_url: imageUrl,
-            filter_name: filterName,
-            is_boosted: isBoosted,
-            username: username || 'You',
-            caption: caption,
-            music_title: musicTitle,
-            music_artist: musicArtist,
-            music_url: musicUrl,
-            created_at: new Date().toISOString(),
-        });
+        saveFallbackStory(localStoryObj);
         invalidateCache('recent_stories');
         invalidateCache('24h_boost_stories');
-        return { error: null };
+        return { error: null, story: normalizedLocalStory };
     }
 
     const payload: any = {
@@ -2268,41 +2361,18 @@ export async function createStory(
     }
 
     if (error) {
+        if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
         console.warn('Error creating story in Supabase (possibly RLS or offline), saving to local fallback storage:', error.message);
-        saveFallbackStory({
-            id: `story-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            user_id: userId,
-            image_url: imageUrl,
-            filter_name: filterName,
-            is_boosted: isBoosted,
-            username: username || 'You',
-            caption: caption,
-            music_title: musicTitle,
-            music_artist: musicArtist,
-            music_url: musicUrl,
-            created_at: new Date().toISOString(),
-        });
+        saveFallbackStory(localStoryObj);
         invalidateCache('recent_stories');
         invalidateCache('24h_boost_stories');
-        return { error: null };
+        return { error: null, story: normalizedLocalStory };
     }
     // Also mirror to local fallback storage for instant cache access
-    saveFallbackStory({
-        id: `story-local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        user_id: userId,
-        image_url: imageUrl,
-        filter_name: filterName,
-        is_boosted: isBoosted,
-        username: username || 'You',
-        caption: caption,
-        music_title: musicTitle,
-        music_artist: musicArtist,
-        music_url: musicUrl,
-        created_at: new Date().toISOString(),
-    });
+    saveFallbackStory(localStoryObj);
     invalidateCache('recent_stories');
     invalidateCache('24h_boost_stories');
-    return { error: null };
+    return { error: null, story: normalizedLocalStory };
 }
 
 /** Record a unique screen delivery for a 24h boosted snap */
@@ -2429,19 +2499,21 @@ export async function createBoostedStory(
     // Encode boost metadata into fragment: #BOOST:target|friends|points
     const boostTag = `#BOOST:${targetScreens}|${baseScreens}|${extraScreens}`;
     let finalImageUrl = imageUrl;
-    if (posterUrl) {
+    if (posterUrl && !finalImageUrl.includes('#POSTER:')) {
         finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(posterUrl)}`;
     }
-    if (musicUrl) {
+    if (musicUrl && !finalImageUrl.includes('#MUSIC:')) {
         finalImageUrl = `${finalImageUrl}#MUSIC:${encodeURIComponent(musicUrl)}|${encodeURIComponent(musicTitle || '')}|${encodeURIComponent(musicArtist || '')}`;
     }
-    if (linkUrl) {
+    if (linkUrl && !finalImageUrl.includes('#LINK:')) {
         finalImageUrl = `${finalImageUrl}#LINK:${encodeURIComponent(linkUrl)}|${encodeURIComponent(linkCta || 'Learn More')}|${isSponsored ? '1' : '0'}`;
     }
-    finalImageUrl = `${finalImageUrl}${boostTag}`;
+    if (!finalImageUrl.includes('#BOOST:')) {
+        finalImageUrl = `${finalImageUrl}${boostTag}`;
+    }
 
     const isBoosted = extraScreens > 0;
-    const { error } = await createStory(
+    const { error, story } = await createStory(
         userId,
         finalImageUrl,
         filterName,
@@ -2460,7 +2532,7 @@ export async function createBoostedStory(
     invalidateCache('recent_stories');
     invalidateCache('24h_boost_stories');
 
-    return { error: null };
+    return { error: null, story };
 }
 
 /** Repost / Convert an explore video or post into a personal 24h Snap */
@@ -2491,24 +2563,27 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
     const cached = getFromCache<StoryData[]>(`24h_boost_stories_${currentUserId || 'anon'}`, 15000);
     if (cached) return cached;
 
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-        .from('stories')
-        .select('*')
-        .gte('created_at', twentyFourHoursAgo)
-        .order('created_at', { ascending: false })
-        .limit(100);
-
     let rawStories: StoryData[] = [];
-    if (error) {
-        console.warn('Error fetching 24h boost stories from Supabase (using fallback store if available):', error.message);
-    } else {
-        const now = Date.now();
-        rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => {
-            if (!s || isSeedStory(s) || !s.created_at) return false;
-            const msOld = now - new Date(s.created_at).getTime();
-            return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
-        });
+    if (!isSupabaseQuotaRestricted()) {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data, error } = await supabase
+            .from('stories')
+            .select('*')
+            .gte('created_at', twentyFourHoursAgo)
+            .order('created_at', { ascending: false })
+            .limit(100);
+
+        if (error) {
+            if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            console.warn('Error fetching 24h boost stories from Supabase (using fallback store if available):', error.message);
+        } else {
+            const now = Date.now();
+            rawStories = (data || []).map(normalizeStory).filter((s): s is StoryData => {
+                if (!s || isSeedStory(s) || !s.created_at) return false;
+                const msOld = now - new Date(s.created_at).getTime();
+                return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
+            });
+        }
     }
 
     const stories = deduplicateStories(mergeWithFallbackStories(rawStories).filter(s => !isSeedStory(s)));

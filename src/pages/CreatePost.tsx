@@ -1,7 +1,7 @@
 import React, { useState, useContext, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, resolveLocalMediaUrl, createLocalFallbackMediaUrl, type ProfileData } from '../lib/database';
+import { uploadMedia, createNewPost, createBoostedStory, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, resolveLocalMediaUrl, createLocalFallbackMediaUrl, type ProfileData } from '../lib/database';
 import { getMediaTypeFromFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { CONTENT_CATEGORIES, extractHashtags, recordHashtagSignal } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles, AtSign, UserPlus, Search, Check, Hash, Plus, Layers } from 'lucide-react';
@@ -344,7 +344,12 @@ const CreatePost = () => {
                 const promise = (async () => {
                     const prepared = await prepPromise;
                     const fileToUpload = prepared.fileToUpload;
-                    const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
+                    const isVidFile = getMediaTypeFromFile(selectedFile) === 'video';
+                    const rawExt = fileToUpload.name.includes('.') ? fileToUpload.name.split('.').pop() : '';
+                    const cleanExt = (rawExt || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const fileExt = /^(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i.test(cleanExt)
+                        ? cleanExt
+                        : (isVidFile ? 'mp4' : 'jpg');
                     const fileName = `${userId}-${Date.now()}.${fileExt}`;
                     const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
 
@@ -491,7 +496,12 @@ const CreatePost = () => {
                 setUploadStatusText('Uploading at high speed...');
                 const initialTotalMB = (fileToUpload.size / (1024 * 1024)).toFixed(1);
                 setUploadProgress({ percentage: 0, loadedMB: '0.0', totalMB: initialTotalMB });
-                const fileExt = fileToUpload.name.split('.').pop() || 'mp4';
+                const isVidFile = mediaType === 'video';
+                const rawExt = fileToUpload.name.includes('.') ? fileToUpload.name.split('.').pop() : '';
+                const cleanExt = (rawExt || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const fileExt = /^(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i.test(cleanExt)
+                    ? cleanExt
+                    : (isVidFile ? 'mp4' : 'jpg');
                 fileName = `${user.id}-${Date.now()}.${fileExt}`;
                 const path = `posts/${fileName}`;
                 const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
@@ -532,6 +542,9 @@ const CreatePost = () => {
             }
 
             let finalUrl = publicUrl;
+            if (mediaType === 'video' && !finalUrl.includes('#video.mp4') && !/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(finalUrl.split('#')[0])) {
+                finalUrl = `${finalUrl}#video.mp4`;
+            }
             if (uploadedPosterUrl && !uploadedPosterUrl.startsWith('data:')) {
                 finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
             }
@@ -595,6 +608,24 @@ const CreatePost = () => {
                 music_url: finalMusicUrl || selectedTrack?.url
             });
 
+            // Also mirror to 24h Boost stories so uploaded videos & photos immediately appear on the 2nd page (Knockup)
+            createBoostedStory(
+                user.id,
+                finalUrl,
+                selectedFilter || 'Normal',
+                boostToSpotlight ? boostAmount : 0,
+                14,
+                user.username || 'user',
+                caption || undefined,
+                selectedTrack?.title,
+                selectedTrack?.artist,
+                finalMusicUrl || selectedTrack?.url,
+                attachedLink || undefined,
+                undefined,
+                false,
+                uploadedPosterUrl
+            ).catch(() => {});
+
             // Send mention notification to tagged friend in background
             if (taggedFriend && user?.id) {
                 sendAddMentionNotification({
@@ -605,13 +636,14 @@ const CreatePost = () => {
                 }).catch(e => console.warn('Failed to send add mention notification:', e));
             }
 
-            // Invalidate all feed caches so newly uploaded content appears immediately at top of Home, Explore & Reels
+            // Invalidate all feed caches so newly uploaded content appears immediately at top of Home, Explore, Boost & Reels
             try {
                 localStorage.removeItem('knock_home_posts_cache');
                 localStorage.removeItem('knock_explore_posts_cache_v7');
                 localStorage.removeItem('knock_explore_posts_cache_v8');
                 localStorage.removeItem('knock_explore_trending_cache_v8');
                 localStorage.removeItem('knock_explore_trending_cache_v9');
+                localStorage.removeItem('knock_boost_stories_cache_v2');
                 sessionStorage.removeItem('knock_reels_instant_v1');
             } catch (e) {}
 

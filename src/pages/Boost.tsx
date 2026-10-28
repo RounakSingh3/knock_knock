@@ -54,11 +54,12 @@ import {
     normalizeStory,
     storyToPostData,
     deleteStory,
+    getFallbackStories,
     type StoryData, 
     type UserStoryGroup,
     type PostData
 } from '../lib/database';
-import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster, compressVideo } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster } from '../lib/media';
 import { rank24HourExploreFeed, rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
@@ -378,19 +379,25 @@ const Boost: React.FC = () => {
     // Explore Feed State with Instant Cache Rehydration (strictly 24 hours & deduplicated)
     const [stories, setStories] = useState<StoryData[]>(() => {
         try {
+            const now = Date.now();
+            const fallback = getFallbackStories().filter((s: StoryData) => {
+                if (!s || isSeedStory(s) || !s.created_at) return false;
+                const msOld = now - new Date(s.created_at).getTime();
+                return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
+            });
             const cached = localStorage.getItem('knock_boost_stories_cache_v2');
+            let cachedValid: StoryData[] = [];
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    const now = Date.now();
-                    const valid = parsed.map(normalizeStory).filter((s: StoryData) => {
+                    cachedValid = parsed.map(normalizeStory).filter((s: StoryData) => {
                         if (!s || isSeedStory(s) || !s.created_at) return false;
                         const msOld = now - new Date(s.created_at).getTime();
-                        return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+                        return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
                     });
-                    return deduplicateStories(valid);
                 }
             }
+            return deduplicateStories([...fallback, ...cachedValid]);
         } catch (e) {}
         return [];
     });
@@ -543,13 +550,14 @@ const Boost: React.FC = () => {
 
         try {
             const data = await fetch24HourBoostStories(user?.id);
+            const fallback = getFallbackStories();
             const now = Date.now();
             // Filter out blocked users, seed stories, and anything > 24 hours old
-            const valid = deduplicateStories(data.filter(s => {
+            const valid = deduplicateStories([...fallback, ...data].filter(s => {
                 if (!s || isSeedStory(s) || !s.created_at) return false;
                 if (s.user_id && blockedIds.includes(s.user_id)) return false;
                 const msOld = now - new Date(s.created_at).getTime();
-                return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+                return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
             }));
             setStories(valid);
             try {
@@ -575,7 +583,7 @@ const Boost: React.FC = () => {
                     const cleaned = items.filter((s: any) => {
                         if (!s || isSeedStory(s) || !s.created_at) return false;
                         const msOld = now - new Date(s.created_at).getTime();
-                        return msOld >= 0 && msOld <= 24 * 60 * 60 * 1000;
+                        return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
                     });
                     localStorage.setItem(key, JSON.stringify(deduplicateStories(cleaned)));
                 }
@@ -667,7 +675,7 @@ const Boost: React.FC = () => {
 
             // Strict 24h lifespan check: NEVER show expired history knocks on the upper side
             const msOld = now - new Date(s.created_at).getTime();
-            if (msOld > 24 * 60 * 60 * 1000 || msOld < 0) return false;
+            if (msOld > 24 * 60 * 60 * 1000 || msOld < -300000) return false;
 
             // Strict ownership verification:
             if (s.username && user.username && s.username.toLowerCase() !== user.username.toLowerCase()) {
@@ -678,7 +686,8 @@ const Boost: React.FC = () => {
             if (!isIdMatch && !isUsernameMatch) return false;
 
             // Deduplicate same media uploaded multiple times by creator
-            const cleanMedia = (s.image_url || '').split('#')[0].trim();
+            const localMatch = (s.image_url || '').match(/#LOCAL_ID:([^#]+)/);
+            const cleanMedia = localMatch ? `local:${localMatch[1]}` : (s.image_url || '').split('#')[0].trim();
             if (seenMedia.has(cleanMedia)) return false;
             seenMedia.add(cleanMedia);
 
@@ -1060,6 +1069,7 @@ const Boost: React.FC = () => {
                 setIsVideo(true);
                 setCapturedMediaUrl(URL.createObjectURL(recordedBlob));
                 stopCamera();
+                startBackgroundUpload(file, true);
             };
 
             recorder.start(100);
@@ -1098,6 +1108,69 @@ const Boost: React.FC = () => {
         setIsRecordingVideo(false);
     };
 
+    // Background pre-upload ref so media starts uploading as soon as it is selected or recorded
+    const preUploadRef = useRef<{
+        file: File;
+        promise: Promise<{ uploadedUrl: string; posterUrl?: string }>;
+    } | null>(null);
+
+    const startBackgroundUpload = useCallback((file: File, isVid: boolean) => {
+        if (!user?.id) return;
+        const userId = user.id;
+        const promise = (async () => {
+            let fileToUpload = file;
+            let currentPosterBlob: Blob | null = null;
+            if (isVid) {
+                try {
+                    const prepared = await prepareVideoForUpload(file);
+                    if (prepared.posterBlob) {
+                        currentPosterBlob = prepared.posterBlob;
+                        setPosterBlob(prepared.posterBlob);
+                    }
+                    if (prepared.videoFile && prepared.videoFile !== file) {
+                        fileToUpload = prepared.videoFile;
+                    }
+                } catch (_) {}
+            } else if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)) {
+                try {
+                    fileToUpload = await compressImage(file, 1280, 1280, 0.8);
+                } catch (_) {}
+            }
+
+            const rawExt = fileToUpload.name.includes('.') ? fileToUpload.name.split('.').pop() : '';
+            const cleanExt = (rawExt || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const ext = /^(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i.test(cleanExt)
+                ? cleanExt
+                : (isVid ? 'mp4' : 'jpg');
+            const path = `stories/${userId}-${Date.now()}.${ext}`;
+
+            const posterPromise = currentPosterBlob
+                ? (async () => {
+                    try {
+                        const posterFile = new File([currentPosterBlob!], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                        const pPath = `stories/posters/${userId}-${Date.now()}.jpg`;
+                        return await uploadMedia(posterFile, pPath);
+                    } catch (_) {
+                        return undefined;
+                    }
+                })()
+                : Promise.resolve(undefined);
+
+            const uploadedUrl = await uploadMedia(fileToUpload, path, (progress) => {
+                if (preUploadRef.current?.file !== file) return;
+                if (progress.total > 0) {
+                    const pct = Math.round((progress.loaded / progress.total) * 100);
+                    setUploadProgress(pct);
+                }
+            });
+            const posterUrl = await posterPromise;
+            if (!uploadedUrl) throw new Error('Background upload failed');
+            return { uploadedUrl, posterUrl };
+        })();
+
+        preUploadRef.current = { file, promise };
+    }, [user?.id]);
+
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
@@ -1109,18 +1182,7 @@ const Boost: React.FC = () => {
                 setIsVideo(true);
                 setCapturedMediaUrl(objectUrl);
                 stopCamera();
-
-                // Prepare video in background: extract poster and optimize for ultra-fast upload
-                prepareVideoForUpload(file).then(prepared => {
-                    if (prepared.posterBlob) {
-                        setPosterBlob(prepared.posterBlob);
-                    }
-                    if (prepared.videoFile && prepared.videoFile !== file) {
-                        setSelectedFile(prepared.videoFile);
-                    }
-                }).catch(e => {
-                    console.warn('Video prep fallback:', e);
-                });
+                startBackgroundUpload(file, true);
                 return;
             }
 
@@ -1129,6 +1191,7 @@ const Boost: React.FC = () => {
             setIsVideo(false);
             setCapturedMediaUrl(URL.createObjectURL(file));
             stopCamera();
+            startBackgroundUpload(file, false);
         }
     };
 
@@ -1138,6 +1201,7 @@ const Boost: React.FC = () => {
         if (capturedMediaUrl && capturedMediaUrl.startsWith('blob:')) {
             try { URL.revokeObjectURL(capturedMediaUrl); } catch (_) {}
         }
+        preUploadRef.current = null;
         setCapturedMediaUrl(null);
         setSelectedFile(null);
         setPosterBlob(null);
@@ -1183,7 +1247,7 @@ const Boost: React.FC = () => {
 
         setIsSubmitting(true);
         setUploadError(null);
-        setUploadProgress(0);
+        setUploadProgress(prev => (prev > 0 ? prev : 5));
 
         try {
             // Step 1: Upload media & optional poster in parallel for 2x faster upload speed
@@ -1198,63 +1262,76 @@ const Boost: React.FC = () => {
                 (capturedMediaUrl && isVideoUrl(capturedMediaUrl))
             );
 
-            let currentPosterBlob = posterBlob;
-            if (isVid && !currentPosterBlob) {
+            // Reuse background pre-upload if already started for this file
+            const pre = preUploadRef.current;
+            if (pre && selectedFile && pre.file === selectedFile) {
                 try {
-                    const targetForPoster = selectedFile || capturedMediaUrl;
-                    if (targetForPoster) {
-                        const res = await extractVideoPoster(targetForPoster as any, 0.05);
-                        if (res?.blob) currentPosterBlob = res.blob;
-                    }
-                } catch (_) {}
+                    const res = await pre.promise;
+                    uploadedUrl = res.uploadedUrl;
+                    uploadedPosterUrl = res.posterUrl;
+                } catch (bgErr) {
+                    console.warn('[Boost] Background pre-upload failed, retrying directly:', bgErr);
+                    preUploadRef.current = null;
+                }
             }
 
-            // Step 1: Upload main media with dedicated high-speed bandwidth
-            if (selectedFile) {
-                if (!isVid && (selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(selectedFile.name))) {
+            let currentPosterBlob = posterBlob;
+            if (!uploadedUrl) {
+                if (isVid && !currentPosterBlob) {
                     try {
-                        fileToUpload = await compressImage(selectedFile, 1280, 1280, 0.8);
-                    } catch (e) {
-                        console.warn('Compression skipped:', e);
-                    }
-                } else if (isVid) {
-                    // Compress large videos (> 7MB) to 720p HD so they upload in seconds
-                    if (selectedFile.size > 7 * 1024 * 1024) {
-                        try {
-                            const compressed = await compressVideo(selectedFile);
-                            if (compressed && compressed.size < selectedFile.size) {
-                                fileToUpload = compressed;
-                            }
-                        } catch (_) {}
-                    }
+                        const targetForPoster = selectedFile || capturedMediaUrl;
+                        if (targetForPoster) {
+                            const res = await extractVideoPoster(targetForPoster as any, 0.05);
+                            if (res?.blob) currentPosterBlob = res.blob;
+                        }
+                    } catch (_) {}
                 }
 
-                const rawExt = fileToUpload.name.split('.').pop() || (isVid ? 'mp4' : 'jpg');
-                const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || (isVid ? 'mp4' : 'jpg');
-                const path = `stories/${user.id}-${Date.now()}.${ext}`;
-                uploadedUrl = await uploadMedia(fileToUpload, path, (progress) => {
-                    if (progress.total > 0) {
-                        const pct = Math.round((progress.loaded / progress.total) * 100);
-                        setUploadProgress(pct);
+                // Upload main media directly without blocking real-time video re-encoding
+                if (selectedFile && fileToUpload) {
+                    if (!isVid && (selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(selectedFile.name))) {
+                        try {
+                            fileToUpload = await compressImage(selectedFile, 1280, 1280, 0.8);
+                        } catch (e) {
+                            console.warn('Compression skipped:', e);
+                        }
                     }
-                });
-            } else if (capturedMediaUrl) {
-                uploadedUrl = await uploadStoryImage(capturedMediaUrl, user.id);
+
+                    const rawExt = fileToUpload.name.includes('.') ? fileToUpload.name.split('.').pop() : '';
+                    const cleanExt = (rawExt || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const ext = /^(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i.test(cleanExt)
+                        ? cleanExt
+                        : (isVid ? 'mp4' : 'jpg');
+                    const path = `stories/${user.id}-${Date.now()}.${ext}`;
+                    uploadedUrl = await uploadMedia(fileToUpload, path, (progress) => {
+                        if (progress.total > 0) {
+                            const pct = Math.round((progress.loaded / progress.total) * 100);
+                            setUploadProgress(pct);
+                        }
+                    });
+                } else if (capturedMediaUrl) {
+                    uploadedUrl = await uploadStoryImage(capturedMediaUrl, user.id);
+                }
+
+                // Upload poster so story/post has instant thumbnail without video decoder overhead
+                if (currentPosterBlob && !uploadedPosterUrl) {
+                    try {
+                        const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                        const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
+                        uploadedPosterUrl = await uploadMedia(posterFile, pPath);
+                    } catch (pe) {
+                        console.warn('Poster upload skipped:', pe);
+                    }
+                }
             }
 
             if (!uploadedUrl) {
                 throw new Error('Failed to upload media. Please try again.');
             }
 
-            // Upload poster so story/post has instant thumbnail without video decoder overhead
-            if (currentPosterBlob) {
-                try {
-                    const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
-                    uploadedPosterUrl = await uploadMedia(posterFile, pPath);
-                } catch (pe) {
-                    console.warn('Poster upload skipped:', pe);
-                }
+            // Guarantee video tag on uploaded video URLs so all feeds recognize it as a video
+            if (isVid && !uploadedUrl.includes('#video.mp4') && !/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(uploadedUrl.split('#')[0])) {
+                uploadedUrl = `${uploadedUrl}#video.mp4`;
             }
 
             // Step 2: Compute effective link (Attached Knock Video for swipe feature or custom promo URL)
@@ -1264,43 +1341,9 @@ const Boost: React.FC = () => {
             const effectiveCta = attachedKnockVideo ? 'Watch Connected Video' : (hasAdLink ? adLinkCta : undefined);
             const effectiveSponsored = attachedKnockVideo ? false : (hasAdLink ? isSponsoredAd : undefined);
 
-            // If user selected Explore Video / Ad post type, also publish to Explore & Home feed
-            if (postType === 'explore') {
-                try {
-                    const exploreMediaUrl = uploadedPosterUrl && !uploadedPosterUrl.startsWith('data:')
-                        ? `${uploadedUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`
-                        : uploadedUrl;
-                    await createNewPost({
-                        user_id: user.id,
-                        username: user.username || user.name,
-                        avatar_url: user.avatar_url || 'https://i.pravatar.cc/150',
-                        image_url: exploreMediaUrl,
-                        caption: caption.trim(),
-                        attached_link: effectiveLink,
-                        media_type: isVid ? 'video' : 'image',
-                        category: 'General',
-                        boost_impressions_remaining: safePointsToSpend,
-                        boost_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                        music_title: selectedTrack?.title,
-                        music_artist: selectedTrack?.artist,
-                        music_url: selectedTrack?.url,
-                    });
-                    try {
-                        localStorage.removeItem('knock_home_posts_cache');
-                        localStorage.removeItem('knock_explore_posts_cache_v7');
-                        localStorage.removeItem('knock_explore_posts_cache_v8');
-                        localStorage.removeItem('knock_explore_trending_cache_v8');
-                        localStorage.removeItem('knock_explore_trending_cache_v9');
-                        sessionStorage.removeItem('knock_reels_instant_v1');
-                    } catch (_) {}
-                } catch (pe) {
-                    console.warn('[handleLaunchBoostKnock] Explore post creation non-fatal:', pe);
-                }
-            }
-
             // Create 24-hour boosted story with reach guarantee & advertisement link metadata
             const filterName = FILTERS[activeFilterIndex].name;
-            const { error: storyError } = await createBoostedStory(
+            const { error: storyError, story: createdStory } = await createBoostedStory(
                 user.id,
                 uploadedUrl,
                 filterName,
@@ -1321,6 +1364,56 @@ const Boost: React.FC = () => {
                 throw storyError;
             }
 
+            // Always publish to main posts table as well so videos & photos uploaded on the 2nd page
+            // also appear across Home, Explore, Reels, and the user's Profile!
+            const exploreMediaUrl = uploadedPosterUrl && !uploadedPosterUrl.startsWith('data:') && !uploadedUrl.includes('#POSTER:')
+                ? `${uploadedUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`
+                : uploadedUrl;
+            createNewPost({
+                user_id: user.id,
+                username: user.username || user.name,
+                avatar_url: user.avatar_url || 'https://i.pravatar.cc/150',
+                image_url: exploreMediaUrl,
+                caption: caption.trim(),
+                attached_link: effectiveLink,
+                media_type: isVid ? 'video' : 'image',
+                category: 'General',
+                boost_impressions_remaining: safePointsToSpend,
+                boost_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                music_title: selectedTrack?.title,
+                music_artist: selectedTrack?.artist,
+                music_url: selectedTrack?.url,
+            }).then(() => {
+                try {
+                    localStorage.removeItem('knock_home_posts_cache');
+                    localStorage.removeItem('knock_explore_posts_cache_v7');
+                    localStorage.removeItem('knock_explore_posts_cache_v8');
+                    localStorage.removeItem('knock_explore_trending_cache_v8');
+                    localStorage.removeItem('knock_explore_trending_cache_v9');
+                    sessionStorage.removeItem('knock_reels_instant_v1');
+                } catch (_) {}
+            }).catch((pe) => {
+                console.warn('[handleLaunchBoostKnock] Feed post mirror non-fatal:', pe);
+            });
+
+            // Immediately prepend the created story to active stories state so it shows up on the 2nd page right away
+            if (createdStory) {
+                setStories(prev => {
+                    const next = deduplicateStories([createdStory, ...prev]);
+                    try {
+                        localStorage.setItem('knock_boost_stories_cache_v2', JSON.stringify(next));
+                    } catch (_) {}
+                    return next;
+                });
+            }
+
+            // Ensure active filter tab does not hide the newly uploaded video/photo
+            if (isVid && filterTab === 'photos') {
+                setFilterTab('all');
+            } else if (!isVid && filterTab === 'videos') {
+                setFilterTab('all');
+            }
+
             // Notify any users mentioned in the story caption with customizable mention cards
             if (caption.trim() && user?.id) {
                 notifyMentionedUsersInText({
@@ -1330,29 +1423,31 @@ const Boost: React.FC = () => {
                 }).catch(() => {});
             }
 
-            // Step 3: Deduct boost points if user used any
-            let currentBal = userPoints;
-            if (safePointsToSpend > 0) {
-                const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
-                currentBal = isUnlimited ? 999999999 : Math.max(0, userPoints - safePointsToSpend);
-                setPoints(currentBal);
-                updatePoints(user.id, currentBal).catch(() => {});
-            }
-
-            // Step 4: Award upload points & streak points for posting a 24h knock!
+            // Step 3: Deduct boost points & award upload reward points immediately in UI
             const KNOCK_REWARD_POINTS = 15;
-            currentBal = await awardUploadPoints(user.id, KNOCK_REWARD_POINTS, currentBal);
-            setPoints(currentBal);
-            updateStreak(user.id, 1, null, currentBal).catch(() => {});
+            const isUnlimited = user?.username === 'popcorn05' || user?.id === '9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8';
+            const afterDeduct = isUnlimited ? 999999999 : Math.max(0, userPoints - safePointsToSpend);
+            const optimisticBal = isUnlimited ? 999999999 : afterDeduct + KNOCK_REWARD_POINTS;
+            setPoints(optimisticBal);
 
-            // Close modal and reload 24h feed
+            // Persist points and streak in background without blocking UI completion
+            (async () => {
+                try {
+                    if (safePointsToSpend > 0) {
+                        await updatePoints(user.id, afterDeduct);
+                    }
+                    const finalBal = await awardUploadPoints(user.id, KNOCK_REWARD_POINTS, afterDeduct);
+                    setPoints(finalBal);
+                    await updateStreak(user.id, 1, null, finalBal);
+                } catch (_) {}
+            })();
+
+            // Close modal, refresh 24h feed, and congratulate user with reward modal!
             closeCreateModal();
-            await loadFeed();
-
-            // Congratulate user with reward modal!
             setRewardPointsEarned(KNOCK_REWARD_POINTS);
-            setRewardNewBalance(currentBal);
+            setRewardNewBalance(optimisticBal);
             setShowRewardModal(true);
+            loadFeed().catch(() => {});
         } catch (err: any) {
             console.error('Failed to post 24h boost knock:', err);
             let msg = err?.message || 'Failed to post knock. Please try again.';
