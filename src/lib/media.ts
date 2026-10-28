@@ -291,10 +291,10 @@ export async function extractVideoPoster(
 
             video.onloadedmetadata = () => {
                 try {
-                    const targetTime = Math.min(Math.max(atTime, 0.1), (video.duration || 2) / 2);
+                    const targetTime = Math.min(Math.max(atTime, 0.08), (video.duration || 2) / 2);
                     video.currentTime = targetTime;
                 } catch (_) {
-                    setTimeout(capture, 200);
+                    setTimeout(capture, 40);
                 }
             };
 
@@ -305,7 +305,7 @@ export async function extractVideoPoster(
             video.onloadeddata = () => {
                 setTimeout(() => {
                     if (!captured) capture();
-                }, 150);
+                }, 40);
             };
 
             video.onerror = () => {
@@ -321,7 +321,7 @@ export async function extractVideoPoster(
                     cleanup();
                     resolve(null);
                 }
-            }, 2500);
+            }, 650);
         } catch (_) {
             resolve(null);
         }

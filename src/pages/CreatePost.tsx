@@ -337,14 +337,19 @@ const CreatePost = () => {
 
             // ⚡ Start uploading immediately in the background while the user writes the caption
             setBgUploadFailed(false);
-            if (user?.id && !(getMediaTypeFromFile(selectedFile) === 'video' && selectedFile.size > 80 * 1024 * 1024)) {
+            if (user?.id && !(getMediaTypeFromFile(selectedFile) === 'video' && selectedFile.size > 150 * 1024 * 1024)) {
                 const userId = user.id;
                 const prepPromise = preparedMediaPromiseRef.current;
                 setBgUploadPct(0);
                 const promise = (async () => {
-                    const prepared = await prepPromise;
-                    const fileToUpload = prepared.fileToUpload;
                     const isVidFile = getMediaTypeFromFile(selectedFile) === 'video';
+                    let fileToUpload = selectedFile;
+                    if (!isVidFile) {
+                        try {
+                            const preparedImg = await prepPromise;
+                            fileToUpload = preparedImg.fileToUpload;
+                        } catch (_) {}
+                    }
                     const rawExt = fileToUpload.name.includes('.') ? fileToUpload.name.split('.').pop() : '';
                     const cleanExt = (rawExt || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                     const fileExt = /^(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)$/i.test(cleanExt)
@@ -353,11 +358,19 @@ const CreatePost = () => {
                     const fileName = `${userId}-${Date.now()}.${fileExt}`;
                     const posterFileName = `${fileName.replace(/\.[^.]+$/, '')}.jpg`;
 
-                    const posterUploadPromise = prepared.videoPosterBlob
-                        ? uploadMedia(
-                            new File([prepared.videoPosterBlob], posterFileName, { type: 'image/jpeg' }),
-                            `posts/posters/${posterFileName}`
-                        ).catch(() => undefined)
+                    const posterUploadPromise = isVidFile
+                        ? (async () => {
+                            try {
+                                const prepared = await prepPromise;
+                                if (prepared.videoPosterBlob) {
+                                    return await uploadMedia(
+                                        new File([prepared.videoPosterBlob], posterFileName, { type: 'image/jpeg' }),
+                                        `posts/posters/${posterFileName}`
+                                    );
+                                }
+                            } catch (_) {}
+                            return undefined;
+                        })()
                         : Promise.resolve(undefined);
 
                     const publicUrl = await uploadMedia(fileToUpload, `posts/${fileName}`, (progress) => {
@@ -375,7 +388,10 @@ const CreatePost = () => {
                             if (percentage === 100) setUploadStatusText('Finalizing post...');
                         }
                     });
-                    const posterUrl = await posterUploadPromise;
+                    const posterUrl = await Promise.race([
+                        posterUploadPromise,
+                        new Promise<undefined>(r => setTimeout(() => r(undefined), 300))
+                    ]);
                     if (!publicUrl) throw new Error('Background upload failed');
                     return { publicUrl, posterUrl, fileName, fileToUpload };
                 })();
@@ -421,46 +437,11 @@ const CreatePost = () => {
             let videoPosterDataUrl: string | null = null;
 
             if (mediaType === 'video') {
-                const MAX_VIDEO_SIZE = 80 * 1024 * 1024; // 80MB
+                const MAX_VIDEO_SIZE = 150 * 1024 * 1024; // 150MB
                 if (file.size > MAX_VIDEO_SIZE) {
-                    setError(`This video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please select a video smaller than 80MB.`);
+                    setError(`This video is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Please select a video smaller than 150MB.`);
                     setLoading(false);
                     return;
-                }
-            }
-
-            // ⚡ Fast retrieval: Check if media was already prepared in background while user typed
-            if (preparedMediaPromiseRef.current) {
-                setUploadStatusText('Finishing video optimization...');
-                try {
-                    const preparedData = await preparedMediaPromiseRef.current;
-                    fileToUpload = preparedData.fileToUpload;
-                    videoPosterBlob = preparedData.videoPosterBlob;
-                    videoPosterDataUrl = preparedData.videoPosterDataUrl;
-                } catch (_) {}
-            } else {
-                if (mediaType === 'image') {
-                    try {
-                        fileToUpload = await compressImage(file, 1080, 1080, 0.8);
-                    } catch (_) {}
-                } else if (mediaType === 'video') {
-                    try {
-                        setUploadStatusText('Optimizing video for ultra-fast upload...');
-                        const prepared = await prepareVideoForUpload(
-                            fileToUpload,
-                            (status) => setUploadStatusText(status),
-                            (pct) => {
-                                setUploadProgress({
-                                    percentage: pct,
-                                    loadedMB: ((fileToUpload.size * (pct / 100)) / (1024 * 1024)).toFixed(1),
-                                    totalMB: (fileToUpload.size / (1024 * 1024)).toFixed(1)
-                                });
-                            }
-                        );
-                        fileToUpload = prepared.videoFile;
-                        videoPosterBlob = prepared.posterBlob;
-                        videoPosterDataUrl = prepared.posterDataUrl;
-                    } catch (_) {}
                 }
             }
 
@@ -490,6 +471,20 @@ const CreatePost = () => {
                     console.warn('[CreatePost] Background upload failed, retrying in foreground:', bgErr);
                     preUploadRef.current = null;
                 }
+            }
+
+            if (preparedMediaPromiseRef.current) {
+                try {
+                    const preparedData = await Promise.race([
+                        preparedMediaPromiseRef.current,
+                        new Promise<null>(r => setTimeout(() => r(null), 300))
+                    ]);
+                    if (preparedData) {
+                        if (!publicUrl) fileToUpload = preparedData.fileToUpload;
+                        videoPosterBlob = preparedData.videoPosterBlob;
+                        videoPosterDataUrl = preparedData.videoPosterDataUrl;
+                    }
+                } catch (_) {}
             }
 
             if (!publicUrl) {

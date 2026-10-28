@@ -539,18 +539,72 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
     return [];
 }
 
-function isJwtExpiredOrInvalid(token?: string | null): boolean {
-    if (!token || typeof token !== 'string' || token.length < 25) return true;
+/**
+ * Upgrades any locally stored story or post using `#LOCAL_ID:<localId>` to use the permanent
+ * Supabase Storage `remoteUrl` as its base URL once a background cloud upload completes,
+ * while keeping `#LOCAL_ID:<localId>` intact for instant 0ms local blob playback and deduplication.
+ */
+function upgradeLocalMediaToCloud(localId: string, remoteUrl: string): void {
+    if (!localId || !remoteUrl) return;
+    const token = `#LOCAL_ID:${localId}`;
+    const replaceBaseUrl = (url?: string): string | undefined => {
+        if (!url || !url.includes(token)) return url;
+        const hashIdx = url.indexOf('#');
+        const fragments = hashIdx !== -1 ? url.slice(hashIdx) : '';
+        return `${remoteUrl}${fragments}`;
+    };
+
     try {
-        const parts = token.split('.');
-        if (parts.length !== 3) return false;
-        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-        if (!payload.exp) return false;
-        // Buffer by 90 seconds so token doesn't expire during an in-flight upload
-        return (payload.exp * 1000) <= (Date.now() + 90000);
-    } catch (_) {
-        return false;
-    }
+        // 1. Upgrade in-memory and localStorage fallback stories
+        let storiesChanged = false;
+        _fallbackStoriesMemoryCache = _fallbackStoriesMemoryCache.map(s => {
+            if (s && typeof s.image_url === 'string' && s.image_url.includes(token)) {
+                storiesChanged = true;
+                return { ...s, image_url: replaceBaseUrl(s.image_url) };
+            }
+            return s;
+        });
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const rawStories = localStorage.getItem(FALLBACK_STORIES_KEY);
+            if (rawStories && rawStories.includes(token)) {
+                const parsed: any[] = JSON.parse(rawStories);
+                if (Array.isArray(parsed)) {
+                    const updated = parsed.map(s =>
+                        s && typeof s.image_url === 'string' && s.image_url.includes(token)
+                            ? { ...s, image_url: replaceBaseUrl(s.image_url) }
+                            : s
+                    );
+                    localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(updated));
+                    storiesChanged = true;
+                }
+            }
+            // 2. Upgrade local posts
+            const localPosts = getLocalPosts();
+            for (const p of localPosts) {
+                if (p && typeof p.image_url === 'string' && p.image_url.includes(token)) {
+                    const upgradedPost = { ...p, image_url: replaceBaseUrl(p.image_url)! };
+                    saveLocalPost(upgradedPost);
+                    // Sync upgraded post to Supabase in background if possible
+                    if (!isSupabaseQuotaRestricted()) {
+                        supabase.from('posts').insert({
+                            username: upgradedPost.username,
+                            avatar_url: upgradedPost.avatar_url,
+                            image_url: remoteUrl,
+                            caption: upgradedPost.caption || '',
+                            likes_count: 0,
+                            media_type: upgradedPost.media_type || 'video',
+                            category: upgradedPost.category || 'General',
+                            ...(upgradedPost.user_id ? { user_id: upgradedPost.user_id } : {})
+                        }).then(() => {});
+                    }
+                }
+            }
+        }
+        if (storiesChanged) {
+            invalidateCache('recent_stories');
+            invalidateCache('24h_boost_stories');
+        }
+    } catch (_) {}
 }
 
 export async function uploadMedia(
@@ -558,16 +612,16 @@ export async function uploadMedia(
     path: string,
     onProgress?: (progress: { loaded: number; total: number }) => void
 ): Promise<string> {
+    // Always prepare persistent IndexedDB local media in parallel (< 30ms) so upload NEVER stalls or fails
+    const localFallbackPromise = createLocalFallbackMediaUrl(file);
+
     // Resilient Offline & Quota Fast-Path:
-    // If Supabase Storage is known to be quota restricted, save directly to persistent IndexedDB
+    // If Supabase Storage is known to be quota restricted, return persistent IndexedDB URL immediately
     if (isSupabaseQuotaRestricted()) {
-        console.info('[uploadMedia] Supabase quota restricted — saving media to resilient IndexedDB local storage.');
         if (onProgress) {
-            onProgress({ loaded: Math.round(file.size * 0.45), total: file.size });
-            await new Promise(r => setTimeout(r, 60));
             onProgress({ loaded: file.size, total: file.size });
         }
-        const { fallbackUrl } = await createLocalFallbackMediaUrl(file);
+        const { fallbackUrl } = await localFallbackPromise;
         return fallbackUrl;
     }
 
@@ -575,169 +629,137 @@ export async function uploadMedia(
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${cleanPath}`;
+    const isPosterUpload = cleanPath.includes('/posters/');
 
-    // Prefer active user auth token if unexpired, fallback cleanly to supabase anon key
-    let token = supabaseKey;
-    try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        let userToken = sessionData?.session?.access_token;
-        if (userToken && isJwtExpiredOrInvalid(userToken)) {
-            const refreshPromise = supabase.auth.refreshSession().catch(() => ({ data: null }));
-            const timeoutPromise = new Promise<{ data: null }>((r) => setTimeout(() => r({ data: null }), 1500));
-            const { data: refreshed } = await Promise.race([refreshPromise, timeoutPromise]);
-            userToken = refreshed?.session?.access_token;
-        }
-        if (userToken && !isJwtExpiredOrInvalid(userToken)) {
-            token = userToken;
-        }
-    } catch (_) {
-        token = supabaseKey;
-    }
-
-    const isLargeOrVideo = Boolean(file.type?.startsWith('video/') || file.size > 1500000);
-    const MAX_RETRIES = isLargeOrVideo ? 0 : 1;
-    const STALL_TIMEOUT_MS = 15000;
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // Perform cloud upload directly with supabaseKey (0ms auth overhead, no double-uploads)
+    const cloudUploadPromise = (async (): Promise<string | null> => {
         try {
-            if (onProgress) {
-                // Use XMLHttpRequest with active progress tracking & stall detection
-                const runXhr = (authToken: string) => new Promise<void>((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('POST', uploadUrl, true);
-                    xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
-                    xhr.setRequestHeader('apikey', supabaseKey);
-                    xhr.setRequestHeader('x-upsert', 'true');
-                    xhr.setRequestHeader('cache-control', 'max-age=3600');
-                    if (file.type) {
-                        xhr.setRequestHeader('Content-Type', file.type);
-                    }
+            await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', uploadUrl, true);
+                xhr.setRequestHeader('Authorization', `Bearer ${supabaseKey}`);
+                xhr.setRequestHeader('apikey', supabaseKey);
+                xhr.setRequestHeader('x-upsert', 'true');
+                xhr.setRequestHeader('cache-control', 'max-age=3600');
+                if (file.type) {
+                    xhr.setRequestHeader('Content-Type', file.type);
+                }
 
-                    // Stall detection: timeout if connection freezes without transferring data for 15s
-                    let stallTimeout = setTimeout(() => {
+                const STALL_TIMEOUT_MS = 20000;
+                let stallTimeout = setTimeout(() => {
+                    xhr.abort();
+                    reject(new Error('Upload connection stalled.'));
+                }, STALL_TIMEOUT_MS);
+
+                const resetStallTimer = () => {
+                    clearTimeout(stallTimeout);
+                    stallTimeout = setTimeout(() => {
                         xhr.abort();
                         reject(new Error('Upload connection stalled.'));
                     }, STALL_TIMEOUT_MS);
+                };
 
-                    const resetStallTimer = () => {
-                        clearTimeout(stallTimeout);
-                        stallTimeout = setTimeout(() => {
-                            xhr.abort();
-                            reject(new Error('Upload connection stalled.'));
-                        }, STALL_TIMEOUT_MS);
-                    };
-
-                    xhr.upload.onprogress = (e) => {
-                        resetStallTimer();
-                        if (e.lengthComputable && onProgress) {
-                            onProgress({ loaded: e.loaded, total: e.total });
-                        }
-                    };
-
-                    xhr.onload = () => {
-                        clearTimeout(stallTimeout);
-                        if (xhr.status >= 200 && xhr.status < 300) {
-                            resolve();
-                        } else {
-                            let msg = 'Upload failed';
-                            try {
-                                const body = JSON.parse(xhr.responseText);
-                                msg = body.message || body.error || msg;
-                            } catch (_) {}
-                            const err: any = new Error(msg);
-                            err.status = xhr.status;
-                            reject(err);
-                        }
-                    };
-
-                    xhr.onerror = () => {
-                        clearTimeout(stallTimeout);
-                        reject(new Error('Network error during upload'));
-                    };
-                    xhr.ontimeout = () => {
-                        clearTimeout(stallTimeout);
-                        reject(new Error('Upload timed out'));
-                    };
-                    xhr.onabort = () => {
-                        clearTimeout(stallTimeout);
-                        reject(new Error('Upload aborted'));
-                    };
-
-                    xhr.timeout = 120000;
-
-                    xhr.send(file);
-                });
-
-                try {
-                    await runXhr(token);
-                } catch (xhrErr: any) {
-                    const status = xhrErr?.status;
-                    const isFatalQuotaOrSize = status === 402 || status === 413 || status === 400 || isQuotaError(xhrErr);
-                    if (isFatalQuotaOrSize) {
-                        throw xhrErr;
+                xhr.upload.onprogress = (e) => {
+                    resetStallTimer();
+                    if (e.lengthComputable && onProgress) {
+                        onProgress({ loaded: e.loaded, total: e.total });
                     }
-                    const isAuthError = status === 401 || 
-                                       status === 403 || 
-                                       String(xhrErr.message).toLowerCase().includes('jwt') ||
-                                       String(xhrErr.message).toLowerCase().includes('unauthorized');
-                    if (isAuthError && token !== supabaseKey) {
-                        console.warn('[uploadMedia] User auth token rejected. Retrying immediately with anon key...');
-                        token = supabaseKey;
-                        await runXhr(supabaseKey);
+                };
+
+                xhr.onload = () => {
+                    clearTimeout(stallTimeout);
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve();
                     } else {
-                        throw xhrErr;
+                        let msg = 'Upload failed';
+                        try {
+                            const body = JSON.parse(xhr.responseText);
+                            msg = body.message || body.error || msg;
+                        } catch (_) {}
+                        const err: any = new Error(msg);
+                        err.status = xhr.status;
+                        reject(err);
                     }
-                }
-            } else {
-                // Direct Supabase SDK upload (no progress needed)
-                const { error: sdkErr } = await supabase.storage
-                    .from(STORAGE_BUCKET)
-                    .upload(cleanPath, file, {
-                        cacheControl: '3600',
-                        upsert: true,
-                        contentType: file.type || undefined,
-                    });
+                };
 
-                if (sdkErr) {
-                    throw sdkErr;
-                }
-            }
+                xhr.onerror = () => {
+                    clearTimeout(stallTimeout);
+                    reject(new Error('Network error during upload'));
+                };
+                xhr.ontimeout = () => {
+                    clearTimeout(stallTimeout);
+                    reject(new Error('Upload timed out'));
+                };
+                xhr.onabort = () => {
+                    clearTimeout(stallTimeout);
+                    reject(new Error('Upload aborted'));
+                };
 
-            // Upload succeeded — get public permanent URL
+                xhr.timeout = 120000;
+                xhr.send(file);
+            });
+
             const { data: publicUrlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(cleanPath);
-            if (publicUrlData?.publicUrl) {
-                return publicUrlData.publicUrl;
-            }
-            return `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${cleanPath}`;
-
+            return publicUrlData?.publicUrl || `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${cleanPath}`;
         } catch (err: any) {
-            lastError = err instanceof Error ? err : new Error(String(err));
-            console.warn(`[uploadMedia] Attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, lastError.message);
-            token = supabaseKey;
-            const status = err?.status || err?.statusCode;
-            if (status === 402 || status === 403 || status === 413 || isQuotaError(err)) {
-                break;
+            const errText = String(err?.message || '');
+            if (isQuotaError(err) || err?.status === 402 || err?.status === 403) {
+                setSupabaseQuotaRestricted(true);
             }
-            if (attempt < MAX_RETRIES) {
-                await new Promise(r => setTimeout(r, 300));
-            }
+            console.warn(`[uploadMedia] Cloud upload skipped/failed (${errText}), using local IndexedDB storage.`);
+            return null;
         }
+    })();
+
+    // ⚡ Instant-Publish Fast Budget (1.2s for videos/media, 600ms for posters):
+    // If cloud upload finishes within the budget, return the cloud URL immediately.
+    // If the video is large and still uploading after 1.2s, publish immediately using the IndexedDB
+    // local URL so the user never waits, and seamlessly upgrade to the cloud URL in the background!
+    const FAST_PUBLISH_BUDGET_MS = isPosterUpload ? 600 : 1200;
+    let progressInterval: ReturnType<typeof setInterval> | null = null;
+    if (onProgress && !isPosterUpload) {
+        const startTime = Date.now();
+        progressInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime;
+            const syntheticRatio = Math.min(0.95, elapsed / FAST_PUBLISH_BUDGET_MS);
+            onProgress({ loaded: Math.round(file.size * syntheticRatio), total: file.size });
+        }, 120);
     }
 
-    // Storage network failure recovery:
-    // When Supabase storage fails (quota 402, Failed to fetch, network offline, etc.),
-    // automatically save to persistent IndexedDB fallback storage so user's upload NEVER fails!
-    const errText = String(lastError?.message || '');
-    if (isQuotaError(lastError) || errText.includes('Failed to fetch') || errText.includes('Network') || (lastError as any)?.status === 402 || (lastError as any)?.status === 403) {
-        setSupabaseQuotaRestricted(true);
-    }
-    console.warn(`[uploadMedia] Storage network upload unavailable (${errText}). Saving media to persistent IndexedDB fallback storage.`);
+    const raceResult = await Promise.race([
+        cloudUploadPromise.then(url => ({ done: true as const, url })),
+        new Promise<{ done: false; url: null }>(resolve =>
+            setTimeout(() => resolve({ done: false as const, url: null }), FAST_PUBLISH_BUDGET_MS)
+        )
+    ]);
+
+    if (progressInterval) clearInterval(progressInterval);
     if (onProgress) {
         onProgress({ loaded: file.size, total: file.size });
     }
-    const { fallbackUrl } = await createLocalFallbackMediaUrl(file);
-    return fallbackUrl;
+
+    const localFallback = await localFallbackPromise;
+
+    if (raceResult.done && raceResult.url) {
+        if (isPosterUpload) {
+            return raceResult.url;
+        }
+        const isVid = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(file.name);
+        const mediaTag = isVid ? '#video.mp4' : '#image.jpg';
+        return `${raceResult.url}#LOCAL_ID:${localFallback.id}${mediaTag}`;
+    }
+
+    // Cloud upload is still running in the background (or failed) — return instant IndexedDB URL now
+    // and upgrade stored records when cloud upload finishes in the background!
+    if (!raceResult.done && !isPosterUpload) {
+        cloudUploadPromise.then(remoteUrl => {
+            if (remoteUrl) {
+                upgradeLocalMediaToCloud(localFallback.id, remoteUrl);
+            }
+        }).catch(() => {});
+    }
+
+    return localFallback.fallbackUrl;
 }
 
 export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[]> {
@@ -1059,66 +1081,55 @@ export async function createNewPost(post: {
         created_at: new Date().toISOString(),
     });
 
-    const isLocalIndexedDbMedia = Boolean(
-        post.image_url && (post.image_url.includes('#LOCAL_ID:') || post.image_url.startsWith('local-media://'))
-    );
+    const localPost = buildLocalPost();
+    saveLocalPost(localPost);
+    invalidateCache();
 
-    if (isSupabaseQuotaRestricted() || isLocalIndexedDbMedia) {
-        const localPost = buildLocalPost();
-        saveLocalPost(localPost);
-        invalidateCache();
+    const isBlobBaseUrl = Boolean(post.image_url && (post.image_url.startsWith('blob:') || post.image_url.startsWith('local-media://')));
+    if (isSupabaseQuotaRestricted() || isBlobBaseUrl) {
         return [localPost];
     }
 
-    const row: Record<string, unknown> = {
-        username: post.username,
-        avatar_url: post.avatar_url,
-        image_url: post.image_url,
-        caption: finalCaption,
-        likes_count: 0,
-        media_type: post.media_type || 'image',
-        category: post.category || 'General',
-    };
-    if (post.user_id) row.user_id = post.user_id;
-    if (post.attached_link) row.attached_link = post.attached_link;
-    if (post.boost_expires_at) row.boost_expires_at = post.boost_expires_at;
-    if (post.boost_impressions_remaining !== undefined) {
-        row.boost_impressions_remaining = post.boost_impressions_remaining;
-    }
-    if (post.music_title) row.music_title = post.music_title;
-    if (post.music_artist) row.music_artist = post.music_artist;
-    if (post.music_url) row.music_url = post.music_url;
+    // Sync to Supabase DB in background without blocking UI publish completion
+    (async () => {
+        try {
+            const row: Record<string, unknown> = {
+                username: post.username,
+                avatar_url: post.avatar_url,
+                image_url: post.image_url,
+                caption: finalCaption,
+                likes_count: 0,
+                media_type: post.media_type || 'image',
+                category: post.category || 'General',
+            };
+            if (post.user_id) row.user_id = post.user_id;
+            if (post.attached_link) row.attached_link = post.attached_link;
+            if (post.boost_expires_at) row.boost_expires_at = post.boost_expires_at;
+            if (post.boost_impressions_remaining !== undefined) {
+                row.boost_impressions_remaining = post.boost_impressions_remaining;
+            }
+            if (post.music_title) row.music_title = post.music_title;
+            if (post.music_artist) row.music_artist = post.music_artist;
+            if (post.music_url) row.music_url = post.music_url;
 
-    let { data, error } = await supabase.from('posts').insert(row).select();
+            let { error } = await supabase.from('posts').insert(row);
+            if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
+                delete row.music_title;
+                delete row.music_artist;
+                delete row.music_url;
+                delete row.attached_link;
+                delete row.boost_expires_at;
+                delete row.boost_impressions_remaining;
+                const retryResult = await supabase.from('posts').insert(row);
+                error = retryResult.error;
+            }
+            if (error && isQuotaError(error)) {
+                setSupabaseQuotaRestricted(true);
+            }
+        } catch (_) {}
+    })();
 
-    // Fallback: If DB table doesn't have music_title/music_artist/music_url or other optional columns yet
-    if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
-        console.warn('Retrying post insert without optional columns due to missing columns in Supabase:', error.message);
-        delete row.music_title;
-        delete row.music_artist;
-        delete row.music_url;
-        delete row.attached_link;
-        delete row.boost_expires_at;
-        delete row.boost_impressions_remaining;
-        const retryResult = await supabase.from('posts').insert(row).select();
-        data = retryResult.data;
-        error = retryResult.error;
-    }
-
-    if (error) {
-        if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-        console.warn('Error creating post in Supabase (saving resilient local post):', error.message);
-        const localPost = buildLocalPost();
-        saveLocalPost(localPost);
-        invalidateCache();
-        return [localPost];
-    }
-
-    if (data && data[0]) {
-        saveLocalPost(normalizePost(data[0]));
-        invalidateCache();
-    }
-    return data;
+    return [localPost];
 }
 
 /** Upload a canvas/data-URL story image or video to storage.
@@ -1993,11 +2004,12 @@ export function normalizeStory(story: StoryData): StoryData {
     }
 
     const resolvedImageUrl = resolveLocalMediaUrl(finalImageUrl);
+    const resolvedPosterUrl = poster_url ? resolveLocalMediaUrl(poster_url) : undefined;
 
     return {
         ...story,
         image_url: resolvedImageUrl,
-        poster_url,
+        poster_url: resolvedPosterUrl,
         music_url,
         music_title,
         music_artist,
@@ -2327,51 +2339,47 @@ export async function createStory(
     };
     const normalizedLocalStory = normalizeStory(localStoryObj) || (localStoryObj as StoryData);
 
-    if (isSupabaseQuotaRestricted()) {
-        saveFallbackStory(localStoryObj);
-        invalidateCache('recent_stories');
-        invalidateCache('24h_boost_stories');
-        return { error: null, story: normalizedLocalStory };
-    }
-
-    const payload: any = {
-        user_id: userId,
-        image_url: imageUrl,
-        filter_name: filterName,
-        is_boosted: isBoosted,
-    };
-    if (username) payload.username = username;
-    if (caption) payload.caption = caption;
-    if (musicTitle) payload.music_title = musicTitle;
-    if (musicArtist) payload.music_artist = musicArtist;
-    if (musicUrl) payload.music_url = musicUrl;
-
-    let { error } = await supabase.from('stories').insert(payload);
-
-    if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
-        console.warn('Retrying story insert with base fields due to missing columns in Supabase:', error.message);
-        const basePayload = {
-            user_id: userId,
-            image_url: imageUrl, // Contains #MUSIC: fragment
-            filter_name: filterName,
-            is_boosted: isBoosted,
-        };
-        const retryResult = await supabase.from('stories').insert(basePayload);
-        error = retryResult.error;
-    }
-
-    if (error) {
-        if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-        console.warn('Error creating story in Supabase (possibly RLS or offline), saving to local fallback storage:', error.message);
-        saveFallbackStory(localStoryObj);
-        invalidateCache('recent_stories');
-        invalidateCache('24h_boost_stories');
-        return { error: null, story: normalizedLocalStory };
-    }
-    // Also mirror to local fallback storage for instant cache access
     saveFallbackStory(localStoryObj);
     invalidateCache('recent_stories');
     invalidateCache('24h_boost_stories');
+
+    const isBlobBaseUrl = Boolean(imageUrl && (imageUrl.startsWith('blob:') || imageUrl.startsWith('local-media://')));
+    if (isSupabaseQuotaRestricted() || isBlobBaseUrl) {
+        return { error: null, story: normalizedLocalStory };
+    }
+
+    // Sync to Supabase stories table in background without blocking UI publish completion
+    (async () => {
+        try {
+            const payload: any = {
+                user_id: userId,
+                image_url: imageUrl,
+                filter_name: filterName,
+                is_boosted: isBoosted,
+            };
+            if (username) payload.username = username;
+            if (caption) payload.caption = caption;
+            if (musicTitle) payload.music_title = musicTitle;
+            if (musicArtist) payload.music_artist = musicArtist;
+            if (musicUrl) payload.music_url = musicUrl;
+
+            let { error } = await supabase.from('stories').insert(payload);
+            if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
+                const basePayload = {
+                    user_id: userId,
+                    image_url: imageUrl,
+                    filter_name: filterName,
+                    is_boosted: isBoosted,
+                };
+                const retryResult = await supabase.from('stories').insert(basePayload);
+                error = retryResult.error;
+            }
+            if (error && isQuotaError(error)) {
+                setSupabaseQuotaRestricted(true);
+            }
+        } catch (_) {}
+    })();
+
     return { error: null, story: normalizedLocalStory };
 }
 

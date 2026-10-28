@@ -1154,19 +1154,7 @@ const Boost: React.FC = () => {
         const userId = user.id;
         const promise = (async () => {
             let fileToUpload = file;
-            let currentPosterBlob: Blob | null = null;
-            if (isVid) {
-                try {
-                    const prepared = await prepareVideoForUpload(file);
-                    if (prepared.posterBlob) {
-                        currentPosterBlob = prepared.posterBlob;
-                        setPosterBlob(prepared.posterBlob);
-                    }
-                    if (prepared.videoFile && prepared.videoFile !== file) {
-                        fileToUpload = prepared.videoFile;
-                    }
-                } catch (_) {}
-            } else if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name)) {
+            if (!isVid && (file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name))) {
                 try {
                     fileToUpload = await compressImage(file, 1280, 1280, 0.8);
                 } catch (_) {}
@@ -1179,15 +1167,19 @@ const Boost: React.FC = () => {
                 : (isVid ? 'mp4' : 'jpg');
             const path = `stories/${userId}-${Date.now()}.${ext}`;
 
-            const posterPromise = currentPosterBlob
+            // Extract and upload poster in parallel at 0ms without blocking video upload start
+            const posterPromise = isVid
                 ? (async () => {
                     try {
-                        const posterFile = new File([currentPosterBlob!], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                        const pPath = `stories/posters/${userId}-${Date.now()}.jpg`;
-                        return await uploadMedia(posterFile, pPath);
-                    } catch (_) {
-                        return undefined;
-                    }
+                        const prepared = await prepareVideoForUpload(file);
+                        if (prepared.posterBlob) {
+                            setPosterBlob(prepared.posterBlob);
+                            const posterFile = new File([prepared.posterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                            const pPath = `stories/posters/${userId}-${Date.now()}.jpg`;
+                            return await uploadMedia(posterFile, pPath);
+                        }
+                    } catch (_) {}
+                    return undefined;
                 })()
                 : Promise.resolve(undefined);
 
@@ -1198,7 +1190,11 @@ const Boost: React.FC = () => {
                     setUploadProgress(pct);
                 }
             });
-            const posterUrl = await posterPromise;
+            // Never let poster upload delay video completion by more than 300ms
+            const posterUrl = await Promise.race([
+                posterPromise,
+                new Promise<undefined>(r => setTimeout(() => r(undefined), 300))
+            ]);
             if (!uploadedUrl) throw new Error('Background upload failed');
             return { uploadedUrl, posterUrl };
         })();
@@ -1312,15 +1308,26 @@ const Boost: React.FC = () => {
 
             let currentPosterBlob = posterBlob;
             if (!uploadedUrl) {
-                if (isVid && !currentPosterBlob) {
-                    try {
-                        const targetForPoster = selectedFile || capturedMediaUrl;
-                        if (targetForPoster) {
-                            const res = await extractVideoPoster(targetForPoster as any, 0.05);
-                            if (res?.blob) currentPosterBlob = res.blob;
-                        }
-                    } catch (_) {}
-                }
+                const posterTaskPromise = isVid
+                    ? (async () => {
+                        try {
+                            let blob = currentPosterBlob;
+                            if (!blob) {
+                                const targetForPoster = selectedFile || capturedMediaUrl;
+                                if (targetForPoster) {
+                                    const res = await extractVideoPoster(targetForPoster as any, 0.05);
+                                    if (res?.blob) blob = res.blob;
+                                }
+                            }
+                            if (blob) {
+                                const posterFile = new File([blob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
+                                const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
+                                return await uploadMedia(posterFile, pPath);
+                            }
+                        } catch (_) {}
+                        return undefined;
+                    })()
+                    : Promise.resolve(undefined);
 
                 // Upload main media directly without blocking real-time video re-encoding
                 if (selectedFile && fileToUpload) {
@@ -1348,16 +1355,10 @@ const Boost: React.FC = () => {
                     uploadedUrl = await uploadStoryImage(capturedMediaUrl, user.id);
                 }
 
-                // Upload poster so story/post has instant thumbnail without video decoder overhead
-                if (currentPosterBlob && !uploadedPosterUrl) {
-                    try {
-                        const posterFile = new File([currentPosterBlob], `poster-${Date.now()}.jpg`, { type: 'image/jpeg' });
-                        const pPath = `stories/posters/${user.id}-${Date.now()}.jpg`;
-                        uploadedPosterUrl = await uploadMedia(posterFile, pPath);
-                    } catch (pe) {
-                        console.warn('Poster upload skipped:', pe);
-                    }
-                }
+                uploadedPosterUrl = await Promise.race([
+                    posterTaskPromise,
+                    new Promise<undefined>(r => setTimeout(() => r(undefined), 300))
+                ]);
             }
 
             if (!uploadedUrl) {
