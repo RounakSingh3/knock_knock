@@ -710,21 +710,55 @@ const CreatePost = () => {
             {error && <div style={{ color: '#f5a524', marginBottom: '16px', padding: '12px', background: 'rgba(245, 165, 36,0.1)', borderRadius: '8px' }}>{error}</div>}
 
             {!previewUrl ? (
-                <label style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    border: '2px dashed #2c2c2e', borderRadius: '16px', height: '300px', cursor: 'pointer',
-                    background: 'var(--surface-color)', marginBottom: '24px'
-                }}>
-                    <ImagePlus size={48} color="#8e8e93" style={{ marginBottom: '16px' }} />
-                    <span style={{ color: 'var(--text-inactive)' }}>Tap to select photo or video</span>
-                    <input 
-                        type="file" 
-                        accept="image/*,video/*" 
-                        multiple={false} 
-                        onChange={handleFileChange} 
-                        style={{ display: 'none' }} 
-                    />
-                </label>
+                <div style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <label style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                        border: '2px dashed #2c2c2e', borderRadius: '16px', height: '240px', cursor: 'pointer',
+                        background: 'var(--surface-color)'
+                    }}>
+                        <ImagePlus size={48} color="#8e8e93" style={{ marginBottom: '16px' }} />
+                        <span style={{ color: 'var(--text-inactive)' }}>Tap to select photo or video from gallery</span>
+                        <input 
+                            type="file" 
+                            accept="image/*,video/*" 
+                            multiple={false} 
+                            onChange={handleFileChange} 
+                            style={{ display: 'none' }} 
+                        />
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        <label style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                            background: 'rgba(245,165,36,0.12)', border: '1px solid rgba(245,165,36,0.45)',
+                            borderRadius: '14px', padding: '12px', color: '#f5a524', fontWeight: 700, fontSize: '13px', cursor: 'pointer'
+                        }}>
+                            <span>📷 Take Photo (Back Cam)</span>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                multiple={false}
+                                onChange={handleFileChange}
+                                style={{ display: 'none' }}
+                            />
+                        </label>
+                        <label style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                            background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.45)',
+                            borderRadius: '14px', padding: '12px', color: '#ef4444', fontWeight: 700, fontSize: '13px', cursor: 'pointer'
+                        }}>
+                            <span>🎥 Record Video (Back Cam)</span>
+                            <input
+                                type="file"
+                                accept="video/*"
+                                capture="environment"
+                                multiple={false}
+                                onChange={handleFileChange}
+                                style={{ display: 'none' }}
+                            />
+                        </label>
+                    </div>
+                </div>
             ) : (
                 <div style={{ position: 'relative', marginBottom: '16px', borderRadius: '16px', overflow: 'hidden', background: 'var(--surface-color)', display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
                     {file?.type.startsWith('video/') ? (

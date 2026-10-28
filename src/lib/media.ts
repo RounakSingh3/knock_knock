@@ -630,3 +630,183 @@ export async function prepareVideoForUpload(
 
     return { videoFile, posterBlob, posterDataUrl };
 }
+
+/**
+ * Multi-stage camera stream acquisition that reliably opens the requested Front ('user')
+ * or Back ('environment') camera across Android Chrome, iOS Safari, Samsung Internet, and WebViews.
+ *
+ * Key mobile fixes:
+ * 1. Releases previous camera tracks and waits 120ms so mobile hardware HAL locks don't throw NotReadableError.
+ * 2. Tries exact facingMode first so browsers don't silently ignore a soft hint and stay on the selfie camera.
+ * 3. Falls back to enumerateDevices() to match rear/back or front videoinput deviceId when facingMode fails.
+ * 4. Acquires microphone audio separately if combined video+audio constraints fail, so audio permission issues
+ *    never cause the camera to fall back to `video: true` (which would lose the back camera).
+ */
+export async function acquireCameraStream(
+    facing: 'user' | 'environment',
+    wantAudio: boolean = false,
+    previousStream?: MediaStream | null
+): Promise<MediaStream> {
+    if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('Camera API not available in this browser');
+    }
+
+    let previousDeviceId: string | undefined;
+    if (previousStream) {
+        const oldVideoTracks = previousStream.getVideoTracks();
+        if (oldVideoTracks.length > 0) {
+            try {
+                previousDeviceId = oldVideoTracks[0].getSettings?.()?.deviceId;
+            } catch (_) {}
+        }
+        previousStream.getTracks().forEach(t => {
+            try { t.stop(); } catch (_) {}
+        });
+        // Give mobile camera HAL time to release the hardware lock before opening the other sensor
+        await new Promise(r => setTimeout(r, 120));
+    }
+
+    const findMatchingVideoDeviceId = async (): Promise<string | null> => {
+        if (!navigator.mediaDevices?.enumerateDevices) return null;
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputs = devices.filter(d => d.kind === 'videoinput' && d.deviceId);
+            if (videoInputs.length === 0) return null;
+
+            const backPattern = /back|rear|environment|world|traseira|arrière|trasera|camera2 0|facing back/i;
+            const frontPattern = /front|user|selfie|facetime|facing front|camera2 1/i;
+            const targetPattern = facing === 'environment' ? backPattern : frontPattern;
+
+            const labeledMatch = videoInputs.find(d => targetPattern.test(d.label || ''));
+            if (labeledMatch) return labeledMatch.deviceId;
+
+            if (videoInputs.length > 1) {
+                if (previousDeviceId) {
+                    const alternate = videoInputs.find(d => d.deviceId !== previousDeviceId);
+                    if (alternate) return alternate.deviceId;
+                }
+                // On mobile browsers where labels aren't populated yet, index 0 is front and last index is main rear camera
+                return facing === 'environment'
+                    ? videoInputs[videoInputs.length - 1].deviceId
+                    : videoInputs[0].deviceId;
+            }
+        } catch (_) {}
+        return null;
+    };
+
+    const videoConstraintCandidates: MediaStreamConstraints['video'][] = [
+        { facingMode: { exact: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        { facingMode: { exact: facing } },
+        { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        { facingMode: facing },
+    ];
+
+    let videoStream: MediaStream | null = null;
+    let lastError: unknown = null;
+
+    // Step 1: Try exact constraints first
+    for (let i = 0; i < 2; i++) {
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia({
+                video: videoConstraintCandidates[i],
+                audio: false,
+            });
+            if (videoStream) break;
+        } catch (err) {
+            lastError = err;
+        }
+    }
+
+    // Step 2: If exact facingMode failed, try explicit deviceId via enumerateDevices()
+    if (!videoStream) {
+        const matchedDeviceId = await findMatchingVideoDeviceId();
+        if (matchedDeviceId) {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: { exact: matchedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false,
+                });
+            } catch {
+                try {
+                    videoStream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: { exact: matchedDeviceId } },
+                        audio: false,
+                    });
+                } catch (err) {
+                    lastError = err;
+                }
+            }
+        }
+    }
+
+    // Step 3: Try ideal facingMode and finally generic video: true (for single-webcam laptops)
+    if (!videoStream) {
+        for (let i = 2; i < videoConstraintCandidates.length; i++) {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: videoConstraintCandidates[i],
+                    audio: false,
+                });
+                if (videoStream) break;
+            } catch (err) {
+                lastError = err;
+            }
+        }
+    }
+
+    if (!videoStream) {
+        try {
+            videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } catch (err) {
+            throw lastError || err;
+        }
+    }
+
+    // Step 4: If switching cameras still landed on the exact same lens when multiple cameras exist, force the alternate deviceId
+    if (videoStream && previousDeviceId) {
+        try {
+            const currentTrack = videoStream.getVideoTracks()[0];
+            const currentId = currentTrack?.getSettings?.()?.deviceId;
+            if (currentId && currentId === previousDeviceId) {
+                const altDeviceId = await findMatchingVideoDeviceId();
+                if (altDeviceId && altDeviceId !== currentId) {
+                    videoStream.getTracks().forEach(t => t.stop());
+                    await new Promise(r => setTimeout(r, 100));
+                    videoStream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: { exact: altDeviceId } },
+                        audio: false,
+                    });
+                }
+            }
+        } catch (_) {}
+    }
+
+    // Step 5: Attach microphone audio track if requested (without ever jeopardizing the video camera selection)
+    if (wantAudio && videoStream) {
+        try {
+            const audioStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                video: false,
+            });
+            audioStream.getAudioTracks().forEach(track => {
+                track.enabled = true;
+                videoStream!.addTrack(track);
+            });
+        } catch {
+            try {
+                const fallbackAudio = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: false,
+                });
+                fallbackAudio.getAudioTracks().forEach(track => {
+                    track.enabled = true;
+                    videoStream!.addTrack(track);
+                });
+            } catch {
+                // Continue with video-only if mic permission is denied
+            }
+        }
+    }
+
+    return videoStream;
+}

@@ -59,7 +59,7 @@ import {
     type UserStoryGroup,
     type PostData
 } from '../lib/database';
-import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, extractVideoPoster, acquireCameraStream } from '../lib/media';
 import { rank24HourExploreFeed, rankBoostLoopStories, recordBoostSignal, extractHashtags, generateInfiniteStream, getHybridInterestProfile } from '../lib/algorithm';
 import StoryViewer from '../components/StoryViewer';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
@@ -485,8 +485,10 @@ const Boost: React.FC = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
 
-    // 1-minute (60s) camera video recording state
+    // 1-minute (60s) camera video recording & Front/Back camera state
     const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
+    const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+    const [cameraError, setCameraError] = useState<string | null>(null);
     const [isRecordingVideo, setIsRecordingVideo] = useState(false);
     const [recordingSeconds, setRecordingSeconds] = useState(0);
 
@@ -494,6 +496,8 @@ const Boost: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const nativePhotoInputRef = useRef<HTMLInputElement>(null);
+    const nativeVideoInputRef = useRef<HTMLInputElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const videoChunksRef = useRef<Blob[]>([]);
     const recordingIntervalRef = useRef<any>(null);
@@ -887,9 +891,14 @@ const Boost: React.FC = () => {
         setActiveViewerGroupIndex(groupIdx);
     }, [user, filteredStories, rankedStories]);
 
-    // Camera Controls & 1-Minute Video Recording
-    const startCamera = async (mode: 'photo' | 'video' = cameraMode) => {
+    // Camera Controls & 1-Minute Video Recording (supports both Back 'environment' and Front 'user' cameras)
+    const startCamera = async (
+        mode: 'photo' | 'video' = cameraMode,
+        targetFacing: 'user' | 'environment' = facingMode
+    ) => {
         setCameraMode(mode);
+        setFacingMode(targetFacing);
+        setCameraError(null);
         setIsCameraActive(true);
         setCapturedMediaUrl(null);
         setSelectedFile(null);
@@ -897,43 +906,17 @@ const Boost: React.FC = () => {
         setIsRecordingVideo(false);
         setRecordingSeconds(0);
         if (!navigator?.mediaDevices?.getUserMedia) {
-            alert('Live camera is not supported in this browser environment. Tap "Upload 1m" to use your device camera or files.');
-            setIsCameraActive(false);
+            setCameraError('Live camera preview is restricted in this browser. Tap "Open Phone Camera" below to use your back camera directly.');
             return;
         }
         try {
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(t => t.stop());
-                streamRef.current = null;
+            const prevStream = streamRef.current;
+            streamRef.current = null;
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
             }
 
-            let stream: MediaStream;
-            const wantAudio = mode === 'video';
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'user', width: { ideal: 1280 } },
-                    audio: wantAudio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false
-                });
-            } catch (mediaErr) {
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: 'user' },
-                        audio: wantAudio
-                    });
-                } catch {
-                    try {
-                        stream = await navigator.mediaDevices.getUserMedia({ 
-                            video: true,
-                            audio: wantAudio
-                        });
-                    } catch {
-                        stream = await navigator.mediaDevices.getUserMedia({ 
-                            video: true,
-                            audio: false 
-                        });
-                    }
-                }
-            }
+            const stream = await acquireCameraStream(targetFacing, mode === 'video', prevStream);
             streamRef.current = stream;
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
@@ -941,9 +924,15 @@ const Boost: React.FC = () => {
             }
         } catch (err) {
             console.error('Error accessing camera:', err);
-            alert('Could not access camera. Please allow camera permissions or upload a file from your device.');
-            setIsCameraActive(false);
+            setCameraError('Camera access was blocked or unavailable. Tap "Open Phone Camera" below to record or take a photo with your back camera.');
         }
+    };
+
+    const toggleCameraFacingMode = async () => {
+        if (isRecordingVideo) return;
+        const nextFacing: 'user' | 'environment' = facingMode === 'environment' ? 'user' : 'environment';
+        setFacingMode(nextFacing);
+        await startCamera(cameraMode, nextFacing);
     };
 
     const stopCamera = () => {
@@ -960,6 +949,7 @@ const Boost: React.FC = () => {
             videoRef.current.srcObject = null;
         }
         setIsCameraActive(false);
+        setCameraError(null);
         setIsRecordingVideo(false);
         setRecordingSeconds(0);
     };
@@ -1024,7 +1014,13 @@ const Boost: React.FC = () => {
             canvas.height = targetH;
             const ctx = canvas.getContext('2d');
             if (ctx) {
+                ctx.save();
+                if (facingMode === 'user') {
+                    ctx.translate(targetW, 0);
+                    ctx.scale(-1, 1);
+                }
                 ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+                ctx.restore();
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.90);
                 setCapturedMediaUrl(dataUrl);
                 setIsVideo(false);
@@ -2072,9 +2068,73 @@ const Boost: React.FC = () => {
                                             muted
                                             style={{
                                                 width: '100%', height: '100%', objectFit: 'cover',
-                                                filter: FILTERS[activeFilterIndex].style
+                                                filter: FILTERS[activeFilterIndex].style,
+                                                transform: facingMode === 'user' ? 'scaleX(-1)' : 'none'
                                             }}
                                         />
+
+                                        {/* Camera Error / Fallback Overlay */}
+                                        {cameraError && (
+                                            <div style={{
+                                                position: 'absolute', inset: 0, zIndex: 18,
+                                                background: 'rgba(0,0,0,0.88)', padding: '20px',
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                                textAlign: 'center', gap: '12px'
+                                            }}>
+                                                <Camera size={36} color="#f5a524" />
+                                                <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.85)', lineHeight: 1.5, maxWidth: '260px' }}>
+                                                    {cameraError}
+                                                </p>
+                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => startCamera(cameraMode, facingMode)}
+                                                        style={{
+                                                            background: 'rgba(255,255,255,0.12)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)',
+                                                            padding: '8px 14px', borderRadius: '14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        Retry Live Camera
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (cameraMode === 'video') {
+                                                                nativeVideoInputRef.current?.click();
+                                                            } else {
+                                                                nativePhotoInputRef.current?.click();
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            background: 'linear-gradient(135deg, #f5a524, #ff6b35)', color: '#000', border: 'none',
+                                                            padding: '8px 14px', borderRadius: '14px', fontSize: '12px', fontWeight: 800, cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        Open Phone Back Camera
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Top-Left Flip Camera (Front / Back) Button */}
+                                        {!isRecordingVideo && (
+                                            <button
+                                                type="button"
+                                                onClick={toggleCameraFacingMode}
+                                                title="Switch between Back and Front Camera"
+                                                style={{
+                                                    position: 'absolute', top: '10px', left: '10px',
+                                                    background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(245,165,36,0.45)',
+                                                    borderRadius: '18px', padding: '6px 10px',
+                                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                                    color: '#f5a524', fontSize: '11px', fontWeight: 800,
+                                                    cursor: 'pointer', zIndex: 14, backdropFilter: 'blur(8px)'
+                                                }}
+                                            >
+                                                <RefreshCw size={14} />
+                                                <span>{facingMode === 'environment' ? 'Back Cam' : 'Front Cam'}</span>
+                                            </button>
+                                        )}
 
                                         {/* Camera Close Button */}
                                         <button
@@ -2102,7 +2162,7 @@ const Boost: React.FC = () => {
                                                 onClick={() => {
                                                     if (isRecordingVideo) return;
                                                     setCameraMode('photo');
-                                                    startCamera('photo');
+                                                    startCamera('photo', facingMode);
                                                 }}
                                                 style={{
                                                     padding: '4px 12px', borderRadius: '16px', border: 'none',
@@ -2118,7 +2178,7 @@ const Boost: React.FC = () => {
                                                 onClick={() => {
                                                     if (isRecordingVideo) return;
                                                     setCameraMode('video');
-                                                    startCamera('video');
+                                                    startCamera('video', facingMode);
                                                 }}
                                                 style={{
                                                     padding: '4px 12px', borderRadius: '16px', border: 'none',
@@ -2182,6 +2242,24 @@ const Boost: React.FC = () => {
                                                 )}
                                             </button>
                                         )}
+
+                                        {/* Bottom-Right Flip Camera Button next to Shutter */}
+                                        {!isRecordingVideo && (
+                                            <button
+                                                type="button"
+                                                onClick={toggleCameraFacingMode}
+                                                title="Flip Camera (Front / Back)"
+                                                style={{
+                                                    position: 'absolute', bottom: '26px', right: '24px',
+                                                    width: '44px', height: '44px', borderRadius: '50%',
+                                                    background: 'rgba(0,0,0,0.7)', border: '1.5px solid rgba(255,255,255,0.35)',
+                                                    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    cursor: 'pointer', zIndex: 14, backdropFilter: 'blur(8px)'
+                                                }}
+                                            >
+                                                <RefreshCw size={20} />
+                                            </button>
+                                        )}
                                     </>
                                 ) : capturedMediaUrl ? (
                                     <>
@@ -2240,11 +2318,47 @@ const Boost: React.FC = () => {
                                         </button>
                                     </>
                                 ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', width: '100%', padding: '8px 4px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', width: '100%', padding: '8px 4px' }}>
+                                        {/* Front / Back Camera Selector Pill */}
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', gap: '6px',
+                                            background: 'rgba(255,255,255,0.06)', padding: '4px',
+                                            borderRadius: '20px', border: '1px solid rgba(255,255,255,0.12)'
+                                        }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setFacingMode('environment')}
+                                                style={{
+                                                    padding: '5px 12px', borderRadius: '16px', border: 'none',
+                                                    background: facingMode === 'environment' ? 'linear-gradient(135deg, #f5a524, #ff6b35)' : 'transparent',
+                                                    color: facingMode === 'environment' ? '#000' : 'var(--text-inactive)',
+                                                    fontSize: '11px', fontWeight: 800, cursor: 'pointer',
+                                                    display: 'flex', alignItems: 'center', gap: '4px'
+                                                }}
+                                            >
+                                                <Camera size={12} />
+                                                <span>Back Camera</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setFacingMode('user')}
+                                                style={{
+                                                    padding: '5px 12px', borderRadius: '16px', border: 'none',
+                                                    background: facingMode === 'user' ? 'linear-gradient(135deg, #f5a524, #ff6b35)' : 'transparent',
+                                                    color: facingMode === 'user' ? '#000' : 'var(--text-inactive)',
+                                                    fontSize: '11px', fontWeight: 800, cursor: 'pointer',
+                                                    display: 'flex', alignItems: 'center', gap: '4px'
+                                                }}
+                                            >
+                                                <RefreshCw size={12} />
+                                                <span>Front Camera</span>
+                                            </button>
+                                        </div>
+
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', width: '100%' }}>
                                             <button
                                                 type="button"
-                                                onClick={() => startCamera('photo')}
+                                                onClick={() => startCamera('photo', facingMode)}
                                                 style={{
                                                     background: 'rgba(245,165,36,0.12)', border: '1px solid #f5a524',
                                                     borderRadius: '16px', padding: '14px 8px', color: '#f5a524',
@@ -2259,7 +2373,7 @@ const Boost: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    startCamera('video');
+                                                    startCamera('video', facingMode);
                                                 }}
                                                 style={{
                                                     background: 'rgba(239, 68, 68, 0.15)', border: '1.5px solid #ef4444',
@@ -2298,6 +2412,22 @@ const Boost: React.FC = () => {
                                     ref={fileInputRef}
                                     type="file"
                                     accept="image/*,video/*"
+                                    style={{ display: 'none' }}
+                                    onChange={handleFileSelect}
+                                />
+                                <input
+                                    ref={nativePhotoInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    style={{ display: 'none' }}
+                                    onChange={handleFileSelect}
+                                />
+                                <input
+                                    ref={nativeVideoInputRef}
+                                    type="file"
+                                    accept="video/*"
+                                    capture="environment"
                                     style={{ display: 'none' }}
                                     onChange={handleFileSelect}
                                 />

@@ -22,7 +22,7 @@ import {
     type ProfileData,
     uploadMedia
 } from '../lib/database';
-import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload } from '../lib/media';
+import { isVideoUrl, isVideoFile, compressImage, prepareVideoForUpload, acquireCameraStream } from '../lib/media';
 import { rankStoryGroups, getHybridInterestProfile, extractHashtags } from '../lib/algorithm';
 import { extractPosterFromUrl, videoPosterCache, INLINE_FALLBACK_SVG } from '../components/PostMedia';
 
@@ -185,26 +185,13 @@ const Stories = () => {
             return;
         }
         try {
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-                streamRef.current = null;
+            const prevStream = streamRef.current;
+            streamRef.current = null;
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
             }
 
-            let stream: MediaStream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
-            } catch {
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({
-                        video: { facingMode: mode }
-                    });
-                } catch {
-                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                }
-            }
-
+            const stream = await acquireCameraStream(mode, false, prevStream);
             streamRef.current = stream;
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
