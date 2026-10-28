@@ -41,7 +41,7 @@ try {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
             Object.entries(parsed).forEach(([k, v]) => {
-                if (typeof v === 'string' && !v.includes('photo-1618005182384-a83a8bd57fbe')) {
+                if (typeof v === 'string' && v.startsWith('data:image/') && !v.includes('photo-1618005182384-a83a8bd57fbe')) {
                     videoPosterCache.set(k, v);
                 }
             });
@@ -101,10 +101,20 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
     if (url.includes('#POSTER:')) {
         try {
             const extracted = decodeURIComponent(url.split('#POSTER:')[1]?.split('#')[0] || '');
-            if (extracted) return resolveLocalMediaUrl(extracted).split('#')[0];
+            if (extracted) {
+                const resolved = resolveLocalMediaUrl(extracted).split('#')[0];
+                if (resolved && (!resolved.startsWith('blob:') || extracted.startsWith('local-media'))) {
+                    return resolved;
+                }
+            }
         } catch (_) {
             const raw = url.split('#POSTER:')[1]?.split('#')[0];
-            return raw ? resolveLocalMediaUrl(raw).split('#')[0] : undefined;
+            if (raw) {
+                const resolved = resolveLocalMediaUrl(raw).split('#')[0];
+                if (resolved && (!resolved.startsWith('blob:') || raw.startsWith('local-media'))) {
+                    return resolved;
+                }
+            }
         }
     }
     // Local bundled videos poster mapping
@@ -118,16 +128,11 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
             return `https://images.pexels.com/videos/${m[1]}/free-video-${m[1]}.jpg?auto=compress&w=500`;
         }
     }
-    // Supabase posts video poster mapping
-    if (url.includes('/posts/') && url.includes('.mp4')) {
-        const clean = url.split('?')[0].split('#')[0];
-        return clean.replace('/posts/', '/posts/posters/').replace(/\.mp4$/, '.jpg');
-    }
     return undefined;
 };
 
-// ⚡ Global sequential background poster extractor (max 1 decoder at a time across the entire app)
-// Ensures 0 persistent <video> decoders in grid thumbnails while capturing authentic frames.
+// ⚡ Global sequential background poster extractor (max 2 decoders at a time across the entire app)
+// Ensures minimal <video> decoders in grid thumbnails while capturing authentic frames.
 interface PosterQueueItem {
     videoSrc: string;
     cleanUrl: string;
@@ -135,10 +140,26 @@ interface PosterQueueItem {
 }
 const posterCaptureQueue: PosterQueueItem[] = [];
 const failedPosterCaptureUrls = new Set<string>();
-let isCapturingPoster = false;
+let activePosterCaptures = 0;
+const MAX_CONCURRENT_POSTER_CAPTURES = 2;
+
+function persistVideoPosterCache(): void {
+    try {
+        if (typeof window === 'undefined') return;
+        const entries: Record<string, string> = {};
+        let count = 0;
+        videoPosterCache.forEach((v, k) => {
+            if (v.startsWith('data:image/') && count < 60) {
+                entries[k] = v;
+                count++;
+            }
+        });
+        sessionStorage.setItem('knock_video_posters', JSON.stringify(entries));
+    } catch (_) {}
+}
 
 function processPosterQueue(): void {
-    if (isCapturingPoster || posterCaptureQueue.length === 0 || typeof document === 'undefined') return;
+    if (activePosterCaptures >= MAX_CONCURRENT_POSTER_CAPTURES || posterCaptureQueue.length === 0 || typeof document === 'undefined') return;
     const next = posterCaptureQueue.shift()!;
     const existing = videoPosterCache.get(next.cleanUrl);
     if (existing && !isFallbackPoster(existing)) {
@@ -151,11 +172,11 @@ function processPosterQueue(): void {
         return;
     }
 
-    isCapturingPoster = true;
+    activePosterCaptures++;
     const vid = document.createElement('video');
     vid.muted = true;
     vid.playsInline = true;
-    vid.preload = 'metadata';
+    vid.preload = 'auto';
     if (!next.videoSrc.startsWith('blob:') && !next.videoSrc.startsWith('data:')) {
         vid.crossOrigin = 'anonymous';
     }
@@ -166,6 +187,7 @@ function processPosterQueue(): void {
         finished = true;
         clearTimeout(timeoutId);
         try {
+            vid.onloadedmetadata = null;
             vid.onloadeddata = null;
             vid.onseeked = null;
             vid.onerror = null;
@@ -173,14 +195,14 @@ function processPosterQueue(): void {
             vid.removeAttribute('src');
             vid.load();
         } catch (_) {}
-        isCapturingPoster = false;
+        activePosterCaptures = Math.max(0, activePosterCaptures - 1);
         setTimeout(processPosterQueue, 16);
     };
 
     const timeoutId = setTimeout(() => {
         failedPosterCaptureUrls.add(next.cleanUrl);
         cleanup();
-    }, 3500);
+    }, 6000);
 
     const captureFrame = () => {
         if (finished) return;
@@ -198,6 +220,7 @@ function processPosterQueue(): void {
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
                 if (dataUrl && dataUrl.length > 200) {
                     videoPosterCache.set(next.cleanUrl, dataUrl);
+                    persistVideoPosterCache();
                     next.callbacks.forEach(cb => cb(dataUrl));
                 }
             }
@@ -208,11 +231,18 @@ function processPosterQueue(): void {
         }
     };
 
-    vid.onloadeddata = () => {
+    vid.onloadedmetadata = () => {
         try {
-            vid.currentTime = 0.05;
-        } catch (_) {
-            captureFrame();
+            vid.currentTime = Math.min(0.1, Math.max(0.05, (vid.duration || 1) * 0.05));
+        } catch (_) {}
+    };
+    vid.onloadeddata = () => {
+        if (vid.currentTime === 0) {
+            try {
+                vid.currentTime = 0.05;
+            } catch (_) {
+                captureFrame();
+            }
         }
     };
     vid.onseeked = captureFrame;
@@ -221,6 +251,7 @@ function processPosterQueue(): void {
         cleanup();
     };
     vid.src = next.videoSrc;
+    processPosterQueue();
 }
 
 function enqueueBackgroundPosterCapture(videoSrc: string, cleanUrl: string, onCaptured: (posterDataUrl: string) => void): void {
@@ -421,9 +452,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             const cached = videoPosterCache.get(cleanUrl);
             const validCached = cached && !isFallbackPoster(cached) ? cached : undefined;
             const validUrlPoster = posterFromUrl && !isFallbackPoster(posterFromUrl) ? posterFromUrl : undefined;
-            const bestPoster = validUrlPoster || validCached || (isVideo ? '' : fb);
-            if (bestPoster && !isFallbackPoster(bestPoster)) {
-                videoPosterCache.set(cleanUrl, bestPoster);
+            const bestPoster = validCached || validUrlPoster || (isVideo ? '' : fb);
+            if (validCached) {
+                videoPosterCache.set(cleanUrl, validCached);
             }
             setCapturedPoster(bestPoster);
         } else {
@@ -870,6 +901,11 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             setHasError(false);
             return;
         }
+        if (!isVideo && fallbackUsedRef.current) {
+            setCurrentImgSrc(INLINE_FALLBACK_SVG);
+            setHasError(true);
+            return;
+        }
         if (isVideo && !fallbackUsedRef.current) {
             fallbackUsedRef.current = true;
             const fallbackUrl = extractFallbackFromUrl(post.image_url);
@@ -1028,32 +1064,79 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 background: '#18181b',
                             }}
                         >
-                            <img
-                                src={(hasRealPoster && effectiveRealPoster) ? effectiveRealPoster : (capturedPoster || categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE)}
-                                alt={alt}
-                                style={{
-                                    ...style,
-                                    filter: extractedFilter,
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: resolvedObjectFit,
-                                    display: 'block',
-                                    transform: 'translateZ(0)',
-                                    backfaceVisibility: 'hidden',
-                                }}
-                                loading="lazy"
-                                decoding="async"
-                                onError={(e) => {
-                                    if (hasRealPoster && !posterImageFailed) {
-                                        setPosterImageFailed(true);
-                                    } else {
-                                        const target = e.currentTarget;
-                                        if (target.src !== INLINE_FALLBACK_SVG) {
-                                            target.src = INLINE_FALLBACK_SVG;
+                            {hasRealPoster && effectiveRealPoster ? (
+                                <img
+                                    src={effectiveRealPoster}
+                                    alt={alt}
+                                    style={{
+                                        ...style,
+                                        filter: extractedFilter,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: resolvedObjectFit,
+                                        display: 'block',
+                                        transform: 'translateZ(0)',
+                                        backfaceVisibility: 'hidden',
+                                    }}
+                                    loading="lazy"
+                                    decoding="async"
+                                    onError={() => {
+                                        if (cleanUrl) {
+                                            videoPosterCache.delete(cleanUrl);
+                                            failedPosterCaptureUrls.delete(cleanUrl);
                                         }
-                                    }
-                                }}
-                            />
+                                        setCapturedPoster('');
+                                        setPosterImageFailed(true);
+                                        if (videoSrc && cleanUrl) {
+                                            enqueueBackgroundPosterCapture(videoSrc, cleanUrl, (posterDataUrl) => {
+                                                if (posterDataUrl) {
+                                                    setPosterImageFailed(false);
+                                                    setCapturedPoster(posterDataUrl);
+                                                }
+                                            });
+                                        }
+                                    }}
+                                />
+                            ) : isInView && videoSrc ? (
+                                <video
+                                    src={videoSrc}
+                                    poster={INLINE_FALLBACK_SVG}
+                                    muted
+                                    playsInline
+                                    // @ts-ignore
+                                    webkit-playsinline="true"
+                                    preload="metadata"
+                                    style={{
+                                        ...style,
+                                        filter: extractedFilter,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: resolvedObjectFit,
+                                        display: 'block',
+                                        transform: 'translateZ(0)',
+                                        backfaceVisibility: 'hidden',
+                                        pointerEvents: 'none',
+                                    }}
+                                    onLoadedMetadata={(e) => {
+                                        try {
+                                            const v = e.currentTarget;
+                                            v.currentTime = Math.min(0.1, Math.max(0.05, (v.duration || 1) * 0.05));
+                                        } catch (_) {}
+                                    }}
+                                />
+                            ) : (
+                                <img
+                                    src={INLINE_FALLBACK_SVG}
+                                    alt={alt}
+                                    style={{
+                                        ...style,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: resolvedObjectFit,
+                                        display: 'block',
+                                    }}
+                                />
+                            )}
                             <div style={{
                                 position: 'absolute',
                                 top: '8px',

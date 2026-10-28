@@ -4,6 +4,7 @@ import { AppContext } from '../context/AppContext';
 import { fetchConnections, fetchFollowCounts, fetchUserPosts, deletePost, type PostData } from '../lib/database';
 import { isVideoPost } from '../lib/media';
 import PostMedia from '../components/PostMedia';
+import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import {
     User,
     Zap,
@@ -33,6 +34,7 @@ const Settings = () => {
     const [photosCount, setPhotosCount] = useState<number>(0);
     const [userPosts, setUserPosts] = useState<PostData[]>([]);
     const [loadingStats, setLoadingStats] = useState(true);
+    const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null);
 
     useEffect(() => {
         if (user && user.id && user.username) {
@@ -269,8 +271,8 @@ const Settings = () => {
                         </div>
                     ) : (
                         <div className="settings-post-grid">
-                            {userPosts.map(post => (
-                                <div key={post.id} className="settings-post-item" onClick={() => navigate(`/profile/${username}`)}>
+                            {userPosts.map((post, idx) => (
+                                <div key={post.id} className="settings-post-item" onClick={() => setSelectedPostIndex(idx)}>
                                     <PostMedia
                                         post={post}
                                         className="settings-post-img"
@@ -301,8 +303,8 @@ const Settings = () => {
                                             }
                                         }}
                                         style={{
-                                            position: 'absolute', top: '6px', right: '6px',
-                                            background: 'rgba(0,0,0,0.6)', border: 'none',
+                                            position: 'absolute', bottom: '6px', right: '6px',
+                                            background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(255,59,48,0.45)',
                                             borderRadius: '50%', width: '28px', height: '28px',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                             cursor: 'pointer', zIndex: 5,
@@ -315,6 +317,26 @@ const Settings = () => {
                         </div>
                     )}
                 </div>
+
+                {selectedPostIndex !== null && userPosts[selectedPostIndex] && (
+                    <ExploreFeedViewer
+                        posts={userPosts}
+                        initialIndex={selectedPostIndex}
+                        onClose={() => setSelectedPostIndex(null)}
+                        onCommentClick={() => {}}
+                        onShareClick={() => {}}
+                        onDelete={async (postId) => {
+                            const ok = await deletePost(postId);
+                            if (ok) {
+                                setUserPosts(prev => {
+                                    const next = prev.filter(p => p.id !== postId);
+                                    if (next.length === 0) setSelectedPostIndex(null);
+                                    return next;
+                                });
+                            }
+                        }}
+                    />
+                )}
 
                 {/* Logout Button */}
                 <button
