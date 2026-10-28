@@ -575,16 +575,17 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
     }, [hasMusic, isVideo, resolvedMusicUrl, onMuteChange]);
 
     // When audio is blocked by browser autoplay policy, listen for any user tap anywhere to seamlessly unmute
+    // Avoid 'touchstart' so starting a vertical scroll swipe does not trigger a synchronous state update on the first frame
     useEffect(() => {
         if (!isAudioBlocked) return;
         const onUserGesture = () => {
             handleUnmute();
         };
         window.addEventListener('click', onUserGesture, { once: true, capture: true });
-        window.addEventListener('touchstart', onUserGesture, { once: true, capture: true });
+        window.addEventListener('touchend', onUserGesture, { once: true, capture: true });
         return () => {
             window.removeEventListener('click', onUserGesture, { capture: true });
-            window.removeEventListener('touchstart', onUserGesture, { capture: true });
+            window.removeEventListener('touchend', onUserGesture, { capture: true });
         };
     }, [isAudioBlocked, handleUnmute]);
 
@@ -824,10 +825,10 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             });
                         };
                         window.addEventListener('click', onUserTap, { once: true, capture: true });
-                        window.addEventListener('touchstart', onUserTap, { once: true, capture: true });
+                        window.addEventListener('touchend', onUserTap, { once: true, capture: true });
                         cleanupTap = () => {
                             window.removeEventListener('click', onUserTap, { capture: true });
-                            window.removeEventListener('touchstart', onUserTap, { capture: true });
+                            window.removeEventListener('touchend', onUserTap, { capture: true });
                         };
                     });
             }
@@ -1046,6 +1047,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                 cursor: isPlayingMode ? 'pointer' : 'default',
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
+                touchAction: 'pan-y',
             }}
         >
             {isVideo ? (

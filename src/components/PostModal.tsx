@@ -89,25 +89,17 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
         return undefined;
     })();
     const hasAttachedVideo = Boolean(
-        (effectiveAttachedLink && isKnockVideoLink(effectiveAttachedLink)) ||
-        isVideoUrl(post.image_url)
+        effectiveAttachedLink && isKnockVideoLink(effectiveAttachedLink)
     );
 
     const handleOpenConnectedVideo = () => {
         const link = effectiveAttachedLink;
-        if (!link) {
-            if (isVideoUrl(post.image_url)) {
-                setConnectedVideoModal({ videoUrl: post.image_url, caption: post.caption || 'Knock Knock Video', username: post.username });
-            }
-            return;
-        }
+        if (!link) return;
         const parsed = parseKnockVideoLink(link);
         if (parsed && (parsed.videoUrl || (parsed.id && parsed.id !== 'undefined' && parsed.id !== 'null'))) {
             setConnectedVideoModal(parsed);
         } else if (isKnockVideoLink(link)) {
             setConnectedVideoModal({ videoUrl: link, caption: post.caption || 'Knock Knock Video' });
-        } else if (isVideoUrl(post.image_url)) {
-            setConnectedVideoModal({ videoUrl: post.image_url, caption: post.caption || 'Knock Knock Video', username: post.username });
         } else {
             window.open(link, '_blank', 'noopener,noreferrer');
         }
@@ -129,13 +121,11 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
         const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
         touchStartPosRef.current = null;
 
-        // Horizontal swipe (> 30px displacement and more horizontal than vertical)
-        if (Math.abs(diffX) > 30 && Math.abs(diffX) > Math.abs(diffY)) {
+        // Strict horizontal swipe (> 65px displacement and strongly horizontal) so vertical swipes never get hijacked
+        if (Math.abs(diffX) > 65 && Math.abs(diffX) > Math.abs(diffY) * 1.8) {
             if (connectedVideoModal) {
-                // If video modal is open, swipe dismisses it and returns to post
                 setConnectedVideoModal(null);
             } else if (hasAttachedVideo) {
-                // Both right swipe and left swipe open the connected video smoothly!
                 handleOpenConnectedVideo();
             }
         }
@@ -185,13 +175,17 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
                 setIsLiked(initialLiked);
             } else {
                 setIsLiked(isPostLikedLocally(pId, uId));
-                if (uId) {
-                    checkIfLiked(uId, pId).then(setIsLiked);
+            }
+            // Defer remote like/imp checks slightly so scroll-snap settlement stays 60fps
+            const timer = setTimeout(() => {
+                if (initialLiked === undefined && uId) {
+                    checkIfLiked(uId, pId).then(setIsLiked).catch(() => {});
                 }
-            }
-            if (initialImped === undefined && uId) {
-                fetchUserImps(uId).then(imps => setIsImped(imps.includes(pId)));
-            }
+                if (initialImped === undefined && uId) {
+                    fetchUserImps(uId).then(imps => setIsImped(imps.includes(pId))).catch(() => {});
+                }
+            }, 180);
+            return () => clearTimeout(timer);
         }
     }, [user?.id, post.id, isActive, initialLiked, initialImped]);
 
@@ -241,7 +235,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
             onClick={(e) => e.stopPropagation()} 
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
-            style={isEmbedded ? { height: '100%', width: '100%', maxHeight: '100%', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden', touchAction: 'manipulation' } : { touchAction: 'manipulation' }}
+            style={isEmbedded ? { height: '100%', width: '100%', maxHeight: '100%', borderRadius: 0, margin: 0, position: 'relative', overflow: 'hidden', touchAction: 'pan-y' } : { touchAction: 'pan-y' }}
         >
             <div className="modal-top-bar">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', pointerEvents: 'auto' }}>
@@ -409,7 +403,7 @@ export const PostModalContent: React.FC<PostModalContentProps> = ({
             </div>
             <div 
                 className="modal-details modal-details--sheet"
-                style={isEmbedded ? { pointerEvents: 'none', touchAction: 'pan-y' } : undefined}
+                style={isEmbedded ? { pointerEvents: 'none', touchAction: 'pan-y', overflow: 'hidden' } : undefined}
             >
                 {post.caption && (
                     <p className="modal-caption" style={isEmbedded ? { pointerEvents: 'auto' } : undefined}>

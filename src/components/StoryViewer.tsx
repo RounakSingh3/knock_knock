@@ -586,6 +586,22 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
             return;
         }
 
+        // Vertical swipe (> 50px displacement and more vertical than horizontal)
+        if (Math.abs(diffY) > 50 && Math.abs(diffY) > Math.abs(diffX)) {
+            if (diffY < 0) {
+                // Swipe UP -> Next Story (or open linked video if attached)
+                if (effectiveLink) {
+                    handleOpenLinkedVideo();
+                } else {
+                    handleNextStory();
+                }
+            } else {
+                // Swipe DOWN -> Close StoryViewer smoothly
+                onClose();
+            }
+            return;
+        }
+
         // Tap
         if (Math.abs(diffX) < 18 && Math.abs(diffY) < 18 && elapsed < 450) {
             const width = window.innerWidth;

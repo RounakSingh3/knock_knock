@@ -13,6 +13,7 @@ import { recordHashtagSignal } from '../lib/algorithm';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, Video, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
 import { isVideoPost, isVideoUrl, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
 import PostMedia from '../components/PostMedia';
+import ExploreFeedViewer from '../components/ExploreFeedViewer';
 import EditProfileSheet from '../components/EditProfileSheet';
 import ConnectedVideoModal, { type ConnectedVideoData } from '../components/ConnectedVideoModal';
 import { supabase } from '../lib/supabase';
@@ -1194,364 +1195,44 @@ const Profile = () => {
             </div>
 
             {selectedPost && (() => {
-                const currentIndex = posts.findIndex(p => p.id === selectedPost.id);
-                const hasNext = currentIndex < posts.length - 1;
-                const hasPrev = currentIndex > 0;
-                const hasAttachedVideo = Boolean(selectedPost.attached_link && isKnockVideoLink(selectedPost.attached_link));
-
-                const handleTouchStart = (e: React.TouchEvent) => {
-                    const target = e.target as HTMLElement;
-                    if (target.closest('button') || target.closest('.modal-mute-btn') || target.closest('.modal-close-btn') || target.closest('.nav-btn')) {
-                        return;
-                    }
-                    setTouchEnd(null);
-                    setTouchStart(e.targetTouches[0].clientX);
-                };
-
-                const handleTouchMove = (e: React.TouchEvent) => {
-                    setTouchEnd(e.targetTouches[0].clientX);
-                };
-
-                const handleTouchEnd = () => {
-                    if (!touchStart || !touchEnd) return;
-                    const distance = touchStart - touchEnd;
-                    if (distance > 40) {
-                        if (hasAttachedVideo) {
-                            handleOpenConnectedVideo(selectedPost.attached_link);
-                        } else if (hasNext) {
-                            setSelectedPost(posts[currentIndex + 1]);
-                        }
-                    } else if (distance < -40 && hasPrev) {
-                        setSelectedPost(posts[currentIndex - 1]);
-                    }
-                };
-
+                const activeList = (postFilter === 'reels' ? videoPosts : postFilter === 'photos' ? photoPosts : posts).map(p => ({
+                    ...p,
+                    username: p.username || profile?.username || displayUsername,
+                    avatar_url: p.avatar_url || profile?.avatar_url || '',
+                }));
+                const feedPosts = activeList.length > 0 ? activeList : [{
+                    ...selectedPost,
+                    username: selectedPost.username || profile?.username || displayUsername,
+                    avatar_url: selectedPost.avatar_url || profile?.avatar_url || '',
+                }];
+                const startIndex = Math.max(0, feedPosts.findIndex(p => p.id === selectedPost.id));
                 return (
-                    <div className="post-modal-backdrop post-modal-backdrop--fullscreen" onClick={() => setSelectedPost(null)}>
-                        <div 
-                            className="post-modal post-modal--fullscreen" 
-                            onClick={(e) => e.stopPropagation()}
-                            onTouchStart={handleTouchStart}
-                            onTouchMove={handleTouchMove}
-                            onTouchEnd={handleTouchEnd}
-                        >
-                            <div className="modal-top-bar">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    {profile?.avatar_url && (
-                                        <img
-                                            src={profile.avatar_url}
-                                            alt=""
-                                            style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }}
-                                        />
-                                    )}
-                                    <span className="modal-username">{displayUsername}</span>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', pointerEvents: 'auto' }}>
-                                    {/* Prominent Send Reel Button in Top Bar */}
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleSharePost(selectedPost);
-                                        }}
-                                        title={isVideoPost(selectedPost) ? "Send Reel to friends" : "Send Post to friends"}
-                                        style={{
-                                            height: '32px',
-                                            padding: '0 12px',
-                                            borderRadius: '16px',
-                                            background: 'linear-gradient(135deg, #f5a524, #ff4500)',
-                                            border: 'none',
-                                            color: '#000',
-                                            fontWeight: '700',
-                                            fontSize: '12px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '5px',
-                                            cursor: 'pointer',
-                                            boxShadow: '0 2px 8px rgba(245,165,36,0.35)'
-                                        }}
-                                    >
-                                        <Send size={13} />
-                                        <span>Send</span>
-                                    </button>
-
-                                    <button
-                                        className="modal-mute-btn"
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            const nextMuted = !isMuted;
-                                            setIsMuted(nextMuted);
-                                            setFeedMutedPreference(nextMuted);
-                                        }}
-                                        aria-label={isMuted ? 'Unmute' : 'Mute'}
-                                        style={{
-                                            width: '34px',
-                                            height: '34px',
-                                            borderRadius: '50%',
-                                            background: 'rgba(0, 0, 0, 0.5)',
-                                            backdropFilter: 'blur(8px)',
-                                            WebkitBackdropFilter: 'blur(8px)',
-                                            border: 'none',
-                                            color: 'white',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            cursor: 'pointer',
-                                        }}
-                                    >
-                                        {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-                                    </button>
-                                    {isOwnProfile && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleDeletePostById(selectedPost.id, e)}
-                                            title="Delete Post"
-                                            aria-label="Delete Post"
-                                            style={{
-                                                width: '34px',
-                                                height: '34px',
-                                                borderRadius: '50%',
-                                                background: 'rgba(255, 59, 48, 0.18)',
-                                                backdropFilter: 'blur(8px)',
-                                                WebkitBackdropFilter: 'blur(8px)',
-                                                border: '1px solid rgba(255, 59, 48, 0.45)',
-                                                color: '#ff3b30',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                cursor: 'pointer',
-                                            }}
-                                        >
-                                            <Trash2 size={17} color="#ff3b30" />
-                                        </button>
-                                    )}
-                                    <button className="modal-close-btn" type="button" onClick={() => setSelectedPost(null)}>
-                                        <X size={22} />
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="modal-media-stage" style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
-                                {hasPrev && (
-                                    <button 
-                                        className="nav-btn left"
-                                        onClick={(e) => { e.stopPropagation(); setSelectedPost(posts[currentIndex - 1]); }}
-                                        style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', zIndex: 10, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', padding: '8px', color: 'white', cursor: 'pointer' }}
-                                    >
-                                        <ChevronLeft size={28} />
-                                    </button>
-                                )}
-                                <PostMedia
-                                    key={selectedPost.id}
-                                    post={selectedPost}
-                                    className="modal-image"
-                                    playsInline
-                                    autoPlay={true}
-                                    soundOn={!isMuted}
-                                    muted={isMuted}
-                                    loop={true}
-                                    objectFit="contain"
-                                    onDoubleTapLike={handleToggleSelectedLike}
-                                    onMuteChange={(muted) => {
-                                        setIsMuted(muted);
-                                        setFeedMutedPreference(muted);
-                                    }}
-                                />
-                                {hasNext && (
-                                    <button 
-                                        className="nav-btn right"
-                                        onClick={(e) => { e.stopPropagation(); setSelectedPost(posts[currentIndex + 1]); }}
-                                        style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', zIndex: 10, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', padding: '8px', color: 'white', cursor: 'pointer' }}
-                                    >
-                                        <ChevronRight size={28} />
-                                    </button>
-                                )}
-                                {hasAttachedVideo && (
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenConnectedVideo(selectedPost.attached_link);
-                                        }}
-                                        style={{
-                                            position: 'absolute',
-                                            bottom: (selectedPost.music_url || selectedPost.music_title) ? '64px' : '16px',
-                                            right: '16px',
-                                            zIndex: 15,
-                                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95), rgba(255, 107, 53, 0.95))',
-                                            border: '1.5px solid rgba(255, 255, 255, 0.45)',
-                                            borderRadius: '16px',
-                                            padding: '6px 12px',
-                                            color: '#000',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '6px',
-                                            fontSize: '11px',
-                                            fontWeight: 800,
-                                            cursor: 'pointer',
-                                            boxShadow: '0 4px 15px rgba(245, 165, 36, 0.5)',
-                                            backdropFilter: 'blur(8px)',
-                                            WebkitBackdropFilter: 'blur(8px)',
-                                        }}
-                                        title="Swipe left or tap to watch connected video"
-                                    >
-                                        <Film size={14} color="#000" strokeWidth={2.4} />
-                                        <span>Swipe Left 👈</span>
-                                    </button>
-                                )}
-                            </div>
-                            {(selectedPost.music_url || selectedPost.music_title) && (
-                                <div style={{
-                                    display: 'flex', alignItems: 'center', gap: '8px',
-                                    padding: '8px 16px',
-                                    background: 'rgba(245,165,36,0.1)',
-                                    borderBottom: '1px solid var(--border-color)',
-                                }}>
-                                    <Music size={14} color="#f5a524" />
-                                    <span style={{ color: 'var(--text-active)', fontSize: '13px', fontWeight: '600', flex: 1 }}>
-                                        {selectedPost.music_title || 'Music'}
-                                        {selectedPost.music_artist ? ` • ${selectedPost.music_artist}` : ''}
-                                    </span>
-                                    <span style={{ fontSize: '11px', color: '#f5a524' }}>🔊 Playing</span>
-                                </div>
-                            )}
-
-                            {/* Full Bottom Action Bar with Send Reel, Like, Comments, and Imp */}
-                            <div className="modal-details modal-details--sheet">
-                                {selectedPost.caption && (
-                                    <p className="modal-caption">
-                                        {selectedPost.caption.split(/(\s+)/).map((word, wIdx) => {
-                                            if (word.startsWith('#') && word.length > 1) {
-                                                const cleanTag = word.replace(/[^a-zA-Z0-9_\u0080-\uFFFF#]/g, '');
-                                                return (
-                                                    <span
-                                                        key={wIdx}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            recordHashtagSignal([cleanTag.replace('#', '')], 3.0);
-                                                            setSelectedPost(null);
-                                                            navigate(`/explore?q=${encodeURIComponent(cleanTag)}&tab=posts`);
-                                                        }}
-                                                        style={{
-                                                            color: '#f5a524',
-                                                            fontWeight: 700,
-                                                            cursor: 'pointer',
-                                                            display: 'inline'
-                                                        }}
-                                                    >
-                                                        {word}
-                                                    </span>
-                                                );
-                                            }
-                                            return word;
-                                        })}
-                                    </p>
-                                )}
-                                {hasAttachedVideo ? (
-                                    <button
-                                        type="button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenConnectedVideo(selectedPost.attached_link);
-                                        }}
-                                        style={{
-                                            pointerEvents: 'auto',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            width: '100%',
-                                            maxWidth: '360px',
-                                            padding: '10px 16px',
-                                            marginBottom: '10px',
-                                            borderRadius: '16px',
-                                            background: 'linear-gradient(135deg, rgba(245, 165, 36, 0.95) 0%, rgba(255, 107, 53, 0.95) 100%)',
-                                            color: '#000',
-                                            fontWeight: 800,
-                                            fontSize: '12px',
-                                            border: '1.5px solid rgba(255, 255, 255, 0.45)',
-                                            boxShadow: '0 4px 18px rgba(245, 165, 36, 0.4)',
-                                            cursor: 'pointer',
-                                            transition: 'transform 0.15s ease'
-                                        }}
-                                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.97)'}
-                                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-                                    >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <Film size={16} color="#000" strokeWidth={2.4} />
-                                            <span>Watch Connected Video</span>
-                                        </div>
-                                        <span style={{
-                                            background: 'rgba(0, 0, 0, 0.25)',
-                                            padding: '3px 8px',
-                                            borderRadius: '10px',
-                                            fontSize: '10px',
-                                            fontWeight: 900
-                                        }}>
-                                            Swipe Left 👈
-                                        </span>
-                                    </button>
-                                ) : selectedPost.attached_link ? (
-                                    <a
-                                        href={selectedPost.attached_link}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="modal-link"
-                                        style={{ color: '#f5a524', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '8px' }}
-                                    >
-                                        🔗 {selectedPost.attached_link}
-                                    </a>
-                                ) : null}
-                                <div className="modal-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                                    <button
-                                        className={`modal-action-btn ${selectedPostLiked ? 'liked' : ''}`}
-                                        onClick={handleToggleSelectedLike}
-                                        style={{ color: selectedPostLiked ? '#ff4500' : 'var(--text-active)' }}
-                                    >
-                                        <Heart size={20} fill={selectedPostLiked ? '#ff4500' : 'none'} color={selectedPostLiked ? '#ff4500' : 'var(--text-active)'} />
-                                        <span>{selectedPostLikesCount}</span>
-                                    </button>
-                                    <button
-                                        className="modal-action-btn"
-                                        onClick={() => {
-                                            setCommentsPostId(selectedPost.id);
-                                            setIsCommentsOpen(true);
-                                        }}
-                                    >
-                                        <MessageCircle size={20} />
-                                        <span>{Math.max(selectedPost.comments_count || 0, getLocalComments(selectedPost.id).length)}</span>
-                                    </button>
-                                    <button
-                                        className="modal-action-btn"
-                                        onClick={() => handleSharePost(selectedPost)}
-                                        style={{ color: '#f5a524', fontWeight: '700' }}
-                                        title={isVideoPost(selectedPost) ? "Send Reel to friends" : "Send Post to friends"}
-                                    >
-                                        <Send size={20} />
-                                        <span>{isVideoPost(selectedPost) ? 'Send Reel' : 'Send'}</span>
-                                    </button>
-                                    <button
-                                        className={`modal-action-btn ${selectedPostImped ? 'imped' : ''}`}
-                                        onClick={handleToggleSelectedImp}
-                                        title="Imp / Boost post"
-                                        style={{ color: selectedPostImped ? '#ff4500' : 'var(--text-active)' }}
-                                    >
-                                        <Flame size={20} fill={selectedPostImped ? '#ff4500' : 'none'} color={selectedPostImped ? '#ff4500' : 'var(--text-active)'} />
-                                        <span>{selectedPostImpsCount}</span>
-                                    </button>
-                                    {isOwnProfile && (
-                                        <button
-                                            className="modal-action-btn"
-                                            style={{ color: '#ff3b30', marginLeft: 'auto' }}
-                                            onClick={handleDeleteSelectedPost}
-                                            title="Delete Post"
-                                        >
-                                            <Trash2 size={20} />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <ExploreFeedViewer
+                        posts={feedPosts}
+                        initialIndex={startIndex}
+                        onClose={() => setSelectedPost(null)}
+                        onCommentClick={(pId) => {
+                            setCommentsPostId(pId);
+                            setIsCommentsOpen(true);
+                        }}
+                        onShareClick={(postItem) => handleSharePost(postItem)}
+                        onLikeToggle={(pId, isNowLiked) => {
+                            setPosts(prev => prev.map(p => p.id === pId ? {
+                                ...p,
+                                likes_count: Math.max(0, (p.likes_count || 0) + (isNowLiked ? 1 : -1))
+                            } : p));
+                        }}
+                        onImpToggle={(pId, isNowImped) => {
+                            setPosts(prev => prev.map(p => p.id === pId ? {
+                                ...p,
+                                imps_count: Math.max(0, (p.imps_count || 0) + (isNowImped ? 1 : -1))
+                            } : p));
+                        }}
+                        onDelete={(deletedId) => {
+                            const cleanId = String(deletedId).replace(/_p\d+_\d+$/, '');
+                            setPosts(prev => prev.filter(p => p.id !== deletedId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanId));
+                        }}
+                    />
                 );
             })()}
 

@@ -78,8 +78,8 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
         const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
         touchStartPosRef.current = null;
 
-        // Swipe RIGHT to dismiss and return to the underlying post or story
-        if (diffX > 45 && Math.abs(diffX) > Math.abs(diffY)) {
+        // Swipe RIGHT or Swipe DOWN to dismiss and return to the underlying post or story
+        if ((diffX > 45 && Math.abs(diffX) > Math.abs(diffY)) || (diffY > 55 && Math.abs(diffY) > Math.abs(diffX))) {
             onClose();
         }
     };

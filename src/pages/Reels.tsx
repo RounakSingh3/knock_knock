@@ -643,10 +643,10 @@ const Reels: React.FC = () => {
                                 targetVideo.play().catch(() => {});
                             }
                             window.removeEventListener('click', unmuteOnTap, { capture: true });
-                            window.removeEventListener('touchstart', unmuteOnTap, { capture: true });
+                            window.removeEventListener('touchend', unmuteOnTap, { capture: true });
                         };
                         window.addEventListener('click', unmuteOnTap, { once: true, capture: true });
-                        window.addEventListener('touchstart', unmuteOnTap, { once: true, capture: true });
+                        window.addEventListener('touchend', unmuteOnTap, { once: true, capture: true });
                     });
                 }
             } else {
@@ -798,46 +798,12 @@ const Reels: React.FC = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [reelsList.length, togglePlay, selectedReelIndex]);
 
-    // IntersectionObserver with 0.35/0.60 threshold for instantaneous pre-snap activation
+    // Cleanup scroll end timer when unmounting or closing player (rely on handleReelsScroll + scrollend so we never re-render mid-swipe at 60%)
     useEffect(() => {
-        if (selectedReelIndex === null) return;
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    const card = entry.target as HTMLElement;
-                    const idxStr = card?.getAttribute('data-reel-index');
-                    const idx = idxStr !== null ? parseInt(idxStr, 10) : -1;
-                    if (idx === -1) return;
-
-                    // ⚡ Activate incoming reel as soon as it dominates 60% of viewport
-                    if (entry.intersectionRatio >= 0.60) {
-                        activateReel(idx);
-                    } else if (entry.intersectionRatio < 0.35) {
-                        const video = videoRefs.current[idx];
-                        if (video && !video.paused) video.pause();
-                        if (audioRefs.current[idx]) {
-                            audioRefs.current[idx]?.pause();
-                            audioRefs.current[idx]!.currentTime = 0;
-                        }
-                    }
-                });
-            },
-            { 
-                root: modalScrollRef.current,
-                threshold: [0.35, 0.60]
-            }
-        );
-
-        const cards = modalScrollRef.current?.querySelectorAll('.reel-card');
-        cards?.forEach((card) => {
-            observer.observe(card);
-        });
-
         return () => {
-            observer.disconnect();
             if (scrollEndTimeoutRef.current) clearTimeout(scrollEndTimeoutRef.current);
         };
-    }, [selectedReelIndex, reelsList, activateReel]);
+    }, [selectedReelIndex]);
 
     // ⚡ Synchronize active video play when sliding window mounts new active video element
     useEffect(() => {
@@ -1097,8 +1063,8 @@ const Reels: React.FC = () => {
         const diffY = touchEndY - touchStartPosRef.current.y;
         touchStartPosRef.current = null;
 
-        // Only trigger horizontal swipe if X movement is greater than Y movement (to avoid triggering on scroll)
-        if (Math.abs(diffX) > 60 && Math.abs(diffX) > Math.abs(diffY)) {
+        // Only trigger horizontal swipe if X movement is strongly horizontal (never hijack diagonal/vertical swipes)
+        if (Math.abs(diffX) > 75 && Math.abs(diffX) > Math.abs(diffY) * 1.8) {
             if (diffX < 0) {
                 // Swipe Left -> Profile (match Instagram/TikTok behavior)
                 navigate(`/profile/${reel.creator}`);
@@ -1306,11 +1272,11 @@ const Reels: React.FC = () => {
                     <div className="reels-page" ref={modalScrollRef} onScroll={handleReelsScroll}>
                         {reelsList.map((reel, idx) => {
                             const isLiked = likedReels.has(reel.id);
-                            const isNearby = (idx >= activeIndex - 1) && (idx <= activeIndex + 2);
+                            const isNearby = (idx >= activeIndex - 2) && (idx <= activeIndex + 3);
 
                             // ⚡ Virtualization: far-away reels render as empty snap placeholders.
                             // Keeps scroll height & snap points identical while cutting DOM + re-render cost per swipe.
-                            if (idx < activeIndex - 1 || idx > activeIndex + 2) {
+                            if (!isNearby) {
                                 return (
                                     <div
                                         className="reel-card"
