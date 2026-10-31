@@ -277,13 +277,13 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
         const [, metaList, postFiles, posterFiles] = await Promise.all([
             fetchCloudDeletedIds(),
             fetchCloudJson<PostData[]>(CLOUD_POSTS_META_PATH),
-            listStoragePrefix('posts', 120),
-            listStoragePrefix('posts/posters', 120),
+            listStoragePrefix('posts', 500),
+            listStoragePrefix('posts/posters', 500),
         ]);
 
         // 1. Index posters by userId and timestamp
         const postersByUser = new Map<string, Array<{ ts: number; url: string }>>();
-        const fileRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)\.([a-z0-9]+)$/i;
+        const fileRegex = /^(.+?)-(\d+)\.([a-z0-9]+)$/i;
 
         for (const pf of posterFiles) {
             if (!pf || !pf.name || !pf.id) continue;
@@ -309,7 +309,7 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
         const discovered: PostData[] = [];
         const seenUrls = new Set<string>();
         const seenUserSizes: Array<{ uid: string; size: number; ts: number }> = [];
-        const RECENT_STORAGE_CUTOFF_MS = new Date('2026-10-28T00:00:00Z').getTime();
+        const RECENT_STORAGE_CUTOFF_MS = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
         for (const f of postFiles) {
             if (!f || !f.id || !f.name) continue;
@@ -340,10 +340,10 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
             const fileTs = m ? Number(m[2]) : (createdMs || Date.now());
             const uidLower = (userId || '').toLowerCase();
 
-            // Deduplicate accidental rapid retry uploads of the exact same file size by the same user within 10 mins
+            // Deduplicate rapid accidental double clicks within 5s
             if (uidLower && fileSize > 0) {
                 const isRetryDup = seenUserSizes.some(
-                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 10 * 60 * 1000
+                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 5000
                 );
                 if (isRetryDup) continue;
                 seenUserSizes.push({ uid: uidLower, size: fileSize, ts: fileTs });
@@ -358,7 +358,7 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
             let matchedPosterUrl: string | undefined;
             if (uidLower && postersByUser.has(uidLower)) {
                 const candidates = postersByUser.get(uidLower)!;
-                let bestDiff = 30000;
+                let bestDiff = 60000;
                 for (const c of candidates) {
                     const diff = Math.abs(c.ts - fileTs);
                     if (diff < bestDiff) {
@@ -1094,53 +1094,25 @@ export async function uploadMedia(
         }
     })();
 
-    // ⚡ Fast Publish Budget (4.5s for videos/media, 1.5s for posters):
-    // Allows standard photos and videos to finish uploading to Supabase Storage immediately
-    // while seamlessly falling back + upgrading in the background for huge files.
-    const FAST_PUBLISH_BUDGET_MS = isPosterUpload ? 1500 : 4500;
-    let progressInterval: ReturnType<typeof setInterval> | null = null;
-    if (onProgress && !isPosterUpload) {
-        const startTime = Date.now();
-        progressInterval = setInterval(() => {
-            const elapsed = Date.now() - startTime;
-            const syntheticRatio = Math.min(0.95, elapsed / FAST_PUBLISH_BUDGET_MS);
-            onProgress({ loaded: Math.round(file.size * syntheticRatio), total: file.size });
-        }, 120);
-    }
-
-    const raceResult = await Promise.race([
-        cloudUploadPromise.then(url => ({ done: true as const, url })),
-        new Promise<{ done: false; url: null }>(resolve =>
-            setTimeout(() => resolve({ done: false as const, url: null }), FAST_PUBLISH_BUDGET_MS)
-        )
-    ]);
-
-    if (progressInterval) clearInterval(progressInterval);
-    if (onProgress) {
-        onProgress({ loaded: file.size, total: file.size });
-    }
-
     const localFallback = await localFallbackPromise;
+    const remoteUrl = await cloudUploadPromise;
 
-    if (raceResult.done && raceResult.url) {
+    if (remoteUrl) {
+        if (onProgress) {
+            onProgress({ loaded: file.size, total: file.size });
+        }
         if (isPosterUpload) {
-            return raceResult.url;
+            return remoteUrl;
         }
         const isVid = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(file.name);
         const mediaTag = isVid ? '#video.mp4' : '#image.jpg';
-        return `${raceResult.url}#LOCAL_ID:${localFallback.id}${mediaTag}`;
+        return `${remoteUrl}#LOCAL_ID:${localFallback.id}${mediaTag}`;
     }
 
-    // Cloud upload is still running in the background (or failed) — return instant IndexedDB URL now
-    // and upgrade stored records when cloud upload finishes in the background!
-    if (!raceResult.done && !isPosterUpload) {
-        cloudUploadPromise.then(remoteUrl => {
-            if (remoteUrl) {
-                upgradeLocalMediaToCloud(localFallback.id, remoteUrl);
-            }
-        }).catch(() => {});
+    // Cloud upload failed or quota-restricted — return instant IndexedDB fallback
+    if (onProgress) {
+        onProgress({ loaded: file.size, total: file.size });
     }
-
     return localFallback.fallbackUrl;
 }
 
@@ -1458,11 +1430,13 @@ export async function createNewPost(post: {
     const cleanCloudUrl = post.image_url.replace(/#LOCAL_ID:[^#]+/, '');
     const cloudPost: PostData = { ...localPost, image_url: cleanCloudUrl };
 
-    // Sync to Cloud Storage Manifest AND Supabase DB in background so all users see it immediately even if SQL RLS blocks anon insert
+    // Sync to Cloud Storage Manifest so all users across the world see it immediately
+    try {
+        await savePostToCloudStorageMeta(cloudPost);
+    } catch (_) {}
+
+    // Also attempt Supabase SQL DB insert in background
     (async () => {
-        try {
-            await savePostToCloudStorageMeta(cloudPost);
-        } catch (_) {}
         try {
             const row: Record<string, unknown> = {
                 username: post.username,
@@ -2620,13 +2594,13 @@ export async function fetchCloudStorageStories(): Promise<StoryData[]> {
         const [, metaList, storyFiles, posterFiles] = await Promise.all([
             fetchCloudDeletedIds(),
             fetchCloudJson<StoryData[]>(CLOUD_STORIES_META_PATH),
-            listStoragePrefix('stories', 80),
-            listStoragePrefix('stories/posters', 80),
+            listStoragePrefix('stories', 500),
+            listStoragePrefix('stories/posters', 500),
         ]);
 
         const now = Date.now();
-        const maxAgeMs = 24 * 60 * 60 * 1000;
-        const fileRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)\.([a-z0-9]+)$/i;
+        const maxAgeMs = 30 * 24 * 60 * 60 * 1000;
+        const fileRegex = /^(.+?)-(\d+)\.([a-z0-9]+)$/i;
 
         const postersByUser = new Map<string, Array<{ ts: number; url: string }>>();
         for (const pf of posterFiles) {
@@ -2683,7 +2657,7 @@ export async function fetchCloudStorageStories(): Promise<StoryData[]> {
 
             if (uidLower && fileSize > 0) {
                 const isRetryDup = seenUserSizes.some(
-                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 10 * 60 * 1000
+                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 5000
                 );
                 if (isRetryDup) continue;
                 seenUserSizes.push({ uid: uidLower, size: fileSize, ts: fileTs });
@@ -2878,11 +2852,13 @@ export async function createStory(
     const cleanCloudUrl = imageUrl.replace(/#LOCAL_ID:[^#]+/, '');
     const cloudStory: StoryData = { ...normalizedLocalStory, image_url: cleanCloudUrl };
 
-    // Sync to Cloud Storage Manifest AND Supabase stories table in background without blocking UI publish completion
+    // Sync to Cloud Storage Manifest so all users see it immediately
+    try {
+        await saveStoryToCloudStorageMeta(cloudStory);
+    } catch (_) {}
+
+    // Also attempt Supabase SQL DB insert in background
     (async () => {
-        try {
-            await saveStoryToCloudStorageMeta(cloudStory);
-        } catch (_) {}
         try {
             const payload: any = {
                 user_id: userId,
@@ -2955,23 +2931,7 @@ export function recordPostScreenDelivery(postId: string, viewerUserId: string, c
 }
 
 /** Check if a post/video is eligible to be shown on a viewer's screen based on screen budget */
-export function isPostEligibleForViewerScreen(post: PostData, viewerUserId?: string): boolean {
-    // Creator can always see their own content
-    if (viewerUserId && post.user_id === viewerUserId) return true;
-
-    // If post has an explicit boost expiration or impression limit
-    if (post.boost_expires_at) {
-        const isExpired = new Date(post.boost_expires_at).getTime() < Date.now();
-        if (isExpired) return false;
-    }
-
-    // If post was boosted to specific screens (e.g. 5 screens) and remaining is exhausted (<=0):
-    if (post.boost_impressions_remaining !== undefined && post.boost_impressions_remaining !== null) {
-        if (post.boost_impressions_remaining <= 0 && post.boost_expires_at) {
-            return false;
-        }
-    }
-
+export function isPostEligibleForViewerScreen(_post: PostData, _viewerUserId?: string): boolean {
     return true;
 }
 

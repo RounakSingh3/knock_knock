@@ -270,7 +270,8 @@ const Home = () => {
     const [posts, setPosts] = useState<PostData[]>(() => {
         try {
             localStorage.removeItem('knock_home_posts_cache');
-            const cached = localStorage.getItem('knock_home_posts_cache_v3');
+            localStorage.removeItem('knock_home_posts_cache_v3');
+            const cached = localStorage.getItem('knock_home_posts_cache_v4');
             if (cached) {
                 const parsed = JSON.parse(cached);
                 return (parsed || []).map(normalizePost).filter(Boolean);
@@ -280,7 +281,7 @@ const Home = () => {
     });
     const [loading, setLoading] = useState<boolean>(() => {
         try {
-            const cached = localStorage.getItem('knock_home_posts_cache_v3');
+            const cached = localStorage.getItem('knock_home_posts_cache_v4');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -413,7 +414,6 @@ const Home = () => {
     }, [userId]);
 
     const loadForYouFeed = useCallback(() => {
-        if (!userId) return;
         if (postsRef.current.length === 0) {
             setLoading(true);
         }
@@ -443,7 +443,7 @@ const Home = () => {
             setPosts(firstBatch);
             postsRef.current = firstBatch;
             try {
-                localStorage.setItem('knock_home_posts_cache_v3', JSON.stringify(firstBatch));
+                localStorage.setItem('knock_home_posts_cache_v4', JSON.stringify(firstBatch));
             } catch (e) {}
             setLoading(false);
             
@@ -516,7 +516,7 @@ const Home = () => {
     // Infinite scroll — load more posts automatically (Infinite non-terminating stream with variable rewards)
     // ⚡ Reads from refs instead of state to avoid callback recreation on every scroll
     const loadMorePosts = useCallback(async () => {
-        if (!userId || isLoadingMore || loading) return;
+        if (isLoadingMore || loading) return;
         setIsLoadingMore(true);
         try {
             const nextPage = feedPageRef.current + 1;

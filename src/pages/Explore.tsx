@@ -310,11 +310,13 @@ const Explore = () => {
     const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
         try {
             localStorage.removeItem('knock_explore_posts_cache_v8');
+            localStorage.removeItem('knock_explore_posts_cache_v10');
             localStorage.removeItem('knock_explore_trending_cache_v9');
+            localStorage.removeItem('knock_explore_trending_cache_v10');
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_posts_cache_v10');
+                const cached = localStorage.getItem('knock_explore_posts_cache_v11');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -323,8 +325,8 @@ const Explore = () => {
                 }
             } else {
                 // New day detected! Clear stale caches to trigger fresh everyday reshuffle
-                localStorage.removeItem('knock_explore_posts_cache_v10');
-                localStorage.removeItem('knock_explore_trending_cache_v10');
+                localStorage.removeItem('knock_explore_posts_cache_v11');
+                localStorage.removeItem('knock_explore_trending_cache_v11');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
@@ -335,7 +337,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_posts_cache_v10');
+            const cached = localStorage.getItem('knock_explore_posts_cache_v11');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -359,7 +361,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_trending_cache_v10');
+                const cached = localStorage.getItem('knock_explore_trending_cache_v11');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -375,7 +377,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_trending_cache_v10');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v11');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -440,7 +442,7 @@ const Explore = () => {
                 .filter((p): p is PostData => Boolean(p));
             setTrendingPosts(filtered);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v10', JSON.stringify(filtered));
+                localStorage.setItem('knock_explore_trending_cache_v11', JSON.stringify(filtered));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
@@ -479,7 +481,7 @@ const Explore = () => {
             const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
-                localStorage.setItem('knock_explore_posts_cache_v10', JSON.stringify(fresh));
+                localStorage.setItem('knock_explore_posts_cache_v11', JSON.stringify(fresh));
                 localStorage.setItem('knock_explore_cache_date', getTodayKey());
             } catch (e) {}
             setHasMore(true);
@@ -661,7 +663,7 @@ const Explore = () => {
                 .filter((p): p is PostData => Boolean(p));
             setTrendingPosts(filtered);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v10', JSON.stringify(filtered));
+                localStorage.setItem('knock_explore_trending_cache_v11', JSON.stringify(filtered));
             } catch (e) {}
         });
         setIsRefreshing(false);

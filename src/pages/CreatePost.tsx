@@ -616,12 +616,15 @@ const CreatePost = () => {
             // Invalidate all feed caches so newly uploaded content appears immediately at top of Home, Explore, Boost & Reels
             try {
                 localStorage.removeItem('knock_home_posts_cache');
-                localStorage.removeItem('knock_explore_posts_cache_v7');
-                localStorage.removeItem('knock_explore_posts_cache_v8');
-                localStorage.removeItem('knock_explore_trending_cache_v8');
-                localStorage.removeItem('knock_explore_trending_cache_v9');
+                localStorage.removeItem('knock_home_posts_cache_v3');
+                localStorage.removeItem('knock_home_posts_cache_v4');
+                localStorage.removeItem('knock_explore_posts_cache_v10');
+                localStorage.removeItem('knock_explore_posts_cache_v11');
+                localStorage.removeItem('knock_explore_trending_cache_v10');
+                localStorage.removeItem('knock_explore_trending_cache_v11');
                 localStorage.removeItem('knock_boost_stories_cache_v2');
                 sessionStorage.removeItem('knock_reels_instant_v1');
+                sessionStorage.removeItem('knock_reels_instant_v2');
             } catch (e) {}
 
             // Immediately train recommendation algorithm for active user's posted topics

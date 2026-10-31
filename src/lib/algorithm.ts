@@ -750,27 +750,19 @@ export function rankFeedPosts(
 
     const followingSet = new Set(followingIds);
 
-    // Screen budget filter: if a post was boosted for extra screens and remaining quota is exhausted, exclude from other viewers' screens
-    const eligiblePosts = posts.filter(post => {
-        if (currentUserId && post.user_id === currentUserId) return true;
-        if (post.boost_expires_at) {
-            const isExpired = new Date(post.boost_expires_at).getTime() < Date.now();
-            if (isExpired) return false;
-        }
-        if (post.boost_impressions_remaining !== undefined && post.boost_impressions_remaining !== null) {
-            if (post.boost_impressions_remaining <= 0 && post.boost_expires_at) {
-                return false;
-            }
-        }
-        return true;
-    });
-
-    // Score posts
-    const scored: ScoredPost[] = eligiblePosts.map(post => {
+    // Score posts — all posts remain eligible for all viewers; active boost provides priority ranking
+    const scored: ScoredPost[] = posts.map(post => {
         let base = calculatePostScore(post, profile, currentUserId);
         // Social Graph bonus: following
         if (post.user_id && followingSet.has(post.user_id)) {
             base += 45;
+        }
+        // Active spotlight boost bonus
+        const isBoostActive = post.boost_expires_at &&
+            new Date(post.boost_expires_at).getTime() > Date.now() &&
+            (post.boost_impressions_remaining === undefined || post.boost_impressions_remaining > 0);
+        if (isBoostActive) {
+            base += 300;
         }
         return { post, score: base, isSurprise: false };
     });
