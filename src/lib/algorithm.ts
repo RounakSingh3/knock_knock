@@ -485,25 +485,23 @@ export function calculatePostScore(
     const decay = decayFactor(hoursOld);
     score *= decay;
 
-    // 4b. Guaranteed Community Cold-Start Exploration (Equal-Opportunity Test Impressions)
-    // If a post is new (within 7 days) or user-created, grant it a generous exploration quota
-    // so it is guaranteed to reach viewers' screens even if it has 0 likes or 0 comments!
-    const isUserCreated = !post.id || post.id.startsWith('post-') || post.id.startsWith('story-') || !post.id.startsWith('seed-');
-    if (hoursOld < 168 || isUserCreated) {
-        const freshnessTier = hoursOld < 24 ? 350 : (hoursOld < 48 ? 250 : (hoursOld < 96 ? 180 : 100));
-        score += freshnessTier;
-
-        // Equal-opportunity test impressions: if post has low initial engagement, grant test bonus
-        const likes = post.likes_count || 0;
-        const comments = ((post as any).comments_count || 0);
-        if (likes < 15 && comments < 5) {
-            score += Math.max(0, (15 - likes) * 15 + (5 - comments) * 10);
-        }
+    // 4b. Guaranteed Community Cold-Start Exploration (Latest Uploads First)
+    // Posts uploaded within the last 14 days (336h) or local/cloud-storage uploads get a massive recency boost
+    // so the newest photos and videos always rank above older catalog posts.
+    const isRecentUpload =
+        hoursOld < 336 ||
+        Boolean(post.id && (post.id.startsWith('post-local-') || post.id.startsWith('storage-post-')));
+    if (isRecentUpload) {
+        const freshnessTier =
+            hoursOld < 24 ? 1500 :
+            hoursOld < 72 ? 1100 :
+            hoursOld < 168 ? 800 : 500;
+        score += freshnessTier + Math.max(0, 336 - hoursOld);
     }
 
     // 5. Active user's own fresh uploads
     if (currentUserId && post.user_id && post.user_id === currentUserId && hoursOld < 48) {
-        score += 1000;
+        score += 2000;
     }
 
     return score;
@@ -524,20 +522,23 @@ export function blendFeed(
 
     for (const item of scoredPosts) {
         const hoursOld = Math.max(0, (Date.now() - new Date(item.post.created_at).getTime()) / (1000 * 60 * 60));
-        const isUserCreated = !item.post.id || item.post.id.startsWith('post-') || item.post.id.startsWith('story-') || !item.post.id.startsWith('seed-');
+        const isRecentUpload =
+            hoursOld < 336 ||
+            Boolean(item.post.id && (item.post.id.startsWith('post-local-') || item.post.id.startsWith('storage-post-')));
         if (currentUserId && item.post.user_id === currentUserId && hoursOld < 48) {
             ownFreshPosts.push(item);
-        } else if (hoursOld < 72 || (isUserCreated && (item.post.likes_count || 0) < 25)) {
+        } else if (isRecentUpload) {
             communityFreshPosts.push(item);
         } else {
             regularPosts.push(item);
         }
     }
 
-    // Sort regular candidates by score descending
+    // Sort own fresh posts and recent community uploads strictly newest first so latest photos/videos are ALWAYS at the top!
+    ownFreshPosts.sort((a, b) => new Date(b.post.created_at || 0).getTime() - new Date(a.post.created_at || 0).getTime());
+    communityFreshPosts.sort((a, b) => new Date(b.post.created_at || 0).getTime() - new Date(a.post.created_at || 0).getTime());
+    // Sort regular older catalog candidates by score descending
     regularPosts.sort((a, b) => b.score - a.score);
-    // Sort community fresh posts by score descending (with high cold-start bonus)
-    communityFreshPosts.sort((a, b) => b.score - a.score);
 
     const surprisePool: ScoredPost[] = [];
     const mainPool: ScoredPost[] = [];
@@ -556,21 +557,8 @@ export function blendFeed(
         surprisePool.length = 0;
     }
 
-    const blended: ScoredPost[] = [];
-    for (const own of ownFreshPosts) {
-        blended.push(own);
-    }
-
-    // ⚡ Guaranteed Community Exposure: Interleave fresh community uploads right into the top 6 feed positions!
-    let commIdx = 0;
-    while (commIdx < communityFreshPosts.length && blended.length < 6) {
-        blended.push(communityFreshPosts[commIdx++]);
-    }
-
-    // Push any remaining community fresh posts to the front of mainPool so they are prioritized next
-    if (commIdx < communityFreshPosts.length) {
-        mainPool.unshift(...communityFreshPosts.slice(commIdx));
-    }
+    // Place all recent uploads (last 14 days) right at the top of the feed in reverse chronological order
+    const blended: ScoredPost[] = [...ownFreshPosts, ...communityFreshPosts];
 
     const usedIds = new Set<string>();
     for (const b of blended) {
@@ -635,12 +623,10 @@ export function blendFeed(
             const cat = c.post.category || 'General';
             const count = authorCounts.get(author) || 0;
 
-            // Strict anti-clustering & diversity capping:
+            // Anti-clustering for older catalog posts:
             if (lastAuthor && author === lastAuthor) continue;
-            if (blended.length < 10 && count >= 1) continue; // Top 10 are completely distinct creators!
-            if (blended.length < 25 && count >= 2) continue; // Top 25 max 2 per creator
-            if (blended.length < 50 && count >= 3) continue; // Top 50 max 3 per creator
-            if (recentAuthors.slice(-3).map(a => a.toLowerCase()).includes(author)) continue;
+            if (blended.length < 25 && count >= 3) continue;
+            if (recentAuthors.slice(-2).map(a => a.toLowerCase()).includes(author)) continue;
 
             let candidateBonus = c.score;
             if (wantImage && format === 'image') candidateBonus += 50;
@@ -964,48 +950,22 @@ export function rankReels<T extends { id: any; category?: string; music_url?: st
         return (r.likes || 0) + (r.shares || 0) * 2 + catScore + tagScore;
     });
 
-    // ⚡ Guaranteed Cold-Start Discovery:
-    // Community videos (even with 0 likes and 0 comments) are interleaved right into the top positions!
+    // ⚡ Latest Community Videos First:
+    // Place all real user/community video uploads (sorted newest created_at first) BEFORE stock catalog videos!
     const finalReels: T[] = [];
-    let commIdx = 0;
-    let catIdx = 0;
 
-    // Check if there is an active user's own reel
     if (currentUserId) {
-        const ownIdx = communityFresh.findIndex(r => (r as any).creator_id === currentUserId);
+        const ownIdx = communityFresh.findIndex(r => {
+            if ((r as any).creator_id !== currentUserId) return false;
+            const msOld = now - new Date((r as any).created_at || 0).getTime();
+            return msOld >= 0 && msOld < 48 * 60 * 60 * 1000;
+        });
         if (ownIdx !== -1) {
             finalReels.push(communityFresh.splice(ownIdx, 1)[0]);
         }
     }
 
-    // Interleave remaining community uploads with scheduled catalog
-    while (commIdx < communityFresh.length || catIdx < scheduledCatalog.length) {
-        const lastCreator = finalReels.length > 0 ? (finalReels[finalReels.length - 1].creator || '') : '';
-
-        // Prioritize community uploads: ensure at least 1 community upload every 2-3 videos
-        if (commIdx < communityFresh.length && (finalReels.length === 0 || finalReels.length % 2 === 1 || catIdx >= scheduledCatalog.length)) {
-            const candidate = communityFresh[commIdx];
-            if (candidate.creator !== lastCreator || catIdx >= scheduledCatalog.length) {
-                finalReels.push(candidate);
-                commIdx++;
-                continue;
-            }
-        }
-
-        if (catIdx < scheduledCatalog.length) {
-            const catItem = scheduledCatalog[catIdx++];
-            if (catItem.creator !== lastCreator || commIdx >= communityFresh.length) {
-                finalReels.push(catItem);
-            } else if (commIdx < communityFresh.length) {
-                finalReels.push(communityFresh[commIdx++]);
-                finalReels.push(catItem);
-            } else {
-                finalReels.push(catItem);
-            }
-        } else if (commIdx < communityFresh.length) {
-            finalReels.push(communityFresh[commIdx++]);
-        }
-    }
+    finalReels.push(...communityFresh, ...scheduledCatalog);
 
     return finalReels;
 }
@@ -1083,12 +1043,11 @@ export function rankExploreGrid(
     const now = Date.now();
     const isRecent = (p: PostData): boolean => {
         if (!p) return false;
-        // User created posts (offline / persistent local posts or story knocks)
-        if (p.id && (p.id.startsWith('post-local-') || p.id.startsWith('story-local-') || p.id.startsWith('story-') || p.id.startsWith('post-'))) return true;
+        if (p.id && (p.id.startsWith('post-local-') || p.id.startsWith('storage-post-') || p.id.startsWith('story-local-'))) return true;
         // Uploaded in last 14 days
         if (p.created_at) {
             const msOld = now - new Date(p.created_at).getTime();
-            if (msOld >= 0 && msOld <= 14 * 24 * 60 * 60 * 1000) return true;
+            if (msOld >= -300000 && msOld <= 14 * 24 * 60 * 60 * 1000) return true;
         }
         return false;
     };
@@ -1103,30 +1062,8 @@ export function rankExploreGrid(
         }
     }
 
-    // Sort recent user uploads newest first so freshly posted photos/videos appear immediately!
+    // Sort recent user uploads strictly newest first so the latest photos/videos appear at the very top!
     recentPosts.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-
-    // Author anti-clustering for recent posts so one creator doesn't dominate the top
-    const recentAuthorGrouped: Record<string, PostData[]> = {};
-    for (const p of recentPosts) {
-        const author = (p.username || p.user_id || 'unknown').toLowerCase();
-        if (!recentAuthorGrouped[author]) recentAuthorGrouped[author] = [];
-        recentAuthorGrouped[author].push(p);
-    }
-    const recentKeys = Object.keys(recentAuthorGrouped);
-    const dispersedRecent: PostData[] = [];
-    let rIdx = 0;
-    let hasMoreR = true;
-    while (hasMoreR) {
-        hasMoreR = false;
-        for (const k of recentKeys) {
-            if (rIdx < recentAuthorGrouped[k].length) {
-                dispersedRecent.push(recentAuthorGrouped[k][rIdx]);
-                hasMoreR = true;
-            }
-        }
-        rIdx++;
-    }
 
     // ⚡ Everyday Reshuffle: Permute evergreen candidate catalog by date seed so users get new content every day
     let catalogFiltered = dailyReshuffle(catalogPosts, dateStr);
@@ -1213,13 +1150,10 @@ export function rankExploreGrid(
         return likes + imps + cat + tagScore;
     });
 
-    // Combine author-dispersed recent user uploads first with catalog posts
-    const combined = [...dispersedRecent, ...catalogScheduled];
-
-    // Balance reels (video posts) and photo posts so everyday rotation guarantees fresh reels and posts
+    // Balance reels (video posts) and photo posts in the older catalog
     const videoPosts: PostData[] = [];
     const photoPosts: PostData[] = [];
-    for (const p of combined) {
+    for (const p of catalogScheduled) {
         if (isVideoPost(p)) {
             videoPosts.push(p);
         } else {
@@ -1227,8 +1161,7 @@ export function rankExploreGrid(
         }
     }
 
-    // Interleave reels and posts with high presence (1 video reel every 2 photo posts)
-    let finalInterleaved: PostData[];
+    let finalCatalog: PostData[];
     if (videoPosts.length > 0 && photoPosts.length > 0) {
         const interleavedMedia: PostData[] = [];
         let v = 0;
@@ -1238,13 +1171,15 @@ export function rankExploreGrid(
             if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
             if (v < videoPosts.length) interleavedMedia.push(videoPosts[v++]);
         }
-        finalInterleaved = interleavedMedia;
+        finalCatalog = interleavedMedia;
     } else {
-        finalInterleaved = combined;
+        finalCatalog = catalogScheduled;
     }
 
-    // ⚡ Final strict author anti-clustering: guarantees no creator appears multiple times in a row
-    return enforceAuthorDiversity(finalInterleaved, 5);
+    const diverseCatalog = enforceAuthorDiversity(finalCatalog, 5);
+
+    // ⚡ Place all recent uploads (last 14 days, sorted newest first) at the very top, followed by the diverse catalog
+    return [...recentPosts, ...diverseCatalog];
 }
 
 // ── Surface 4: Stories Model (rankStoryGroups) ──────────────

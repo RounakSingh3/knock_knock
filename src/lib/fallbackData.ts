@@ -6917,9 +6917,10 @@ export function bumpLocalConnectionStreak(connectionId: string): number {
 // LOCAL POST PERSISTENCE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'knock_local_posts_v6';
+const STORAGE_KEY = 'knock_local_posts_v7';
 const DELETED_POSTS_KEY = 'knock_deleted_post_ids_v1';
 const FAKE_ACCOUNTS = new Set(['bollywood_superstars', 'baklol_kumar', 'meme_hub_insta', 'epic_fun_page', 'relatable_postss']);
+const SEED_POST_IDS = new Set(SEED_POSTS.map(s => s.id));
 
 // ⚡ In-memory cache so getLocalPosts() executes in O(1) without synchronous JSON.parse / localStorage.setItem on every read
 let _localPostsCache: PostData[] | null = null;
@@ -6945,15 +6946,43 @@ export function getDeletedPostIds(): Set<string> {
     return _deletedPostIdsCache;
 }
 
-export function isPostDeletedLocally(postId?: string | number | null): boolean {
-    if (postId === undefined || postId === null) return false;
-    const rawStr = String(postId);
-    const cleanStr = rawStr.replace(/_p\d+_\d+$/, '');
+export function registerCloudDeletedIds(ids: string[]): void {
+    if (!ids || ids.length === 0) return;
     const deleted = getDeletedPostIds();
-    return deleted.has(rawStr) || deleted.has(cleanStr);
+    let changed = false;
+    for (const id of ids) {
+        if (id && !deleted.has(String(id))) {
+            deleted.add(String(id));
+            changed = true;
+        }
+    }
+    if (changed && typeof window !== 'undefined') {
+        try {
+            localStorage.setItem(DELETED_POSTS_KEY, JSON.stringify(Array.from(deleted)));
+        } catch (_) {}
+        if (_localPostsCache) {
+            _localPostsCache = _localPostsCache.filter(p => !isPostDeletedLocally(p.id, p.image_url));
+        }
+    }
 }
 
-export function removeLocalPost(postId: string | number): void {
+export function isPostDeletedLocally(postId?: string | number | null, imageUrl?: string | null): boolean {
+    const deleted = getDeletedPostIds();
+    if (postId !== undefined && postId !== null) {
+        const rawStr = String(postId);
+        const cleanStr = rawStr.replace(/_p\d+_\d+$/, '');
+        if (deleted.has(rawStr) || deleted.has(cleanStr)) return true;
+    }
+    if (imageUrl && typeof imageUrl === 'string') {
+        const cleanUrl = imageUrl.split('#')[0].split('?')[0].trim();
+        if (cleanUrl && deleted.has(cleanUrl)) return true;
+        const fileName = cleanUrl.split('/').pop();
+        if (fileName && deleted.has(fileName)) return true;
+    }
+    return false;
+}
+
+export function removeLocalPost(postId: string | number, imageUrl?: string | null): void {
     try {
         if (typeof window === 'undefined') return;
         const rawStr = String(postId);
@@ -6961,12 +6990,18 @@ export function removeLocalPost(postId: string | number): void {
         const deleted = getDeletedPostIds();
         deleted.add(rawStr);
         deleted.add(cleanStr);
+        if (imageUrl && typeof imageUrl === 'string') {
+            const cleanUrl = imageUrl.split('#')[0].split('?')[0].trim();
+            if (cleanUrl) deleted.add(cleanUrl);
+            const fileName = cleanUrl.split('/').pop();
+            if (fileName) deleted.add(fileName);
+        }
         try {
             localStorage.setItem(DELETED_POSTS_KEY, JSON.stringify(Array.from(deleted)));
         } catch (_) {}
 
         const posts = getLocalPosts();
-        const updated = posts.filter(p => String(p.id) !== rawStr && String(p.id) !== cleanStr);
+        const updated = posts.filter(p => String(p.id) !== rawStr && String(p.id) !== cleanStr && !isPostDeletedLocally(p.id, p.image_url));
         persistLocalPosts(updated);
 
         // Also remove from knock_local_stories if present
@@ -6995,57 +7030,34 @@ function persistLocalPosts(posts: PostData[]): void {
 
 export function getLocalPosts(): PostData[] {
     if (_localPostsCache) {
-        return _localPostsCache.filter(p => !isPostDeletedLocally(p.id));
+        return _localPostsCache.filter(p => !isPostDeletedLocally(p.id, p.image_url));
     }
     try {
-        const deleted = getDeletedPostIds();
-        if (typeof window === 'undefined') return SEED_POSTS.filter(s => !deleted.has(s.id));
-        const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('knock_local_posts');
+        if (typeof window === 'undefined') return [];
+        const stored =
+            localStorage.getItem(STORAGE_KEY) ||
+            localStorage.getItem('knock_local_posts_v6') ||
+            localStorage.getItem('knock_local_posts');
         if (stored) {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed) && parsed.length > 0) {
-                // Filter out obsolete generic mock seed IDs and deleted posts, but preserve ALL user-created posts and real uploads
+                // Keep ONLY genuinely user-created local posts (exclude hardcoded SEED_POSTS so old/deleted seeds never override live posts)
                 const cleaned = parsed.filter((p: PostData) => {
-                    if (!p || !p.id || isPostDeletedLocally(p.id)) return false;
-                    // Exclude any 24h stories or story posters from permanent posts
-                    if (p.id?.startsWith('story-') || (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/')))) {
-                        return false;
-                    }
-                    const isUserCreated = Boolean(p.id?.startsWith('post-') || (p.created_at && !p.id?.startsWith('seed-')));
-                    if (isUserCreated) return true;
+                    if (!p || !p.id || isPostDeletedLocally(p.id, p.image_url)) return false;
+                    if (p.id.startsWith('story-')) return false;
                     if (FAKE_ACCOUNTS.has(p.username)) return false;
-                    if (p.id.startsWith('seed-fav-') || p.id.startsWith('seed-reel-') || p.id.startsWith('seed-photo-')) return false;
-                    return true;
+                    if (SEED_POST_IDS.has(p.id) || p.id.startsWith('seed-')) return false;
+                    return Boolean(p.id.startsWith('post-local-') || p.id.startsWith('post-'));
                 });
-                const seedMap = new Map(SEED_POSTS.map(s => [s.id, s]));
-                const updatedCleaned = cleaned.map((p: PostData) => {
-                    const seed = seedMap.get(p.id);
-                    if (seed && (p.id === '52b23ede-dc9d-4c4d-8371-c01b5c916013' || (p.image_url && p.image_url.includes('1790250320016')))) {
-                        return {
-                            ...p,
-                            image_url: seed.image_url,
-                            caption: seed.caption,
-                            media_type: 'video'
-                        };
-                    }
-                    return p;
-                });
-                const existingIds = new Set(updatedCleaned.map((p: PostData) => p.id));
-                const missingSeeds = SEED_POSTS.filter(s => !existingIds.has(s.id) && !isPostDeletedLocally(s.id));
-                const merged = [...updatedCleaned, ...missingSeeds];
-                _localPostsCache = merged;
-                if (missingSeeds.length > 0 || cleaned.length !== parsed.length) {
-                    persistLocalPosts(merged);
-                }
-                return merged;
+                _localPostsCache = cleaned;
+                persistLocalPosts(cleaned);
+                return cleaned;
             }
         }
     } catch (_) {}
 
-    // Initialize storage with authentic posts
-    const initialSeeds = SEED_POSTS.filter(s => !isPostDeletedLocally(s.id));
-    persistLocalPosts(initialSeeds);
-    return initialSeeds;
+    _localPostsCache = [];
+    return [];
 }
 
 export function saveLocalPost(post: PostData): void {

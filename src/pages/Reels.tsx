@@ -378,34 +378,10 @@ const Reels: React.FC = () => {
                 .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
                 .map(postToReel);
 
-            // Interleave userReels and REELS_DATA with author anti-clustering
-            const merged: ReelData[] = [];
-            const pexelsPool = REELS_DATA.filter(r => !isPostDeletedLocally(String(r.id)));
-            const userPool = userReels.filter(r => !isPostDeletedLocally(String(r.id)));
-
-            // If user has recent reels, prioritize them first
-            if (user) {
-                const myReelIdx = userPool.findIndex(r => r.creator === user.username || (r.creator_id && r.creator_id === user.id));
-                if (myReelIdx !== -1) {
-                    merged.push(userPool.splice(myReelIdx, 1)[0]);
-                }
-            }
-
-            while (userPool.length > 0 || pexelsPool.length > 0) {
-                const lastCreator = merged.length > 0 ? merged[merged.length - 1].creator : '';
-
-                // Try to pick from userPool if author is different from lastCreator, prioritizing community uploads in top positions
-                let chosenFromUserIdx = userPool.findIndex(r => r.creator !== lastCreator);
-                if (chosenFromUserIdx !== -1 && (merged.length < 6 || merged.length % 2 === 0 || pexelsPool.length === 0)) {
-                    merged.push(userPool.splice(chosenFromUserIdx, 1)[0]);
-                } else if (pexelsPool.length > 0 && (pexelsPool[0].creator !== lastCreator || userPool.length === 0)) {
-                    merged.push(pexelsPool.shift()!);
-                } else if (userPool.length > 0) {
-                    merged.push(userPool.shift()!);
-                } else if (pexelsPool.length > 0) {
-                    merged.push(pexelsPool.shift()!);
-                }
-            }
+            // Place all real user/community uploaded videos (sorted newest created_at first) BEFORE stock fallback videos
+            const pexelsPool = REELS_DATA.filter(r => !isPostDeletedLocally(String(r.id), r.videoUrl));
+            const userPool = userReels.filter(r => !isPostDeletedLocally(String(r.id), r.videoUrl));
+            const merged: ReelData[] = [...userPool, ...pexelsPool];
 
             // Apply Pillar 1 & 5: Variable Reward Schedule & Hyper-Personalization with Everyday Reshuffle
             const hybridProfile = getHybridInterestProfile(engagements);

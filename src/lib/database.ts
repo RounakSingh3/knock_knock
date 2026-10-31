@@ -10,6 +10,7 @@ import {
     saveLocalPost,
     removeLocalPost,
     isPostDeletedLocally,
+    registerCloudDeletedIds,
     updateLocalPostLikes,
     getLocalLikes,
     toggleLocalLike,
@@ -30,6 +31,9 @@ export { isPostLikedLocally, isPostDeletedLocally, getLocalLikes, getLocalCommen
 
 const STORAGE_BUCKET =
     import.meta.env.VITE_STORAGE_BUCKET || 'knock-knock-eight.versel';
+const CLOUD_POSTS_META_PATH = 'posts/cloud_posts_meta.json';
+const CLOUD_STORIES_META_PATH = 'stories/cloud_stories_meta.json';
+const CLOUD_DELETED_IDS_PATH = 'posts/cloud_deleted_ids.json';
 
 // These specific posts have broken Unsplash URLs (HTTP 404) or failed media.
 // Filter them out at the app layer to keep the feed completely clean.
@@ -127,7 +131,317 @@ export interface PostData {
     music_url?: string;
 }
 
-export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
+async function fetchCloudJson<T>(path: string): Promise<T | null> {
+    try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (!supabaseUrl) return null;
+        const url = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${path}?t=${Math.floor(Date.now() / 15000)}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) return null;
+        return (await res.json()) as T;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function uploadCloudJson(path: string, data: unknown): Promise<boolean> {
+    try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (!supabaseUrl || !supabaseKey) return false;
+        const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`;
+        const res = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${supabaseKey}`,
+                'apikey': supabaseKey,
+                'x-upsert': 'true',
+                'cache-control': 'max-age=0',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+        });
+        return res.ok;
+    } catch (_) {
+        return false;
+    }
+}
+
+async function listStoragePrefix(prefix: string, limit: number = 120): Promise<any[]> {
+    try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (!supabaseUrl || !supabaseKey) return [];
+        const res = await fetch(`${supabaseUrl}/storage/v1/object/list/${STORAGE_BUCKET}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${supabaseKey}`,
+                'apikey': supabaseKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prefix,
+                limit,
+                sortBy: { column: 'created_at', order: 'desc' },
+            }),
+        });
+        if (!res.ok) return [];
+        const list = await res.json();
+        return Array.isArray(list) ? list : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+export async function fetchCloudDeletedIds(): Promise<string[]> {
+    const cached = getFromCache<string[]>('cloud_deleted_ids', 15000);
+    if (cached) return cached;
+    const ids = (await fetchCloudJson<string[]>(CLOUD_DELETED_IDS_PATH)) || [];
+    if (Array.isArray(ids) && ids.length > 0) {
+        registerCloudDeletedIds(ids);
+    }
+    setInCache('cloud_deleted_ids', Array.isArray(ids) ? ids : []);
+    return Array.isArray(ids) ? ids : [];
+}
+
+export async function recordCloudDeletedId(postId: string, imageUrl?: string | null): Promise<void> {
+    try {
+        const existing = await fetchCloudDeletedIds();
+        const set = new Set<string>(existing);
+        const cleanId = String(postId).replace(/_p\d+_\d+$/, '');
+        set.add(String(postId));
+        set.add(cleanId);
+        let storageObjectPath: string | null = null;
+        if (imageUrl && typeof imageUrl === 'string') {
+            const cleanUrl = imageUrl.split('#')[0].split('?')[0].trim();
+            if (cleanUrl) {
+                set.add(cleanUrl);
+                const fileName = cleanUrl.split('/').pop();
+                if (fileName) set.add(fileName);
+                const bucketMarker = `/object/public/${STORAGE_BUCKET}/`;
+                const idx = cleanUrl.indexOf(bucketMarker);
+                if (idx !== -1) {
+                    storageObjectPath = cleanUrl.slice(idx + bucketMarker.length);
+                }
+            }
+        }
+        const updated = Array.from(set).slice(-1000);
+        registerCloudDeletedIds(updated);
+        setInCache('cloud_deleted_ids', updated);
+        await uploadCloudJson(CLOUD_DELETED_IDS_PATH, updated);
+
+        // Also delete the raw object from Supabase Storage if it belongs to our bucket
+        if (storageObjectPath) {
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+            const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+            if (supabaseUrl && supabaseKey) {
+                fetch(`${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${storageObjectPath}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'apikey': supabaseKey,
+                    },
+                }).catch(() => {});
+            }
+        }
+    } catch (_) {}
+}
+
+export async function savePostToCloudStorageMeta(post: PostData): Promise<void> {
+    try {
+        if (!post || !post.image_url || post.image_url.startsWith('blob:') || post.image_url.startsWith('local-media://')) {
+            return;
+        }
+        const existing = (await fetchCloudJson<PostData[]>(CLOUD_POSTS_META_PATH)) || [];
+        const cleanBase = post.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
+        const filtered = (Array.isArray(existing) ? existing : []).filter(p => {
+            if (!p || !p.id || isPostDeletedLocally(p.id, p.image_url)) return false;
+            const b = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+            return p.id !== post.id && (!cleanBase || b !== cleanBase);
+        });
+        const updated = [post, ...filtered].slice(0, 200);
+        setInCache('cloud_storage_posts', null as any);
+        invalidateCache('cloud_storage_posts');
+        await uploadCloudJson(CLOUD_POSTS_META_PATH, updated);
+    } catch (_) {}
+}
+
+export async function fetchCloudStoragePosts(): Promise<PostData[]> {
+    const cached = getFromCache<PostData[]>('cloud_storage_posts', 15000);
+    if (cached) return cached;
+
+    try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (!supabaseUrl) return [];
+
+        const [, metaList, postFiles, posterFiles] = await Promise.all([
+            fetchCloudDeletedIds(),
+            fetchCloudJson<PostData[]>(CLOUD_POSTS_META_PATH),
+            listStoragePrefix('posts', 120),
+            listStoragePrefix('posts/posters', 120),
+        ]);
+
+        // 1. Index posters by userId and timestamp
+        const postersByUser = new Map<string, Array<{ ts: number; url: string }>>();
+        const fileRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)\.([a-z0-9]+)$/i;
+
+        for (const pf of posterFiles) {
+            if (!pf || !pf.name || !pf.id) continue;
+            const m = pf.name.match(fileRegex);
+            const uid = m ? m[1].toLowerCase() : '';
+            const ts = m ? Number(m[2]) : new Date(pf.created_at || 0).getTime();
+            if (!uid || !ts) continue;
+            const posterUrl = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/posts/posters/${pf.name}`;
+            if (!postersByUser.has(uid)) postersByUser.set(uid, []);
+            postersByUser.get(uid)!.push({ ts, url: posterUrl });
+        }
+
+        // 2. Index cloud_posts_meta.json by clean base URL
+        const metaByUrl = new Map<string, PostData>();
+        if (Array.isArray(metaList)) {
+            for (const mp of metaList) {
+                if (!mp || !mp.image_url || isPostDeletedLocally(mp.id, mp.image_url)) continue;
+                const cleanBase = mp.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
+                if (cleanBase) metaByUrl.set(cleanBase, mp);
+            }
+        }
+
+        const discovered: PostData[] = [];
+        const seenUrls = new Set<string>();
+        const seenUserSizes: Array<{ uid: string; size: number; ts: number }> = [];
+        const RECENT_STORAGE_CUTOFF_MS = new Date('2026-10-28T00:00:00Z').getTime();
+
+        for (const f of postFiles) {
+            if (!f || !f.id || !f.name) continue;
+            const nameLower = String(f.name).toLowerCase();
+            if (
+                nameLower === 'posters' ||
+                nameLower.startsWith('test') ||
+                nameLower.startsWith('cloud_') ||
+                nameLower.endsWith('.json') ||
+                nameLower.startsWith('.')
+            ) {
+                continue;
+            }
+            const fileSize = Number(f.metadata?.size || 0);
+            if (fileSize > 0 && fileSize < 1000) continue;
+
+            const basePublicUrl = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/posts/${f.name}`;
+            const cleanBase = basePublicUrl.toLowerCase();
+            const metaPost = metaByUrl.get(cleanBase);
+
+            const createdMs = new Date(f.created_at || 0).getTime();
+            if (!metaPost && createdMs < RECENT_STORAGE_CUTOFF_MS) {
+                continue;
+            }
+
+            const m = f.name.match(fileRegex);
+            const userId = m ? m[1] : (metaPost?.user_id || '');
+            const fileTs = m ? Number(m[2]) : (createdMs || Date.now());
+            const uidLower = (userId || '').toLowerCase();
+
+            // Deduplicate accidental rapid retry uploads of the exact same file size by the same user within 10 mins
+            if (uidLower && fileSize > 0) {
+                const isRetryDup = seenUserSizes.some(
+                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 10 * 60 * 1000
+                );
+                if (isRetryDup) continue;
+                seenUserSizes.push({ uid: uidLower, size: fileSize, ts: fileTs });
+            }
+
+            const postId = metaPost?.id || `storage-post-${f.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            if (isPostDeletedLocally(postId, basePublicUrl) || BROKEN_POST_IDS.has(postId)) {
+                continue;
+            }
+
+            // Find matching poster uploaded around the same time by the same user
+            let matchedPosterUrl: string | undefined;
+            if (uidLower && postersByUser.has(uidLower)) {
+                const candidates = postersByUser.get(uidLower)!;
+                let bestDiff = 30000;
+                for (const c of candidates) {
+                    const diff = Math.abs(c.ts - fileTs);
+                    if (diff < bestDiff) {
+                        bestDiff = diff;
+                        matchedPosterUrl = c.url;
+                    }
+                }
+            }
+
+            const isVid =
+                /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(f.name) ||
+                String(f.metadata?.mimetype || '').startsWith('video/') ||
+                metaPost?.media_type === 'video';
+
+            let finalImageUrl = metaPost?.image_url || basePublicUrl;
+            if (isVid) {
+                if (matchedPosterUrl && !finalImageUrl.includes('#POSTER:')) {
+                    finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(matchedPosterUrl)}`;
+                }
+                if (!finalImageUrl.includes('#video.mp4')) {
+                    finalImageUrl = `${finalImageUrl}#video.mp4`;
+                }
+            } else if (!finalImageUrl.includes('#image.jpg') && !finalImageUrl.includes('#')) {
+                finalImageUrl = `${finalImageUrl}#image.jpg`;
+            }
+
+            const kp = userId ? getKnownProfile(userId) : null;
+            const username = metaPost?.username || kp?.username || (userId ? `user_${userId.slice(0, 6)}` : 'creator');
+            const avatarUrl = metaPost?.avatar_url || kp?.avatar_url || `https://i.pravatar.cc/150?u=${username}`;
+
+            const built: PostData = {
+                id: postId,
+                user_id: userId || metaPost?.user_id,
+                username,
+                avatar_url: avatarUrl,
+                image_url: finalImageUrl,
+                caption: metaPost?.caption || '',
+                likes_count: metaPost?.likes_count || 0,
+                imps_count: metaPost?.imps_count || 0,
+                comments_count: metaPost?.comments_count || 0,
+                shares_count: metaPost?.shares_count || 0,
+                attached_link: metaPost?.attached_link,
+                media_type: isVid ? 'video' : 'image',
+                category: metaPost?.category || 'General',
+                boost_expires_at: metaPost?.boost_expires_at,
+                boost_impressions_remaining: metaPost?.boost_impressions_remaining,
+                music_title: metaPost?.music_title,
+                music_artist: metaPost?.music_artist,
+                music_url: metaPost?.music_url,
+                created_at: f.created_at || metaPost?.created_at || new Date(fileTs).toISOString(),
+            };
+
+            const norm = normalizePost(built);
+            if (norm) {
+                seenUrls.add(cleanBase);
+                discovered.push(norm);
+            }
+        }
+
+        // Also include any posts from cloud_posts_meta.json that were not in the first storage batch
+        if (Array.isArray(metaList)) {
+            for (const mp of metaList) {
+                if (!mp || !mp.image_url || isPostDeletedLocally(mp.id, mp.image_url)) continue;
+                const cleanBase = mp.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
+                if (cleanBase && !seenUrls.has(cleanBase)) {
+                    const norm = normalizePost(mp);
+                    if (norm) {
+                        seenUrls.add(cleanBase);
+                        discovered.push(norm);
+                    }
+                }
+            }
+        }
+
+        discovered.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setInCache('cloud_storage_posts', discovered);
+        return discovered;
+    } catch (_) {
+        return [];
+    }
+}
+
+export function mergePostsWithFallback(dbPosts: PostData[], cloudPosts: PostData[] = []): PostData[] {
     const seen = new Set<string>();
     const seenUrls = new Set<string>();
     const merged: PostData[] = [];
@@ -139,8 +453,16 @@ export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
         return url.split('?')[0].split('#')[0].toLowerCase().trim();
     };
 
+    // Map cloudPosts by clean base URL so dbPosts missing a #POSTER: fragment can inherit it
+    const cloudByUrl = new Map<string, PostData>();
+    const cachedCloud = cloudPosts.length > 0 ? cloudPosts : (getFromCache<PostData[]>('cloud_storage_posts', 60000) || []);
+    for (const cp of cachedCloud) {
+        const key = getDedupUrlKey(cp.image_url);
+        if (key) cloudByUrl.set(key, cp);
+    }
+
     const isClean = (p: PostData): boolean => {
-        if (!p || !p.id || BROKEN_POST_IDS.has(p.id) || isPostDeletedLocally(p.id)) return false;
+        if (!p || !p.id || BROKEN_POST_IDS.has(p.id) || isPostDeletedLocally(p.id, p.image_url)) return false;
         const hasLocalId = Boolean(p.image_url && (p.image_url.includes('#LOCAL_ID:') || p.image_url.startsWith('local-media://')));
         if (p.image_url?.startsWith('blob:') && !hasLocalId) return false;
         if (isRemovedUser(p.user_id, p.username)) return false;
@@ -151,29 +473,43 @@ export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
     };
 
     const addPost = (rawPost: PostData) => {
-        const p = rawPost.image_url && (rawPost.image_url.includes('#LOCAL_ID:') || rawPost.image_url.startsWith('local-media://'))
+        let p = rawPost.image_url && (rawPost.image_url.includes('#LOCAL_ID:') || rawPost.image_url.startsWith('local-media://'))
             ? { ...rawPost, image_url: resolveLocalMediaUrl(rawPost.image_url) }
             : rawPost;
+        const cleanUrl = getDedupUrlKey(p.image_url);
+        const matchingCloud = cleanUrl ? cloudByUrl.get(cleanUrl) : undefined;
+        if (matchingCloud && p.image_url && !p.image_url.includes('#POSTER:') && matchingCloud.image_url?.includes('#POSTER:')) {
+            const posterMatch = matchingCloud.image_url.match(/#POSTER:([^#]+)/);
+            if (posterMatch && posterMatch[1]) {
+                p = { ...p, image_url: `${p.image_url}#POSTER:${posterMatch[1]}` };
+            }
+        }
         if (!isClean(p)) return;
         seen.add(p.id);
-        const cleanUrl = getDedupUrlKey(p.image_url);
         if (cleanUrl) seenUrls.add(cleanUrl);
         merged.push(p);
     };
 
-    // 1. Local user created / freshly posted posts FIRST (so newly created photos/videos appear immediately!)
+    // 1. Genuinely local user-created posts on this device
     const local = getLocalPosts();
-    const sortedLocal = [...local].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-    for (const p of sortedLocal) {
+    for (const p of local) {
         addPost(p);
     }
 
-    // 2. Live Database posts next
+    // 2. Live Database posts (canonical IDs, captions, likes)
     for (const p of dbPosts) {
         addPost(p);
     }
 
-    // 4. Fallback to SEED_POSTS if still empty
+    // 3. Cloud Storage posts (recovers all recent video/photo uploads from Storage bucket)
+    for (const p of cachedCloud) {
+        addPost(p);
+    }
+
+    // 4. Sort all live & local posts strictly newest-first by created_at so latest photos/videos are ALWAYS on top!
+    merged.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+    // 5. Fallback to SEED_POSTS ONLY if completely offline and both DB and Cloud Storage are empty
     if (merged.length === 0) {
         for (const p of SEED_POSTS) {
             addPost(p);
@@ -184,35 +520,46 @@ export function mergePostsWithFallback(dbPosts: PostData[]): PostData[] {
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
+    const cloudPromise = fetchCloudStoragePosts();
     if (isSupabaseQuotaRestricted()) {
-        return mergePostsWithFallback([]);
+        const cloudPosts = await cloudPromise;
+        return mergePostsWithFallback([], cloudPosts);
     }
     try {
-        const { data, error } = await supabase
-            .from('posts')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(100);
+        const [{ data, error }, cloudPosts] = await Promise.all([
+            supabase
+                .from('posts')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(100),
+            cloudPromise,
+        ]);
 
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-            console.warn('[fetchPosts] Supabase unavailable, returning resilient local posts:', error.message);
-            return mergePostsWithFallback([]);
+            console.warn('[fetchPosts] Supabase unavailable, returning resilient local/cloud posts:', error.message);
+            return mergePostsWithFallback([], cloudPosts);
         }
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-        return mergePostsWithFallback(normalized);
+        return mergePostsWithFallback(normalized, cloudPosts);
     } catch (err: any) {
         if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
-        return mergePostsWithFallback([]);
+        const cloudPosts = await cloudPromise;
+        return mergePostsWithFallback([], cloudPosts);
     }
 }
 
 export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
+    const cloudPromise = fetchCloudStoragePosts();
     if (isSupabaseQuotaRestricted()) {
-        return mergePostsWithFallback([]).filter(p => !p.user_id || p.user_id !== userId);
+        const cloudPosts = await cloudPromise;
+        return mergePostsWithFallback([], cloudPosts).filter(p => !p.user_id || p.user_id !== userId);
     }
     try {
-        const connectionIds = await fetchConnectionUserIds(userId);
+        const [connectionIds, cloudPosts] = await Promise.all([
+            fetchConnectionUserIds(userId),
+            cloudPromise,
+        ]);
         const excludeIds = [...connectionIds, userId].filter((id): id is string => Boolean(id) && typeof id === 'string' && id.trim().length > 0);
 
         let query = supabase
@@ -229,17 +576,15 @@ export async function fetchForYouPosts(userId: string): Promise<PostData[]> {
 
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-            console.warn('[fetchForYouPosts] Supabase unavailable, returning resilient local posts:', error.message);
-            return getLocalPosts().filter(p => !p.user_id || !excludeIds.includes(p.user_id));
+            console.warn('[fetchForYouPosts] Supabase unavailable, returning resilient local/cloud posts:', error.message);
+            return mergePostsWithFallback([], cloudPosts).filter(p => !p.user_id || !excludeIds.includes(p.user_id));
         }
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-        if (normalized.length === 0) {
-            return getLocalPosts().filter(p => !p.user_id || !excludeIds.includes(p.user_id));
-        }
-        return mergePostsWithFallback(normalized).filter(p => !p.user_id || !excludeIds.includes(p.user_id));
+        return mergePostsWithFallback(normalized, cloudPosts).filter(p => !p.user_id || !excludeIds.includes(p.user_id));
     } catch (err: any) {
         if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
-        return getLocalPosts();
+        const cloudPosts = await cloudPromise;
+        return mergePostsWithFallback([], cloudPosts);
     }
 }
 
@@ -457,6 +802,7 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         }
     }
 
+    const cloudPromise = fetchCloudStoragePosts();
     let dbPosts: PostData[] = [];
     if (!isSupabaseQuotaRestricted()) {
         try {
@@ -475,10 +821,8 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
                 if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
             } else {
                 dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => {
-                    if (!p || isPostDeletedLocally(p.id)) return false;
-                    if (p.id?.startsWith('story-') || (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/')))) {
-                        return false;
-                    }
+                    if (!p || isPostDeletedLocally(p.id, p.image_url)) return false;
+                    if (p.id?.startsWith('story-')) return false;
                     return true;
                 });
             }
@@ -487,28 +831,37 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         }
     }
 
-    // Always fetch matching local posts (strictly user-created posts, excluding 24h stories)
-    const localPosts = getLocalPosts().filter(p => {
-        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id)) return false;
-        if (p.image_url && (p.image_url.includes('/stories/') || p.image_url.includes('stories/posters/'))) {
-            return false;
-        }
+    const allCloudPosts = await cloudPromise;
+    const userCloudPosts = allCloudPosts.filter(p => {
+        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id, p.image_url)) return false;
         const pUname = (p.username || '').toLowerCase();
         if (candidateUsernames.has(pUname)) return true;
         if (p.user_id && candidateUserIds.has(p.user_id)) return true;
         return false;
     });
 
-    // Merge dbPosts and localPosts, deduplicated by post id
+    // Always fetch matching local posts (strictly user-created posts, excluding 24h stories)
+    const localPosts = getLocalPosts().filter(p => {
+        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id, p.image_url)) return false;
+        const pUname = (p.username || '').toLowerCase();
+        if (candidateUsernames.has(pUname)) return true;
+        if (p.user_id && candidateUserIds.has(p.user_id)) return true;
+        return false;
+    });
+
+    // Merge localPosts, userCloudPosts, and dbPosts, deduplicated by post id and clean URL
     const seenPostIds = new Set<string>();
+    const seenBaseUrls = new Set<string>();
     const mergedPosts: PostData[] = [];
 
-    for (const p of [...dbPosts, ...localPosts]) {
-        if (p.id && !seenPostIds.has(p.id) && !isPostDeletedLocally(p.id)) {
-            seenPostIds.add(p.id);
-            p.image_url = resolveLocalMediaUrl(p.image_url);
-            mergedPosts.push(p);
-        }
+    for (const p of [...localPosts, ...dbPosts, ...userCloudPosts]) {
+        if (!p || !p.id || isPostDeletedLocally(p.id, p.image_url)) continue;
+        const cleanUrl = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+        if (seenPostIds.has(p.id) || (cleanUrl && seenBaseUrls.has(cleanUrl))) continue;
+        seenPostIds.add(p.id);
+        if (cleanUrl) seenBaseUrls.add(cleanUrl);
+        p.image_url = resolveLocalMediaUrl(p.image_url);
+        mergedPosts.push(p);
     }
 
     if (mergedPosts.length > 0) {
@@ -532,7 +885,7 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
                     music_title: p.song,
                     created_at: new Date().toISOString()
                 }))
-                .filter(p => !isPostDeletedLocally(p.id));
+                .filter(p => !isPostDeletedLocally(p.id, p.image_url));
         }
     }
 
@@ -553,14 +906,21 @@ function upgradeLocalMediaToCloud(localId: string, remoteUrl: string): void {
         const fragments = hashIdx !== -1 ? url.slice(hashIdx) : '';
         return `${remoteUrl}${fragments}`;
     };
+    const stripLocalIdToken = (url?: string): string => {
+        if (!url) return remoteUrl;
+        return url.replace(/#LOCAL_ID:[^#]+/, '');
+    };
 
     try {
         // 1. Upgrade in-memory and localStorage fallback stories
         let storiesChanged = false;
+        const upgradedStoriesToSync: StoryData[] = [];
         _fallbackStoriesMemoryCache = _fallbackStoriesMemoryCache.map(s => {
             if (s && typeof s.image_url === 'string' && s.image_url.includes(token)) {
                 storiesChanged = true;
-                return { ...s, image_url: replaceBaseUrl(s.image_url) };
+                const upgraded = { ...s, image_url: replaceBaseUrl(s.image_url) };
+                upgradedStoriesToSync.push(upgraded);
+                return upgraded;
             }
             return s;
         });
@@ -569,27 +929,49 @@ function upgradeLocalMediaToCloud(localId: string, remoteUrl: string): void {
             if (rawStories && rawStories.includes(token)) {
                 const parsed: any[] = JSON.parse(rawStories);
                 if (Array.isArray(parsed)) {
-                    const updated = parsed.map(s =>
-                        s && typeof s.image_url === 'string' && s.image_url.includes(token)
-                            ? { ...s, image_url: replaceBaseUrl(s.image_url) }
-                            : s
-                    );
+                    const updated = parsed.map(s => {
+                        if (s && typeof s.image_url === 'string' && s.image_url.includes(token)) {
+                            const upgraded = { ...s, image_url: replaceBaseUrl(s.image_url) };
+                            if (!upgradedStoriesToSync.some(u => u.id === upgraded.id)) {
+                                upgradedStoriesToSync.push(upgraded);
+                            }
+                            return upgraded;
+                        }
+                        return s;
+                    });
                     localStorage.setItem(FALLBACK_STORIES_KEY, JSON.stringify(updated));
                     storiesChanged = true;
                 }
             }
+            for (const st of upgradedStoriesToSync) {
+                const cloudStoryUrl = stripLocalIdToken(st.image_url);
+                const cloudStory = { ...st, image_url: cloudStoryUrl };
+                saveStoryToCloudStorageMeta(cloudStory);
+                if (!isSupabaseQuotaRestricted()) {
+                    supabase.from('stories').insert({
+                        user_id: cloudStory.user_id,
+                        image_url: cloudStoryUrl,
+                        filter_name: cloudStory.filter_name || 'Normal',
+                        is_boosted: Boolean(cloudStory.is_boosted),
+                    }).then(() => {});
+                }
+            }
+
             // 2. Upgrade local posts
             const localPosts = getLocalPosts();
             for (const p of localPosts) {
                 if (p && typeof p.image_url === 'string' && p.image_url.includes(token)) {
                     const upgradedPost = { ...p, image_url: replaceBaseUrl(p.image_url)! };
                     saveLocalPost(upgradedPost);
+                    const cloudPostUrl = stripLocalIdToken(upgradedPost.image_url);
+                    const cloudPost = { ...upgradedPost, image_url: cloudPostUrl };
+                    savePostToCloudStorageMeta(cloudPost);
                     // Sync upgraded post to Supabase in background if possible
                     if (!isSupabaseQuotaRestricted()) {
                         supabase.from('posts').insert({
                             username: upgradedPost.username,
                             avatar_url: upgradedPost.avatar_url,
-                            image_url: remoteUrl,
+                            image_url: cloudPostUrl,
                             caption: upgradedPost.caption || '',
                             likes_count: 0,
                             media_type: upgradedPost.media_type || 'video',
@@ -600,6 +982,7 @@ function upgradeLocalMediaToCloud(localId: string, remoteUrl: string): void {
                 }
             }
         }
+        invalidateCache();
         if (storiesChanged) {
             invalidateCache('recent_stories');
             invalidateCache('24h_boost_stories');
@@ -645,7 +1028,7 @@ export async function uploadMedia(
                     xhr.setRequestHeader('Content-Type', file.type);
                 }
 
-                const STALL_TIMEOUT_MS = 20000;
+                const STALL_TIMEOUT_MS = 25000;
                 let stallTimeout = setTimeout(() => {
                     xhr.abort();
                     reject(new Error('Upload connection stalled.'));
@@ -711,11 +1094,10 @@ export async function uploadMedia(
         }
     })();
 
-    // ⚡ Instant-Publish Fast Budget (1.2s for videos/media, 600ms for posters):
-    // If cloud upload finishes within the budget, return the cloud URL immediately.
-    // If the video is large and still uploading after 1.2s, publish immediately using the IndexedDB
-    // local URL so the user never waits, and seamlessly upgrade to the cloud URL in the background!
-    const FAST_PUBLISH_BUDGET_MS = isPosterUpload ? 600 : 1200;
+    // ⚡ Fast Publish Budget (4.5s for videos/media, 1.5s for posters):
+    // Allows standard photos and videos to finish uploading to Supabase Storage immediately
+    // while seamlessly falling back + upgrading in the background for huge files.
+    const FAST_PUBLISH_BUDGET_MS = isPosterUpload ? 1500 : 4500;
     let progressInterval: ReturnType<typeof setInterval> | null = null;
     if (onProgress && !isPosterUpload) {
         const startTime = Date.now();
@@ -763,79 +1145,58 @@ export async function uploadMedia(
 }
 
 export async function fetchVideoPosts(currentUserId?: string): Promise<PostData[]> {
+    const cloudPromise = fetchCloudStoragePosts();
     let rawVideos: PostData[] = [];
     if (isSupabaseQuotaRestricted()) {
-        rawVideos = mergePostsWithFallback([]).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+        const cloudPosts = await cloudPromise;
+        rawVideos = mergePostsWithFallback([], cloudPosts).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
     } else {
         try {
-            const { data, error } = await supabase
-                .from('posts')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(100);
+            const [{ data, error }, cloudPosts] = await Promise.all([
+                supabase
+                    .from('posts')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(100),
+                cloudPromise,
+            ]);
 
             if (error) {
                 if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-                console.warn('[fetchVideoPosts] Supabase unavailable, returning local video posts:', error.message);
-                rawVideos = mergePostsWithFallback([]).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+                console.warn('[fetchVideoPosts] Supabase unavailable, returning local/cloud video posts:', error.message);
+                rawVideos = mergePostsWithFallback([], cloudPosts).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
             } else {
                 const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p) && (isVideoPost(p) || isVideoUrl(p.image_url)));
-                rawVideos = mergePostsWithFallback(normalized).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+                rawVideos = mergePostsWithFallback(normalized, cloudPosts).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
             }
         } catch (err: any) {
             if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
-            rawVideos = mergePostsWithFallback([]).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
+            const cloudPosts = await cloudPromise;
+            rawVideos = mergePostsWithFallback([], cloudPosts).filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
         }
     }
 
     if (rawVideos.length <= 1) return rawVideos;
 
-    // Apply author anti-clustering and prioritize fresh community video uploads so 0-engagement videos get immediate screen delivery
+    // Sort all videos newest first by created_at so the latest uploaded videos ALWAYS appear first!
+    rawVideos.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
     const ownRecent: PostData[] = [];
-    const communityRecent: PostData[] = [];
+    const latestUploads: PostData[] = [];
     const regular: PostData[] = [];
 
     for (const v of rawVideos) {
         const hoursOld = Math.max(0, (Date.now() - new Date(v.created_at).getTime()) / (1000 * 60 * 60));
-        const isUserVideo = !v.id?.startsWith('seed-') || v.id?.startsWith('post-') || v.id?.startsWith('reel-') || hoursOld < 168;
         if (currentUserId && v.user_id === currentUserId && hoursOld < 48) {
             ownRecent.push(v);
-        } else if (isUserVideo && hoursOld < 168) {
-            communityRecent.push(v);
+        } else if (hoursOld < 336) { // Last 14 days of community video uploads
+            latestUploads.push(v);
         } else {
             regular.push(v);
         }
     }
 
-    // Sort community uploads newest first so fresh user videos appear immediately
-    communityRecent.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-
-    const blended: PostData[] = [...ownRecent];
-
-    // Interleave community fresh videos with author anti-clustering
-    let commIdx = 0;
-    while (commIdx < communityRecent.length && blended.length < 10) {
-        const lastAuthor = blended.length > 0 ? (blended[blended.length - 1].username || blended[blended.length - 1].user_id) : '';
-        const foundIdx = communityRecent.findIndex((v, i) => i >= commIdx && (v.username || v.user_id) !== lastAuthor);
-        if (foundIdx !== -1) {
-            blended.push(communityRecent.splice(foundIdx, 1)[0]);
-        } else {
-            blended.push(communityRecent[commIdx++]);
-        }
-    }
-
-    const pool = [...communityRecent.slice(commIdx), ...regular];
-    let lastAuthor = blended.length > 0 ? (blended[blended.length - 1].username || blended[blended.length - 1].user_id) : '';
-
-    while (pool.length > 0) {
-        let foundIdx = pool.findIndex(v => (v.username || v.user_id) !== lastAuthor);
-        if (foundIdx === -1) foundIdx = 0;
-        const [next] = pool.splice(foundIdx, 1);
-        blended.push(next);
-        lastAuthor = next.username || next.user_id;
-    }
-
-    return blended;
+    return [...ownRecent, ...latestUploads, ...regular];
 }
 
 export async function fetchPostById(id: string): Promise<PostData | null> {
@@ -856,16 +1217,17 @@ export async function fetchPostById(id: string): Promise<PostData | null> {
             }
         }
     } catch (e) {
-        // Fall back to local search
+        // Fall back to local/cloud search
     }
 
-    // Check local posts and fallback cache
+    // Check local posts and cloud storage fallback cache
     try {
         const local = getLocalPosts();
         const foundLocal = local.find(p => String(p.id) === strId);
         if (foundLocal) return normalizePost(foundLocal);
 
-        const fallback = mergePostsWithFallback([]);
+        const cloudPosts = await fetchCloudStoragePosts();
+        const fallback = mergePostsWithFallback([], cloudPosts);
         const foundFallback = fallback.find(p => String(p.id) === strId);
         if (foundFallback) return normalizePost(foundFallback);
     } catch (_) {}
@@ -984,8 +1346,8 @@ export async function awardUploadPoints(userId: string, pointsAwarded: number, c
 
 export function normalizePost(post: PostData): PostData {
     if (!post) return null as any;
-    if (BROKEN_POST_IDS.has(post.id) || isPostDeletedLocally(post.id)) return null as any;
-    if (String(post.id || '').startsWith('story-') || (typeof post.image_url === 'string' && (post.image_url.includes('/stories/') || post.image_url.includes('stories/posters/')))) {
+    if (BROKEN_POST_IDS.has(post.id) || isPostDeletedLocally(post.id, post.image_url)) return null as any;
+    if (String(post.id || '').startsWith('story-')) {
         return null as any;
     }
 
@@ -1093,13 +1455,19 @@ export async function createNewPost(post: {
         return [localPost];
     }
 
-    // Sync to Supabase DB in background without blocking UI publish completion
+    const cleanCloudUrl = post.image_url.replace(/#LOCAL_ID:[^#]+/, '');
+    const cloudPost: PostData = { ...localPost, image_url: cleanCloudUrl };
+
+    // Sync to Cloud Storage Manifest AND Supabase DB in background so all users see it immediately even if SQL RLS blocks anon insert
     (async () => {
+        try {
+            await savePostToCloudStorageMeta(cloudPost);
+        } catch (_) {}
         try {
             const row: Record<string, unknown> = {
                 username: post.username,
                 avatar_url: post.avatar_url,
-                image_url: post.image_url,
+                image_url: cleanCloudUrl,
                 caption: finalCaption,
                 likes_count: 0,
                 media_type: post.media_type || 'image',
@@ -1852,7 +2220,7 @@ export interface StoryData {
 
 export function normalizeStory(story: StoryData): StoryData {
     if (!story) return story;
-    if (story.id && isPostDeletedLocally(story.id)) return null as any;
+    if (isPostDeletedLocally(story.id, story.image_url)) return null as any;
     const rawUrl = story.image_url || '';
     // Keep 5th-page regular posts (/posts/) strictly out of 2nd-page 24h stories
     if (String(story.id || '').startsWith('post-') || rawUrl.includes('/posts/') || rawUrl.includes('posts/posters/')) {
@@ -2218,10 +2586,192 @@ export function deduplicateStories(storiesList: StoryData[]): StoryData[] {
     return Array.from(map.values());
 }
 
-function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string): StoryData[] {
+export async function saveStoryToCloudStorageMeta(story: StoryData): Promise<void> {
+    try {
+        if (!story || !story.image_url || story.image_url.startsWith('blob:') || story.image_url.startsWith('local-media://')) {
+            return;
+        }
+        const now = Date.now();
+        const existing = (await fetchCloudJson<StoryData[]>(CLOUD_STORIES_META_PATH)) || [];
+        const cleanBase = story.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
+        const filtered = (Array.isArray(existing) ? existing : []).filter(s => {
+            if (!s || !s.id || isPostDeletedLocally(s.id, s.image_url)) return false;
+            const msOld = now - new Date(s.created_at || 0).getTime();
+            if (msOld > 24 * 60 * 60 * 1000) return false;
+            const b = (s.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+            return s.id !== story.id && (!cleanBase || b !== cleanBase);
+        });
+        const updated = [story, ...filtered].slice(0, 120);
+        invalidateCache('cloud_storage_stories');
+        invalidateCache('recent_stories');
+        invalidateCache('24h_boost_stories');
+        await uploadCloudJson(CLOUD_STORIES_META_PATH, updated);
+    } catch (_) {}
+}
+
+export async function fetchCloudStorageStories(): Promise<StoryData[]> {
+    const cached = getFromCache<StoryData[]>('cloud_storage_stories', 15000);
+    if (cached) return cached;
+
+    try {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (!supabaseUrl) return [];
+
+        const [, metaList, storyFiles, posterFiles] = await Promise.all([
+            fetchCloudDeletedIds(),
+            fetchCloudJson<StoryData[]>(CLOUD_STORIES_META_PATH),
+            listStoragePrefix('stories', 80),
+            listStoragePrefix('stories/posters', 80),
+        ]);
+
+        const now = Date.now();
+        const maxAgeMs = 24 * 60 * 60 * 1000;
+        const fileRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)\.([a-z0-9]+)$/i;
+
+        const postersByUser = new Map<string, Array<{ ts: number; url: string }>>();
+        for (const pf of posterFiles) {
+            if (!pf || !pf.name || !pf.id) continue;
+            const m = pf.name.match(fileRegex);
+            const uid = m ? m[1].toLowerCase() : '';
+            const ts = m ? Number(m[2]) : new Date(pf.created_at || 0).getTime();
+            if (!uid || !ts) continue;
+            const posterUrl = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/stories/posters/${pf.name}`;
+            if (!postersByUser.has(uid)) postersByUser.set(uid, []);
+            postersByUser.get(uid)!.push({ ts, url: posterUrl });
+        }
+
+        const metaByUrl = new Map<string, StoryData>();
+        if (Array.isArray(metaList)) {
+            for (const ms of metaList) {
+                if (!ms || !ms.image_url || isPostDeletedLocally(ms.id, ms.image_url)) continue;
+                const cleanBase = ms.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
+                if (cleanBase) metaByUrl.set(cleanBase, ms);
+            }
+        }
+
+        const discovered: StoryData[] = [];
+        const seenUrls = new Set<string>();
+        const seenUserSizes: Array<{ uid: string; size: number; ts: number }> = [];
+
+        for (const f of storyFiles) {
+            if (!f || !f.id || !f.name) continue;
+            const nameLower = String(f.name).toLowerCase();
+            if (
+                nameLower === 'posters' ||
+                nameLower.startsWith('test') ||
+                nameLower.startsWith('cloud_') ||
+                nameLower.endsWith('.json') ||
+                nameLower.startsWith('.')
+            ) {
+                continue;
+            }
+            const fileSize = Number(f.metadata?.size || 0);
+            if (fileSize > 0 && fileSize < 1000) continue;
+
+            const createdMs = new Date(f.created_at || 0).getTime();
+            const msOld = now - createdMs;
+            if (!createdMs || msOld > maxAgeMs || msOld < -300000) continue;
+
+            const basePublicUrl = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/stories/${f.name}`;
+            const cleanBase = basePublicUrl.toLowerCase();
+            const metaStory = metaByUrl.get(cleanBase);
+
+            const m = f.name.match(fileRegex);
+            const userId = m ? m[1] : (metaStory?.user_id || '');
+            const fileTs = m ? Number(m[2]) : createdMs;
+            const uidLower = (userId || '').toLowerCase();
+
+            if (uidLower && fileSize > 0) {
+                const isRetryDup = seenUserSizes.some(
+                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 10 * 60 * 1000
+                );
+                if (isRetryDup) continue;
+                seenUserSizes.push({ uid: uidLower, size: fileSize, ts: fileTs });
+            }
+
+            const storyId = metaStory?.id || `story-cloud-${f.name.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            if (isPostDeletedLocally(storyId, basePublicUrl)) continue;
+
+            let matchedPosterUrl: string | undefined;
+            if (uidLower && postersByUser.has(uidLower)) {
+                const candidates = postersByUser.get(uidLower)!;
+                let bestDiff = 30000;
+                for (const c of candidates) {
+                    const diff = Math.abs(c.ts - fileTs);
+                    if (diff < bestDiff) {
+                        bestDiff = diff;
+                        matchedPosterUrl = c.url;
+                    }
+                }
+            }
+
+            const isVid =
+                /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(f.name) ||
+                String(f.metadata?.mimetype || '').startsWith('video/');
+
+            let finalImageUrl = metaStory?.image_url || basePublicUrl;
+            if (isVid) {
+                if (matchedPosterUrl && !finalImageUrl.includes('#POSTER:')) {
+                    finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(matchedPosterUrl)}`;
+                }
+                if (!finalImageUrl.includes('#video.mp4')) {
+                    finalImageUrl = `${finalImageUrl}#video.mp4`;
+                }
+            }
+
+            const kp = userId ? getKnownProfile(userId) : null;
+            const username = metaStory?.username || kp?.username || (userId ? `user_${userId.slice(0, 6)}` : 'creator');
+
+            const rawStory: StoryData = {
+                id: storyId,
+                user_id: userId || metaStory?.user_id || null,
+                username,
+                image_url: finalImageUrl,
+                poster_url: matchedPosterUrl || metaStory?.poster_url,
+                filter_name: metaStory?.filter_name || 'Normal',
+                is_boosted: metaStory?.is_boosted ?? true,
+                created_at: f.created_at || metaStory?.created_at || new Date(fileTs).toISOString(),
+                caption: metaStory?.caption,
+                music_title: metaStory?.music_title,
+                music_artist: metaStory?.music_artist,
+                music_url: metaStory?.music_url,
+            };
+
+            const norm = normalizeStory(rawStory);
+            if (norm) {
+                seenUrls.add(cleanBase);
+                discovered.push(norm);
+            }
+        }
+
+        if (Array.isArray(metaList)) {
+            for (const ms of metaList) {
+                if (!ms || !ms.image_url || isPostDeletedLocally(ms.id, ms.image_url)) continue;
+                const msOld = now - new Date(ms.created_at || 0).getTime();
+                if (msOld > maxAgeMs || msOld < -300000) continue;
+                const cleanBase = ms.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
+                if (cleanBase && !seenUrls.has(cleanBase)) {
+                    const norm = normalizeStory(ms);
+                    if (norm) {
+                        seenUrls.add(cleanBase);
+                        discovered.push(norm);
+                    }
+                }
+            }
+        }
+
+        discovered.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setInCache('cloud_storage_stories', discovered);
+        return discovered;
+    } catch (_) {
+        return [];
+    }
+}
+
+function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string, cloudStories: StoryData[] = []): StoryData[] {
     const now = Date.now();
     const fallback = getFallbackStories().filter(s => {
-        if (isSeedStory(s) || isPostDeletedLocally(s.id)) return false;
+        if (isSeedStory(s) || isPostDeletedLocally(s.id, s.image_url)) return false;
         if (!s.created_at) return false;
         const msOld = now - new Date(s.created_at).getTime();
         return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
@@ -2229,10 +2779,12 @@ function mergeWithFallbackStories(dbStories: StoryData[], userIdFilter?: string)
     const filteredFallback = userIdFilter 
         ? fallback.filter(s => s.user_id === userIdFilter)
         : fallback;
-    const sanitizedDb = dbStories.filter(s => !isSeedStory(s) && !isPostDeletedLocally(s.id));
-    const existingIds = new Set(sanitizedDb.map(s => s.id));
-    const toAdd = filteredFallback.filter(s => !existingIds.has(s.id));
-    return deduplicateStories([...toAdd, ...sanitizedDb]);
+    const filteredCloud = (userIdFilter
+        ? cloudStories.filter(s => s.user_id === userIdFilter)
+        : cloudStories
+    ).filter(s => !isSeedStory(s) && !isPostDeletedLocally(s.id, s.image_url));
+    const sanitizedDb = dbStories.filter(s => !isSeedStory(s) && !isPostDeletedLocally(s.id, s.image_url));
+    return deduplicateStories([...filteredFallback, ...sanitizedDb, ...filteredCloud]);
 }
 
 /** Fetch stories from the last 24 hours for the Home story rack */
@@ -2241,12 +2793,15 @@ export async function fetchRecentStories(): Promise<StoryData[]> {
     if (cached) return cached;
 
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-        .from('stories')
-        .select('*')
-        .gte('created_at', twentyFourHoursAgo)
-        .order('created_at', { ascending: false })
-        .limit(100);
+    const [{ data, error }, cloudStories] = await Promise.all([
+        supabase
+            .from('stories')
+            .select('*')
+            .gte('created_at', twentyFourHoursAgo)
+            .order('created_at', { ascending: false })
+            .limit(100),
+        fetchCloudStorageStories(),
+    ]);
 
     let result: StoryData[] = [];
     if (error) {
@@ -2254,18 +2809,21 @@ export async function fetchRecentStories(): Promise<StoryData[]> {
     } else {
         result = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
     }
-    const merged = mergeWithFallbackStories(result);
+    const merged = mergeWithFallbackStories(result, undefined, cloudStories);
     setInCache('recent_stories', merged);
     return merged;
 }
 
 /** Fetch stories belonging to a specific user */
 export async function fetchUserStories(userId: string): Promise<StoryData[]> {
-    const { data, error } = await supabase
-        .from('stories')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
+    const [{ data, error }, cloudStories] = await Promise.all([
+        supabase
+            .from('stories')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false }),
+        fetchCloudStorageStories(),
+    ]);
 
     let result: StoryData[] = [];
     if (error) {
@@ -2273,7 +2831,7 @@ export async function fetchUserStories(userId: string): Promise<StoryData[]> {
     } else {
         result = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
     }
-    return mergeWithFallbackStories(result, userId);
+    return mergeWithFallbackStories(result, userId, cloudStories);
 }
 
 export async function createStory(
@@ -2317,12 +2875,18 @@ export async function createStory(
         return { error: null, story: normalizedLocalStory };
     }
 
-    // Sync to Supabase stories table in background without blocking UI publish completion
+    const cleanCloudUrl = imageUrl.replace(/#LOCAL_ID:[^#]+/, '');
+    const cloudStory: StoryData = { ...normalizedLocalStory, image_url: cleanCloudUrl };
+
+    // Sync to Cloud Storage Manifest AND Supabase stories table in background without blocking UI publish completion
     (async () => {
+        try {
+            await saveStoryToCloudStorageMeta(cloudStory);
+        } catch (_) {}
         try {
             const payload: any = {
                 user_id: userId,
-                image_url: imageUrl,
+                image_url: cleanCloudUrl,
                 filter_name: filterName,
                 is_boosted: isBoosted,
             };
@@ -2336,7 +2900,7 @@ export async function createStory(
             if (error && (error.message.includes('column') || error.message.includes('schema cache'))) {
                 const basePayload = {
                     user_id: userId,
-                    image_url: imageUrl,
+                    image_url: cleanCloudUrl,
                     filter_name: filterName,
                     is_boosted: isBoosted,
                 };
@@ -2432,7 +2996,7 @@ export function isStoryEligibleForViewerScreen(
     _userFriends: string[] = []
 ): boolean {
     if (!story || !story.id || !story.image_url) return false;
-    if (isSeedStory(story)) return false;
+    if (isSeedStory(story) || isPostDeletedLocally(story.id, story.image_url)) return false;
 
     // Check media health (don't show broken or unplayable media)
     const trimmed = typeof story.image_url === 'string' ? story.image_url.trim() : '';
@@ -2540,6 +3104,7 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
     const cached = getFromCache<StoryData[]>(`24h_boost_stories_${currentUserId || 'anon'}`, 15000);
     if (cached) return cached;
 
+    const cloudPromise = fetchCloudStorageStories();
     let rawStories: StoryData[] = [];
     if (!isSupabaseQuotaRestricted()) {
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -2563,7 +3128,8 @@ export async function fetch24HourBoostStories(currentUserId?: string): Promise<S
         }
     }
 
-    const stories = deduplicateStories(mergeWithFallbackStories(rawStories).filter(s => !isSeedStory(s)));
+    const cloudStories = await cloudPromise;
+    const stories = deduplicateStories(mergeWithFallbackStories(rawStories, undefined, cloudStories).filter(s => !isSeedStory(s)));
 
     let friendIds: string[] = [];
     if (currentUserId) {
@@ -2658,15 +3224,24 @@ export async function updateStreak(userId: string, currentStreak: number, lastSt
 export async function deleteStory(storyId: string) {
     if (!storyId) return;
     const cleanId = String(storyId).replace(/_p\d+_\d+$/, '');
+    let targetUrl: string | undefined;
     try {
-        const stories = getFallbackStories();
-        const target = stories.find(s => s.id === storyId || s.id === cleanId);
+        const stories = [
+            ...getFallbackStories(),
+            ...(getFromCache<StoryData[]>('cloud_storage_stories', 60000) || []),
+            ...(getFromCache<StoryData[]>('recent_stories', 60000) || []),
+        ];
+        const target = stories.find(s => s && (s.id === storyId || s.id === cleanId));
         if (target?.image_url) {
+            targetUrl = target.image_url;
             deleteLocalMediaByUrl(target.image_url);
         }
     } catch (_) {}
 
+    removeLocalPost(cleanId, targetUrl);
     deleteFallbackStory(cleanId);
+    recordCloudDeletedId(cleanId, targetUrl).catch(() => {});
+    invalidateCache('cloud_storage_stories');
     invalidateCache('recent_stories');
     invalidateCache('24h_boost_stories');
 
@@ -3730,32 +4305,35 @@ export async function fetchUserEngagements(userId: string): Promise<EngagementDa
 /** Fetch all posts (unpaginated) for scoring — used by algorithm.ts with fast cache */
 export async function fetchAllPostsForScoring(currentUserId?: string): Promise<PostData[]> {
     const cacheKey = `all_scoring_posts_${currentUserId || 'all'}`;
-    const cached = getFromCache<PostData[]>(cacheKey, 25000);
+    const cached = getFromCache<PostData[]>(cacheKey, 20000);
     if (cached) return cached;
 
+    const cloudPromise = fetchCloudStoragePosts();
     try {
-        const query = supabase
-            .from('posts')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(300);
-
-        const { data, error } = await query;
+        const [{ data, error }, cloudPosts] = await Promise.all([
+            supabase
+                .from('posts')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(300),
+            cloudPromise,
+        ]);
 
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-            console.warn('[fetchAllPostsForScoring] Supabase unavailable, using resilient local posts:', error.message);
-            const fallback = getLocalPosts();
+            console.warn('[fetchAllPostsForScoring] Supabase unavailable, using resilient local/cloud posts:', error.message);
+            const fallback = mergePostsWithFallback([], cloudPosts);
             setInCache(cacheKey, fallback);
             return fallback;
         }
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-        const result = normalized.length > 0 ? mergePostsWithFallback(normalized) : getLocalPosts();
+        const result = mergePostsWithFallback(normalized, cloudPosts);
         setInCache(cacheKey, result);
         return result;
     } catch (e: any) {
         if (isQuotaError(e)) setSupabaseQuotaRestricted(true);
-        const fallback = getLocalPosts();
+        const cloudPosts = await cloudPromise;
+        const fallback = mergePostsWithFallback([], cloudPosts);
         setInCache(cacheKey, fallback);
         return fallback;
     }
@@ -4090,6 +4668,7 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
 }
 
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {
+    const cloudPromise = fetchCloudStoragePosts();
     try {
         let query = supabase
             .from('posts')
@@ -4101,10 +4680,10 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
             query = query.eq('category', category);
         }
 
-        const { data, error } = await query;
+        const [{ data, error }, cloudPosts] = await Promise.all([query, cloudPromise]);
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
-            const local = mergePostsWithFallback([]);
+            const local = mergePostsWithFallback([], cloudPosts);
             if (category && category !== 'All') {
                 return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
             }
@@ -4112,13 +4691,14 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         }
         
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
-        const merged = mergePostsWithFallback(normalized);
+        const merged = mergePostsWithFallback(normalized, cloudPosts);
         if (category && category !== 'All') {
             return merged.filter(p => p.category?.toLowerCase() === category.toLowerCase());
         }
         return merged;
     } catch (_) {
-        const local = mergePostsWithFallback([]);
+        const cloudPosts = await cloudPromise;
+        const local = mergePostsWithFallback([], cloudPosts);
         if (category && category !== 'All') {
             return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
         }
@@ -4132,28 +4712,38 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
 export async function deletePost(postId: string): Promise<boolean> {
     if (!postId) return false;
     const cleanId = String(postId).replace(/_p\d+_\d+$/, '');
+    let targetUrl: string | undefined;
     try {
         if (typeof window !== 'undefined') {
-            // 1. Clean up IndexedDB media blob if present
+            // 1. Clean up IndexedDB media blob and find cloud media URL if present
             try {
-                const existing = getLocalPosts();
-                const target = existing.find(p => p.id === postId || p.id === cleanId);
+                const candidates = [
+                    ...getLocalPosts(),
+                    ...(getFromCache<PostData[]>('cloud_storage_posts', 60000) || []),
+                    ...(getFromCache<PostData[]>('all_scoring_posts_all', 60000) || []),
+                ];
+                const target = candidates.find(p => p && (p.id === postId || p.id === cleanId));
                 if (target?.image_url) {
+                    targetUrl = target.image_url;
                     deleteLocalMediaByUrl(target.image_url);
                 }
             } catch (_) {}
 
-            // 2. Remove from _localPostsCache, knock_local_posts_v6, knock_local_posts, knock_local_stories, and blacklist ID
-            removeLocalPost(cleanId);
+            // 2. Remove from _localPostsCache, knock_local_posts_v7, knock_local_posts, knock_local_stories, and blacklist ID
+            removeLocalPost(cleanId, targetUrl);
             deleteFallbackStory(cleanId);
+            recordCloudDeletedId(cleanId, targetUrl).catch(() => {});
 
             // 3. Purge from all localStorage feed caches so deleted post never flashes on reload
             const lsCacheKeys = [
                 'knock_home_posts_cache',
+                'knock_home_posts_cache_v3',
                 'knock_explore_posts_cache_v7',
                 'knock_explore_posts_cache_v8',
+                'knock_explore_posts_cache_v10',
                 'knock_explore_trending_cache_v8',
                 'knock_explore_trending_cache_v9',
+                'knock_explore_trending_cache_v10',
             ];
             for (const key of lsCacheKeys) {
                 try {
@@ -4312,13 +4902,13 @@ export async function fetchActiveBoostedPosts(): Promise<PostData[]> {
 
 // ── Engagement Psychology Helpers ──────────────────────────
 
-/** Fetch trending posts — prioritizing authentic uploaded videos (ityourfavourite1, user videos) and top trending content with reshuffle support */
+/** Fetch trending posts — prioritizing latest uploaded videos/photos and top trending content */
 export async function fetchTrendingPosts(
     limit: number = 20, 
     currentUserId?: string,
     forceReshuffle: boolean = false
 ): Promise<PostData[]> {
-    const cacheKey = `trending_posts_v8_${limit}_${currentUserId || 'anon'}`;
+    const cacheKey = `trending_posts_v10_${limit}_${currentUserId || 'anon'}`;
     if (!forceReshuffle) {
         const cached = getFromCache<PostData[]>(cacheKey, 15000);
         if (cached && cached.length > 0) return cached;
@@ -4326,76 +4916,56 @@ export async function fetchTrendingPosts(
         invalidateCache(cacheKey);
         try {
             localStorage.removeItem('knock_explore_trending_cache_v8');
+            localStorage.removeItem('knock_explore_trending_cache_v9');
+            localStorage.removeItem('knock_explore_trending_cache_v10');
         } catch (_) {}
     }
 
-    const assembleLocalTrending = (): PostData[] => {
-        const local = mergePostsWithFallback([]);
-        const freshUserVids = local.filter(p =>
-            (p.id?.startsWith('post-local-') || (currentUserId && p.user_id === currentUserId)) &&
-            (isVideoPost(p) || isVideoUrl(p.image_url))
-        );
-        const freshIds = new Set(freshUserVids.map(p => p.id));
-        const favVids = local.filter(p => !freshIds.has(p.id) && (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && (isVideoPost(p) || isVideoUrl(p.image_url)));
-        const otherVids = local.filter(p => !freshIds.has(p.id) && p.username !== 'ityourfavourite1' && !p.username?.includes('favourite') && (isVideoPost(p) || isVideoUrl(p.image_url)));
-        const favImages = local.filter(p => (p.username === 'ityourfavourite1' || p.username?.includes('favourite')) && !isVideoPost(p) && !isVideoUrl(p.image_url));
+    const cloudPromise = fetchCloudStoragePosts();
 
-        // Pool remaining authentic videos for rotation
-        const poolVideos = [...favVids, ...otherVids];
-
-        // Fisher-Yates shuffle for a fresh, vibrant rotation of trending videos
-        const shuffledVideos = [...poolVideos];
-        for (let i = shuffledVideos.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffledVideos[i], shuffledVideos[j]] = [shuffledVideos[j], shuffledVideos[i]];
-        }
-
+    const assembleLocalTrending = async (): Promise<PostData[]> => {
+        const cloudPosts = await cloudPromise;
+        const local = mergePostsWithFallback([], cloudPosts);
         const seen = new Set<string>();
         const res: PostData[] = [];
-        // Prioritize fresh user uploads FIRST, then shuffled videos, then images
-        for (const p of [...freshUserVids, ...shuffledVideos, ...favImages]) {
+        for (const p of local) {
             const localMatch = (p.image_url || '').match(/#LOCAL_ID:([^#]+)/);
             const cleanUrl = localMatch ? `local:${localMatch[1]}` : (p.image_url || '').split('?')[0].split('#')[0];
             if (!seen.has(p.id) && !seen.has(cleanUrl)) {
                 seen.add(p.id);
                 seen.add(cleanUrl);
-                if (!p.likes_count || p.likes_count < 100) {
-                    let hash = 0;
-                    for (let i = 0; i < p.id.length; i++) hash = ((hash << 5) - hash) + p.id.charCodeAt(i);
-                    p.likes_count = 1200 + Math.abs(hash % 18500);
-                }
                 res.push(p);
             }
         }
-        return res;
+        return res.slice(0, Math.max(limit, 30));
     };
 
     if (isSupabaseQuotaRestricted()) {
-        const fallback = assembleLocalTrending();
+        const fallback = await assembleLocalTrending();
         setInCache(cacheKey, fallback);
         return fallback;
     }
 
     try {
-        // 1. Fetch all posts from 'ityourfavourite1' (favorite user)
+        // 1. Fetch latest posts chronologically
+        const latestPromise = supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(40);
+
+        // 2. Fetch all posts from 'ityourfavourite1' (favorite user)
         const favPromise = supabase
             .from('posts')
             .select('*')
             .ilike('username', '%favourite%')
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .limit(25);
 
-        // 2. Fetch all posts from current user (if logged in)
+        // 3. Fetch all posts from current user (if logged in)
         const userPromise = currentUserId
             ? supabase.from('posts').select('*').eq('user_id', currentUserId).order('created_at', { ascending: false }).limit(10)
             : Promise.resolve({ data: [] });
-
-        // 3. Fetch community video uploads
-        const videoPromise = supabase
-            .from('posts')
-            .select('*')
-            .or('media_type.eq.video,image_url.ilike.%.mp4%')
-            .order('created_at', { ascending: false })
-            .limit(30);
 
         // 4. Fetch top liked posts
         const topPromise = supabase
@@ -4404,73 +4974,61 @@ export async function fetchTrendingPosts(
             .order('likes_count', { ascending: false })
             .limit(limit);
 
-        const [favRes, userRes, vidRes, topRes] = await Promise.all([favPromise, userPromise, videoPromise, topPromise]);
+        const [cloudPosts, latestRes, favRes, userRes, topRes] = await Promise.all([
+            cloudPromise,
+            latestPromise,
+            favPromise,
+            userPromise,
+            topPromise,
+        ]);
 
         const seenIds = new Set<string>();
         const seenUrls = new Set<string>();
         const result: PostData[] = [];
 
-        const addPost = (raw: any, isFav: boolean = false) => {
+        const addPost = (raw: any) => {
             if (!raw || !raw.id || !raw.image_url) return;
-            if (isPostDeletedLocally(raw.id)) return;
+            if (isPostDeletedLocally(raw.id, raw.image_url)) return;
             const hasLocalId = typeof raw.image_url === 'string' && (raw.image_url.includes('#LOCAL_ID:') || raw.image_url.startsWith('local-media://'));
             if (typeof raw.image_url === 'string' && ((raw.image_url.startsWith('blob:') && !hasLocalId) || raw.image_url.startsWith('data:'))) return;
             const norm = normalizePost(raw);
             if (!norm) return;
             const localMatch = (norm.image_url || '').match(/#LOCAL_ID:([^#]+)/);
-            const cleanUrl = localMatch ? `local:${localMatch[1]}` : (norm.image_url || '').split('?')[0].split('#')[0];
+            const cleanUrl = (localMatch ? `local:${localMatch[1]}` : (norm.image_url || '').split('?')[0].split('#')[0]).toLowerCase();
             if (seenIds.has(norm.id) || seenUrls.has(cleanUrl)) return;
             seenIds.add(norm.id);
             seenUrls.add(cleanUrl);
-
-            // Assign vibrant trending engagement count if likes are 0/low
-            if (!norm.likes_count || norm.likes_count < 100) {
-                let hash = 0;
-                for (let i = 0; i < norm.id.length; i++) hash = ((hash << 5) - hash) + norm.id.charCodeAt(i);
-                norm.likes_count = isFav ? (2400 + Math.abs(hash % 2600)) : (450 + Math.abs(hash % 1200));
-            }
             result.push(norm);
         };
 
-        // Priority 0: Any locally uploaded user videos first
-        getLocalPosts().filter(p => p.id?.startsWith('post-local-') && (isVideoPost(p) || isVideoUrl(p.image_url))).forEach(p => addPost(p, true));
+        // Priority 0: Any locally uploaded user posts first
+        getLocalPosts().forEach(p => addPost(p));
 
-        // Priority 1: All video posts from ityourfavourite1 ("our favorite")
-        (favRes.data || []).forEach(p => {
-            const isVid = p.media_type === 'video' || (p.image_url && p.image_url.includes('.mp4'));
-            if (isVid) addPost(p, true);
-        });
+        // Priority 1: All recent Cloud Storage uploads (sorted newest-first!)
+        cloudPosts.forEach(p => addPost(p));
 
-        // Priority 2: Videos by current logged-in user
-        (userRes.data || []).forEach(p => {
-            const isVid = p.media_type === 'video' || (p.image_url && p.image_url.includes('.mp4'));
-            if (isVid) addPost(p, true);
-        });
+        // Priority 2: Latest database posts chronologically
+        (latestRes.data || []).forEach(p => addPost(p));
 
-        // Priority 3: Community video uploads (coral, rounak2, etc.)
-        (vidRes.data || []).forEach(p => addPost(p, false));
+        // Priority 3: Posts by current logged-in user
+        (userRes.data || []).forEach(p => addPost(p));
 
-        // Priority 4: Image posts from ityourfavourite1
-        (favRes.data || []).forEach(p => addPost(p, true));
+        // Priority 4: Posts from ityourfavourite1
+        (favRes.data || []).forEach(p => addPost(p));
 
         // Priority 5: Top posts
-        (topRes.data || []).forEach(p => addPost(p, false));
+        (topRes.data || []).forEach(p => addPost(p));
 
         if (result.length === 0) {
-            const fallback = assembleLocalTrending();
+            const fallback = await assembleLocalTrending();
             setInCache(cacheKey, fallback);
             return fallback;
         }
 
-        const vids = result.filter(p => isVideoPost(p) || isVideoUrl(p.image_url));
-        const nonVids = result.filter(p => !isVideoPost(p) && !isVideoUrl(p.image_url));
-        for (let i = vids.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [vids[i], vids[j]] = [vids[j], vids[i]];
-        }
-        const reshuffled = [...vids, ...nonVids];
-        setInCache(cacheKey, reshuffled);
-        return reshuffled;
+        // Keep the newest uploads at the very front of Trending!
+        result.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setInCache(cacheKey, result);
+        return result;
     } catch (error: any) {
         if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
         console.warn('Error fetching trending posts (using local fallback):', error);
