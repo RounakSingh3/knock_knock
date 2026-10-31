@@ -985,6 +985,9 @@ export async function awardUploadPoints(userId: string, pointsAwarded: number, c
 export function normalizePost(post: PostData): PostData {
     if (!post) return null as any;
     if (BROKEN_POST_IDS.has(post.id) || isPostDeletedLocally(post.id)) return null as any;
+    if (String(post.id || '').startsWith('story-') || (typeof post.image_url === 'string' && (post.image_url.includes('/stories/') || post.image_url.includes('stories/posters/')))) {
+        return null as any;
+    }
 
     // Filter out posts with empty, null, or invalid image_url, or non-portable blob/data URLs
     if (!post.image_url || typeof post.image_url !== 'string') return null as any;
@@ -1851,6 +1854,10 @@ export function normalizeStory(story: StoryData): StoryData {
     if (!story) return story;
     if (story.id && isPostDeletedLocally(story.id)) return null as any;
     const rawUrl = story.image_url || '';
+    // Keep 5th-page regular posts (/posts/) strictly out of 2nd-page 24h stories
+    if (String(story.id || '').startsWith('post-') || rawUrl.includes('/posts/') || rawUrl.includes('posts/posters/')) {
+        return null as any;
+    }
     const cleanBaseUrl = rawUrl.split('#')[0];
 
     let poster_url = story.poster_url;
@@ -2098,44 +2105,6 @@ export function getFallbackStories(): StoryData[] {
     const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
     const local = getLocalStories().filter(s => !isSeedStory(s) && !isPostDeletedLocally(s.id));
 
-    // Also include recent (<24h) user-uploaded posts from getLocalPosts() so videos uploaded on CreatePost or Boost always appear on the 2nd page
-    const recentUserPostsAsStories: any[] = [];
-    try {
-        const localPosts = getLocalPosts();
-        for (const p of localPosts) {
-            if (
-                p &&
-                p.id &&
-                String(p.id).startsWith('post-local-') &&
-                !isPostDeletedLocally(p.id) &&
-                p.image_url &&
-                p.created_at &&
-                new Date(p.created_at).getTime() > twentyFourHoursAgo
-            ) {
-                const isVid = p.media_type === 'video' || isVideoUrl(p.image_url);
-                let imgUrl = p.image_url;
-                if (isVid && !imgUrl.includes('#video.mp4') && !/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(imgUrl.split('#')[0])) {
-                    imgUrl = `${imgUrl}#video.mp4`;
-                }
-                recentUserPostsAsStories.push({
-                    id: p.id,
-                    user_id: p.user_id || '',
-                    username: p.username || 'You',
-                    image_url: imgUrl,
-                    filter_name: p.css_filter || 'Normal',
-                    is_boosted: Boolean((p.boost_impressions_remaining || 0) > 0),
-                    caption: p.caption,
-                    music_title: p.music_title,
-                    music_artist: p.music_artist,
-                    music_url: p.music_url,
-                    attached_link: p.attached_link,
-                    link_url: p.attached_link,
-                    created_at: p.created_at,
-                });
-            }
-        }
-    } catch (_) {}
-
     let storedItems: any[] = [];
     if (typeof window !== 'undefined' && window.localStorage) {
         try {
@@ -2147,7 +2116,7 @@ export function getFallbackStories(): StoryData[] {
         } catch (_) {}
     }
 
-    const combinedRaw = [..._fallbackStoriesMemoryCache, ...storedItems, ...recentUserPostsAsStories];
+    const combinedRaw = [..._fallbackStoriesMemoryCache, ...storedItems];
     const seenRawIds = new Set<string>();
     const valid: any[] = [];
     for (const s of combinedRaw) {

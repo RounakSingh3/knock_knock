@@ -1,7 +1,7 @@
 import React, { useState, useContext, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { uploadMedia, createNewPost, createBoostedStory, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, resolveLocalMediaUrl, createLocalFallbackMediaUrl, type ProfileData } from '../lib/database';
+import { uploadMedia, createNewPost, updatePoints, formatKnockVideoLink, awardUploadPoints, isKnockVideoLink, parseKnockVideoLink, sendAddMentionNotification, fetchConnectionUserIds, fetchFollowing, fetchProfilesByIds, resolveLocalMediaUrl, createLocalFallbackMediaUrl, type ProfileData } from '../lib/database';
 import { getMediaTypeFromFile, compressImage, prepareVideoForUpload } from '../lib/media';
 import { CONTENT_CATEGORIES, extractHashtags, recordHashtagSignal } from '../lib/algorithm';
 import { ImagePlus, Loader2, Link as LinkIcon, Trash2, Music, X, Rocket, Film, Play, Sparkles, AtSign, UserPlus, Search, Check, Hash, Plus, Layers } from 'lucide-react';
@@ -602,24 +602,6 @@ const CreatePost = () => {
                 music_artist: selectedTrack?.artist,
                 music_url: finalMusicUrl || selectedTrack?.url
             });
-
-            // Also mirror to 24h Boost stories so uploaded videos & photos immediately appear on the 2nd page (Knockup)
-            createBoostedStory(
-                user.id,
-                finalUrl,
-                selectedFilter || 'Normal',
-                boostToSpotlight ? boostAmount : 0,
-                14,
-                user.username || 'user',
-                caption || undefined,
-                selectedTrack?.title,
-                selectedTrack?.artist,
-                finalMusicUrl || selectedTrack?.url,
-                attachedLink || undefined,
-                undefined,
-                false,
-                uploadedPosterUrl
-            ).catch(() => {});
 
             // Send mention notification to tagged friend in background
             if (taggedFriend && user?.id) {

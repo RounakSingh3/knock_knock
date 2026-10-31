@@ -34,7 +34,6 @@ import {
     convertToPersonalSnap,
     fetch24HourBoostStories, 
     createBoostedStory, 
-    createNewPost,
     resolveLocalMediaUrl,
     recordScreenDelivery, 
     fetchConnectionUserIds, 
@@ -586,6 +585,10 @@ const Boost: React.FC = () => {
                     const now = Date.now();
                     const cleaned = items.filter((s: any) => {
                         if (!s || isSeedStory(s) || !s.created_at) return false;
+                        const rawUrl = String(s.image_url || '');
+                        if (String(s.id || '').startsWith('post-') || rawUrl.includes('/posts/') || rawUrl.includes('posts/posters/')) {
+                            return false;
+                        }
                         const msOld = now - new Date(s.created_at).getTime();
                         return msOld >= -300000 && msOld <= 24 * 60 * 60 * 1000;
                     });
@@ -1395,38 +1398,6 @@ const Boost: React.FC = () => {
             if (storyError) {
                 throw storyError;
             }
-
-            // Always publish to main posts table as well so videos & photos uploaded on the 2nd page
-            // also appear across Home, Explore, Reels, and the user's Profile!
-            const exploreMediaUrl = uploadedPosterUrl && !uploadedPosterUrl.startsWith('data:') && !uploadedUrl.includes('#POSTER:')
-                ? `${uploadedUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`
-                : uploadedUrl;
-            createNewPost({
-                user_id: user.id,
-                username: user.username || user.name,
-                avatar_url: user.avatar_url || 'https://i.pravatar.cc/150',
-                image_url: exploreMediaUrl,
-                caption: caption.trim(),
-                attached_link: effectiveLink,
-                media_type: isVid ? 'video' : 'image',
-                category: 'General',
-                boost_impressions_remaining: safePointsToSpend,
-                boost_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                music_title: selectedTrack?.title,
-                music_artist: selectedTrack?.artist,
-                music_url: selectedTrack?.url,
-            }).then(() => {
-                try {
-                    localStorage.removeItem('knock_home_posts_cache');
-                    localStorage.removeItem('knock_explore_posts_cache_v7');
-                    localStorage.removeItem('knock_explore_posts_cache_v8');
-                    localStorage.removeItem('knock_explore_trending_cache_v8');
-                    localStorage.removeItem('knock_explore_trending_cache_v9');
-                    sessionStorage.removeItem('knock_reels_instant_v1');
-                } catch (_) {}
-            }).catch((pe) => {
-                console.warn('[handleLaunchBoostKnock] Feed post mirror non-fatal:', pe);
-            });
 
             // Immediately prepend the created story to active stories state so it shows up on the 2nd page right away
             if (createdStory) {
