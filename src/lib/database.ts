@@ -515,6 +515,7 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
     const seenUrls = new Set<string>();
     const seenPosterFiles = new Set<string>();
     const seenTimestamps = new Set<string>();
+    const seenUserCaptions = new Map<string, number>();
     const result: PostData[] = [];
 
     for (const post of postList) {
@@ -540,10 +541,22 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         const tm = baseFilename.match(/-(\d+)\./);
         const fileTimestamp = tm ? tm[1] : '';
 
+        // Check for rapid retry uploads: same user + identical caption within 15 minutes
+        const cleanCaption = (post.caption || '').trim().toLowerCase();
+        const postTime = post.created_at ? new Date(post.created_at).getTime() : 0;
+        const author = (post.username || post.user_id || '').toLowerCase().trim();
+        const retryKey = (cleanCaption.length > 5 && author) ? `${author}::${cleanCaption}` : '';
+
         if (rawNoHash && !rawNoHash.startsWith('blob:') && seenUrls.has(rawNoHash)) continue;
         if (posterFilename && seenPosterFiles.has(posterFilename)) continue;
         if (localId && (seenUrls.has(`local:${localId}`) || seenTimestamps.has(localId))) continue;
         if (fileTimestamp && (seenTimestamps.has(fileTimestamp) || seenUrls.has(`local:${fileTimestamp}`))) continue;
+        if (retryKey && postTime > 0) {
+            const prevTime = seenUserCaptions.get(retryKey);
+            if (prevTime !== undefined && Math.abs(postTime - prevTime) < 900000) {
+                continue;
+            }
+        }
 
         seenIds.add(cleanId);
         seenIds.add(post.id);
@@ -556,6 +569,9 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         if (fileTimestamp) {
             seenTimestamps.add(fileTimestamp);
             seenUrls.add(`local:${fileTimestamp}`);
+        }
+        if (retryKey && postTime > 0) {
+            seenUserCaptions.set(retryKey, postTime);
         }
 
         result.push(post);
@@ -1056,7 +1072,7 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
     }
 
     if (mergedPosts.length > 0) {
-        return mergedPosts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        return deduplicatePosts(mergedPosts).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
 
     // Fallback: If no DB or local posts exist, check if this is a known reel creator from REEL_CREATOR_POSTS

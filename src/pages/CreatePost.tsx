@@ -420,11 +420,13 @@ const CreatePost = () => {
     };
 
     const handleUpload = async () => {
+        if (loading || isPostingRef.current) return;
         if (!file || !user) {
             setError('Please select a media file first.');
             return;
         }
 
+        isPostingRef.current = true;
         setLoading(true);
         setError('');
         setUploadProgress(null);
@@ -1697,11 +1699,11 @@ const CreatePost = () => {
 
                     <button 
                         onClick={handleUpload}
-                        disabled={!file}
+                        disabled={!file || loading}
                         style={{
                             width: '100%',
-                            background: !file ? 'var(--border-color)' : 'linear-gradient(45deg, #f5a524, #ff6b35)',
-                            color: !file ? 'var(--text-inactive)' : 'var(--text-active)',
+                            background: (!file || loading) ? 'var(--border-color)' : 'linear-gradient(45deg, #f5a524, #ff6b35)',
+                            color: (!file || loading) ? 'var(--text-inactive)' : 'var(--text-active)',
                             border: 'none',
                             borderRadius: '30px',
                             padding: '16px',
@@ -1710,12 +1712,12 @@ const CreatePost = () => {
                             display: 'flex',
                             justifyContent: 'center',
                             alignItems: 'center',
-                            cursor: !file ? 'not-allowed' : 'pointer',
+                            cursor: (!file || loading) ? 'not-allowed' : 'pointer',
                             transition: 'background 0.2s',
                             marginBottom: '16px'
                         }}
                     >
-                        Share Post / Reel
+                        {loading ? 'Sharing Post / Reel...' : 'Share Post / Reel'}
                     </button>
                 </>
             )}

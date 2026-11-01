@@ -378,9 +378,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             const cached = videoPosterCache.get(cleanUrl);
             if (cached && !isFallbackPoster(cached)) return cached;
             if (resolvedPosterFromUrl && !isFallbackPoster(resolvedPosterFromUrl)) return resolvedPosterFromUrl;
-            return '';
+            return categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE;
         }
-        return resolvedPosterFromUrl || (isVideo ? '' : categoryFallbackPoster);
+        return resolvedPosterFromUrl || categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE;
     });
     const [posterImageFailed, setPosterImageFailed] = useState<boolean>(false);
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
@@ -1101,8 +1101,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 />
                             ) : isInView && videoSrc ? (
                                 <video
-                                    src={videoSrc}
-                                    poster={INLINE_FALLBACK_SVG}
+                                    src={videoSrc.includes('#t=') ? videoSrc : `${videoSrc.split('#')[0]}#t=0.001`}
+                                    poster={hasRealPoster ? effectiveRealPoster : (categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE)}
                                     muted
                                     playsInline
                                     // @ts-ignore
@@ -1122,13 +1122,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     onLoadedMetadata={(e) => {
                                         try {
                                             const v = e.currentTarget;
-                                            v.currentTime = Math.min(0.1, Math.max(0.05, (v.duration || 1) * 0.05));
+                                            v.currentTime = 0.001;
                                         } catch (_) {}
                                     }}
                                 />
                             ) : (
                                 <img
-                                    src={INLINE_FALLBACK_SVG}
+                                    src={hasRealPoster ? effectiveRealPoster : (categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE)}
                                     alt={alt}
                                     style={{
                                         ...style,
@@ -1137,6 +1137,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                         objectFit: resolvedObjectFit,
                                         display: 'block',
                                     }}
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                             )}
                             <div style={{

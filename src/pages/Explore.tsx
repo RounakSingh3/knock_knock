@@ -116,7 +116,7 @@ const ExploreGridCard = React.memo(function ExploreGridCard({
                 cursor: 'pointer',
                 overflow: 'hidden',
                 borderRadius: '4px',
-                background: '#18181b',
+                background: '#27272a',
             }}
             onClick={handleClick}
         >
@@ -385,12 +385,12 @@ const Explore = () => {
     });
 
     const normalizedTrendingPosts = useMemo(
-        () => trendingPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)),
+        () => deduplicatePosts(trendingPosts.map(normalizePost).filter((p): p is PostData => Boolean(p))),
         [trendingPosts]
     );
 
     const normalizedDiscoverPosts = useMemo(
-        () => discoverPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)),
+        () => deduplicatePosts(discoverPosts.map(normalizePost).filter((p): p is PostData => Boolean(p))),
         [discoverPosts]
     );
 
@@ -459,15 +459,8 @@ const Explore = () => {
             let rawPosts = await fetchDiscoverPosts(selectedCategory, 200, 0);
             rawPosts = rawPosts.filter(p => (!p.user_id || !blockedIds.includes(p.user_id)) && (p.id && !BROKEN_POST_IDS.has(p.id)));
             
-            // Strictly deduplicate by image_url and id
-            const seenUrls = new Set<string>();
-            const seenIds = new Set<string>();
-            let uniqueRaw = rawPosts.filter(p => {
-                if (!p.image_url || seenUrls.has(p.image_url) || seenIds.has(p.id) || BROKEN_POST_IDS.has(p.id)) return false;
-                seenUrls.add(p.image_url);
-                seenIds.add(p.id);
-                return true;
-            });
+            // Strictly deduplicate by advanced deduplicator (strips clean URL, posters, retry timestamps)
+            let uniqueRaw = deduplicatePosts(rawPosts);
 
             rawPostsCacheRef.current = uniqueRaw;
 
@@ -508,6 +501,10 @@ const Explore = () => {
             const currentPosts = discoverPostsRef.current;
             const seenIds = new Set(currentPosts.map(p => p.id));
             const seenUrls = new Set(currentPosts.map(p => p.image_url));
+            currentPosts.forEach(p => {
+                const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+                if (clean) seenUrls.add(clean);
+            });
 
             const activeProfile = userProfileRef.current || getHybridInterestProfile([]);
             const currentDay = getTodayKey();
@@ -521,16 +518,21 @@ const Explore = () => {
                     PAGE_SIZE,
                     (batch) => rankExploreGrid(batch, activeProfile, selectedCategory, currentDay)
                 );
-                nextBatch = streamBatch.filter(p => !seenIds.has(p.id) && !seenUrls.has(p.image_url));
+                nextBatch = streamBatch.filter(p => {
+                    const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+                    return !seenIds.has(p.id) && !seenUrls.has(p.image_url) && !seenUrls.has(clean);
+                });
             }
 
             if (nextBatch.length < 6) {
                 // Fetch next page offset from DB
                 const nextBatchDb = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
                 const freshDbPosts = nextBatchDb.filter(p => {
-                    if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) return false;
+                    const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+                    if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || seenUrls.has(clean) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) return false;
                     seenIds.add(p.id);
                     seenUrls.add(p.image_url);
+                    if (clean) seenUrls.add(clean);
                     return true;
                 });
                 
@@ -541,22 +543,19 @@ const Explore = () => {
                 }
             }
 
-            // If still empty, cycle infinite stream
-            if (nextBatch.length === 0 && rawPostsCacheRef.current.length > 0) {
-                nextBatch = generateInfiniteStream(
-                    rawPostsCacheRef.current,
-                    nextPage,
-                    PAGE_SIZE,
-                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory, currentDay)
-                );
-            }
+            const dedupedBatch = deduplicatePosts(nextBatch).filter(p => {
+                const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+                return !seenIds.has(p.id) && !seenUrls.has(p.image_url) && !seenUrls.has(clean);
+            });
             
-            if (nextBatch.length > 0) {
-                setDiscoverPosts(prev => [...(prev || []), ...nextBatch]);
+            if (dedupedBatch.length > 0) {
+                setDiscoverPosts(prev => deduplicatePosts([...(prev || []), ...dedupedBatch]));
                 setFeedPage(nextPage);
                 feedPageRef.current = nextPage;
+                setHasMore(true);
+            } else {
+                setHasMore(false);
             }
-            setHasMore(true);
         } catch (e) {
             console.error('Error loading more posts:', e);
         } finally {
