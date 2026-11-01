@@ -67,6 +67,44 @@ export const BLOCKED_USERNAMES = new Set([
     'relatable_postss',
 ]);
 
+export const FILE_TIMESTAMP_REGEX = /^(.+?)-(\d+)\.([a-z0-9]+)$/i;
+
+/**
+ * Validates that an embedded #POSTER: in a media URL belongs to the exact same upload (diff <= 3500ms).
+ * If the poster was stolen from an unrelated video or another user, it strips the fragment
+ * so the media can naturally extract its own video frame instead of showing repeated duplicate thumbnails.
+ */
+export function sanitizePosterUrl(url?: string): string {
+    if (!url || typeof url !== 'string' || !url.includes('#POSTER:')) return url || '';
+    const match = url.match(/(?:posts|stories)\/([^?#]+)/);
+    const posterMatch = url.match(/#POSTER:([^#]+)/);
+    if (!match || !posterMatch) return url;
+
+    const mediaFile = match[1];
+    let posterUrl = '';
+    try {
+        posterUrl = decodeURIComponent(posterMatch[1]);
+    } catch {
+        posterUrl = posterMatch[1];
+    }
+    const posterFile = posterUrl.split('/').pop()?.split('?')[0];
+
+    const mm = mediaFile.match(FILE_TIMESTAMP_REGEX);
+    const pm = posterFile?.match(FILE_TIMESTAMP_REGEX);
+
+    if (mm && pm) {
+        const mUid = mm[1].toLowerCase();
+        const pUid = pm[1].toLowerCase();
+        const mTs = Number(mm[2]);
+        const pTs = Number(pm[2]);
+        // If poster belongs to another user, or was uploaded > 3500ms apart, strip it!
+        if (mUid !== pUid || Math.abs(mTs - pTs) > 3500) {
+            return url.replace(/#POSTER:[^#]+/, '');
+        }
+    }
+    return url;
+}
+
 export function isRemovedUser(userId?: string | null, username?: string | null): boolean {
     if (username) {
         const clean = username.replace(/^@+/, '').trim().toLowerCase();
@@ -340,10 +378,10 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
             const fileTs = m ? Number(m[2]) : (createdMs || Date.now());
             const uidLower = (userId || '').toLowerCase();
 
-            // Deduplicate rapid accidental double clicks within 5s
+            // Deduplicate retry uploads with the exact same file size for this user (within 24h)
             if (uidLower && fileSize > 0) {
                 const isRetryDup = seenUserSizes.some(
-                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 5000
+                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 24 * 60 * 60 * 1000
                 );
                 if (isRetryDup) continue;
                 seenUserSizes.push({ uid: uidLower, size: fileSize, ts: fileTs });
@@ -354,14 +392,14 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
                 continue;
             }
 
-            // Find matching poster uploaded around the same time by the same user
+            // Find matching poster uploaded for this exact video by the same user (diff <= 3500ms)
             let matchedPosterUrl: string | undefined;
             if (uidLower && postersByUser.has(uidLower)) {
                 const candidates = postersByUser.get(uidLower)!;
-                let bestDiff = 60000;
+                let bestDiff = 3500;
                 for (const c of candidates) {
                     const diff = Math.abs(c.ts - fileTs);
-                    if (diff < bestDiff) {
+                    if (diff <= bestDiff) {
                         bestDiff = diff;
                         matchedPosterUrl = c.url;
                     }
@@ -373,7 +411,7 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
                 String(f.metadata?.mimetype || '').startsWith('video/') ||
                 metaPost?.media_type === 'video';
 
-            let finalImageUrl = metaPost?.image_url || basePublicUrl;
+            let finalImageUrl = sanitizePosterUrl(metaPost?.image_url || basePublicUrl);
             if (isVid) {
                 if (matchedPosterUrl && !finalImageUrl.includes('#POSTER:')) {
                     finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(matchedPosterUrl)}`;
@@ -1362,7 +1400,7 @@ export function normalizePost(post: PostData): PostData {
     }
 
     const avatar_url = post.avatar_url || `https://i.pravatar.cc/150?u=${post.username || 'user'}`;
-    const resolvedUrl = isLocalMediaPost ? resolveLocalMediaUrl(trimmedUrl) : trimmedUrl;
+    const resolvedUrl = sanitizePosterUrl(isLocalMediaPost ? resolveLocalMediaUrl(trimmedUrl) : trimmedUrl);
 
     return {
         ...post,
@@ -2352,6 +2390,11 @@ export function normalizeStory(story: StoryData): StoryData {
         finalImageUrl = `${finalImageUrl}#BOOST:${boost_meta.targetScreens}|${boost_meta.friendsCount}|${boost_meta.pointsSpent}`;
     }
 
+    finalImageUrl = sanitizePosterUrl(finalImageUrl);
+    if (poster_url && !finalImageUrl.includes('#POSTER:')) {
+        poster_url = undefined;
+    }
+
     const resolvedImageUrl = resolveLocalMediaUrl(finalImageUrl);
     const resolvedPosterUrl = poster_url ? resolveLocalMediaUrl(poster_url) : undefined;
 
@@ -2657,7 +2700,7 @@ export async function fetchCloudStorageStories(): Promise<StoryData[]> {
 
             if (uidLower && fileSize > 0) {
                 const isRetryDup = seenUserSizes.some(
-                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 5000
+                    s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 24 * 60 * 60 * 1000
                 );
                 if (isRetryDup) continue;
                 seenUserSizes.push({ uid: uidLower, size: fileSize, ts: fileTs });
@@ -2669,10 +2712,10 @@ export async function fetchCloudStorageStories(): Promise<StoryData[]> {
             let matchedPosterUrl: string | undefined;
             if (uidLower && postersByUser.has(uidLower)) {
                 const candidates = postersByUser.get(uidLower)!;
-                let bestDiff = 30000;
+                let bestDiff = 3500;
                 for (const c of candidates) {
                     const diff = Math.abs(c.ts - fileTs);
-                    if (diff < bestDiff) {
+                    if (diff <= bestDiff) {
                         bestDiff = diff;
                         matchedPosterUrl = c.url;
                     }
@@ -2683,7 +2726,7 @@ export async function fetchCloudStorageStories(): Promise<StoryData[]> {
                 /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(f.name) ||
                 String(f.metadata?.mimetype || '').startsWith('video/');
 
-            let finalImageUrl = metaStory?.image_url || basePublicUrl;
+            let finalImageUrl = sanitizePosterUrl(metaStory?.image_url || basePublicUrl);
             if (isVid) {
                 if (matchedPosterUrl && !finalImageUrl.includes('#POSTER:')) {
                     finalImageUrl = `${finalImageUrl}#POSTER:${encodeURIComponent(matchedPosterUrl)}`;
