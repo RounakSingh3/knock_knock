@@ -709,11 +709,11 @@ const Explore = () => {
 
         try {
             const cleanQueryForUsers = query.replace(/^[#@]+/, '').trim();
-            // Parallel search across posts, people, and stories (if active)
+            // Parallel search across posts, people, and stories
             const [postsRes, usersRes, storiesRes] = await Promise.all([
                 searchPostsByCaption(query),
                 cleanQueryForUsers.length >= 2 ? searchUsers(cleanQueryForUsers) : Promise.resolve([]),
-                activeTab === 'stories' ? searchStoriesByHashtag(query.replace(/^[#@]+/, '')) : Promise.resolve([])
+                cleanQueryForUsers.length >= 2 ? searchStoriesByHashtag(cleanQueryForUsers) : Promise.resolve([])
             ]);
 
             const validPosts = postsRes.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
@@ -722,8 +722,11 @@ const Explore = () => {
             const filteredUsers = usersRes.filter(p => !blockedIds.includes(p.id));
             setPeopleResults(filteredUsers);
 
-            if (activeTab === 'stories') {
-                setStoryResults(storiesRes.filter(g => !blockedIds.includes(g.userId)));
+            setStoryResults(storiesRes.filter(g => !blockedIds.includes(g.userId)));
+
+            // If user typed a hashtag or if people tab is empty but posts exist, switch to posts tab
+            if (query.trim().startsWith('#') || (activeTab === 'people' && filteredUsers.length === 0 && validPosts.length > 0)) {
+                setActiveTab('posts');
             }
 
             if (user && filteredUsers.length > 0) {

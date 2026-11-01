@@ -3267,22 +3267,63 @@ export async function deleteStory(storyId: string) {
 }
 
 /**
- * Search stories by hashtag/caption text and group them by user.
+ * Search stories by hashtag, caption text, or creator username/name and group them by user.
+ * Merges stories from live Supabase DB, Cloud Storage, and Local Stories.
  * Returns UserStoryGroup[] for use in the Explore page and StoryViewer.
  */
 export async function searchStoriesByHashtag(term: string): Promise<UserStoryGroup[]> {
-    const { data, error } = await supabase
-        .from('stories')
-        .select('*')
-        .or(`caption.ilike.%${term}%,username.ilike.%${term}%`)
-        .order('created_at', { ascending: false });
+    const cleanTerm = term.replace(/^[#@]+/, '').trim().toLowerCase();
+    if (!cleanTerm) return [];
 
-    if (error) {
-        console.error('Error searching stories:', error);
-        return [];
+    const cloudPromise = fetchCloudStorageStories();
+    let dbStories: StoryData[] = [];
+
+    if (!isSupabaseQuotaRestricted()) {
+        try {
+            const { data, error } = await supabase
+                .from('stories')
+                .select('*')
+                .or(`caption.ilike.%${cleanTerm}%,username.ilike.%${cleanTerm}%`)
+                .order('created_at', { ascending: false })
+                .limit(60);
+
+            if (error) {
+                if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            } else {
+                dbStories = (data || []).map(normalizeStory).filter((s): s is StoryData => Boolean(s));
+            }
+        } catch (err: any) {
+            if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        }
     }
 
-    return groupStoriesByUser(data || []);
+    const cloudStories = await cloudPromise;
+    const localStories = getLocalStories();
+
+    // Merge all stories deduplicated by id and clean url
+    const seen = new Set<string>();
+    const seenUrls = new Set<string>();
+    const allStories: StoryData[] = [];
+
+    for (const s of [...dbStories, ...localStories, ...cloudStories]) {
+        if (!s || !s.id || isPostDeletedLocally(s.id, s.image_url)) continue;
+        const cleanUrl = (s.image_url || '').split('?')[0].split('#')[0].toLowerCase().trim();
+        if (seen.has(s.id) || (cleanUrl && seenUrls.has(cleanUrl))) continue;
+        seen.add(s.id);
+        if (cleanUrl) seenUrls.add(cleanUrl);
+        allStories.push(s);
+    }
+
+    // Filter matching stories by hashtag, caption, username, or display name
+    const matched = allStories.filter(story => {
+        const cap = (story.caption || '').toLowerCase();
+        const uname = (story.username || '').toLowerCase();
+        const kp = story.user_id ? getKnownProfile(story.user_id) : (story.username ? getKnownProfile(story.username) : null);
+        const name = (kp?.name || '').toLowerCase();
+        return cap.includes(`#${cleanTerm}`) || cap.includes(cleanTerm) || uname.includes(cleanTerm) || name.includes(cleanTerm);
+    });
+
+    return groupStoriesByUser(matched);
 }
 
 /** Helper: group flat story array into UserStoryGroup[] */
@@ -4491,13 +4532,13 @@ export function extractSearchTokens(query: string): string[] {
 
     // 1. Raw stripped of leading @ and #
     const stripped = raw.replace(/^[#@]+/, '').trim();
-    if (stripped.length >= 2) {
+    if (stripped.length >= 1) {
         const safe = stripped.replace(/[%_,():]/g, ' ').trim();
-        if (safe.length >= 2) {
+        if (safe.length >= 1) {
             tokens.add(safe);
             // Space-stripped version: 'ananya pandey' -> 'ananyapandey'
             const noSpaces = safe.replace(/\s+/g, '');
-            if (noSpaces.length >= 2) tokens.add(noSpaces);
+            if (noSpaces.length >= 1) tokens.add(noSpaces);
         }
     }
 
@@ -4505,28 +4546,43 @@ export function extractSearchTokens(query: string): string[] {
     const words = raw.split(/[\s,#+]+/);
     for (const w of words) {
         const clean = w.replace(/^[#@]+/, '').replace(/[%_,():]/g, '').trim();
-        if (clean.length >= 2) {
+        if (clean.length >= 1) {
             tokens.add(clean);
             const lowerW = clean.toLowerCase();
             if (COMMON_TYPOS[lowerW]) {
                 COMMON_TYPOS[lowerW].forEach(t => {
                     const safeT = t.replace(/[%_,():]/g, '').trim();
-                    if (safeT.length >= 2) tokens.add(safeT);
+                    if (safeT.length >= 1) tokens.add(safeT);
                 });
             }
         }
     }
 
-    // 3. Typo expansion on full stripped query
+    // 3. Typo expansion & reverse typo expansion on full stripped query
     const lowerStripped = stripped.toLowerCase();
     if (COMMON_TYPOS[lowerStripped]) {
         COMMON_TYPOS[lowerStripped].forEach(t => {
             const safeT = t.replace(/[%_,():]/g, '').trim();
-            if (safeT.length >= 2) tokens.add(safeT);
+            if (safeT.length >= 1) tokens.add(safeT);
         });
     }
+    Object.entries(COMMON_TYPOS).forEach(([typo, targets]) => {
+        if (targets.map(t => t.toLowerCase()).includes(lowerStripped)) {
+            tokens.add(typo);
+        }
+    });
 
-    return Array.from(tokens).slice(0, 8);
+    // 4. Creator username pairs and aliases
+    if (CREATOR_USERNAME_PAIRS[lowerStripped]) {
+        tokens.add(CREATOR_USERNAME_PAIRS[lowerStripped]);
+    }
+    Object.entries(CREATOR_USERNAME_PAIRS).forEach(([alias, canonical]) => {
+        if (canonical.toLowerCase() === lowerStripped) {
+            tokens.add(alias);
+        }
+    });
+
+    return Array.from(tokens).slice(0, 16);
 }
 
 /** Search users by username or name with typo tolerance and hashtag immunity */
@@ -4616,58 +4672,133 @@ export async function searchUsers(query: string): Promise<ProfileData[]> {
     return results;
 }
 
-/** Search posts by caption and creator username with resilient hashtag & token matching */
+/** Search posts by caption, hashtags, and creator username/name with resilient matching across DB, Cloud Storage, and Local */
 export async function searchPostsByCaption(query: string): Promise<PostData[]> {
-    const candidateTerms = extractSearchTokens(query);
-    if (candidateTerms.length === 0) return [];
+    const rawTokens = extractSearchTokens(query);
+    const cleanRaw = query.replace(/^[#@]+/, '').trim().toLowerCase();
+    
+    // Build comprehensive search tokens set
+    const candidateTerms = new Set<string>(rawTokens.map(t => t.toLowerCase()));
+    if (cleanRaw) candidateTerms.add(cleanRaw);
 
-    const orConditions = candidateTerms.flatMap(t => [
-        `caption.ilike.%${t}%`,
-        `username.ilike.%${t}%`
-    ]).join(',');
+    const tokenList = Array.from(candidateTerms).filter(t => t.length > 0);
+    if (tokenList.length === 0) return [];
 
-    const { data, error } = await supabase
-        .from('posts')
-        .select('*')
-        .or(orConditions)
-        .order('created_at', { ascending: false })
-        .limit(60);
+    // Parallel fetch: DB posts, Cloud storage posts, and local posts
+    const cloudPromise = fetchCloudStoragePosts();
+    let dbPosts: PostData[] = [];
 
-    if (error) {
-        console.error('Error searching posts:', error);
-        const local = getLocalPosts();
-        return local.filter(p => {
-            const cap = (p.caption || '').toLowerCase();
-            const uname = (p.username || '').toLowerCase();
-            return candidateTerms.some(t => {
-                const termLower = t.toLowerCase();
-                return cap.includes(termLower) || uname.includes(termLower);
-            });
-        });
+    if (!isSupabaseQuotaRestricted()) {
+        try {
+            const orConditions = tokenList.slice(0, 8).flatMap(t => [
+                `caption.ilike.%${t}%`,
+                `username.ilike.%${t}%`
+            ]).join(',');
+
+            if (orConditions) {
+                const { data, error } = await supabase
+                    .from('posts')
+                    .select('*')
+                    .or(orConditions)
+                    .order('created_at', { ascending: false })
+                    .limit(80);
+
+                if (error) {
+                    if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+                } else {
+                    dbPosts = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
+                }
+            }
+        } catch (err: any) {
+            if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        }
     }
 
-    const seen = new Set<string>();
-    const normalized = (data || [])
-        .map(normalizePost)
-        .filter((p): p is PostData => {
-            if (!p || !p.id || seen.has(p.id)) return false;
-            seen.add(p.id);
-            return true;
-        });
+    const cloudPosts = await cloudPromise;
+    const localPosts = getLocalPosts();
 
-    if (normalized.length === 0) {
-        const local = getLocalPosts();
-        return local.filter(p => {
-            const cap = (p.caption || '').toLowerCase();
-            const uname = (p.username || '').toLowerCase();
-            return candidateTerms.some(t => {
-                const termLower = t.toLowerCase();
-                return cap.includes(termLower) || uname.includes(termLower);
-            });
-        });
+    // Include known reel creator posts if search token matches creator name or caption
+    const creatorPosts: PostData[] = [];
+    for (const term of tokenList) {
+        for (const [creatorName, posts] of Object.entries(REEL_CREATOR_POSTS)) {
+            if (creatorName.toLowerCase().includes(term)) {
+                posts.forEach((p, idx) => {
+                    creatorPosts.push({
+                        id: `reel-${creatorName}-${idx}`,
+                        user_id: `creator-${creatorName}`,
+                        username: creatorName,
+                        avatar_url: `https://i.pravatar.cc/150?u=${creatorName}`,
+                        image_url: p.videoUrl,
+                        caption: p.caption,
+                        likes_count: 1200 + idx * 350,
+                        media_type: 'video',
+                        category: p.category,
+                        music_title: p.song,
+                        created_at: new Date().toISOString()
+                    });
+                });
+            }
+        }
     }
 
-    return normalized;
+    // Merge all candidate posts
+    const mergedCandidates = mergePostsWithFallback(dbPosts, [...localPosts, ...cloudPosts, ...creatorPosts]);
+
+    // Robust matching logic: matches hashtags, captions, usernames, display names, and topics
+    const matched = mergedCandidates.filter(post => {
+        if (!post || !post.id || BROKEN_POST_IDS.has(post.id) || isPostDeletedLocally(post.id, post.image_url)) {
+            return false;
+        }
+        if (isRemovedUser(post.user_id, post.username)) return false;
+
+        const captionLower = (post.caption || '').toLowerCase();
+        const usernameLower = (post.username || '').toLowerCase();
+        const kp = post.user_id ? getKnownProfile(post.user_id) : (post.username ? getKnownProfile(post.username) : null);
+        const nameLower = (kp?.name || '').toLowerCase();
+        const categoryLower = (post.category || '').toLowerCase();
+        const musicLower = `${post.music_title || ''} ${post.music_artist || ''}`.toLowerCase();
+
+        return tokenList.some(t => {
+            if (captionLower.includes(`#${t}`) || captionLower.includes(t)) return true;
+            if (usernameLower.includes(t)) return true;
+            if (nameLower && nameLower.includes(t)) return true;
+            if (categoryLower.includes(t) || musicLower.includes(t)) return true;
+            return false;
+        });
+    });
+
+    // Score and rank matches:
+    // 1. Exact hashtag in caption: +100
+    // 2. Exact username / creator match: +90
+    // 3. Caption text match: +50
+    // 4. Recency bonus so latest video uploads always appear at the top
+    const scored = matched.map(post => {
+        let score = 0;
+        const cap = (post.caption || '').toLowerCase();
+        const uname = (post.username || '').toLowerCase();
+        const postTags = (cap.match(/#([a-zA-Z0-9_\u0080-\uFFFF]+)/g) || []).map(t => t.replace(/^#+/, '').toLowerCase());
+
+        for (const t of tokenList) {
+            if (postTags.includes(t)) score += 100;
+            else if (cap.includes(`#${t}`)) score += 80;
+            else if (cap.includes(t)) score += 40;
+
+            if (uname === t) score += 90;
+            else if (uname.includes(t)) score += 50;
+        }
+
+        const ageHours = Math.max(0, (Date.now() - new Date(post.created_at || 0).getTime()) / (1000 * 60 * 60));
+        score += Math.max(0, 30 - ageHours * 0.2);
+
+        return { post, score };
+    });
+
+    scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return new Date(b.post.created_at || 0).getTime() - new Date(a.post.created_at || 0).getTime();
+    });
+
+    return scored.map(s => s.post);
 }
 
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {
