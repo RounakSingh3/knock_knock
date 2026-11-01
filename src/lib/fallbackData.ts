@@ -440,6 +440,94 @@ export const KNOWN_PROFILES: ProfileData[] = [
         "bio": "Storyteller & creator 📸"
     },
     {
+        "id": "12a1a487-5dde-4a77-ab36-aee9ce84fa35",
+        "username": "coral",
+        "name": "Coral lia",
+        "avatar_url": "https://i.pravatar.cc/150?u=coral",
+        "points": 398,
+        "streak_count": 5,
+        "gender": "female",
+        "is_online": false,
+        "bio": "Content creator on Knock Knock ✨"
+    },
+    {
+        "id": "1d9a782d-6990-4018-9232-6aefe57a3db6",
+        "username": "tara01",
+        "name": "Tara",
+        "avatar_url": "https://i.pravatar.cc/150?u=tara01",
+        "points": 450,
+        "streak_count": 6,
+        "gender": "female",
+        "is_online": false,
+        "bio": "Creating beats and vibes on Knock Knock 🎵"
+    },
+    {
+        "id": "ff464f1a-8132-4d5f-bfdf-2aa3e390cb80",
+        "username": "daisy_twang56",
+        "name": "Daisy",
+        "avatar_url": "https://i.pravatar.cc/150?u=daisy_twang56",
+        "points": 320,
+        "streak_count": 4,
+        "gender": "female",
+        "is_online": false,
+        "bio": "Sharing everyday moments on Knock Knock ✨"
+    },
+    {
+        "id": "a8ecfdca-b985-4155-9e63-6b2bdd273fdd",
+        "username": "saima",
+        "name": "Saima",
+        "avatar_url": "https://i.pravatar.cc/150?u=saima",
+        "points": 310,
+        "streak_count": 5,
+        "gender": "female",
+        "is_online": false,
+        "bio": "Vibes & reels 🌸"
+    },
+    {
+        "id": "89f9373e-a948-402b-8e52-b2d7ff088047",
+        "username": "shaikhhhhhhhh",
+        "name": "AS___l",
+        "avatar_url": "https://i.pravatar.cc/150?u=shaikhhhhhhhh",
+        "points": 280,
+        "streak_count": 3,
+        "gender": "other",
+        "is_online": false,
+        "bio": "Reels & music 🎧"
+    },
+    {
+        "id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "username": "rounak2",
+        "name": "Rounak Thakur",
+        "avatar_url": "https://i.pravatar.cc/150?u=rounak2",
+        "points": 999999999,
+        "streak_count": 12,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Creator & Founder of Knock Knock 🚀"
+    },
+    {
+        "id": "1369cfe5-42f1-4346-82be-0f616247092d",
+        "username": "ityourfavourite1",
+        "name": "I love to uploded",
+        "avatar_url": "https://i.pravatar.cc/150?u=ityourfavourite1",
+        "points": 500,
+        "streak_count": 7,
+        "gender": "female",
+        "is_online": false,
+        "bio": "Loving to upload reels & moments ✨"
+    },
+    {
+        "id": "9d147c04-d7ba-42cf-a84e-b8f0cae2e1c8",
+        "username": "popcorn05",
+        "name": "Zack",
+        "avatar_url": "https://i.pravatar.cc/150?u=popcorn05",
+        "points": 999999999,
+        "streak_count": 15,
+        "gender": "male",
+        "is_online": true,
+        "bio": "Unlimited Points Legend 🍿"
+    },
+    {
         "id": "63562444-b096-4ea3-936c-a946eac8b234",
         "username": "faheemhayat.com",
         "name": "Faheem Hayat",

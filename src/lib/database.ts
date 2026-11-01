@@ -427,8 +427,22 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
             }
 
             const kp = userId ? getKnownProfile(userId) : null;
-            const username = metaPost?.username || kp?.username || (userId ? `user_${userId.slice(0, 6)}` : 'creator');
-            const avatarUrl = metaPost?.avatar_url || kp?.avatar_url || `https://i.pravatar.cc/150?u=${username}`;
+            let username = metaPost?.username;
+            if (!username || username.startsWith('creator_') || username.startsWith('user_')) {
+                const pfx = (uidLower || '').slice(0, 6);
+                if (PREFIX_TO_USERNAME[pfx]) {
+                    username = PREFIX_TO_USERNAME[pfx];
+                } else if (kp?.username) {
+                    username = kp.username;
+                } else if (userId) {
+                    username = `user_${userId.slice(0, 6)}`;
+                } else {
+                    username = 'creator';
+                }
+            }
+            const avatarUrl = metaPost?.avatar_url && !metaPost.username?.startsWith('creator_')
+                ? metaPost.avatar_url
+                : (kp?.avatar_url || `https://i.pravatar.cc/150?u=${username}`);
 
             const built: PostData = {
                 id: postId,
@@ -463,6 +477,13 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
         if (Array.isArray(metaList)) {
             for (const mp of metaList) {
                 if (!mp || !mp.image_url || isPostDeletedLocally(mp.id, mp.image_url)) continue;
+                if (mp.username && (mp.username.startsWith('creator_') || mp.username.startsWith('user_'))) {
+                    const pfx = (mp.user_id || mp.username.replace(/^(?:creator|user)_/, '')).toLowerCase().slice(0, 6);
+                    if (PREFIX_TO_USERNAME[pfx]) {
+                        mp.username = PREFIX_TO_USERNAME[pfx];
+                        mp.avatar_url = `https://i.pravatar.cc/150?u=${mp.username}`;
+                    }
+                }
                 const cleanBase = mp.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
                 const mpPosterMatch = mp.image_url.match(/#POSTER:([^#?]+)/);
                 const mpPoster = mpPosterMatch ? decodeURIComponent(mpPosterMatch[1]).split('?')[0].toLowerCase().trim() : '';
@@ -775,7 +796,34 @@ export const CREATOR_CANONICAL_NAMES: Record<string, string> = {
     'google_news_daily': 'Google News Daily 📰',
 };
 
+export const PREFIX_TO_USERNAME: Record<string, string> = {
+    '12a1a4': 'coral',
+    '1d9a78': 'tara01',
+    'ff464f': 'daisy_twang56',
+    'a8ecfd': 'saima',
+    '89f937': 'shaikhhhhhhhh',
+    '794703': 'rounak2',
+    '1369cf': 'ityourfavourite1',
+    '9d147c': 'popcorn05',
+};
+
 export const CREATOR_USERNAME_PAIRS: Record<string, string> = {
+    'creator_12a1a4': 'coral',
+    'creator_1d9a78': 'tara01',
+    'creator_ff464f': 'daisy_twang56',
+    'creator_a8ecfd': 'saima',
+    'creator_89f937': 'shaikhhhhhhhh',
+    'creator_794703': 'rounak2',
+    'creator_1369cf': 'ityourfavourite1',
+    'creator_9d147c': 'popcorn05',
+    'user_12a1a4': 'coral',
+    'user_1d9a78': 'tara01',
+    'user_ff464f': 'daisy_twang56',
+    'user_a8ecfd': 'saima',
+    'user_89f937': 'shaikhhhhhhhh',
+    'user_794703': 'rounak2',
+    'user_1369cf': 'ityourfavourite1',
+    'user_9d147c': 'popcorn05',
     'funnyreels2': 'comedy_vault_in',
     'lifestylevibes': 'urban_lifestyle_co',
     'sportshub': 'world_sports_central',
@@ -1904,6 +1952,15 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
     if (pairedCandidate && !lookupCandidates.includes(pairedCandidate)) lookupCandidates.push(pairedCandidate);
     if (aliasCandidate && !lookupCandidates.includes(aliasCandidate)) lookupCandidates.push(aliasCandidate);
 
+    // Dynamic resolution for creator_<prefix> or user_<prefix>
+    const prefixMatch = cleanUsername.match(/^(?:creator|user)[-_]([0-9a-fA-F-]{4,36})/i);
+    if (prefixMatch) {
+        const pfx = prefixMatch[1].toLowerCase().slice(0, 6);
+        if (PREFIX_TO_USERNAME[pfx] && !lookupCandidates.includes(PREFIX_TO_USERNAME[pfx])) {
+            lookupCandidates.push(PREFIX_TO_USERNAME[pfx]);
+        }
+    }
+
     // 1. Authentic registered community profile fallback (0ms, guarantees instant resolution without glitch)
     for (const candidate of lookupCandidates) {
         const known = getKnownProfile(candidate);
@@ -1981,6 +2038,20 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
                 }
             }
 
+            // Prefix lookup for creator_ or user_ UUID prefixes (e.g. creator_12a1a4)
+            if (prefixMatch) {
+                const pfx = prefixMatch[1].toLowerCase();
+                const { data: matchedProfile } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .ilike('id', `${pfx}%`)
+                    .limit(1)
+                    .maybeSingle();
+                if (matchedProfile && !isRemovedUser(matchedProfile.id, matchedProfile.username)) {
+                    return normalizeProfile(matchedProfile);
+                }
+            }
+
             // Prefix or fuzzy name match
             const { data: fuzzyUser } = await supabase
                 .from('profiles')
@@ -2041,6 +2112,34 @@ export async function fetchProfileByUsername(username: string): Promise<ProfileD
             if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         }
     }
+
+    // 5. Cloud Storage Posts manifest lookup
+    try {
+        const cloudPosts = getFromCache<PostData[]>('cloud_storage_posts', 60000) || [];
+        const matchedCloud = cloudPosts.find(p => {
+            if (!p) return false;
+            const pUname = (p.username || '').toLowerCase();
+            const pUid = (p.user_id || '').toLowerCase();
+            return lookupCandidates.some(c => {
+                const cl = c.toLowerCase();
+                return cl === pUname || (pUid && (pUid.startsWith(cl) || cl.startsWith(pUid.slice(0, 6))));
+            });
+        });
+        if (matchedCloud) {
+            const u = matchedCloud.username || cleanUsername;
+            return normalizeProfile({
+                id: matchedCloud.user_id || `creator-${u.toLowerCase()}`,
+                name: CREATOR_CANONICAL_NAMES[u.toLowerCase()] || formatDisplayNameFromUsername(u),
+                username: u,
+                gender: 'other',
+                avatar_url: matchedCloud.avatar_url || `https://i.pravatar.cc/150?u=${u}`,
+                points: 250,
+                bio: `Creator on Knock Knock ✨`,
+                is_online: false,
+                streak_count: 5,
+            });
+        }
+    } catch (_) {}
 
     // 6. Check cached user session
     try {
