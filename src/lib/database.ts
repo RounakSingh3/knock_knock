@@ -383,7 +383,10 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
                 const isRetryDup = seenUserSizes.some(
                     s => s.uid === uidLower && s.size === fileSize && Math.abs(s.ts - fileTs) < 24 * 60 * 60 * 1000
                 );
-                if (isRetryDup) continue;
+                if (isRetryDup) {
+                    seenUrls.add(cleanBase);
+                    continue;
+                }
                 seenUserSizes.push({ uid: uidLower, size: fileSize, ts: fileTs });
             }
 
@@ -392,11 +395,11 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
                 continue;
             }
 
-            // Find matching poster uploaded for this exact video by the same user (diff <= 3500ms)
+            // Find matching poster uploaded for this exact video by the same user (diff <= 12000ms)
             let matchedPosterUrl: string | undefined;
             if (uidLower && postersByUser.has(uidLower)) {
                 const candidates = postersByUser.get(uidLower)!;
-                let bestDiff = 3500;
+                let bestDiff = 12000;
                 for (const c of candidates) {
                     const diff = Math.abs(c.ts - fileTs);
                     if (diff <= bestDiff) {
@@ -461,10 +464,13 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
             for (const mp of metaList) {
                 if (!mp || !mp.image_url || isPostDeletedLocally(mp.id, mp.image_url)) continue;
                 const cleanBase = mp.image_url.split('#')[0].split('?')[0].toLowerCase().trim();
-                if (cleanBase && !seenUrls.has(cleanBase)) {
+                const mpPosterMatch = mp.image_url.match(/#POSTER:([^#?]+)/);
+                const mpPoster = mpPosterMatch ? decodeURIComponent(mpPosterMatch[1]).split('?')[0].toLowerCase().trim() : '';
+                if (cleanBase && !seenUrls.has(cleanBase) && (!mpPoster || !seenUrls.has(mpPoster))) {
                     const norm = normalizePost(mp);
                     if (norm) {
                         seenUrls.add(cleanBase);
+                        if (mpPoster) seenUrls.add(mpPoster);
                         discovered.push(norm);
                     }
                 }
@@ -477,6 +483,63 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
     } catch (_) {
         return [];
     }
+}
+
+/**
+ * Deduplicate posts across DB, Storage, and Local caches based on ID, clean URL, poster hash/filename, and retry upload timestamps.
+ * Ensures each photo and video reel is presented exactly once.
+ */
+export function deduplicatePosts(postList: PostData[]): PostData[] {
+    const seenIds = new Set<string>();
+    const seenUrls = new Set<string>();
+    const seenPosterFiles = new Set<string>();
+    const seenTimestamps = new Set<string>();
+    const result: PostData[] = [];
+
+    for (const post of postList) {
+        if (!post || !post.id || isPostDeletedLocally(post.id, post.image_url)) continue;
+        const cleanId = String(post.id).replace(/_p\d+_\d+$/, '');
+        if (seenIds.has(cleanId) || seenIds.has(post.id)) continue;
+
+        const rawNoHash = (post.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+        const baseFilename = (rawNoHash.split('/').pop() || '').toLowerCase().trim();
+
+        let posterFilename = '';
+        const posterMatch = (post.image_url || '').match(/#POSTER:([^#?]+)/);
+        if (posterMatch && posterMatch[1]) {
+            try {
+                const dec = decodeURIComponent(posterMatch[1]).split('?')[0];
+                posterFilename = (dec.split('/').pop() || '').toLowerCase().trim();
+            } catch (_) {}
+        }
+
+        const localIdMatch = (post.image_url || '').match(/#LOCAL_ID:([^#]+)/);
+        const localId = localIdMatch ? localIdMatch[1].toLowerCase() : '';
+
+        const tm = baseFilename.match(/-(\d+)\./);
+        const fileTimestamp = tm ? tm[1] : '';
+
+        if (rawNoHash && !rawNoHash.startsWith('blob:') && seenUrls.has(rawNoHash)) continue;
+        if (posterFilename && seenPosterFiles.has(posterFilename)) continue;
+        if (localId && (seenUrls.has(`local:${localId}`) || seenTimestamps.has(localId))) continue;
+        if (fileTimestamp && (seenTimestamps.has(fileTimestamp) || seenUrls.has(`local:${fileTimestamp}`))) continue;
+
+        seenIds.add(cleanId);
+        seenIds.add(post.id);
+        if (rawNoHash && !rawNoHash.startsWith('blob:')) seenUrls.add(rawNoHash);
+        if (posterFilename) seenPosterFiles.add(posterFilename);
+        if (localId) {
+            seenUrls.add(`local:${localId}`);
+            seenTimestamps.add(localId);
+        }
+        if (fileTimestamp) {
+            seenTimestamps.add(fileTimestamp);
+            seenUrls.add(`local:${fileTimestamp}`);
+        }
+
+        result.push(post);
+    }
+    return result;
 }
 
 export function mergePostsWithFallback(dbPosts: PostData[], cloudPosts: PostData[] = []): PostData[] {
@@ -554,7 +617,7 @@ export function mergePostsWithFallback(dbPosts: PostData[], cloudPosts: PostData
         }
     }
 
-    return merged;
+    return deduplicatePosts(merged);
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
@@ -887,17 +950,59 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         return false;
     });
 
-    // Merge localPosts, userCloudPosts, and dbPosts, deduplicated by post id and clean URL
+    // Merge localPosts, userCloudPosts, and dbPosts, deduplicated by post id, clean URL, poster filename, and retry uploads
     const seenPostIds = new Set<string>();
     const seenBaseUrls = new Set<string>();
+    const seenPosterFiles = new Set<string>();
+    const seenUserTimestamps = new Set<string>();
     const mergedPosts: PostData[] = [];
 
-    for (const p of [...localPosts, ...dbPosts, ...userCloudPosts]) {
+    // Prioritize canonical dbPosts, then localPosts, then userCloudPosts
+    for (const p of [...dbPosts, ...localPosts, ...userCloudPosts]) {
         if (!p || !p.id || isPostDeletedLocally(p.id, p.image_url)) continue;
-        const cleanUrl = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
-        if (seenPostIds.has(p.id) || (cleanUrl && seenBaseUrls.has(cleanUrl))) continue;
+        const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+        if (seenPostIds.has(p.id) || seenPostIds.has(cleanId)) continue;
+
+        const cleanUrl = getDedupUrlKey(p.image_url);
+        const rawFilename = (cleanUrl.split('/').pop() || '').toLowerCase().trim();
+
+        // Extract poster filename if video has a poster
+        let posterFilename = '';
+        const posterMatch = (p.image_url || '').match(/#POSTER:([^#?]+)/);
+        if (posterMatch && posterMatch[1]) {
+            try {
+                const dec = decodeURIComponent(posterMatch[1]).split('?')[0];
+                posterFilename = (dec.split('/').pop() || '').toLowerCase().trim();
+            } catch (_) {}
+        }
+
+        // Extract local ID tag if present (e.g. #LOCAL_ID:1793426496017)
+        const localIdMatch = (p.image_url || '').match(/#LOCAL_ID:([^#]+)/);
+        const localId = localIdMatch ? localIdMatch[1].toLowerCase() : '';
+
+        // Match filename timestamp (e.g. uuid-1793426496017.mp4)
+        const tm = rawFilename.match(/-(\d+)\./);
+        const fileTimestamp = tm ? tm[1] : '';
+
+        // Check if media, poster, or local timestamp was already seen
+        if (cleanUrl && !cleanUrl.startsWith('blob:') && seenBaseUrls.has(cleanUrl)) continue;
+        if (posterFilename && seenPosterFiles.has(posterFilename)) continue;
+        if (localId && (seenBaseUrls.has(`local:${localId}`) || seenUserTimestamps.has(localId))) continue;
+        if (fileTimestamp && (seenUserTimestamps.has(fileTimestamp) || seenBaseUrls.has(`local:${fileTimestamp}`))) continue;
+
         seenPostIds.add(p.id);
-        if (cleanUrl) seenBaseUrls.add(cleanUrl);
+        seenPostIds.add(cleanId);
+        if (cleanUrl && !cleanUrl.startsWith('blob:')) seenBaseUrls.add(cleanUrl);
+        if (posterFilename) seenPosterFiles.add(posterFilename);
+        if (localId) {
+            seenBaseUrls.add(`local:${localId}`);
+            seenUserTimestamps.add(localId);
+        }
+        if (fileTimestamp) {
+            seenUserTimestamps.add(fileTimestamp);
+            seenBaseUrls.add(`local:${fileTimestamp}`);
+        }
+
         p.image_url = resolveLocalMediaUrl(p.image_url);
         mergedPosts.push(p);
     }
@@ -4674,6 +4779,42 @@ export async function searchUsers(query: string): Promise<ProfileData[]> {
 
 /** Search posts by caption, hashtags, and creator username/name with resilient matching across DB, Cloud Storage, and Local */
 export async function searchPostsByCaption(query: string): Promise<PostData[]> {
+    const trimmedQuery = (query || '').trim();
+    if (!trimmedQuery) return [];
+
+    // ⚡ Special Hashtag Mode: Typing '#' or '##' displays all hashtag posts and video reels immediately!
+    const isHashtagOnly = trimmedQuery === '#' || trimmedQuery === '##';
+    if (isHashtagOnly) {
+        const cloudPromise = fetchCloudStoragePosts();
+        let dbPosts: PostData[] = [];
+        if (!isSupabaseQuotaRestricted()) {
+            try {
+                const { data, error } = await supabase
+                    .from('posts')
+                    .select('*')
+                    .like('caption', '%#%')
+                    .order('created_at', { ascending: false })
+                    .limit(100);
+                if (!error && data) {
+                    dbPosts = data.map(normalizePost).filter((p): p is PostData => Boolean(p));
+                }
+            } catch (_) {}
+        }
+        const cloudPosts = await cloudPromise;
+        const localPosts = getLocalPosts();
+        const allCandidates = mergePostsWithFallback(dbPosts, [...localPosts, ...cloudPosts]);
+        const hashtagPosts = allCandidates.filter(p => {
+            if (!p || !p.id || BROKEN_POST_IDS.has(p.id) || isPostDeletedLocally(p.id, p.image_url)) return false;
+            return (p.caption || '').includes('#');
+        });
+        return deduplicatePosts(hashtagPosts).sort((a, b) => {
+            const aVid = isVideoPost(a) || a.media_type === 'video' ? 1 : 0;
+            const bVid = isVideoPost(b) || b.media_type === 'video' ? 1 : 0;
+            if (aVid !== bVid) return bVid - aVid; // Video Reels first!
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        });
+    }
+
     const rawTokens = extractSearchTokens(query);
     const cleanRaw = query.replace(/^[#@]+/, '').trim().toLowerCase();
     
@@ -4787,6 +4928,11 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
             else if (uname.includes(t)) score += 50;
         }
 
+        // ⚡ If query was a hashtag search, prioritize video reels at the top
+        if (trimmedQuery.startsWith('#') && (isVideoPost(post) || post.media_type === 'video')) {
+            score += 150;
+        }
+
         const ageHours = Math.max(0, (Date.now() - new Date(post.created_at || 0).getTime()) / (1000 * 60 * 60));
         score += Math.max(0, 30 - ageHours * 0.2);
 
@@ -4798,7 +4944,7 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
         return new Date(b.post.created_at || 0).getTime() - new Date(a.post.created_at || 0).getTime();
     });
 
-    return scored.map(s => s.post);
+    return deduplicatePosts(scored.map(s => s.post));
 }
 
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {

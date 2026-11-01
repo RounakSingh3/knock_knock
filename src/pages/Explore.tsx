@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, deduplicatePosts, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
@@ -682,7 +682,9 @@ const Explore = () => {
     // Handle Search Queries
     useEffect(() => {
         const timer = setTimeout(() => {
-            if (searchTerm.trim().length < 2) {
+            const trimmed = searchTerm.trim();
+            const isHashtagSearch = trimmed.startsWith('#');
+            if (trimmed.length < 2 && !isHashtagSearch) {
                 setPeopleResults([]);
                 setPostResults([]);
                 if (activeTab === 'stories') {
@@ -716,7 +718,7 @@ const Explore = () => {
                 cleanQueryForUsers.length >= 2 ? searchStoriesByHashtag(cleanQueryForUsers) : Promise.resolve([])
             ]);
 
-            const validPosts = postsRes.filter(p => !p.user_id || !blockedIds.includes(p.user_id));
+            const validPosts = deduplicatePosts(postsRes.filter(p => !p.user_id || !blockedIds.includes(p.user_id)));
             setPostResults(validPosts);
 
             const filteredUsers = usersRes.filter(p => !blockedIds.includes(p.id));
@@ -785,7 +787,7 @@ const Explore = () => {
     }, [normalizedDiscoverPosts]);
 
     const normalizedSearchPosts = useMemo(
-        () => postResults.map(normalizePost).filter((p): p is PostData => Boolean(p)),
+        () => deduplicatePosts(postResults.map(normalizePost).filter((p): p is PostData => Boolean(p))),
         [postResults]
     );
 
@@ -836,18 +838,64 @@ const Explore = () => {
                 </div>
             </div>
 
-            {/* Search Tabs (Only shown when searching) */}
+            {/* Search Tabs & Trending Hashtag Chips (Only shown when searching) */}
             {isSearching && (
-                <div style={{ display: 'flex', borderBottom: '1px solid #2c2c2e', marginTop: '8px' }}>
-                    <button onClick={() => setActiveTab('posts')} style={tabStyle('posts')}>
-                        <Image size={16} /> Posts {postResults.length > 0 && `(${postResults.length})`}
-                    </button>
-                    <button onClick={() => setActiveTab('people')} style={tabStyle('people')}>
-                        <Users size={16} /> People {peopleResults.length > 0 && `(${peopleResults.length})`}
-                    </button>
-                    <button onClick={() => setActiveTab('stories')} style={tabStyle('stories')}>
-                        <BookOpen size={16} /> Stories {storyResults.length > 0 && `(${storyResults.length})`}
-                    </button>
+                <div>
+                    {/* Trending Hashtag Quick-Chips */}
+                    <div style={{
+                        display: 'flex',
+                        gap: '8px',
+                        padding: '4px 16px 10px',
+                        overflowX: 'auto',
+                        scrollbarWidth: 'none',
+                        alignItems: 'center'
+                    }}>
+                        {['#viral', '#trending', '#reels', '#foryou', '#knockknock', '#motivation', '#prithvirajchauhan', '#dance', '#comedy'].map(tag => {
+                            const isActive = searchTerm.trim().toLowerCase() === tag.toLowerCase();
+                            return (
+                                <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchTerm(tag);
+                                        setActiveTab('posts');
+                                    }}
+                                    style={{
+                                        background: isActive
+                                            ? 'linear-gradient(135deg, #f5a524, #f97316)'
+                                            : 'var(--surface-color)',
+                                        color: isActive ? '#000' : 'var(--text-active)',
+                                        border: '1px solid ' + (isActive ? 'transparent' : 'rgba(255,255,255,0.12)'),
+                                        padding: '6px 14px',
+                                        borderRadius: '20px',
+                                        fontSize: '13px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        whiteSpace: 'nowrap',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        flexShrink: 0,
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    {tag}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div style={{ display: 'flex', borderBottom: '1px solid #2c2c2e', padding: '0 16px' }}>
+                        <button onClick={() => setActiveTab('posts')} style={tabStyle('posts')}>
+                            <Image size={16} /> Posts {postResults.length > 0 && `(${postResults.length})`}
+                        </button>
+                        <button onClick={() => setActiveTab('people')} style={tabStyle('people')}>
+                            <Users size={16} /> People {peopleResults.length > 0 && `(${peopleResults.length})`}
+                        </button>
+                        <button onClick={() => setActiveTab('stories')} style={tabStyle('stories')}>
+                            <BookOpen size={16} /> Stories {storyResults.length > 0 && `(${storyResults.length})`}
+                        </button>
+                    </div>
                 </div>
             )}
 

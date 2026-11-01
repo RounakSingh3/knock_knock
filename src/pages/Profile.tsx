@@ -6,7 +6,7 @@ import {
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData,
-    checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost,
+    checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost, deduplicatePosts,
     isKnockVideoLink, parseKnockVideoLink, isPostLikedLocally, getLocalComments
 } from '../lib/database';
 import { recordHashtagSignal } from '../lib/algorithm';
@@ -149,10 +149,24 @@ const Profile = () => {
         if (e) e.stopPropagation();
         if (!currentUser || !postId) return;
         if (window.confirm('Delete this post permanently?')) {
+            const targetPost = posts.find(p => p.id === postId);
             const cleanId = String(postId).replace(/_p\d+_\d+$/, '');
+            const targetUrl = targetPost?.image_url;
+            const targetCleanUrl = targetUrl ? targetUrl.split('#')[0].split('?')[0].toLowerCase().trim() : '';
+            const targetPosterMatch = targetUrl?.match(/#POSTER:([^#?]+)/);
+            const targetPoster = targetPosterMatch ? decodeURIComponent(targetPosterMatch[1]).split('?')[0].toLowerCase().trim() : '';
+
             const ok = await deletePost(cleanId);
             if (ok) {
-                setPosts(prev => prev.filter(p => p.id !== postId && String(p.id).replace(/_p\d+_\d+$/, '') !== cleanId));
+                setPosts(prev => prev.filter(p => {
+                    if (p.id === postId || String(p.id).replace(/_p\d+_\d+$/, '') === cleanId) return false;
+                    const pCleanUrl = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+                    if (targetCleanUrl && pCleanUrl === targetCleanUrl) return false;
+                    const pPosterMatch = (p.image_url || '').match(/#POSTER:([^#?]+)/);
+                    const pPoster = pPosterMatch ? decodeURIComponent(pPosterMatch[1]).split('?')[0].toLowerCase().trim() : '';
+                    if (targetPoster && pPoster === targetPoster) return false;
+                    return true;
+                }));
                 if (selectedPost && (selectedPost.id === postId || String(selectedPost.id).replace(/_p\d+_\d+$/, '') === cleanId)) {
                     setSelectedPost(null);
                 }
@@ -552,9 +566,10 @@ const Profile = () => {
         }, 30000);
     };
 
-    // Derived stats
-    const videoPosts = posts.filter((p) => isVideoPost(p));
-    const photoPosts = posts.filter((p) => !isVideoPost(p));
+    // Derived stats with deduplication guaranteed across DB, cloud, and local
+    const uniquePosts = React.useMemo(() => deduplicatePosts(posts), [posts]);
+    const videoPosts = React.useMemo(() => uniquePosts.filter((p) => isVideoPost(p)), [uniquePosts]);
+    const photoPosts = React.useMemo(() => uniquePosts.filter((p) => !isVideoPost(p)), [uniquePosts]);
 
     return (
         <div className="profile-page pb-20">
@@ -901,7 +916,7 @@ const Profile = () => {
                         onClick={() => { setActiveTab('posts'); setPostFilter('all'); }}
                     >
                         <TrendingUp size={20} color="#facc15" />
-                        <span className="font-bold">{posts.length}</span>
+                        <span className="font-bold">{uniquePosts.length}</span>
                         <span style={{ color: 'var(--text-inactive)', fontSize: '12px' }}>Total</span>
                     </div>
                 </div>
@@ -935,7 +950,7 @@ const Profile = () => {
                 {activeTab === 'posts' && (
                     <>
                         {/* Sub-filter chips: All Posts vs Reels vs Photos */}
-                        {posts.length > 0 && (
+                        {uniquePosts.length > 0 && (
                             <div style={{ display: 'flex', gap: '8px', padding: '8px 12px 10px', alignItems: 'center', overflowX: 'auto' }}>
                                 <button
                                     type="button"
@@ -952,7 +967,7 @@ const Profile = () => {
                                         whiteSpace: 'nowrap'
                                     }}
                                 >
-                                    All Posts ({posts.length})
+                                    All Posts ({uniquePosts.length})
                                 </button>
                                 <button
                                     type="button"
@@ -1000,7 +1015,7 @@ const Profile = () => {
                         )}
 
                         {(() => {
-                            const displayedPosts = postFilter === 'reels' ? videoPosts : postFilter === 'photos' ? photoPosts : posts;
+                            const displayedPosts = postFilter === 'reels' ? videoPosts : postFilter === 'photos' ? photoPosts : uniquePosts;
                             return (
                                 <>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
@@ -1195,7 +1210,7 @@ const Profile = () => {
             </div>
 
             {selectedPost && (() => {
-                const activeList = (postFilter === 'reels' ? videoPosts : postFilter === 'photos' ? photoPosts : posts).map(p => ({
+                const activeList = (postFilter === 'reels' ? videoPosts : postFilter === 'photos' ? photoPosts : uniquePosts).map(p => ({
                     ...p,
                     username: p.username || profile?.username || displayUsername,
                     avatar_url: p.avatar_url || profile?.avatar_url || '',
