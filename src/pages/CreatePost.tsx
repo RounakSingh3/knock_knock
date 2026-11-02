@@ -390,7 +390,7 @@ const CreatePost = () => {
                     });
                     const posterUrl = await Promise.race([
                         posterUploadPromise,
-                        new Promise<undefined>(r => setTimeout(() => r(undefined), 300))
+                        new Promise<undefined>(r => setTimeout(() => r(undefined), 2000))
                     ]);
                     if (!publicUrl) throw new Error('Background upload failed');
                     return { publicUrl, posterUrl, fileName, fileToUpload };

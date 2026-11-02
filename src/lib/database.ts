@@ -69,40 +69,65 @@ export const BLOCKED_USERNAMES = new Set([
 
 export const FILE_TIMESTAMP_REGEX = /^(.+?)-(\d+)\.([a-z0-9]+)$/i;
 
+export const storagePostersByStem = new Map<string, string>();
+
 /**
  * Validates that an embedded #POSTER: in a media URL belongs to the exact same upload (diff <= 3500ms).
- * If the poster was stolen from an unrelated video or another user, it strips the fragment
- * so the media can naturally extract its own video frame instead of showing repeated duplicate thumbnails.
+ * If the poster was stolen from an unrelated video or another user, it strips the fragment,
+ * and if the video is stored in our Supabase bucket without a #POSTER: fragment, attaches its
+ * canonical posts/posters/<stem>.jpg thumbnail URL.
  */
 export function sanitizePosterUrl(url?: string): string {
-    if (!url || typeof url !== 'string' || !url.includes('#POSTER:')) return url || '';
-    const match = url.match(/(?:posts|stories)\/([^?#]+)/);
-    const posterMatch = url.match(/#POSTER:([^#]+)/);
-    if (!match || !posterMatch) return url;
+    if (!url || typeof url !== 'string') return url || '';
+    let result = url;
 
-    const mediaFile = match[1];
-    let posterUrl = '';
-    try {
-        posterUrl = decodeURIComponent(posterMatch[1]);
-    } catch {
-        posterUrl = posterMatch[1];
-    }
-    const posterFile = posterUrl.split('/').pop()?.split('?')[0];
+    const match = result.match(/(?:posts|stories)\/([^?#]+)/);
+    if (result.includes('#POSTER:')) {
+        const posterMatch = result.match(/#POSTER:([^#]+)/);
+        if (match && posterMatch) {
+            const mediaFile = match[1];
+            let posterUrl = '';
+            try {
+                posterUrl = decodeURIComponent(posterMatch[1]);
+            } catch {
+                posterUrl = posterMatch[1];
+            }
+            const posterFile = posterUrl.split('/').pop()?.split('?')[0];
 
-    const mm = mediaFile.match(FILE_TIMESTAMP_REGEX);
-    const pm = posterFile?.match(FILE_TIMESTAMP_REGEX);
+            const mm = mediaFile.match(FILE_TIMESTAMP_REGEX);
+            const pm = posterFile?.match(FILE_TIMESTAMP_REGEX);
 
-    if (mm && pm) {
-        const mUid = mm[1].toLowerCase();
-        const pUid = pm[1].toLowerCase();
-        const mTs = Number(mm[2]);
-        const pTs = Number(pm[2]);
-        // If poster belongs to another user, or was uploaded > 3500ms apart, strip it!
-        if (mUid !== pUid || Math.abs(mTs - pTs) > 3500) {
-            return url.replace(/#POSTER:[^#]+/, '');
+            if (mm && pm) {
+                const mUid = mm[1].toLowerCase();
+                const pUid = pm[1].toLowerCase();
+                const mTs = Number(mm[2]);
+                const pTs = Number(pm[2]);
+                // If poster belongs to another user, or was uploaded > 3500ms apart, strip it!
+                if (mUid !== pUid || Math.abs(mTs - pTs) > 3500) {
+                    result = result.replace(/#POSTER:[^#]+/, '');
+                }
+            }
         }
     }
-    return url;
+
+    // If this is a video in our posts/ or stories/ bucket and lacks #POSTER:, attach its deterministic posts/posters/<stem>.jpg
+    if (!result.includes('#POSTER:')) {
+        const postBucketMatch = result.match(/^(https?:\/\/[^?#]+\/storage\/v1\/object\/public\/[^/]+)\/(?:posts|stories)\/([^/?#]+?\.(?:mp4|webm|mov|m4v|mkv|avi))(?:[?#]|$)/i);
+        if (postBucketMatch) {
+            const bucketBaseUrl = postBucketMatch[1];
+            const videoFileName = postBucketMatch[2];
+            const stem = videoFileName.replace(/\.[^.]+$/, '');
+            const stemLower = stem.toLowerCase();
+            const knownPoster = storagePostersByStem.get(stemLower) || `${bucketBaseUrl}/posts/posters/${stem}.jpg`;
+            if (result.includes('#video.mp4')) {
+                result = result.replace('#video.mp4', `#POSTER:${encodeURIComponent(knownPoster)}#video.mp4`);
+            } else {
+                result = `${result}#POSTER:${encodeURIComponent(knownPoster)}`;
+            }
+        }
+    }
+
+    return result;
 }
 
 export function isRemovedUser(userId?: string | null, username?: string | null): boolean {
@@ -315,23 +340,27 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
         const [, metaList, postFiles, posterFiles] = await Promise.all([
             fetchCloudDeletedIds(),
             fetchCloudJson<PostData[]>(CLOUD_POSTS_META_PATH),
-            listStoragePrefix('posts', 500),
-            listStoragePrefix('posts/posters', 500),
+            listStoragePrefix('posts', 1000),
+            listStoragePrefix('posts/posters', 1000),
         ]);
 
-        // 1. Index posters by userId and timestamp
-        const postersByUser = new Map<string, Array<{ ts: number; url: string }>>();
+        // 1. Index posters by exact stem, userId, and timestamp
+        const postersByUser = new Map<string, Array<{ ts: number; url: string; stem: string }>>();
         const fileRegex = /^(.+?)-(\d+)\.([a-z0-9]+)$/i;
 
         for (const pf of posterFiles) {
             if (!pf || !pf.name || !pf.id) continue;
+            const stem = pf.name.replace(/\.[^.]+$/, '').toLowerCase();
+            const posterUrl = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/posts/posters/${pf.name}`;
+            if (stem) {
+                storagePostersByStem.set(stem, posterUrl);
+            }
             const m = pf.name.match(fileRegex);
             const uid = m ? m[1].toLowerCase() : '';
             const ts = m ? Number(m[2]) : new Date(pf.created_at || 0).getTime();
             if (!uid || !ts) continue;
-            const posterUrl = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/posts/posters/${pf.name}`;
             if (!postersByUser.has(uid)) postersByUser.set(uid, []);
-            postersByUser.get(uid)!.push({ ts, url: posterUrl });
+            postersByUser.get(uid)!.push({ ts, url: posterUrl, stem });
         }
 
         // 2. Index cloud_posts_meta.json by clean base URL
@@ -395,11 +424,12 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
                 continue;
             }
 
-            // Find matching poster uploaded for this exact video by the same user (diff <= 12000ms)
-            let matchedPosterUrl: string | undefined;
-            if (uidLower && postersByUser.has(uidLower)) {
+            // Find matching poster uploaded for this exact video (prefer exact stem, fallback diff <= 2500ms)
+            const fileStem = f.name.replace(/\.[^.]+$/, '').toLowerCase();
+            let matchedPosterUrl: string | undefined = storagePostersByStem.get(fileStem);
+            if (!matchedPosterUrl && uidLower && postersByUser.has(uidLower)) {
                 const candidates = postersByUser.get(uidLower)!;
-                let bestDiff = 12000;
+                let bestDiff = 2500;
                 for (const c of candidates) {
                     const diff = Math.abs(c.ts - fileTs);
                     if (diff <= bestDiff) {
@@ -515,7 +545,6 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
     const seenUrls = new Set<string>();
     const seenPosterFiles = new Set<string>();
     const seenTimestamps = new Set<string>();
-    const seenUserCaptions = new Map<string, number>();
     const result: PostData[] = [];
 
     for (const post of postList) {
@@ -541,22 +570,10 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         const tm = baseFilename.match(/-(\d+)\./);
         const fileTimestamp = tm ? tm[1] : '';
 
-        // Check for rapid retry uploads: same user + identical caption within 15 minutes
-        const cleanCaption = (post.caption || '').trim().toLowerCase();
-        const postTime = post.created_at ? new Date(post.created_at).getTime() : 0;
-        const author = (post.username || post.user_id || '').toLowerCase().trim();
-        const retryKey = (cleanCaption.length > 5 && author) ? `${author}::${cleanCaption}` : '';
-
         if (rawNoHash && !rawNoHash.startsWith('blob:') && seenUrls.has(rawNoHash)) continue;
         if (posterFilename && seenPosterFiles.has(posterFilename)) continue;
         if (localId && (seenUrls.has(`local:${localId}`) || seenTimestamps.has(localId))) continue;
         if (fileTimestamp && (seenTimestamps.has(fileTimestamp) || seenUrls.has(`local:${fileTimestamp}`))) continue;
-        if (retryKey && postTime > 0) {
-            const prevTime = seenUserCaptions.get(retryKey);
-            if (prevTime !== undefined && Math.abs(postTime - prevTime) < 900000) {
-                continue;
-            }
-        }
 
         seenIds.add(cleanId);
         seenIds.add(post.id);
@@ -570,26 +587,24 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
             seenTimestamps.add(fileTimestamp);
             seenUrls.add(`local:${fileTimestamp}`);
         }
-        if (retryKey && postTime > 0) {
-            seenUserCaptions.set(retryKey, postTime);
-        }
 
         result.push(post);
     }
     return result;
 }
 
+/** Normalised key used to detect the same media across DB, cloud manifest and local posts. */
+function getDedupUrlKey(url?: string): string {
+    if (!url) return '';
+    const localMatch = url.match(/#LOCAL_ID:([^#]+)/);
+    if (localMatch && localMatch[1]) return `local:${localMatch[1].toLowerCase()}`;
+    return url.split('?')[0].split('#')[0].toLowerCase().trim();
+}
+
 export function mergePostsWithFallback(dbPosts: PostData[], cloudPosts: PostData[] = []): PostData[] {
     const seen = new Set<string>();
     const seenUrls = new Set<string>();
     const merged: PostData[] = [];
-
-    const getDedupUrlKey = (url?: string): string => {
-        if (!url) return '';
-        const localMatch = url.match(/#LOCAL_ID:([^#]+)/);
-        if (localMatch && localMatch[1]) return `local:${localMatch[1].toLowerCase()}`;
-        return url.split('?')[0].split('#')[0].toLowerCase().trim();
-    };
 
     // Map cloudPosts by clean base URL so dbPosts missing a #POSTER: fragment can inherit it
     const cloudByUrl = new Map<string, PostData>();

@@ -272,14 +272,14 @@ const Profile = () => {
                 }
                 
                 const [userPosts, stats] = await Promise.all([
-                    fetchUserPosts(profileData.username || cleanUser, profileData.id),
+                    fetchUserPosts(profileData.username || cleanUser, profileData.id).catch(() => []),
                     fetchFollowCounts(profileData.id).catch(() => ({ followers: 0, following: 0 }))
                 ]);
                 setPosts(userPosts);
                 setFollowStats(stats);
                 
                 if (currentUser && currentUser.id !== profileData.id) {
-                    const following = await checkIfFollowing(currentUser.id, profileData.id);
+                    const following = await checkIfFollowing(currentUser.id, profileData.id).catch(() => false);
                     setIsFollowing(following);
 
                     // Fetch call request & connection status — wrapped in its own try/catch

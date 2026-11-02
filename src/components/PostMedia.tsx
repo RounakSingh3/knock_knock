@@ -128,6 +128,12 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
             return `https://images.pexels.com/videos/${m[1]}/free-video-${m[1]}.jpg?auto=compress&w=500`;
         }
     }
+    // Supabase storage bucket posts/<stem>.mp4 or stories/<stem>.mp4 deterministic poster mapping
+    const postBucketMatch = url.match(/^(https?:\/\/[^?#]+\/storage\/v1\/object\/public\/[^/]+)\/(?:posts|stories)\/([^/?#]+?\.(?:mp4|webm|mov|m4v|mkv|avi))(?:[?#]|$)/i);
+    if (postBucketMatch) {
+        const stem = postBucketMatch[2].replace(/\.[^.]+$/, '');
+        return `${postBucketMatch[1]}/posts/posters/${stem}.jpg`;
+    }
     return undefined;
 };
 
@@ -378,9 +384,9 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
             const cached = videoPosterCache.get(cleanUrl);
             if (cached && !isFallbackPoster(cached)) return cached;
             if (resolvedPosterFromUrl && !isFallbackPoster(resolvedPosterFromUrl)) return resolvedPosterFromUrl;
-            return categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE;
+            return '';
         }
-        return resolvedPosterFromUrl || categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE;
+        return resolvedPosterFromUrl || (isVideo ? '' : (categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE));
     });
     const [posterImageFailed, setPosterImageFailed] = useState<boolean>(false);
     const [videoCrossOrigin, setVideoCrossOrigin] = useState<"anonymous" | undefined>(() => thumbnail ? "anonymous" : undefined);
@@ -1101,8 +1107,8 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 />
                             ) : isInView && videoSrc ? (
                                 <video
-                                    src={videoSrc.includes('#t=') ? videoSrc : `${videoSrc.split('#')[0]}#t=0.001`}
-                                    poster={hasRealPoster ? effectiveRealPoster : (categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE)}
+                                    src={videoSrc.includes('#t=') ? videoSrc : `${videoSrc.split('#')[0]}#t=0.05`}
+                                    poster={hasRealPoster ? effectiveRealPoster : undefined}
                                     muted
                                     playsInline
                                     // @ts-ignore
@@ -1122,13 +1128,13 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                     onLoadedMetadata={(e) => {
                                         try {
                                             const v = e.currentTarget;
-                                            v.currentTime = 0.001;
+                                            v.currentTime = 0.05;
                                         } catch (_) {}
                                     }}
                                 />
                             ) : (
                                 <img
-                                    src={hasRealPoster ? effectiveRealPoster : (categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE)}
+                                    src={hasRealPoster ? effectiveRealPoster : INLINE_FALLBACK_SVG}
                                     alt={alt}
                                     style={{
                                         ...style,
