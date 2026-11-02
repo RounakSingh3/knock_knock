@@ -218,6 +218,7 @@ const VoiceCall = () => {
     // WhatsApp-Style Video Call States
     const [isVideoSwapped, setIsVideoSwapped] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
+    const [isRemoteCameraOff, setIsRemoteCameraOff] = useState(false);
     const [isFrontCamera, setIsFrontCamera] = useState(true);
     const [showVideoControls, setShowVideoControls] = useState(true);
 
@@ -772,11 +773,16 @@ const VoiceCall = () => {
                     setVideoRequestStatus('none');
                 }
             })
+            .on('broadcast', { event: 'camera-toggle' }, ({ payload }) => {
+                if (payload.receiverId !== user.id) return;
+                console.log('[WebRTC] Remote peer camera toggle:', payload.isOff);
+                setIsRemoteCameraOff(!!payload.isOff);
+            })
             .on('broadcast', { event: 'video-ready' }, async ({ payload }) => {
                 if (payload.receiverId !== user.id) return;
                 console.log('[WebRTC] Received video-ready from peer', payload);
                 remoteVideoReadyRef.current = true;
-                setHasRemoteVideo(true);
+                // Note: Do not call setHasRemoteVideo(true) here prematurely before frames arrive
                 if (isCallerRef.current) {
                     triggerRenegotiationRef.current();
                 } else {
@@ -806,6 +812,7 @@ const VoiceCall = () => {
                 renegotiationPendingRef.current = false;
                 setIsVideoSwapped(false);
                 setIsCameraOff(false);
+                setIsRemoteCameraOff(false);
                 if (localStreamRef.current) {
                     localStreamRef.current.getVideoTracks().forEach(track => {
                         track.stop();
@@ -1170,19 +1177,11 @@ const VoiceCall = () => {
                             console.warn('[WebRTC] Web Audio routing notice:', audioCtxErr);
                         }
 
-                        // 3. Ensure remote video element has masterStream (muted for reliable video playback)
-                        if (remoteVideoRef.current) {
-                            if (remoteVideoRef.current.srcObject !== masterStream) {
-                                remoteVideoRef.current.srcObject = masterStream;
-                            }
-                            remoteVideoRef.current.muted = true;
-                            remoteVideoRef.current.play().catch(() => {});
-                        }
                     }
 
                     if (event.track.kind === 'video') {
                         setPeerConnected(true);
-                        console.log('[WebRTC ontrack] Incoming remote video track received:', event.track.id);
+                        console.log('[WebRTC ontrack] Incoming remote video track received:', event.track.id, 'readyState:', event.track.readyState);
 
                         masterStream.getVideoTracks().forEach(t => {
                             if (t.id !== event.track.id) {
@@ -1194,21 +1193,19 @@ const VoiceCall = () => {
                             masterStream.addTrack(event.track);
                         }
 
-                        // Ensure any live remote audio track from receivers is also in masterStream
-                        const audioReceiver = pc.getReceivers().find(r => r.track && r.track.kind === 'audio' && r.track.readyState === 'live');
-                        if (audioReceiver && audioReceiver.track && !masterStream.getAudioTracks().some(t => t.id === audioReceiver.track!.id)) {
-                            masterStream.addTrack(audioReceiver.track);
-                        }
+                        // Assign dedicated MediaStream containing the video track directly to remoteVideoRef
+                        const videoStream = new MediaStream([event.track]);
+                        remoteStreamRef.current = videoStream;
 
-                        setHasRemoteVideo(true);
-
-                        // Remote video element plays masterStream muted so video frames render immediately
                         if (remoteVideoRef.current) {
-                            if (remoteVideoRef.current.srcObject !== masterStream) {
-                                remoteVideoRef.current.srcObject = masterStream;
-                            }
+                            remoteVideoRef.current.srcObject = videoStream;
                             remoteVideoRef.current.muted = true;
-                            remoteVideoRef.current.play().catch(e => console.warn('Remote video play failed:', e));
+                            remoteVideoRef.current.defaultMuted = true;
+                            remoteVideoRef.current.play().then(() => {
+                                if (remoteVideoRef.current && remoteVideoRef.current.videoWidth > 0) {
+                                    setHasRemoteVideo(true);
+                                }
+                            }).catch(e => console.warn('[WebRTC] Remote video play notice:', e));
                         }
 
                         event.track.onended = () => {
@@ -1217,13 +1214,18 @@ const VoiceCall = () => {
                         };
                         event.track.onmute = () => {
                             console.log('[WebRTC] Remote video track muted');
+                            setHasRemoteVideo(false);
                         };
                         event.track.onunmute = () => {
                             console.log('[WebRTC] Remote video track unmuted');
-                            setHasRemoteVideo(true);
                             if (remoteVideoRef.current) {
                                 remoteVideoRef.current.muted = true;
-                                remoteVideoRef.current.play().catch(() => {});
+                                remoteVideoRef.current.defaultMuted = true;
+                                remoteVideoRef.current.play().then(() => {
+                                    if (remoteVideoRef.current && remoteVideoRef.current.videoWidth > 0) {
+                                        setHasRemoteVideo(true);
+                                    }
+                                }).catch(() => {});
                             }
                         };
                     }
@@ -1439,24 +1441,40 @@ const VoiceCall = () => {
                         localVideoRef.current.play().catch(() => {});
                     }
 
-                    const senders = pc.getSenders();
-                    let existingVideoSender = senders.find(s => s.track?.kind === 'video' || s.kind === 'video');
-                    if (!existingVideoSender) {
-                        const transceivers = pc.getTransceivers();
-                        const vTrans = transceivers.find(t => t.receiver.track?.kind === 'video');
-                        if (vTrans) {
-                            vTrans.direction = 'sendrecv';
-                            existingVideoSender = vTrans.sender;
+                    // Ensure video transceiver is set to sendrecv and uses the live track
+                    let videoTransceiver = pc.getTransceivers().find(t => 
+                        (t.sender.track && t.sender.track.kind === 'video') || 
+                        (t.receiver.track && t.receiver.track.kind === 'video') ||
+                        (t as any).mid === 'video'
+                    );
+
+                    if (videoTransceiver) {
+                        try {
+                            videoTransceiver.direction = 'sendrecv';
+                        } catch (err) {
+                            console.warn('[WebRTC] Could not set transceiver direction:', err);
+                        }
+                        if (videoTransceiver.sender) {
+                            console.log('[WebRTC] Replacing video track on transceiver sender...');
+                            await videoTransceiver.sender.replaceTrack(videoTrack);
+                        }
+                    } else {
+                        const existingSender = pc.getSenders().find(s => s.track?.kind === 'video');
+                        if (existingSender) {
+                            console.log('[WebRTC] Replacing video track on existing sender...');
+                            await existingSender.replaceTrack(videoTrack);
+                        } else {
+                            console.log('[WebRTC] Adding video track to peer connection...');
+                            pc.addTrack(videoTrack, localStreamRef.current!);
                         }
                     }
 
-                    if (existingVideoSender) {
-                        console.log('[WebRTC] Replacing video track on existing sender...');
-                        await existingVideoSender.replaceTrack(videoTrack);
-                    } else {
-                        console.log('[WebRTC] Adding video track to peer connection...');
-                        pc.addTrack(videoTrack, localStreamRef.current!);
-                    }
+                    // Force all video transceivers to sendrecv
+                    pc.getTransceivers().forEach(t => {
+                        if (t.sender.track?.kind === 'video' || t.receiver.track?.kind === 'video') {
+                            try { t.direction = 'sendrecv'; } catch (_) {}
+                        }
+                    });
 
                     localVideoReadyRef.current = true;
                     console.log('[WebRTC] Local video track attached, broadcasting video-ready...');
@@ -1605,18 +1623,33 @@ const VoiceCall = () => {
                 rStream.addTrack(remoteAudioTrack);
             }
 
-            // 2. Ensure remote video element has the remote stream attached, MUTED (for reliable browser autoplay), and playing
-            if (remoteVideoRef.current && rStream.getVideoTracks().length > 0) {
-                if (remoteVideoRef.current.srcObject !== rStream) {
-                    remoteVideoRef.current.srcObject = rStream;
+            // 2. Ensure remote video element has the remote video stream attached, MUTED, and playing
+            const videoEl = remoteVideoRef.current;
+            if (remoteVideoTrack && videoEl) {
+                const currentStream = videoEl.srcObject;
+                const hasVideoTrack = currentStream && currentStream.getVideoTracks && currentStream.getVideoTracks().some(t => t.id === remoteVideoTrack.id && t.readyState === 'live');
+
+                if (!hasVideoTrack) {
+                    console.log('[WebRTC Watchdog] Attaching live remote video track to video element:', remoteVideoTrack.id);
+                    const newVideoStream = new MediaStream([remoteVideoTrack]);
+                    remoteStreamRef.current = newVideoStream;
+                    videoEl.srcObject = newVideoStream;
+                    videoEl.muted = true;
+                    videoEl.defaultMuted = true;
+                    videoEl.play().catch(() => {});
+                } else if (videoEl.paused) {
+                    videoEl.play().catch(() => {});
                 }
-                remoteVideoRef.current.muted = true;
-                remoteVideoRef.current.defaultMuted = true;
-                if (remoteVideoRef.current.paused) {
-                    remoteVideoRef.current.play().then(() => setHasRemoteVideo(true)).catch(() => {});
-                } else {
+
+                // Check if actual frames are rendered
+                const isRenderingFrames = videoEl.videoWidth > 0 && videoEl.videoHeight > 0 && !remoteVideoTrack.muted && remoteVideoTrack.enabled;
+                if (isRenderingFrames && !isRemoteCameraOff) {
                     setHasRemoteVideo(true);
+                } else if (!isRenderingFrames || isRemoteCameraOff) {
+                    setHasRemoteVideo(false);
                 }
+            } else if (!remoteVideoTrack) {
+                setHasRemoteVideo(false);
             }
 
             // 3. Ensure backup remote audio element also has audio track and is active
@@ -1649,7 +1682,7 @@ const VoiceCall = () => {
         syncStreams();
         const interval = setInterval(syncStreams, 800);
         return () => clearInterval(interval);
-    }, [videoRequestStatus, hasRemoteVideo, isVideoSwapped]);
+    }, [videoRequestStatus, hasRemoteVideo, isVideoSwapped, isRemoteCameraOff]);
 
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -1791,6 +1824,17 @@ const VoiceCall = () => {
                 const newOff = !isCameraOff;
                 videoTracks.forEach(track => { track.enabled = !newOff; });
                 setIsCameraOff(newOff);
+                if (channelRef.current && currentMatchRef.current && user) {
+                    channelRef.current.send({
+                        type: 'broadcast',
+                        event: 'camera-toggle',
+                        payload: {
+                            senderId: user.id,
+                            receiverId: currentMatchRef.current.profile.id,
+                            isOff: newOff
+                        }
+                    });
+                }
             }
         } else {
             setIsCameraOff(prev => !prev);
@@ -2448,7 +2492,9 @@ const VoiceCall = () => {
                                             el.srcObject = stream;
                                         }
                                         el.play().then(() => {
-                                            setHasRemoteVideo(true);
+                                            if (el.videoWidth > 0 && !isRemoteCameraOff) {
+                                                setHasRemoteVideo(true);
+                                            }
                                         }).catch(() => {});
                                     }
                                 }
@@ -2457,17 +2503,25 @@ const VoiceCall = () => {
                             playsInline
                             muted
                             onLoadedMetadata={(e) => {
-                                setHasRemoteVideo(true);
-                                e.currentTarget.play().catch(() => {});
+                                const target = e.currentTarget;
+                                if (target.videoWidth > 0 && !isRemoteCameraOff) {
+                                    setHasRemoteVideo(true);
+                                }
+                                target.play().catch(() => {});
                             }}
-                            onPlaying={() => {
-                                setHasRemoteVideo(true);
+                            onPlaying={(e) => {
+                                if (e.currentTarget.videoWidth > 0 && !isRemoteCameraOff) {
+                                    setHasRemoteVideo(true);
+                                }
                             }}
-                            onPlay={() => {
-                                setHasRemoteVideo(true);
+                            onPlay={(e) => {
+                                if (e.currentTarget.videoWidth > 0 && !isRemoteCameraOff) {
+                                    setHasRemoteVideo(true);
+                                }
                             }}
                             onTimeUpdate={(e) => {
-                                if (e.currentTarget.currentTime > 0.05 && !hasRemoteVideo) {
+                                const target = e.currentTarget;
+                                if (target.currentTime > 0.05 && target.videoWidth > 0 && !hasRemoteVideo && !isRemoteCameraOff) {
                                     setHasRemoteVideo(true);
                                 }
                             }}
@@ -2475,10 +2529,10 @@ const VoiceCall = () => {
                                 width: '100%',
                                 height: '100%',
                                 objectFit: 'cover',
-                                display: 'block'
+                                display: (hasRemoteVideo && !isRemoteCameraOff) ? 'block' : 'none'
                             }}
                         />
-                        {!hasRemoteVideo && (
+                        {(!hasRemoteVideo || isRemoteCameraOff) && (
                             <div style={{
                                 position: 'absolute',
                                 inset: 0,
@@ -2513,8 +2567,8 @@ const VoiceCall = () => {
                                     />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(255,255,255,0.85)', fontSize: isVideoSwapped ? '0.65rem' : '0.9rem', textAlign: 'center', padding: '0 8px' }}>
-                                    <Loader2 size={isVideoSwapped ? 12 : 16} style={{ animation: 'spin 1.2s linear infinite' }} />
-                                    <span>Connecting {displayName}...</span>
+                                    {!isRemoteCameraOff && <Loader2 size={isVideoSwapped ? 12 : 16} style={{ animation: 'spin 1.2s linear infinite' }} />}
+                                    <span>{isRemoteCameraOff ? (displayName + "'s camera is off") : ('Connecting ' + displayName + '...')}</span>
                                 </div>
                             </div>
                         )}
