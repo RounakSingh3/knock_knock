@@ -385,6 +385,11 @@ const Profile = () => {
         }
     }, [activeTab, profile]);
 
+    // Derived stats with deduplication guaranteed across DB, cloud, and local (called before any early return)
+    const uniquePosts = React.useMemo(() => deduplicatePosts(posts), [posts]);
+    const videoPosts = React.useMemo(() => uniquePosts.filter((p) => isVideoPost(p)), [uniquePosts]);
+    const photoPosts = React.useMemo(() => uniquePosts.filter((p) => !isVideoPost(p)), [uniquePosts]);
+
     const handleFollowToggle = async () => {
         if (!currentUser || !profile) return;
         const newIsFollowing = !isFollowing;
@@ -565,11 +570,6 @@ const Profile = () => {
             setCallingStatus('none');
         }, 30000);
     };
-
-    // Derived stats with deduplication guaranteed across DB, cloud, and local
-    const uniquePosts = React.useMemo(() => deduplicatePosts(posts), [posts]);
-    const videoPosts = React.useMemo(() => uniquePosts.filter((p) => isVideoPost(p)), [uniquePosts]);
-    const photoPosts = React.useMemo(() => uniquePosts.filter((p) => !isVideoPost(p)), [uniquePosts]);
 
     return (
         <div className="profile-page pb-20">

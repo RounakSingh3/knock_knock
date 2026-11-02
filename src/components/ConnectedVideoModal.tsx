@@ -61,29 +61,6 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
         return () => clearTimeout(timer);
     }, [video]);
 
-    if (!video) return null;
-
-    const handleTouchStart = (e: React.TouchEvent) => {
-        if (e.touches[0]) {
-            touchStartPosRef.current = {
-                x: e.touches[0].clientX,
-                y: e.touches[0].clientY,
-            };
-        }
-    };
-
-    const handleTouchEnd = (e: React.TouchEvent) => {
-        if (!touchStartPosRef.current || !e.changedTouches[0]) return;
-        const diffX = e.changedTouches[0].clientX - touchStartPosRef.current.x;
-        const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
-        touchStartPosRef.current = null;
-
-        // Swipe RIGHT or Swipe DOWN to dismiss and return to the underlying post or story
-        if ((diffX > 45 && Math.abs(diffX) > Math.abs(diffY)) || (diffY > 55 && Math.abs(diffY) > Math.abs(diffX))) {
-            onClose();
-        }
-    };
-
     const activeData = resolvedVideo || video;
     const rawResolvedUrl = activeData?.videoUrl ? resolveLocalMediaUrl(activeData.videoUrl) : '';
     const cleanVideoSrc = rawResolvedUrl ? rawResolvedUrl.split('#')[0] : '';
@@ -122,6 +99,29 @@ export const ConnectedVideoModal: React.FC<ConnectedVideoModalProps> = ({
             }
         };
     }, [currentVideoSrc]);
+
+    if (!video) return null;
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (e.touches[0]) {
+            touchStartPosRef.current = {
+                x: e.touches[0].clientX,
+                y: e.touches[0].clientY,
+            };
+        }
+    };
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (!touchStartPosRef.current || !e.changedTouches[0]) return;
+        const diffX = e.changedTouches[0].clientX - touchStartPosRef.current.x;
+        const diffY = e.changedTouches[0].clientY - touchStartPosRef.current.y;
+        touchStartPosRef.current = null;
+
+        // Swipe RIGHT or Swipe DOWN to dismiss and return to the underlying post or story
+        if ((diffX > 45 && Math.abs(diffX) > Math.abs(diffY)) || (diffY > 55 && Math.abs(diffY) > Math.abs(diffX))) {
+            onClose();
+        }
+    };
 
     return (
         <div

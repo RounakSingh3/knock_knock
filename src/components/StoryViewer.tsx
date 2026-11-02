@@ -1316,109 +1316,107 @@ const StoryViewer: React.FC<StoryViewerProps> = ({
                 </div>
             )}
             
-            {useMemo(() => (
-                <style>{`
-                    .story-viewer-overlay {
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100vw;
-                        height: 100vh;
-                        background: var(--bg-color);
-                        z-index: 9999;
-                        display: flex;
-                        flex-direction: column;
-                    }
-                    .story-progress-container {
-                        position: absolute;
-                        top: 10px;
-                        left: 10px;
-                        right: 10px;
-                        display: flex;
-                        gap: 4px;
-                        z-index: 10;
-                    }
-                    .story-progress-segment {
-                        flex: 1;
-                        height: 2px;
-                        background: rgba(255, 255, 255, 0.3);
-                        border-radius: 2px;
-                        overflow: hidden;
-                    }
-                    .story-progress-fill {
-                        height: 100%;
-                        background: #fff;
-                        width: 0%;
-                    }
-                    .story-header {
-                        position: absolute;
-                        top: 20px;
-                        left: 10px;
-                        right: 10px;
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        z-index: 10;
-                        padding-top: 10px;
-                    }
-                    .story-user-info {
-                        display: flex;
-                        align-items: center;
-                        gap: 10px;
-                    }
-                    .story-user-info img {
-                        width: 32px;
-                        height: 32px;
-                        border-radius: 50%;
-                        object-fit: cover;
-                    }
-                    .story-username {
-                        color: var(--text-active);
-                        font-weight: 600;
-                        font-size: 14px;
-                        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-                    }
-                    .story-time {
-                        color: rgba(255,255,255,0.7);
-                        font-size: 14px;
-                        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
-                    }
-                    .story-touch-area {
-                        position: absolute;
-                        top: 0;
-                        bottom: 0;
-                        z-index: 5;
-                    }
-                    .story-touch-area.left {
-                        left: 0;
-                        width: 30%;
-                    }
-                    .story-touch-area.right {
-                        right: 0;
-                        width: 70%;
-                    }
-                    .story-image {
-                        width: 100%;
-                        height: 100%;
-                        object-fit: contain;
-                    }
-                    .story-caption-overlay {
-                        position: absolute;
-                        bottom: 40px;
-                        left: 20px;
-                        right: 20px;
-                        background: rgba(0,0,0,0.6);
-                        color: var(--text-active);
-                        padding: 12px 16px;
-                        border-radius: 12px;
-                        backdrop-filter: blur(5px);
-                        font-size: 16px;
-                        font-weight: bold;
-                        z-index: 10;
-                        text-align: center;
-                    }
-                `}</style>
-            ), [])}
+            <style>{`
+                .story-viewer-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100vw;
+                    height: 100vh;
+                    background: var(--bg-color);
+                    z-index: 9999;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .story-progress-container {
+                    position: absolute;
+                    top: 10px;
+                    left: 10px;
+                    right: 10px;
+                    display: flex;
+                    gap: 4px;
+                    z-index: 10;
+                }
+                .story-progress-segment {
+                    flex: 1;
+                    height: 2px;
+                    background: rgba(255, 255, 255, 0.3);
+                    border-radius: 2px;
+                    overflow: hidden;
+                }
+                .story-progress-fill {
+                    height: 100%;
+                    background: #fff;
+                    width: 0%;
+                }
+                .story-header {
+                    position: absolute;
+                    top: 20px;
+                    left: 10px;
+                    right: 10px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    z-index: 10;
+                    padding-top: 10px;
+                }
+                .story-user-info {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }
+                .story-user-info img {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 50%;
+                    object-fit: cover;
+                }
+                .story-username {
+                    color: var(--text-active);
+                    font-weight: 600;
+                    font-size: 14px;
+                    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+                }
+                .story-time {
+                    color: rgba(255,255,255,0.7);
+                    font-size: 14px;
+                    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+                }
+                .story-touch-area {
+                    position: absolute;
+                    top: 0;
+                    bottom: 0;
+                    z-index: 5;
+                }
+                .story-touch-area.left {
+                    left: 0;
+                    width: 30%;
+                }
+                .story-touch-area.right {
+                    right: 0;
+                    width: 70%;
+                }
+                .story-image {
+                    width: 100%;
+                    height: 100%;
+                    object-fit: contain;
+                }
+                .story-caption-overlay {
+                    position: absolute;
+                    bottom: 40px;
+                    left: 20px;
+                    right: 20px;
+                    background: rgba(0,0,0,0.6);
+                    color: var(--text-active);
+                    padding: 12px 16px;
+                    border-radius: 12px;
+                    backdrop-filter: blur(5px);
+                    font-size: 16px;
+                    font-weight: bold;
+                    z-index: 10;
+                    text-align: center;
+                }
+            `}</style>
 
             {/* In-Story Connected Video Full Overlay Player */}
             {connectedVideoModal && (

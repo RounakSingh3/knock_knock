@@ -1870,8 +1870,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         );
     };
 
-    if (!isOpen) return null;
-
     // Filter contacts & groups based on search
     const filteredContacts = allContacts.filter(c =>
         (c.username || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -2368,6 +2366,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             );
         });
     }, [groupMessages, currentUser.id, playingAudioUrl, translatedMessages, showOriginalMap]);
+
+    if (!isOpen) return null;
 
     return (
         <div style={{
