@@ -381,7 +381,30 @@ const Reels: React.FC = () => {
             // Place all real user/community uploaded videos (sorted newest created_at first) BEFORE stock fallback videos
             const pexelsPool = REELS_DATA.filter(r => !isPostDeletedLocally(String(r.id), r.videoUrl));
             const userPool = userReels.filter(r => !isPostDeletedLocally(String(r.id), r.videoUrl));
-            const merged: ReelData[] = [...userPool, ...pexelsPool];
+            const combinedReels: ReelData[] = [...userPool, ...pexelsPool];
+
+            // Master Reels Deduplication: clean URL, poster URL, ID, and 13-digit Unix timestamps
+            const seenReelUrls = new Set<string>();
+            const seenReelIds = new Set<string>();
+            const seenReelTimestamps = new Set<string>();
+            const merged: ReelData[] = [];
+
+            for (const r of combinedReels) {
+                if (!r || !r.videoUrl) continue;
+                const cleanUrl = r.videoUrl.split('?')[0].split('#')[0].toLowerCase().trim();
+                const cleanId = String(r.id).replace(/_p\d+_\d+$/, '');
+                const tsMatch = r.videoUrl.match(/(?:-|_|:|\/)(\d{13})(?:[._\-\?]|$)/);
+                const ts = tsMatch ? tsMatch[1] : '';
+
+                if (cleanUrl && seenReelUrls.has(cleanUrl)) continue;
+                if (cleanId && seenReelIds.has(cleanId)) continue;
+                if (ts && seenReelTimestamps.has(ts)) continue;
+
+                if (cleanUrl) seenReelUrls.add(cleanUrl);
+                if (cleanId) seenReelIds.add(cleanId);
+                if (ts) seenReelTimestamps.add(ts);
+                merged.push(r);
+            }
 
             // Apply Pillar 1 & 5: Variable Reward Schedule & Hyper-Personalization with Everyday Reshuffle
             const hybridProfile = getHybridInterestProfile(engagements);
@@ -812,30 +835,44 @@ const Reels: React.FC = () => {
         }
     }, [activeIndex, selectedReelIndex, mutedAll, reelsList, primeNextVideo, playReelAudio]);
 
-    // Pillar 3: The Infinite Scroll — Auto-extend stream when user nears bottom
+    // Pillar 3: The Infinite Scroll — Auto-extend stream when user nears bottom (NO duplicate videos)
     useEffect(() => {
         if (selectedReelIndex !== null && activeIndex >= reelsList.length - 2 && rawReelPool.length > 0) {
             const nextPage = reelPage + 1;
             setReelPage(nextPage);
-            const nextBatch = generateInfiniteStream(
-                rawReelPool,
-                nextPage,
-                10,
-                (batch) => {
-                    const profile = getHybridInterestProfile([]);
-                    const todayKey = new Date().toISOString().slice(0, 10);
-                    return rankReels(batch, profile, user?.id, todayKey);
+
+            const seenUrls = new Set(reelsList.map(r => r.videoUrl.split('?')[0].split('#')[0].toLowerCase().trim()).filter(Boolean));
+            const seenIds = new Set(reelsList.map(r => String(r.id).replace(/_p\d+_\d+$/, '')));
+            const seenTimestamps = new Set<string>();
+            reelsList.forEach(r => {
+                const tsMatch = r.videoUrl.match(/(?:-|_|:|\/)(\d{13})(?:[._\-\?]|$)/);
+                if (tsMatch) seenTimestamps.add(tsMatch[1]);
+            });
+
+            // Only append truly fresh reels from the pool that haven't been shown yet
+            const unshownReels = rawReelPool.filter(r => {
+                if (!r || !r.videoUrl) return false;
+                const cleanUrl = r.videoUrl.split('?')[0].split('#')[0].toLowerCase().trim();
+                const cleanId = String(r.id).replace(/_p\d+_\d+$/, '');
+                const tsMatch = r.videoUrl.match(/(?:-|_|:|\/)(\d{13})(?:[._\-\?]|$)/);
+                const ts = tsMatch ? tsMatch[1] : '';
+
+                if (seenUrls.has(cleanUrl) || seenIds.has(cleanId) || (ts && seenTimestamps.has(ts))) {
+                    return false;
                 }
-            );
-            const newReelsWithKeys = nextBatch.map((r, i) => ({
-                ...r,
-                id: `${r.id}_p${nextPage}_${i}`
-            }));
-            setReelsList(prev => [...prev, ...newReelsWithKeys]);
-            setPlayStates(prev => [...prev, ...newReelsWithKeys.map(() => true)]);
-            progressesRef.current = [...progressesRef.current, ...newReelsWithKeys.map(() => 0)];
+                return true;
+            });
+
+            if (unshownReels.length > 0) {
+                const profile = getHybridInterestProfile([]);
+                const todayKey = new Date().toISOString().slice(0, 10);
+                const rankedBatch = rankReels(unshownReels, profile, user?.id, todayKey).slice(0, 10);
+                setReelsList(prev => [...prev, ...rankedBatch]);
+                setPlayStates(prev => [...prev, ...rankedBatch.map(() => true)]);
+                progressesRef.current = [...progressesRef.current, ...rankedBatch.map(() => 0)];
+            }
         }
-    }, [activeIndex, reelsList.length, rawReelPool, reelPage, selectedReelIndex, user?.id]);
+    }, [activeIndex, reelsList, rawReelPool, reelPage, selectedReelIndex, user?.id]);
 
     // Pillar 2: Implicit Signal Tracking — Watch time, fast-skip penalties, and dwell
     useEffect(() => {

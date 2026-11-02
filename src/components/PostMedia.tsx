@@ -1072,81 +1072,47 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                                 background: '#18181b',
                             }}
                         >
-                            {hasRealPoster && effectiveRealPoster ? (
-                                <img
-                                    src={effectiveRealPoster}
-                                    alt={alt}
-                                    style={{
-                                        ...style,
-                                        filter: extractedFilter,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: resolvedObjectFit,
-                                        display: 'block',
-                                        transform: 'translateZ(0)',
-                                        backfaceVisibility: 'hidden',
-                                    }}
-                                    loading="lazy"
-                                    decoding="async"
-                                    onError={() => {
-                                        if (cleanUrl) {
-                                            videoPosterCache.delete(cleanUrl);
-                                            failedPosterCaptureUrls.delete(cleanUrl);
-                                        }
-                                        setCapturedPoster('');
-                                        setPosterImageFailed(true);
-                                        if (videoSrc && cleanUrl) {
-                                            enqueueBackgroundPosterCapture(videoSrc, cleanUrl, (posterDataUrl) => {
-                                                if (posterDataUrl) {
-                                                    setPosterImageFailed(false);
-                                                    setCapturedPoster(posterDataUrl);
-                                                }
-                                            });
-                                        }
-                                    }}
-                                />
-                            ) : isInView && videoSrc ? (
-                                <video
-                                    src={videoSrc.includes('#t=') ? videoSrc : `${videoSrc.split('#')[0]}#t=0.05`}
-                                    poster={hasRealPoster ? effectiveRealPoster : undefined}
-                                    muted
-                                    playsInline
-                                    // @ts-ignore
-                                    webkit-playsinline="true"
-                                    preload="metadata"
-                                    style={{
-                                        ...style,
-                                        filter: extractedFilter,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: resolvedObjectFit,
-                                        display: 'block',
-                                        transform: 'translateZ(0)',
-                                        backfaceVisibility: 'hidden',
-                                        pointerEvents: 'none',
-                                    }}
-                                    onLoadedMetadata={(e) => {
-                                        try {
-                                            const v = e.currentTarget;
-                                            v.currentTime = 0.05;
-                                        } catch (_) {}
-                                    }}
-                                />
-                            ) : (
-                                <img
-                                    src={hasRealPoster ? effectiveRealPoster : INLINE_FALLBACK_SVG}
-                                    alt={alt}
-                                    style={{
-                                        ...style,
-                                        width: '100%',
-                                        height: '100%',
-                                        objectFit: resolvedObjectFit,
-                                        display: 'block',
-                                    }}
-                                    loading="lazy"
-                                    decoding="async"
-                                />
-                            )}
+                            {(() => {
+                                const displayThumbnailSrc = effectiveRealPoster || categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE;
+                                return (
+                                    <img
+                                        src={displayThumbnailSrc}
+                                        alt={alt}
+                                        style={{
+                                            ...style,
+                                            filter: extractedFilter,
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: resolvedObjectFit,
+                                            display: 'block',
+                                            transform: 'translateZ(0)',
+                                            backfaceVisibility: 'hidden',
+                                        }}
+                                        loading="lazy"
+                                        decoding="async"
+                                        onError={(e) => {
+                                            const target = e.currentTarget;
+                                            if (cleanUrl) {
+                                                videoPosterCache.delete(cleanUrl);
+                                                failedPosterCaptureUrls.delete(cleanUrl);
+                                            }
+                                            setCapturedPoster('');
+                                            setPosterImageFailed(true);
+                                            if (target.src !== UNIVERSAL_FALLBACK_IMAGE) {
+                                                target.src = categoryFallbackPoster || UNIVERSAL_FALLBACK_IMAGE;
+                                            }
+                                            if (videoSrc && cleanUrl) {
+                                                enqueueBackgroundPosterCapture(videoSrc, cleanUrl, (posterDataUrl) => {
+                                                    if (posterDataUrl) {
+                                                        setPosterImageFailed(false);
+                                                        setCapturedPoster(posterDataUrl);
+                                                    }
+                                                });
+                                            }
+                                        }}
+                                    />
+                                );
+                            })()}
                             <div style={{
                                 position: 'absolute',
                                 top: '8px',
@@ -1169,7 +1135,7 @@ const PostMediaComponent: React.FC<PostMediaProps> = ({
                             <video
                                 ref={videoRef}
                                 src={videoSrc}
-                                poster={hasRealPoster ? effectiveRealPoster : undefined}
+                                poster={effectiveRealPoster || categoryFallbackPoster || undefined}
                                 className={className}
                                 style={{
                                     ...style,

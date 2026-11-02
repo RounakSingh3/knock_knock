@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, deduplicatePosts, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, deduplicatePosts, getDedupUrlKey, extractMediaTimestamp, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
@@ -501,11 +501,13 @@ const Explore = () => {
         
         try {
             const currentPosts = discoverPostsRef.current;
-            const seenIds = new Set(currentPosts.map(p => p.id));
-            const seenUrls = new Set(currentPosts.map(p => p.image_url));
+            const seenIds = new Set(currentPosts.map(p => String(p.id).replace(/_p\d+_\d+$/, '')));
+            currentPosts.forEach(p => seenIds.add(p.id));
+            const seenUrls = new Set(currentPosts.map(p => getDedupUrlKey(p.image_url)).filter(Boolean));
+            const seenTimestamps = new Set<string>();
             currentPosts.forEach(p => {
-                const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
-                if (clean) seenUrls.add(clean);
+                const ts = extractMediaTimestamp(p.image_url, p.id);
+                if (ts) seenTimestamps.add(ts);
             });
 
             const activeProfile = userProfileRef.current || getHybridInterestProfile([]);
@@ -513,16 +515,16 @@ const Explore = () => {
             
             let nextBatch: PostData[] = [];
 
-            if (rawPostsCacheRef.current.length > 0) {
-                const streamBatch = generateInfiniteStream(
-                    rawPostsCacheRef.current,
-                    nextPage,
-                    PAGE_SIZE,
-                    (batch) => rankExploreGrid(batch, activeProfile, selectedCategory, currentDay)
-                );
-                nextBatch = streamBatch.filter(p => {
-                    const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
-                    return !seenIds.has(p.id) && !seenUrls.has(p.image_url) && !seenUrls.has(clean);
+            // Slice from raw cached posts without cyclical repeating
+            const startIndex = nextPage * PAGE_SIZE;
+            if (rawPostsCacheRef.current.length > startIndex) {
+                const unshownRaw = rawPostsCacheRef.current.slice(startIndex, startIndex + PAGE_SIZE);
+                const rankedBatch = rankExploreGrid(unshownRaw, activeProfile, selectedCategory, currentDay);
+                nextBatch = rankedBatch.filter(p => {
+                    const cleanKey = getDedupUrlKey(p.image_url);
+                    const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                    const ts = extractMediaTimestamp(p.image_url, p.id);
+                    return !seenIds.has(p.id) && !seenIds.has(cleanId) && (!cleanKey || !seenUrls.has(cleanKey)) && (!ts || !seenTimestamps.has(ts));
                 });
             }
 
@@ -530,24 +532,31 @@ const Explore = () => {
                 // Fetch next page offset from DB
                 const nextBatchDb = await fetchDiscoverPosts(selectedCategory, 50, rawPostsCacheRef.current.length);
                 const freshDbPosts = nextBatchDb.filter(p => {
-                    const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
-                    if (!p.image_url || seenIds.has(p.id) || seenUrls.has(p.image_url) || seenUrls.has(clean) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) return false;
+                    const cleanKey = getDedupUrlKey(p.image_url);
+                    const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                    const ts = extractMediaTimestamp(p.image_url, p.id);
+                    if (!p.image_url || seenIds.has(p.id) || seenIds.has(cleanId) || (cleanKey && seenUrls.has(cleanKey)) || (ts && seenTimestamps.has(ts)) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) {
+                        return false;
+                    }
                     seenIds.add(p.id);
-                    seenUrls.add(p.image_url);
-                    if (clean) seenUrls.add(clean);
+                    seenIds.add(cleanId);
+                    if (cleanKey) seenUrls.add(cleanKey);
+                    if (ts) seenTimestamps.add(ts);
                     return true;
                 });
                 
                 if (freshDbPosts.length > 0) {
-                    rawPostsCacheRef.current = [...rawPostsCacheRef.current, ...freshDbPosts];
+                    rawPostsCacheRef.current = deduplicatePosts([...rawPostsCacheRef.current, ...freshDbPosts]);
                     const rankedDb = rankExploreGrid(freshDbPosts, activeProfile, selectedCategory, currentDay);
                     nextBatch = [...nextBatch, ...rankedDb.slice(0, PAGE_SIZE - nextBatch.length)];
                 }
             }
 
             const dedupedBatch = deduplicatePosts(nextBatch).filter(p => {
-                const clean = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
-                return !seenIds.has(p.id) && !seenUrls.has(p.image_url) && !seenUrls.has(clean);
+                const cleanKey = getDedupUrlKey(p.image_url);
+                const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                const ts = extractMediaTimestamp(p.image_url, p.id);
+                return !seenIds.has(p.id) && !seenIds.has(cleanId) && (!cleanKey || !seenUrls.has(cleanKey)) && (!ts || !seenTimestamps.has(ts));
             });
             
             if (dedupedBatch.length > 0) {
@@ -800,7 +809,7 @@ const Explore = () => {
             // Append broader discovery posts after search results so user can endlessly swipe through next posts!
             const seenIds = new Set(normalizedSearchPosts.map(p => p.id));
             const remainingDiscover = normalizedDiscoverPosts.filter(p => !seenIds.has(p.id));
-            const fullFeed = [...normalizedSearchPosts, ...remainingDiscover];
+            const fullFeed = deduplicatePosts([...normalizedSearchPosts, ...remainingDiscover]);
             const targetIdx = fullFeed.findIndex(p => p.id === post.id);
             setActiveFeedState({ posts: fullFeed, index: targetIdx !== -1 ? targetIdx : index });
         }

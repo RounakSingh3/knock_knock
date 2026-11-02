@@ -71,6 +71,38 @@ export const FILE_TIMESTAMP_REGEX = /^(.+?)-(\d+)\.([a-z0-9]+)$/i;
 
 export const storagePostersByStem = new Map<string, string>();
 
+/** Extract 13-digit Unix timestamp from any URL stem, file name, or post ID. */
+export function extractMediaTimestamp(url?: string, id?: string): string {
+    if (url) {
+        const m = url.match(/(?:-|_|:|\/)(\d{13})(?:[._\-\?]|$)/);
+        if (m) return m[1];
+    }
+    if (id) {
+        const m = String(id).match(/(?:-|_|:)(\d{13})(?:[._\-\?]|$)/);
+        if (m) return m[1];
+    }
+    return '';
+}
+
+/** Extract normalized poster filename stem from a media URL or poster URL. */
+export function extractPosterStemFromUrl(url?: string): string {
+    if (!url) return '';
+    const pm = url.match(/#POSTER:([^#?]+)/);
+    if (pm && pm[1]) {
+        try {
+            const dec = decodeURIComponent(pm[1]).split('?')[0];
+            const fn = dec.split('/').pop() || '';
+            const stem = fn.replace(/\.[^.]+$/, '').toLowerCase().trim();
+            if (stem) return stem;
+        } catch (_) {}
+    }
+    const sm = url.match(/\/posts\/posters\/([^/?#]+)/i);
+    if (sm && sm[1]) {
+        return sm[1].replace(/\.[^.]+$/, '').toLowerCase().trim();
+    }
+    return '';
+}
+
 /**
  * Validates that an embedded #POSTER: in a media URL belongs to the exact same upload (diff <= 3500ms).
  * If the poster was stolen from an unrelated video or another user, it strips the fragment,
@@ -543,8 +575,9 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
 export function deduplicatePosts(postList: PostData[]): PostData[] {
     const seenIds = new Set<string>();
     const seenUrls = new Set<string>();
-    const seenPosterFiles = new Set<string>();
+    const seenPosterStems = new Set<string>();
     const seenTimestamps = new Set<string>();
+    const seenUserRecentUploads: Array<{ uid: string; ts: number; caption: string }> = [];
     const result: PostData[] = [];
 
     for (const post of postList) {
@@ -552,40 +585,50 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         const cleanId = String(post.id).replace(/_p\d+_\d+$/, '');
         if (seenIds.has(cleanId) || seenIds.has(post.id)) continue;
 
-        const rawNoHash = (post.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
-        const baseFilename = (rawNoHash.split('/').pop() || '').toLowerCase().trim();
+        const cleanUrl = getDedupUrlKey(post.image_url);
+        const posterStem = extractPosterStemFromUrl(post.image_url);
+        const ts = extractMediaTimestamp(post.image_url, post.id);
+        const uid = (post.user_id || post.username || '').toLowerCase();
+        const caption = (post.caption || '').trim().toLowerCase();
 
-        let posterFilename = '';
-        const posterMatch = (post.image_url || '').match(/#POSTER:([^#?]+)/);
-        if (posterMatch && posterMatch[1]) {
-            try {
-                const dec = decodeURIComponent(posterMatch[1]).split('?')[0];
-                posterFilename = (dec.split('/').pop() || '').toLowerCase().trim();
-            } catch (_) {}
+        // 1. Direct clean base URL deduplication
+        if (cleanUrl && !cleanUrl.startsWith('blob:') && !cleanUrl.startsWith('local-media:') && seenUrls.has(cleanUrl)) {
+            continue;
         }
 
-        const localIdMatch = (post.image_url || '').match(/#LOCAL_ID:([^#]+)/);
-        const localId = localIdMatch ? localIdMatch[1].toLowerCase() : '';
+        // 2. Poster stem deduplication (catches identical video/photo poster across uploads)
+        if (posterStem && seenPosterStems.has(posterStem)) {
+            continue;
+        }
 
-        const tm = baseFilename.match(/-(\d+)\./);
-        const fileTimestamp = tm ? tm[1] : '';
+        // 3. Exact 13-digit timestamp deduplication (matches across local, cloud, and DB)
+        if (ts && seenTimestamps.has(ts)) {
+            continue;
+        }
 
-        if (rawNoHash && !rawNoHash.startsWith('blob:') && seenUrls.has(rawNoHash)) continue;
-        if (posterFilename && seenPosterFiles.has(posterFilename)) continue;
-        if (localId && (seenUrls.has(`local:${localId}`) || seenTimestamps.has(localId))) continue;
-        if (fileTimestamp && (seenTimestamps.has(fileTimestamp) || seenUrls.has(`local:${fileTimestamp}`))) continue;
+        // 4. Same-user retry duplicate detection (uploaded <= 5 minutes apart with identical or empty captions)
+        if (uid && ts) {
+            const tsNum = Number(ts);
+            const isRetryDup = seenUserRecentUploads.some(r => {
+                if (r.uid !== uid) return false;
+                const diffMs = Math.abs(r.ts - tsNum);
+                if (diffMs > 300000) return false; // > 5 minutes apart
+                return (r.caption === caption) || (!r.caption && !caption);
+            });
+            if (isRetryDup) {
+                continue;
+            }
+        }
 
         seenIds.add(cleanId);
         seenIds.add(post.id);
-        if (rawNoHash && !rawNoHash.startsWith('blob:')) seenUrls.add(rawNoHash);
-        if (posterFilename) seenPosterFiles.add(posterFilename);
-        if (localId) {
-            seenUrls.add(`local:${localId}`);
-            seenTimestamps.add(localId);
+        if (cleanUrl && !cleanUrl.startsWith('blob:') && !cleanUrl.startsWith('local-media:')) {
+            seenUrls.add(cleanUrl);
         }
-        if (fileTimestamp) {
-            seenTimestamps.add(fileTimestamp);
-            seenUrls.add(`local:${fileTimestamp}`);
+        if (posterStem) seenPosterStems.add(posterStem);
+        if (ts) {
+            seenTimestamps.add(ts);
+            if (uid) seenUserRecentUploads.push({ uid, ts: Number(ts), caption });
         }
 
         result.push(post);
@@ -594,82 +637,62 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
 }
 
 /** Normalised key used to detect the same media across DB, cloud manifest and local posts. */
-function getDedupUrlKey(url?: string): string {
+export function getDedupUrlKey(url?: string): string {
     if (!url) return '';
+    // Always prefer the clean HTTP public base URL if available before '#'
+    const rawNoHash = url.split('?')[0].split('#')[0].toLowerCase().trim();
+    if (rawNoHash.startsWith('http://') || rawNoHash.startsWith('https://')) {
+        return rawNoHash;
+    }
     const localMatch = url.match(/#LOCAL_ID:([^#]+)/);
     if (localMatch && localMatch[1]) return `local:${localMatch[1].toLowerCase()}`;
-    return url.split('?')[0].split('#')[0].toLowerCase().trim();
+    return rawNoHash;
 }
 
 export function mergePostsWithFallback(dbPosts: PostData[], cloudPosts: PostData[] = []): PostData[] {
-    const seen = new Set<string>();
-    const seenUrls = new Set<string>();
-    const merged: PostData[] = [];
-
-    // Map cloudPosts by clean base URL so dbPosts missing a #POSTER: fragment can inherit it
     const cloudByUrl = new Map<string, PostData>();
     const cachedCloud = cloudPosts.length > 0 ? cloudPosts : (getFromCache<PostData[]>('cloud_storage_posts', 60000) || []);
     for (const cp of cachedCloud) {
         const key = getDedupUrlKey(cp.image_url);
         if (key) cloudByUrl.set(key, cp);
+        const ts = extractMediaTimestamp(cp.image_url, cp.id);
+        if (ts) cloudByUrl.set(`ts:${ts}`, cp);
     }
 
-    const isClean = (p: PostData): boolean => {
-        if (!p || !p.id || BROKEN_POST_IDS.has(p.id) || isPostDeletedLocally(p.id, p.image_url)) return false;
-        const hasLocalId = Boolean(p.image_url && (p.image_url.includes('#LOCAL_ID:') || p.image_url.startsWith('local-media://')));
-        if (p.image_url?.startsWith('blob:') && !hasLocalId) return false;
-        if (isRemovedUser(p.user_id, p.username)) return false;
-        const cleanUrl = getDedupUrlKey(p.image_url);
-        if (cleanUrl && seenUrls.has(cleanUrl)) return false;
-        if (seen.has(p.id)) return false;
-        return true;
-    };
-
-    const addPost = (rawPost: PostData) => {
+    const enrichPost = (rawPost: PostData): PostData => {
         let p = rawPost.image_url && (rawPost.image_url.includes('#LOCAL_ID:') || rawPost.image_url.startsWith('local-media://'))
             ? { ...rawPost, image_url: resolveLocalMediaUrl(rawPost.image_url) }
             : rawPost;
         const cleanUrl = getDedupUrlKey(p.image_url);
-        const matchingCloud = cleanUrl ? cloudByUrl.get(cleanUrl) : undefined;
+        const ts = extractMediaTimestamp(p.image_url, p.id);
+        const matchingCloud = (cleanUrl ? cloudByUrl.get(cleanUrl) : undefined) || (ts ? cloudByUrl.get(`ts:${ts}`) : undefined);
         if (matchingCloud && p.image_url && !p.image_url.includes('#POSTER:') && matchingCloud.image_url?.includes('#POSTER:')) {
             const posterMatch = matchingCloud.image_url.match(/#POSTER:([^#]+)/);
             if (posterMatch && posterMatch[1]) {
                 p = { ...p, image_url: `${p.image_url}#POSTER:${posterMatch[1]}` };
             }
         }
-        if (!isClean(p)) return;
-        seen.add(p.id);
-        if (cleanUrl) seenUrls.add(cleanUrl);
-        merged.push(p);
+        return p;
     };
 
-    // 1. Genuinely local user-created posts on this device
-    const local = getLocalPosts();
-    for (const p of local) {
-        addPost(p);
-    }
+    // 1. Live Database posts (canonical IDs, captions, likes)
+    const db = dbPosts.map(enrichPost);
 
-    // 2. Live Database posts (canonical IDs, captions, likes)
-    for (const p of dbPosts) {
-        addPost(p);
-    }
+    // 2. Genuinely local user-created posts on this device
+    const local = getLocalPosts().map(enrichPost);
 
     // 3. Cloud Storage posts (recovers all recent video/photo uploads from Storage bucket)
-    for (const p of cachedCloud) {
-        addPost(p);
+    const cloud = cachedCloud.map(enrichPost);
+
+    // Prioritize DB posts, then local, then cloud
+    const combined = [...db, ...local, ...cloud];
+    const deduped = deduplicatePosts(combined);
+    deduped.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+    if (deduped.length === 0) {
+        return deduplicatePosts(SEED_POSTS);
     }
-
-    // 4. Sort all live & local posts strictly newest-first by created_at so latest photos/videos are ALWAYS on top!
-    merged.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-
-    // 5. Fallback to SEED_POSTS ONLY if completely offline and both DB and Cloud Storage are empty
-    if (merged.length === 0) {
-        for (const p of SEED_POSTS) {
-            addPost(p);
-        }
-    }
-
-    return deduplicatePosts(merged);
+    return deduped;
 }
 
 export async function fetchPosts(): Promise<PostData[]> {
@@ -1029,65 +1052,16 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         return false;
     });
 
-    // Merge localPosts, userCloudPosts, and dbPosts, deduplicated by post id, clean URL, poster filename, and retry uploads
-    const seenPostIds = new Set<string>();
-    const seenBaseUrls = new Set<string>();
-    const seenPosterFiles = new Set<string>();
-    const seenUserTimestamps = new Set<string>();
-    const mergedPosts: PostData[] = [];
+    // Merge dbPosts, localPosts, and userCloudPosts, deduplicated by post id, clean URL, poster hash/filename, and retry upload timestamps
+    const rawCombined: PostData[] = [...dbPosts, ...localPosts, ...userCloudPosts].map(p => ({
+        ...p,
+        image_url: resolveLocalMediaUrl(p.image_url)
+    }));
 
-    // Prioritize canonical dbPosts, then localPosts, then userCloudPosts
-    for (const p of [...dbPosts, ...localPosts, ...userCloudPosts]) {
-        if (!p || !p.id || isPostDeletedLocally(p.id, p.image_url)) continue;
-        const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
-        if (seenPostIds.has(p.id) || seenPostIds.has(cleanId)) continue;
+    const dedupedMerged = deduplicatePosts(rawCombined);
 
-        const cleanUrl = getDedupUrlKey(p.image_url);
-        const rawFilename = (cleanUrl.split('/').pop() || '').toLowerCase().trim();
-
-        // Extract poster filename if video has a poster
-        let posterFilename = '';
-        const posterMatch = (p.image_url || '').match(/#POSTER:([^#?]+)/);
-        if (posterMatch && posterMatch[1]) {
-            try {
-                const dec = decodeURIComponent(posterMatch[1]).split('?')[0];
-                posterFilename = (dec.split('/').pop() || '').toLowerCase().trim();
-            } catch (_) {}
-        }
-
-        // Extract local ID tag if present (e.g. #LOCAL_ID:1793426496017)
-        const localIdMatch = (p.image_url || '').match(/#LOCAL_ID:([^#]+)/);
-        const localId = localIdMatch ? localIdMatch[1].toLowerCase() : '';
-
-        // Match filename timestamp (e.g. uuid-1793426496017.mp4)
-        const tm = rawFilename.match(/-(\d+)\./);
-        const fileTimestamp = tm ? tm[1] : '';
-
-        // Check if media, poster, or local timestamp was already seen
-        if (cleanUrl && !cleanUrl.startsWith('blob:') && seenBaseUrls.has(cleanUrl)) continue;
-        if (posterFilename && seenPosterFiles.has(posterFilename)) continue;
-        if (localId && (seenBaseUrls.has(`local:${localId}`) || seenUserTimestamps.has(localId))) continue;
-        if (fileTimestamp && (seenUserTimestamps.has(fileTimestamp) || seenBaseUrls.has(`local:${fileTimestamp}`))) continue;
-
-        seenPostIds.add(p.id);
-        seenPostIds.add(cleanId);
-        if (cleanUrl && !cleanUrl.startsWith('blob:')) seenBaseUrls.add(cleanUrl);
-        if (posterFilename) seenPosterFiles.add(posterFilename);
-        if (localId) {
-            seenBaseUrls.add(`local:${localId}`);
-            seenUserTimestamps.add(localId);
-        }
-        if (fileTimestamp) {
-            seenUserTimestamps.add(fileTimestamp);
-            seenBaseUrls.add(`local:${fileTimestamp}`);
-        }
-
-        p.image_url = resolveLocalMediaUrl(p.image_url);
-        mergedPosts.push(p);
-    }
-
-    if (mergedPosts.length > 0) {
-        return deduplicatePosts(mergedPosts).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    if (dedupedMerged.length > 0) {
+        return dedupedMerged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
 
     // Fallback: If no DB or local posts exist, check if this is a known reel creator from REEL_CREATOR_POSTS
@@ -4955,9 +4929,17 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
     const tokenList = Array.from(candidateTerms).filter(t => t.length > 0);
     if (tokenList.length === 0) return [];
 
-    // Parallel fetch: DB posts, Cloud storage posts, and local posts
+    // Parallel fetch: DB posts, Cloud storage posts, local posts, and user posts if searching user tag
     const cloudPromise = fetchCloudStoragePosts();
     let dbPosts: PostData[] = [];
+    let userTaggedPosts: PostData[] = [];
+
+    // If query or cleanRaw could be a username (e.g. #rounak2 or rounak2), fetch all their posts directly
+    if (cleanRaw.length >= 2) {
+        try {
+            userTaggedPosts = await fetchUserPosts(cleanRaw);
+        } catch (_) {}
+    }
 
     if (!isSupabaseQuotaRestricted()) {
         try {
@@ -5012,8 +4994,11 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
         }
     }
 
-    // Merge all candidate posts
-    const mergedCandidates = mergePostsWithFallback(dbPosts, [...localPosts, ...cloudPosts, ...creatorPosts]);
+    // Merge all candidate posts (including direct userTaggedPosts)
+    const mergedCandidates = mergePostsWithFallback(
+        [...dbPosts, ...userTaggedPosts],
+        [...localPosts, ...cloudPosts, ...creatorPosts]
+    );
 
     // Robust matching logic: matches hashtags, captions, usernames, display names, and topics
     const matched = mergedCandidates.filter(post => {

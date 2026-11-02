@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, recordPostScreenDelivery, isKnockVideoLink, parseKnockVideoLink, type PostData, type MessageData } from '../lib/database';
+import { fetchAllPostsForScoring, fetchConnectionPosts, fetchConnectionUserIds, fetchUserEngagements, trackEngagement, deletePost, fetchProfilesByIds, fetchDiscoverPosts, normalizePost, recordPostScreenDelivery, isKnockVideoLink, parseKnockVideoLink, deduplicatePosts, getDedupUrlKey, extractMediaTimestamp, type PostData, type MessageData } from '../lib/database';
 import { checkIfLiked, checkIfLikedBatch, toggleLike, fetchUserImps, toggleImp, getLocalLikes, getLocalComments } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { Loader2, Plus, Heart, MessageCircle, Send, Bookmark, X, Link as LinkIcon, Sparkles, ChevronLeft, ChevronRight, Flame, Users, RefreshCw, Mic, Trash2, Music, Bell, Volume2, VolumeX, Film } from 'lucide-react';
@@ -525,55 +525,73 @@ const Home = () => {
             const connIds = Array.from(connectionUserIdsRef.current);
             
             const currentPosts = postsRef.current;
-            const currentIds = new Set(currentPosts.map(p => p.id));
-            const currentUrls = new Set(currentPosts.map(p => p.image_url));
+            const currentIds = new Set(currentPosts.map(p => String(p.id).replace(/_p\d+_\d+$/, '')));
+            currentPosts.forEach(p => currentIds.add(p.id));
+            const currentUrls = new Set(currentPosts.map(p => getDedupUrlKey(p.image_url)).filter(Boolean));
+            const currentTimestamps = new Set<string>();
+            currentPosts.forEach(p => {
+                const ts = extractMediaTimestamp(p.image_url, p.id);
+                if (ts) currentTimestamps.add(ts);
+            });
             const rawPosts = allRawPostsRef.current;
 
-            // Generate next stream batch via infinite stream synthesizer
-            let streamBatch: PostData[] = [];
-            if (rawPosts.length > 0) {
-                streamBatch = generateInfiniteStream(
-                    rawPosts,
-                    nextPage,
-                    10,
-                    (batch) => rankFeedPosts(batch, hybridProfile, userId, connIds)
-                );
-            }
+            // Generate next stream batch without re-cycling seen items
+            const startIndex = nextPage * 10;
+            const unshownRaw = rawPosts.slice(startIndex, startIndex + 10);
+            let streamBatch: PostData[] = unshownRaw.length > 0 
+                ? rankFeedPosts(unshownRaw, hybridProfile, userId, connIds) 
+                : [];
 
-            // Exclude already loaded posts to keep feed fresh
-            let freshBatch = streamBatch.filter(p => !currentIds.has(p.id) && !currentUrls.has(p.image_url));
+            // Exclude already loaded posts to guarantee strict uniqueness
+            let freshBatch = streamBatch.filter(p => {
+                const cleanKey = getDedupUrlKey(p.image_url);
+                const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                const ts = extractMediaTimestamp(p.image_url, p.id);
+                if (currentIds.has(p.id) || currentIds.has(cleanId)) return false;
+                if (cleanKey && currentUrls.has(cleanKey)) return false;
+                if (ts && currentTimestamps.has(ts)) return false;
+                return true;
+            });
 
             if (freshBatch.length < 5) {
                 // Fetch more discover posts if pool is running low
                 const moreDbPosts = await fetchDiscoverPosts(null, 50, rawPosts.length);
                 const uniqueMoreDb = moreDbPosts.filter(p => {
-                    if (!p.image_url || currentIds.has(p.id) || currentUrls.has(p.image_url) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) return false;
+                    const cleanKey = getDedupUrlKey(p.image_url);
+                    const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                    const ts = extractMediaTimestamp(p.image_url, p.id);
+                    if (!p.image_url || currentIds.has(p.id) || currentIds.has(cleanId)) return false;
+                    if (cleanKey && currentUrls.has(cleanKey)) return false;
+                    if (ts && currentTimestamps.has(ts)) return false;
+                    if (p.user_id && blockedIdsRef.current.includes(p.user_id)) return false;
+
                     currentIds.add(p.id);
-                    currentUrls.add(p.image_url);
+                    currentIds.add(cleanId);
+                    if (cleanKey) currentUrls.add(cleanKey);
+                    if (ts) currentTimestamps.add(ts);
                     return true;
                 });
 
                 if (uniqueMoreDb.length > 0) {
-                    setAllRawPosts(prev => [...(prev || []), ...uniqueMoreDb]);
+                    setAllRawPosts(prev => deduplicatePosts([...(prev || []), ...uniqueMoreDb]));
                     const rankedMore = rankFeedPosts(uniqueMoreDb, hybridProfile, userId, connIds);
                     freshBatch = [...freshBatch, ...rankedMore.slice(0, 10 - freshBatch.length)];
                 }
             }
 
-            // If still empty (small dataset), allow cyclical stream
-            if (freshBatch.length === 0 && rawPosts.length > 0) {
-                freshBatch = generateInfiniteStream(
-                    rawPosts,
-                    nextPage,
-                    10,
-                    (batch) => rankFeedPosts(batch, hybridProfile, userId, connIds)
-                );
-            }
+            // Strictly deduplicate freshBatch before adding to feed
+            freshBatch = deduplicatePosts(freshBatch).filter(p => {
+                const cleanKey = getDedupUrlKey(p.image_url);
+                const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                const ts = extractMediaTimestamp(p.image_url, p.id);
+                return !currentIds.has(p.id) && !currentIds.has(cleanId) && (!cleanKey || !currentUrls.has(cleanKey)) && (!ts || !currentTimestamps.has(ts));
+            });
 
             if (freshBatch.length > 0) {
-                setPosts(prev => [...(prev || []), ...freshBatch]);
+                setPosts(prev => deduplicatePosts([...(prev || []), ...freshBatch]));
                 setFeedPage(nextPage);
                 feedPageRef.current = nextPage;
+                setHasMore(true);
                 // Batch check likes for new posts
                 const newPostIds = freshBatch.map(p => p.id);
                 checkIfLikedBatch(userId, newPostIds).then(likedMap => {

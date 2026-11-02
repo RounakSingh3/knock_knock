@@ -140,17 +140,6 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
                     if (fresh.length > 0) {
                         return [...prev, ...fresh];
                     }
-                    // If all unique posts have been seen, cycle existing pool with unique synthetic keys so swiping down continues seamlessly
-                    if (prev.length > 1) {
-                        replenishCycleRef.current += 1;
-                        const cycle = replenishCycleRef.current;
-                        const basePool = prev.slice(0, Math.min(prev.length, 12));
-                        const cycled = basePool.map((p, i) => ({
-                            ...p,
-                            id: `${String(p.id).replace(/_p\d+_\d+$/, '')}_p${cycle}_${i}`,
-                        }));
-                        return [...prev, ...cycled];
-                    }
                     return prev;
                 });
             })
