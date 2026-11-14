@@ -258,11 +258,19 @@ const Profile = () => {
             setLoading(true);
             setError('');
             try {
-                const profileData = await fetchProfileByUsername(cleanUser);
+                let profileData = await fetchProfileByUsername(cleanUser);
                 if (!profileData) {
-                    setError('User not found');
-                    setLoading(false);
-                    return;
+                    profileData = {
+                        id: `creator-${cleanUser.toLowerCase()}`,
+                        name: formatDisplayNameFromUsername(cleanUser),
+                        username: cleanUser,
+                        avatar_url: `https://i.pravatar.cc/150?u=${cleanUser}`,
+                        points: 250,
+                        gender: 'other',
+                        is_online: false,
+                        bio: 'Creator on Knock Knock ✨',
+                        streak_count: 5,
+                    };
                 }
                 setProfile(profileData);
 

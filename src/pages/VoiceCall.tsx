@@ -336,6 +336,8 @@ const VoiceCall = () => {
     const [audioBlocked, setAudioBlocked] = useState(false);
     const [peerConnected, setPeerConnected] = useState(false);
     const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+    const hasRemoteVideoRef = useRef(false);
+    useEffect(() => { hasRemoteVideoRef.current = hasRemoteVideo; }, [hasRemoteVideo]);
     const onlineUsersRef = useRef<any[]>([]);
 
     const channelRef = useRef<any>(null);
@@ -1612,11 +1614,6 @@ const VoiceCall = () => {
 
             if (remoteVideoTrack && !rStream.getVideoTracks().some(t => t.id === remoteVideoTrack.id)) {
                 rStream.addTrack(remoteVideoTrack);
-                setHasRemoteVideo(true);
-            }
-
-            if (rStream.getVideoTracks().some(t => t.readyState === 'live')) {
-                setHasRemoteVideo(true);
             }
 
             if (remoteAudioTrack && !rStream.getAudioTracks().some(t => t.id === remoteAudioTrack.id)) {
@@ -1643,13 +1640,16 @@ const VoiceCall = () => {
 
                 // Check if actual frames are rendered
                 const isRenderingFrames = videoEl.videoWidth > 0 && videoEl.videoHeight > 0 && !remoteVideoTrack.muted && remoteVideoTrack.enabled;
-                if (isRenderingFrames && !isRemoteCameraOff) {
-                    setHasRemoteVideo(true);
-                } else if (!isRenderingFrames || isRemoteCameraOff) {
-                    setHasRemoteVideo(false);
+                const nextHasVideo = Boolean(isRenderingFrames && !isRemoteCameraOff);
+                if (hasRemoteVideoRef.current !== nextHasVideo) {
+                    hasRemoteVideoRef.current = nextHasVideo;
+                    setHasRemoteVideo(nextHasVideo);
                 }
             } else if (!remoteVideoTrack) {
-                setHasRemoteVideo(false);
+                if (hasRemoteVideoRef.current !== false) {
+                    hasRemoteVideoRef.current = false;
+                    setHasRemoteVideo(false);
+                }
             }
 
             // 3. Ensure backup remote audio element also has audio track and is active
@@ -1682,7 +1682,7 @@ const VoiceCall = () => {
         syncStreams();
         const interval = setInterval(syncStreams, 800);
         return () => clearInterval(interval);
-    }, [videoRequestStatus, hasRemoteVideo, isVideoSwapped, isRemoteCameraOff]);
+    }, [videoRequestStatus, isVideoSwapped, isRemoteCameraOff]);
 
     const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60).toString().padStart(2, '0');

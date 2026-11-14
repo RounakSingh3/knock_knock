@@ -389,6 +389,15 @@ const Home = () => {
         };
     }, [userId]);
 
+    // ⚡ Pause all playing videos when switching away from Home feed to preserve GPU memory and battery
+    useEffect(() => {
+        return () => {
+            document.querySelectorAll('video').forEach(v => {
+                try { v.pause(); } catch (_) {}
+            });
+        };
+    }, []);
+
     // ⚡ Keep refs synced with state for stable callbacks
     useEffect(() => { postsRef.current = posts; }, [posts]);
     useEffect(() => { allRawPostsRef.current = allRawPosts; }, [allRawPosts]);

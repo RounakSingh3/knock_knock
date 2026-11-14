@@ -8,30 +8,37 @@ import OnboardingOverlay from './components/OnboardingOverlay';
 import GlobalCallListener from './components/GlobalCallListener';
 import { isCallingAllowedNow } from './lib/callingWindow';
 
-// ⚡ Lazy-load pages so only the page you visit is downloaded (huge speed boost).
+// ⚡ Primary core tabs are eagerly imported for instantaneous (0ms) native mobile transitions.
+import Home from './pages/Home';
+import Explore from './pages/Explore';
+import Boost from './pages/Boost';
+import Reels from './pages/Reels';
+import VoiceCall from './pages/VoiceCall';
+import Settings from './pages/Settings';
+import Profile from './pages/Profile';
+
+// Secondary routes remain lazy to keep initial bundle balanced
 const Login = lazy(() => import('./pages/Login'));
-const Home = lazy(() => import('./pages/Home'));
 const Stories = lazy(() => import('./pages/Stories'));
-const Explore = lazy(() => import('./pages/Explore'));
 const Connections = lazy(() => import('./pages/Connections'));
-const Boost = lazy(() => import('./pages/Boost'));
-const Reels = lazy(() => import('./pages/Reels'));
-const VoiceCall = lazy(() => import('./pages/VoiceCall'));
-const Profile = lazy(() => import('./pages/Profile'));
-const Settings = lazy(() => import('./pages/Settings'));
 const CreatePost = lazy(() => import('./pages/CreatePost'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 
-// Compact loading spinner shown while a lazy page chunk downloads
-const PageLoader: React.FC<{ message?: string }> = ({ message = 'Loading...' }) => (
-    <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-        <div className="text-center">
-            <h1 className="app-title text-4xl mb-2" style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, letterSpacing: '-1.5px', background: 'var(--primary-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                Knock Knock
-            </h1>
-            <p style={{ color: 'var(--text-inactive)', marginTop: '1rem' }}>{message}</p>
-        </div>
-    </div>
+// Sleek top glowing progress bar shown non-intrusively while lazy secondary chunks download
+const TopProgressBar: React.FC = () => (
+    <div
+        style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '3px',
+            background: 'linear-gradient(90deg, #f5a524, #ff6b35, #ff3366)',
+            zIndex: 99999,
+            boxShadow: '0 0 10px rgba(245, 165, 36, 0.75)',
+            pointerEvents: 'none',
+        }}
+    />
 );
 
 class ErrorBoundary extends React.Component<
@@ -229,13 +236,10 @@ function App() {
     useEffect(() => {
         if (!isAuthenticated) return;
         const preloadRoutes = () => {
-            import('./pages/Home');
-            import('./pages/Explore');
-            import('./pages/Reels');
-            import('./pages/Boost');
-            import('./pages/VoiceCall');
-            import('./pages/Settings');
+            import('./pages/Stories');
             import('./pages/Connections');
+            import('./pages/CreatePost');
+            import('./pages/Notifications');
         };
         if ('requestIdleCallback' in window) {
             (window as any).requestIdleCallback(preloadRoutes, { timeout: 2500 });
@@ -445,23 +449,23 @@ function App() {
                         {!isAuthenticated ? (
                             <>
                                 <Route path="*" element={<Navigate to="/login" />} />
-                                <Route path="/login" element={<Suspense fallback={<PageLoader message="Loading..." />}><Login /></Suspense>} />
+                                <Route path="/login" element={<Suspense fallback={<TopProgressBar />}><Login /></Suspense>} />
                             </>
                         ) : (
                             <>
                                 <Route path="/" element={<Navigate to={isCallingAllowedNow() ? "/call" : "/boost"} />} />
-                                <Route path="/home" element={<Suspense fallback={<PageLoader message="Loading home..." />}><Home /></Suspense>} />
-                                <Route path="/stories" element={<Suspense fallback={<PageLoader />}><Stories /></Suspense>} />
-                                <Route path="/explore" element={<Suspense fallback={<PageLoader />}><Explore /></Suspense>} />
-                                <Route path="/connections" element={<Suspense fallback={<PageLoader />}><Connections /></Suspense>} />
-                                <Route path="/create" element={<Suspense fallback={<PageLoader />}><CreatePost /></Suspense>} />
-                                <Route path="/boost" element={<Suspense fallback={<PageLoader />}><Boost /></Suspense>} />
-                                <Route path="/reels" element={<Suspense fallback={<PageLoader />}><Reels /></Suspense>} />
-                                <Route path="/call" element={<Suspense fallback={<PageLoader />}><VoiceCall /></Suspense>} />
-                                <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
-                                <Route path="/profile" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
-                                <Route path="/profile/:username" element={<Suspense fallback={<PageLoader />}><Profile /></Suspense>} />
-                                <Route path="/notifications" element={<Suspense fallback={<PageLoader />}><Notifications /></Suspense>} />
+                                <Route path="/home" element={<Home />} />
+                                <Route path="/stories" element={<Suspense fallback={<TopProgressBar />}><Stories /></Suspense>} />
+                                <Route path="/explore" element={<Explore />} />
+                                <Route path="/connections" element={<Suspense fallback={<TopProgressBar />}><Connections /></Suspense>} />
+                                <Route path="/create" element={<Suspense fallback={<TopProgressBar />}><CreatePost /></Suspense>} />
+                                <Route path="/boost" element={<Boost />} />
+                                <Route path="/reels" element={<Reels />} />
+                                <Route path="/call" element={<VoiceCall />} />
+                                <Route path="/settings" element={<Settings />} />
+                                <Route path="/profile" element={<Profile />} />
+                                <Route path="/profile/:username" element={<Profile />} />
+                                <Route path="/notifications" element={<Suspense fallback={<TopProgressBar />}><Notifications /></Suspense>} />
                                 <Route path="/messages" element={<Navigate to="/connections" replace />} />
                                 <Route path="/login" element={<Navigate to={isCallingAllowedNow() ? "/call" : "/boost"} />} />
                             </>

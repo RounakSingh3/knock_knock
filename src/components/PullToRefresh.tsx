@@ -6,13 +6,14 @@ interface PullToRefreshProps {
     children: React.ReactNode;
 }
 
-const MAX_PULL_DISTANCE = 90;
-const REFRESH_THRESHOLD = 56;
+const MAX_PULL_DISTANCE = 80;
+const REFRESH_THRESHOLD = 52;
 
 const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) => {
     const [isRefreshing, setIsRefreshing] = useState(false);
-    
+
     const startY = useRef(0);
+    const startX = useRef(0);
     const isDragging = useRef(false);
     const pullDistanceRef = useRef(0);
     const isRefreshingRef = useRef(false);
@@ -20,20 +21,23 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
     const onRefreshRef = useRef(onRefresh);
     onRefreshRef.current = onRefresh;
 
+    const containerRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const indicatorRef = useRef<HTMLDivElement>(null);
     const spinnerRef = useRef<HTMLDivElement>(null);
 
     const applyPullStyles = (dist: number, withTransition = false) => {
-        const transitionStyle = withTransition ? 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.25s ease' : 'none';
+        const transitionStyle = withTransition
+            ? 'transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.22s ease'
+            : 'none';
 
         if (contentRef.current) {
-            contentRef.current.style.transition = withTransition ? 'transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
+            contentRef.current.style.transition = withTransition ? 'transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
             contentRef.current.style.transform = dist > 0 ? `translate3d(0, ${dist}px, 0)` : '';
             contentRef.current.style.willChange = dist > 0 ? 'transform' : 'auto';
         }
         if (indicatorRef.current) {
-            indicatorRef.current.style.transition = withTransition ? 'height 0.25s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
+            indicatorRef.current.style.transition = withTransition ? 'height 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
             indicatorRef.current.style.height = `${dist}px`;
         }
         if (spinnerRef.current) {
@@ -45,8 +49,13 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
     };
 
     const handleTouchStart = (e: TouchEvent) => {
-        if (window.scrollY > 0 || isRefreshingRef.current) return;
+        if (isRefreshingRef.current) return;
+        const container = containerRef.current;
+        const scrollTop = window.scrollY || document.documentElement.scrollTop || (container ? container.scrollTop : 0);
+        if (scrollTop > 2) return;
+
         startY.current = e.touches[0].clientY;
+        startX.current = e.touches[0].clientX;
         isDragging.current = true;
     };
 
@@ -54,10 +63,21 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
         if (!isDragging.current || isRefreshingRef.current) return;
 
         const currentY = e.touches[0].clientY;
-        const distance = currentY - startY.current;
+        const currentX = e.touches[0].clientX;
+        const diffY = currentY - startY.current;
+        const diffX = Math.abs(currentX - startX.current);
 
-        // If user scrolls up or page is scrolled down, cancel dragging
-        if (distance < 0 || window.scrollY > 0) {
+        // If horizontal swipe is dominant (e.g. story carousel, swipe navigation), cancel pull
+        if (diffX > Math.abs(diffY)) {
+            isDragging.current = false;
+            return;
+        }
+
+        const container = containerRef.current;
+        const scrollTop = window.scrollY || document.documentElement.scrollTop || (container ? container.scrollTop : 0);
+
+        // Cancel dragging if scrolled down or scrolling up
+        if (scrollTop > 2 || diffY < 0) {
             isDragging.current = false;
             if (pullDistanceRef.current > 0) {
                 pullDistanceRef.current = 0;
@@ -66,9 +86,9 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
             return;
         }
 
-        // Only pull down when at the top of the viewport
-        if (distance > 0 && window.scrollY <= 0) {
-            const resistance = distance * 0.42;
+        // Only pull down when at the very top of viewport
+        if (diffY > 0 && scrollTop <= 2) {
+            const resistance = Math.pow(diffY, 0.82) * 1.4;
             const targetDistance = Math.min(resistance, MAX_PULL_DISTANCE);
             pullDistanceRef.current = targetDistance;
 
@@ -97,7 +117,13 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
             applyPullStyles(REFRESH_THRESHOLD, true);
 
             try {
-                await onRefreshRef.current();
+                // Strict 3.5-second safety timeout guarantees the spinner never hangs
+                await Promise.race([
+                    onRefreshRef.current(),
+                    new Promise(resolve => setTimeout(resolve, 3500))
+                ]);
+            } catch (err) {
+                console.error('[PullToRefresh] Refresh failed:', err);
             } finally {
                 isRefreshingRef.current = false;
                 setIsRefreshing(false);
@@ -110,16 +136,26 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
         }
     };
 
+    const handleTouchCancel = () => {
+        isDragging.current = false;
+        pullDistanceRef.current = 0;
+        applyPullStyles(0, true);
+    };
+
     useEffect(() => {
-        // Use passive: true to guarantee smooth 60/120fps compositor-driven touch scrolling
-        document.addEventListener('touchstart', handleTouchStart, { passive: true });
-        document.addEventListener('touchmove', handleTouchMove, { passive: true });
-        document.addEventListener('touchend', handleTouchEnd, { passive: true });
+        const el = containerRef.current;
+        if (!el) return;
+
+        el.addEventListener('touchstart', handleTouchStart, { passive: true });
+        el.addEventListener('touchmove', handleTouchMove, { passive: true });
+        el.addEventListener('touchend', handleTouchEnd, { passive: true });
+        el.addEventListener('touchcancel', handleTouchCancel, { passive: true });
 
         return () => {
-            document.removeEventListener('touchstart', handleTouchStart);
-            document.removeEventListener('touchmove', handleTouchMove);
-            document.removeEventListener('touchend', handleTouchEnd);
+            el.removeEventListener('touchstart', handleTouchStart);
+            el.removeEventListener('touchmove', handleTouchMove);
+            el.removeEventListener('touchend', handleTouchEnd);
+            el.removeEventListener('touchcancel', handleTouchCancel);
             if (rafId.current !== null) {
                 cancelAnimationFrame(rafId.current);
             }
@@ -127,9 +163,9 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
     }, []);
 
     return (
-        <div style={{ position: 'relative', width: '100%', overscrollBehaviorY: 'contain' }}>
+        <div ref={containerRef} style={{ position: 'relative', width: '100%', overscrollBehaviorY: 'contain' }}>
             {/* Pull to Refresh Indicator */}
-            <div 
+            <div
                 ref={indicatorRef}
                 style={{
                     position: 'absolute',
@@ -146,7 +182,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
                     willChange: 'height',
                 }}
             >
-                <div 
+                <div
                     ref={spinnerRef}
                     style={{
                         opacity: 0,
@@ -157,12 +193,12 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, children }) =>
                         justifyContent: 'center',
                     }}
                 >
-                    <Loader2 
-                        size={22} 
-                        color="#f5a524" 
-                        style={{ 
-                            animation: isRefreshing ? 'spin 0.8s linear infinite' : 'none' 
-                        }} 
+                    <Loader2
+                        size={22}
+                        color="#f5a524"
+                        style={{
+                            animation: isRefreshing ? 'spin 0.8s linear infinite' : 'none'
+                        }}
                     />
                 </div>
             </div>
