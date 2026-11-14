@@ -2,13 +2,14 @@ import React, { useState, useEffect, useContext, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { 
-    fetchProfileByUsername, fetchUserPosts, formatDisplayNameFromUsername, type ProfileData, type PostData,
+    fetchProfileByUsername, fetchUserPosts, getOfflineUserPosts, formatDisplayNameFromUsername, type ProfileData, type PostData,
     fetchFollowers, fetchFollowing, fetchFollowCounts, checkIfFollowing, toggleFollow,
     uploadMedia, updateProfile, blockUser, unblockUser,
     getCallRequestStatus, sendCallRequest, updateCallRequestStatus, fetchUserOnlineStatus, checkConnection, type CallRequestData,
     checkIfLiked, toggleLike, toggleImp, fetchUserImps, deletePost, deduplicatePosts,
     isKnockVideoLink, parseKnockVideoLink, isPostLikedLocally, getLocalComments
 } from '../lib/database';
+import { getKnownProfile } from '../lib/fallbackData';
 import { recordHashtagSignal } from '../lib/algorithm';
 import { Loader2, Settings, Grid, Film, UserPlus, Zap, Clock, TrendingUp, Users, UserCheck, Star, X, Camera, Phone, Video, ShieldAlert, Lock, RefreshCw, Bell, Music, ChevronLeft, ChevronRight, Volume2, VolumeX, MessageCircle, Send, Heart, Share2, Trash2, Flame } from 'lucide-react';
 import { isVideoPost, isVideoUrl, compressImage, getFeedMutedPreference, setFeedMutedPreference } from '../lib/media';
@@ -255,14 +256,32 @@ const Profile = () => {
         setIsOnline(false);
         setLoadingCallAction(false);
 
+        let active = true;
         let loadedProfile: ProfileData | null = null;
+        const cleanUserInitial = username ? username.replace(/^@+/, '').trim() : '';
+        const isOwnCandidate = !!cleanUserInitial && currentUser?.username?.replace(/^@+/, '').trim().toLowerCase() === cleanUserInitial.toLowerCase();
+        const offlineKnown = cleanUserInitial
+            ? (getKnownProfile(cleanUserInitial) || (isOwnCandidate && currentUser ? currentUser : null))
+            : null;
+        const offlinePosts = cleanUserInitial
+            ? getOfflineUserPosts(cleanUserInitial, offlineKnown?.id || (isOwnCandidate ? currentUser?.id : undefined))
+            : [];
+
         const loadProfile = async () => {
             if (!username) return;
-            const cleanUser = username.replace(/^@+/, '').trim();
-            setLoading(true);
+            const cleanUser = cleanUserInitial;
+            if (offlineKnown) {
+                loadedProfile = offlineKnown;
+                setProfile(offlineKnown);
+            } else {
+                setProfile(null);
+            }
+            setPosts(offlinePosts);
+            setLoading(!offlineKnown && offlinePosts.length === 0);
             setError('');
             try {
                 let profileData = await fetchProfileByUsername(cleanUser);
+                if (!active) return;
                 if (!profileData) {
                     profileData = {
                         id: `creator-${cleanUser.toLowerCase()}`,
@@ -285,14 +304,16 @@ const Profile = () => {
                 }
                 
                 const [userPosts, stats] = await Promise.all([
-                    fetchUserPosts(profileData.username || cleanUser, profileData.id).catch(() => []),
+                    fetchUserPosts(profileData.username || cleanUser, profileData.id).catch(() => offlinePosts),
                     fetchFollowCounts(profileData.id).catch(() => ({ followers: 0, following: 0 }))
                 ]);
+                if (!active) return;
                 setPosts(userPosts);
                 setFollowStats(stats);
                 
                 if (currentUser && currentUser.id !== profileData.id) {
                     const following = await checkIfFollowing(currentUser.id, profileData.id).catch(() => false);
+                    if (!active) return;
                     setIsFollowing(following);
 
                     // Fetch call request & connection status — wrapped in its own try/catch
@@ -304,6 +325,7 @@ const Profile = () => {
                             checkConnection(currentUser.id, profileData.id).catch(() => null),
                             fetchUserOnlineStatus(profileData.id).catch(() => false)
                         ]);
+                        if (!active) return;
                         setCallRequest(req);
                         setIsConnected(!!conn);
                         setIsOnline(online);
@@ -313,22 +335,26 @@ const Profile = () => {
                     }
                 }
             } catch (err) {
+                if (!active) return;
                 console.error('Error loading profile:', err);
                 setError('Failed to load profile');
             } finally {
-                setLoading(false);
+                if (active) setLoading(false);
             }
         };
         loadProfile();
 
         const handlePostsSync = () => {
-            if (!username) return;
+            if (!username || !active) return;
             const targetName = loadedProfile?.username || username.replace(/^@+/, '').trim();
-            fetchUserPosts(targetName, loadedProfile?.id).then(setPosts).catch(() => {});
+            fetchUserPosts(targetName, loadedProfile?.id).then(synced => {
+                if (active) setPosts(synced);
+            }).catch(() => {});
         };
         window.addEventListener('knock-post-created', handlePostsSync);
         window.addEventListener('knock-post-deleted', handlePostsSync);
         return () => {
+            active = false;
             window.removeEventListener('knock-post-created', handlePostsSync);
             window.removeEventListener('knock-post-deleted', handlePostsSync);
         };

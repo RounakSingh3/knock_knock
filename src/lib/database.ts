@@ -7,6 +7,7 @@ import {
     setSupabaseQuotaRestricted,
     isQuotaError,
     getLocalPosts,
+    persistLocalPosts,
     saveLocalPost,
     removeLocalPost,
     isPostDeletedLocally,
@@ -52,10 +53,6 @@ export const BROKEN_POST_IDS = new Set([
     '0c718c71-7597-41a6-8be0-dc565ee0b383',
     '868a6af7-f1b5-4f26-bb76-e32e8c77c581',
     '6791a5fa-3716-45a4-9fcd-89a0cfd0b55c',
-    'a9add1d0-2022-487e-a95c-6f0bf2b6ba9d',
-    '3184babf-1fb1-47f8-b25e-5a94428977d7',
-    'a0e88fbb-e13d-40c6-9978-15cf747c5afc',
-    '652fd7fd-c442-4927-a7f2-ebfafd0f0df7',
 ]);
 
 // Inappropriate or test accounts filtered out from feeds and search to keep app clean
@@ -1132,7 +1129,10 @@ export function getOfflineUserPosts(username: string, userId?: string): PostData
     const { candidateUsernames, candidateUserIds } = getCandidateUserIdentifiers(username, userId);
     if (candidateUsernames.size === 0 && candidateUserIds.size === 0) return [];
 
-    const localPosts = getLocalPosts().filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds));
+    const localPosts = getLocalPosts()
+        .filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds))
+        .map(normalizePost)
+        .filter((p): p is PostData => Boolean(p));
     const seedUserPosts = SEED_POSTS
         .filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds))
         .map(normalizePost)
@@ -1187,7 +1187,10 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
 
     const allCloudPosts = await cloudPromise;
     const userCloudPosts = allCloudPosts.filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds));
-    const localPosts = getLocalPosts().filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds));
+    const localPosts = getLocalPosts()
+        .filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds))
+        .map(normalizePost)
+        .filter((p): p is PostData => Boolean(p));
     const seedUserPosts = SEED_POSTS
         .filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds))
         .map(normalizePost)
@@ -1665,7 +1668,8 @@ export function normalizePost(post: PostData): PostData {
     if (!post.image_url || typeof post.image_url !== 'string') return null as any;
     const trimmedUrl = post.image_url.trim();
     const isLocalMediaPost = trimmedUrl.includes('#LOCAL_ID:') || trimmedUrl.startsWith('local-media://');
-    if (!trimmedUrl || trimmedUrl === 'undefined' || trimmedUrl === 'null' || trimmedUrl === 'none' || ((trimmedUrl.startsWith('blob:') || trimmedUrl.startsWith('data:')) && !isLocalMediaPost)) {
+    const isDataMediaUrl = trimmedUrl.startsWith('data:image/') || trimmedUrl.startsWith('data:video/');
+    if (!trimmedUrl || trimmedUrl === 'undefined' || trimmedUrl === 'null' || trimmedUrl === 'none' || ((trimmedUrl.startsWith('blob:') || (trimmedUrl.startsWith('data:') && !isDataMediaUrl)) && !isLocalMediaPost)) {
         return null as any;
     }
 
@@ -1702,10 +1706,11 @@ export function normalizePost(post: PostData): PostData {
     const avatar_url = (!post.avatar_url || post.avatar_url.includes('ktruosvlqnpcuzayrqkk.supabase.co'))
         ? `https://i.pravatar.cc/150?u=${encodeURIComponent(post.username || 'user')}`
         : post.avatar_url;
-    const remappedUrl = trimmedUrl.includes('ktruosvlqnpcuzayrqkk.supabase.co')
-        ? remapDeadSupabaseUrl(trimmedUrl, post.id, post.media_type)
-        : trimmedUrl;
-    const resolvedUrl = sanitizePosterUrl(isLocalMediaPost ? resolveLocalMediaUrl(remappedUrl) : remappedUrl);
+    const candidateUrl = isLocalMediaPost ? resolveLocalMediaUrl(trimmedUrl) : trimmedUrl;
+    const remappedUrl = candidateUrl.includes('ktruosvlqnpcuzayrqkk.supabase.co')
+        ? remapDeadSupabaseUrl(candidateUrl, post.id, post.media_type)
+        : candidateUrl;
+    const resolvedUrl = sanitizePosterUrl(remappedUrl);
 
     return {
         ...post,
@@ -5454,7 +5459,7 @@ export async function boostPost(postId: string, currentUserId: string, currentPo
             }
             return p;
         });
-        localStorage.setItem('knock_local_posts', JSON.stringify(updated));
+        persistLocalPosts(updated);
     } catch (_) {}
 
     try {

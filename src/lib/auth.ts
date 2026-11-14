@@ -10,7 +10,7 @@ import { isQuotaError, setSupabaseQuotaRestricted, getKnownProfile } from './fal
 const EMAIL_DOMAIN = 'knockknock.app';
 
 function usernameToEmail(username: string): string {
-    return `${username.toLowerCase()}@${EMAIL_DOMAIN}`;
+    return `${username.replace(/^@+/, '').trim().toLowerCase()}@${EMAIL_DOMAIN}`;
 }
 
 // ── Sign Up ──
@@ -24,8 +24,8 @@ export interface SignUpParams {
 }
 
 export async function signUp(params: SignUpParams) {
-    const email = usernameToEmail(params.username);
-    const username = params.username.toLowerCase();
+    const username = params.username.replace(/^@+/, '').trim().toLowerCase();
+    const email = usernameToEmail(username);
 
     try {
         const { data, error } = await supabase.auth.signUp({
@@ -66,7 +66,7 @@ export async function signUp(params: SignUpParams) {
             const localId = known?.id || `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
             const localProfile: ProfileData = {
                 id: localId,
-                username,
+                username: known?.username || username,
                 name: known?.name || params.name,
                 gender: (known?.gender || params.gender) as any,
                 avatar_url: known?.avatar_url || `https://i.pravatar.cc/150?u=${username}`,
@@ -109,8 +109,8 @@ export async function ensureUserProfile(userId: string, params: Pick<SignUpParam
 // ── Sign In ──
 
 export async function signIn(username: string, password: string) {
-    const email = usernameToEmail(username);
-    const cleanUser = username.toLowerCase().trim();
+    const cleanUser = username.replace(/^@+/, '').trim().toLowerCase();
+    const email = usernameToEmail(cleanUser);
 
     try {
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -137,7 +137,7 @@ export async function signIn(username: string, password: string) {
             const raw = localStorage.getItem('knock_user_session');
             if (raw) {
                 const parsed = JSON.parse(raw);
-                if (parsed.username === cleanUser || (known && parsed.id === known.id)) existing = parsed;
+                if (String(parsed.username || '').replace(/^@+/, '').trim().toLowerCase() === cleanUser || (known && parsed.id === known.id)) existing = parsed;
             }
         } catch (_) {}
 

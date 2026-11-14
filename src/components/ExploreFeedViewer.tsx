@@ -38,7 +38,7 @@ const ExploreFeedViewer: React.FC<ExploreFeedViewerProps> = ({
     const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
     const cleanMediaKey = (url?: string) => {
-        if (!url) return '';
+        if (!url || url.includes('#REMAP')) return '';
         return url.split('?')[0].split('#')[0].toLowerCase().trim();
     };
 

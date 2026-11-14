@@ -714,32 +714,43 @@ export const KNOWN_PROFILES: ProfileData[] = [
     }
 ];
 
+const PROFILE_ALIASES: Record<string, string> = {
+    'rounak': 'rounak2',
+    'rounak singh': 'rounak2',
+    'rounak_singh': 'rounak2',
+    'corel': 'coral',
+    'popcorn': 'popcorn05',
+    'tara': 'tara01',
+    'ityourfavourite': 'ityourfavourite1',
+};
+
 export function getKnownProfile(identifier: string): ProfileData | null {
     if (!identifier) return null;
     const clean = identifier.replace(/^@+/, '').trim().toLowerCase();
+    const resolvedClean = PROFILE_ALIASES[clean] || clean;
     const found = KNOWN_PROFILES.find(p => 
-        (p.username && p.username.toLowerCase() === clean) || 
+        (p.username && (p.username.toLowerCase() === clean || p.username.toLowerCase() === resolvedClean)) || 
         (p.id && p.id.toLowerCase() === clean)
     );
     if (found) return { ...found };
 
     // Dynamic fallback to any post in SEED_POSTS
     const post = SEED_POSTS.find(p => 
-        (p.username && p.username.toLowerCase() === clean) || 
+        (p.username && (p.username.toLowerCase() === clean || p.username.toLowerCase() === resolvedClean)) || 
         (p.user_id && p.user_id.toLowerCase() === clean)
     );
     if (post) {
-        const u = post.username || clean;
+        const u = post.username || resolvedClean;
         const name = u
             .split(/[_\-\s]+/)
             .filter(Boolean)
             .map(w => w.charAt(0).toUpperCase() + w.slice(1))
             .join(' ');
         return {
-            id: post.user_id || `creator-${clean}`,
+            id: post.user_id || `creator-${resolvedClean}`,
             username: u,
             name: name,
-            avatar_url: post.avatar_url || `https://i.pravatar.cc/150?u=${clean}`,
+            avatar_url: post.avatar_url || `https://i.pravatar.cc/150?u=${resolvedClean}`,
             points: 300,
             streak_count: 5,
             gender: 'other',
@@ -6721,6 +6732,94 @@ export const SEED_POSTS: PostData[] = [
         "music_title": null,
         "music_artist": null,
         "music_url": null
+    },
+    {
+        "id": "a9add1d0-2022-487e-a95c-6f0bf2b6ba9d",
+        "user_id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "username": "rounak2",
+        "avatar_url": "https://i.pravatar.cc/150?u=rounak2",
+        "image_url": "https://assets.mixkit.co/videos/367/367-thumb-720-0.jpg",
+        "caption": "Use it ",
+        "attached_link": null,
+        "likes_count": 0,
+        "created_at": "2026-06-04T18:32:13.509945+00:00",
+        "category": "General",
+        "media_type": "image",
+        "comments_count": 0,
+        "shares_count": 0,
+        "boost_expires_at": null,
+        "boost_impressions_remaining": 0,
+        "css_filter": "none",
+        "imps_count": 0,
+        "music_title": null,
+        "music_artist": null,
+        "music_url": null
+    },
+    {
+        "id": "3184babf-1fb1-47f8-b25e-5a94428977d7",
+        "user_id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "username": "rounak2",
+        "avatar_url": "https://i.pravatar.cc/150?u=rounak2",
+        "image_url": "https://assets.mixkit.co/videos/43210/43210-720.mp4#POSTER:https%3A%2F%2Fassets.mixkit.co%2Fvideos%2F43210%2F43210-thumb-720-0.jpg#video.mp4",
+        "caption": "",
+        "attached_link": null,
+        "likes_count": 1,
+        "created_at": "2026-05-31T18:14:31.323254+00:00",
+        "category": "General",
+        "media_type": "video",
+        "comments_count": 0,
+        "shares_count": 0,
+        "boost_expires_at": null,
+        "boost_impressions_remaining": 0,
+        "css_filter": "none",
+        "imps_count": 0,
+        "music_title": null,
+        "music_artist": null,
+        "music_url": null
+    },
+    {
+        "id": "a0e88fbb-e13d-40c6-9978-15cf747c5afc",
+        "user_id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "username": "rounak2",
+        "avatar_url": "https://i.pravatar.cc/150?u=rounak2",
+        "image_url": "https://assets.mixkit.co/videos/348/348-720.mp4#POSTER:https%3A%2F%2Fassets.mixkit.co%2Fvideos%2F348%2F348-thumb-720-0.jpg#video.mp4",
+        "caption": "🙂‍↔️🙂‍↔️🙂‍↔️🙂‍↔️",
+        "attached_link": null,
+        "likes_count": 0,
+        "created_at": "2026-05-31T18:13:17.577961+00:00",
+        "category": "General",
+        "media_type": "video",
+        "comments_count": 0,
+        "shares_count": 0,
+        "boost_expires_at": null,
+        "boost_impressions_remaining": 0,
+        "css_filter": "none",
+        "imps_count": 0,
+        "music_title": null,
+        "music_artist": null,
+        "music_url": null
+    },
+    {
+        "id": "652fd7fd-c442-4927-a7f2-ebfafd0f0df7",
+        "user_id": "794703c5-c695-47bc-864c-60f400ab6fbe",
+        "username": "rounak2",
+        "avatar_url": "https://i.pravatar.cc/150?u=rounak2",
+        "image_url": "https://assets.mixkit.co/videos/44541/44541-thumb-720-0.jpg",
+        "caption": "Maggie page",
+        "attached_link": null,
+        "likes_count": 0,
+        "created_at": "2026-05-10T07:48:12.800444+00:00",
+        "category": "General",
+        "media_type": "image",
+        "comments_count": 0,
+        "shares_count": 0,
+        "boost_expires_at": null,
+        "boost_impressions_remaining": 0,
+        "css_filter": "none",
+        "imps_count": 0,
+        "music_title": null,
+        "music_artist": null,
+        "music_url": null
     }
 ];
 
@@ -7021,11 +7120,24 @@ export function getDeletedPostIds(): Set<string> {
         if (raw) {
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) {
+                let pruned = false;
                 parsed.forEach(id => {
                     if (id !== undefined && id !== null) {
-                        _deletedPostIdsCache!.add(String(id));
+                        const str = String(id).trim();
+                        if (!str) return;
+                        // Strip any stale shared/stock/remapped URLs accidentally stored by earlier versions
+                        if ((str.startsWith('http://') || str.startsWith('https://') || str.includes('#REMAP')) && (str.includes('#REMAP') || isStockOrSharedMediaUrl(str.split('#')[0].split('?')[0]))) {
+                            pruned = true;
+                            return;
+                        }
+                        _deletedPostIdsCache!.add(str);
                     }
                 });
+                if (pruned) {
+                    try {
+                        localStorage.setItem(DELETED_POSTS_KEY, JSON.stringify(Array.from(_deletedPostIdsCache)));
+                    } catch (_) {}
+                }
             }
         }
     } catch (_) {}
@@ -7130,7 +7242,7 @@ export function removeLocalPost(postId: string | number, imageUrl?: string | nul
     } catch (_) {}
 }
 
-function persistLocalPosts(posts: PostData[]): void {
+export function persistLocalPosts(posts: PostData[]): void {
     _localPostsCache = posts;
     if (typeof window === 'undefined') return;
 
