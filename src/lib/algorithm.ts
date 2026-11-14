@@ -1168,10 +1168,11 @@ export function rankExploreGrid(
         finalCatalog = catalogScheduled;
     }
 
-    const diverseCatalog = enforceAuthorDiversity(finalCatalog, 5);
-
-    // ⚡ Place all recent uploads (last 14 days, sorted newest first) at the very top, followed by the diverse catalog
-    return [...recentPosts, ...diverseCatalog];
+    // Merge recent uploads with catalog, strictly deduplicate, and enforce author diversity across the entire Explore grid
+    const combined = [...recentPosts, ...finalCatalog];
+    const dedupedCombined = deduplicatePosts(combined);
+    const diverseExplore = enforceAuthorDiversity(dedupedCombined, 3);
+    return diverseExplore;
 }
 
 // ── Surface 4: Stories Model (rankStoryGroups) ──────────────

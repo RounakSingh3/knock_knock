@@ -84,6 +84,16 @@ export function extractMediaTimestamp(url?: string, id?: string): string {
     return '';
 }
 
+/** Extract normalized media filename stem from any media URL (strips fragments, queries, extensions). */
+export function extractMediaFileStem(url?: string): string {
+    if (!url) return '';
+    const clean = url.split('#')[0].split('?')[0].trim();
+    const filename = clean.split('/').pop() || '';
+    if (!filename) return '';
+    const stem = filename.replace(/\.[^.]+$/, '').toLowerCase().trim();
+    return stem;
+}
+
 /** Extract normalized poster filename stem from a media URL or poster URL. */
 export function extractPosterStemFromUrl(url?: string): string {
     if (!url) return '';
@@ -407,10 +417,31 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
 
         const discovered: PostData[] = [];
         const seenUrls = new Set<string>();
+        const seenStems = new Set<string>();
         const seenUserSizes: Array<{ uid: string; size: number; ts: number }> = [];
         const RECENT_STORAGE_CUTOFF_MS = Date.now() - 30 * 24 * 60 * 60 * 1000;
 
+        // Pre-index video stems so images sharing a stem with a video are treated as posters, not duplicate posts
+        const videoStemsInStorage = new Set<string>();
         for (const f of postFiles) {
+            if (f && f.name && /\.(mp4|webm|mov|m4v|mkv|avi)$/i.test(f.name)) {
+                const stem = f.name.replace(/\.[^.]+$/, '').toLowerCase().trim();
+                if (stem) videoStemsInStorage.add(stem);
+            }
+        }
+
+        for (const f of postFiles) {
+            if (!f || !f.id || !f.name) continue;
+            const fileStem = f.name.replace(/\.[^.]+$/, '').toLowerCase().trim();
+            const isImg = /\.(jpg|jpeg|png|webp|avif)$/i.test(f.name);
+            if (isImg && videoStemsInStorage.has(fileStem)) {
+                // This image in posts/ is merely the thumbnail of a video in posts/
+                continue;
+            }
+            if (fileStem && seenStems.has(fileStem)) {
+                continue;
+            }
+            if (fileStem) seenStems.add(fileStem);
             if (!f || !f.id || !f.name) continue;
             const nameLower = String(f.name).toLowerCase();
             if (
@@ -457,7 +488,7 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
             }
 
             // Find matching poster uploaded for this exact video (prefer exact stem, fallback diff <= 2500ms)
-            const fileStem = f.name.replace(/\.[^.]+$/, '').toLowerCase();
+            // fileStem already normalized above
             let matchedPosterUrl: string | undefined = storagePostersByStem.get(fileStem);
             if (!matchedPosterUrl && uidLower && postersByUser.has(uidLower)) {
                 const candidates = postersByUser.get(uidLower)!;
@@ -575,9 +606,10 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
 export function deduplicatePosts(postList: PostData[]): PostData[] {
     const seenIds = new Set<string>();
     const seenUrls = new Set<string>();
+    const seenMediaStems = new Set<string>();
     const seenPosterStems = new Set<string>();
     const seenTimestamps = new Set<string>();
-    const seenUserRecentUploads: Array<{ uid: string; ts: number; caption: string }> = [];
+    const seenUserRecentUploads: Array<{ uid: string; uname: string; userPrefix: string; ts: number; caption: string }> = [];
     const result: PostData[] = [];
 
     for (const post of postList) {
@@ -586,9 +618,12 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         if (seenIds.has(cleanId) || seenIds.has(post.id)) continue;
 
         const cleanUrl = getDedupUrlKey(post.image_url);
+        const mediaStem = extractMediaFileStem(post.image_url);
         const posterStem = extractPosterStemFromUrl(post.image_url);
         const ts = extractMediaTimestamp(post.image_url, post.id);
-        const uid = (post.user_id || post.username || '').toLowerCase();
+        const uid = (post.user_id || '').toLowerCase();
+        const uname = (post.username || '').toLowerCase();
+        const userPrefix = uid ? uid.slice(0, 6) : (uname.startsWith('creator_') || uname.startsWith('user_') ? uname.replace(/^(?:creator|user)_/, '').slice(0, 6) : '');
         const caption = (post.caption || '').trim().toLowerCase();
 
         // 1. Direct clean base URL deduplication
@@ -596,24 +631,31 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
             continue;
         }
 
-        // 2. Poster stem deduplication (catches identical video/photo poster across uploads)
-        if (posterStem && seenPosterStems.has(posterStem)) {
+        // 2. Media file stem deduplication (matches video file vs photo thumbnail with identical filename stem)
+        if (mediaStem && mediaStem.length > 5 && (seenMediaStems.has(mediaStem) || seenPosterStems.has(mediaStem))) {
             continue;
         }
 
-        // 3. Exact 13-digit timestamp deduplication (matches across local, cloud, and DB)
+        // 3. Poster stem deduplication (catches identical video/photo poster across uploads)
+        if (posterStem && (seenPosterStems.has(posterStem) || seenMediaStems.has(posterStem))) {
+            continue;
+        }
+
+        // 4. Exact 13-digit timestamp deduplication (matches across local, cloud, and DB)
         if (ts && seenTimestamps.has(ts)) {
             continue;
         }
 
-        // 4. Same-user retry duplicate detection (uploaded <= 5 minutes apart with identical or empty captions)
-        if (uid && ts) {
+        // 5. Same-user retry duplicate detection (uploaded with identical or empty captions within 24 hours)
+        if ((uid || uname) && ts) {
             const tsNum = Number(ts);
             const isRetryDup = seenUserRecentUploads.some(r => {
-                if (r.uid !== uid) return false;
+                const sameUser = (uid && r.uid === uid) || (uname && r.uname === uname) || (userPrefix && (r.uid.startsWith(userPrefix) || r.uname.includes(userPrefix) || (r.userPrefix && r.userPrefix === userPrefix)));
+                if (!sameUser) return false;
                 const diffMs = Math.abs(r.ts - tsNum);
-                if (diffMs > 300000) return false; // > 5 minutes apart
-                return (r.caption === caption) || (!r.caption && !caption);
+                const sameCaption = (r.caption === caption) || (!r.caption && !caption);
+                if (sameCaption && diffMs <= 24 * 60 * 60 * 1000) return true;
+                return false;
             });
             if (isRetryDup) {
                 continue;
@@ -625,10 +667,11 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         if (cleanUrl && !cleanUrl.startsWith('blob:') && !cleanUrl.startsWith('local-media:')) {
             seenUrls.add(cleanUrl);
         }
+        if (mediaStem && mediaStem.length > 5) seenMediaStems.add(mediaStem);
         if (posterStem) seenPosterStems.add(posterStem);
         if (ts) {
             seenTimestamps.add(ts);
-            if (uid) seenUserRecentUploads.push({ uid, ts: Number(ts), caption });
+            if (uid || uname) seenUserRecentUploads.push({ uid, uname, userPrefix, ts: Number(ts), caption });
         }
 
         result.push(post);

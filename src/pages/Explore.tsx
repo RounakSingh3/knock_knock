@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash } from 'lucide-react';
-import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, deduplicatePosts, getDedupUrlKey, extractMediaTimestamp, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
+import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, deduplicatePosts, getDedupUrlKey, extractMediaTimestamp, extractMediaFileStem, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
@@ -309,26 +309,25 @@ const Explore = () => {
     // Discover (Default) State with instant cache rehydration and everyday cache invalidation
     const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
         try {
-            localStorage.removeItem('knock_explore_posts_cache_v8');
             localStorage.removeItem('knock_explore_posts_cache_v10');
             localStorage.removeItem('knock_explore_posts_cache_v11');
-            localStorage.removeItem('knock_explore_trending_cache_v9');
-            localStorage.removeItem('knock_explore_trending_cache_v10');
+            localStorage.removeItem('knock_explore_posts_cache_v12');
             localStorage.removeItem('knock_explore_trending_cache_v11');
+            localStorage.removeItem('knock_explore_trending_cache_v12');
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_posts_cache_v12');
+                const cached = localStorage.getItem('knock_explore_posts_cache_v13');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id)));
+                        return deduplicatePosts(parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id))));
                     }
                 }
             } else {
                 // New day detected! Clear stale caches to trigger fresh everyday reshuffle
-                localStorage.removeItem('knock_explore_posts_cache_v12');
-                localStorage.removeItem('knock_explore_trending_cache_v12');
+                localStorage.removeItem('knock_explore_posts_cache_v13');
+                localStorage.removeItem('knock_explore_trending_cache_v13');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
@@ -339,7 +338,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_posts_cache_v12');
+            const cached = localStorage.getItem('knock_explore_posts_cache_v13');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -363,11 +362,11 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_trending_cache_v12');
+                const cached = localStorage.getItem('knock_explore_trending_cache_v13');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        return parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id)));
+                        return deduplicatePosts(parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id))));
                     }
                 }
             }
@@ -379,7 +378,7 @@ const Explore = () => {
             const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_trending_cache_v12');
+            const cached = localStorage.getItem('knock_explore_trending_cache_v13');
             return !cached || JSON.parse(cached).length === 0;
         } catch (e) {
             return true;
@@ -444,7 +443,7 @@ const Explore = () => {
                 .filter((p): p is PostData => Boolean(p));
             setTrendingPosts(filtered);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v12', JSON.stringify(filtered));
+                localStorage.setItem('knock_explore_trending_cache_v13', JSON.stringify(filtered));
             } catch (e) {}
             setIsTrendingLoading(false);
         });
@@ -464,19 +463,20 @@ const Explore = () => {
             // Strictly deduplicate by advanced deduplicator (strips clean URL, posters, retry timestamps)
             let uniqueRaw = deduplicatePosts(rawPosts);
 
-            rawPostsCacheRef.current = uniqueRaw;
-
             const engagements = user ? await fetchUserEngagements(user.id) : [];
             const hybridProfile = getHybridInterestProfile(engagements);
             userProfileRef.current = hybridProfile;
 
-            // Apply Model 3: Dedicated Explore Discovery Model with Everyday Reshuffle
+            // Apply Model 3: Dedicated Explore Discovery Model with Everyday Reshuffle and Strict Diversity
             const dateKey = dateKeyOverride || getTodayKey();
             const rankedExplore = rankExploreGrid(uniqueRaw, hybridProfile, selectedCategory, dateKey);
+            
+            // Cache the full ranked and author-diversified feed for seamless, non-repeating pagination
+            rawPostsCacheRef.current = rankedExplore;
             const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
-                localStorage.setItem('knock_explore_posts_cache_v12', JSON.stringify(fresh));
+                localStorage.setItem('knock_explore_posts_cache_v13', JSON.stringify(fresh));
                 localStorage.setItem('knock_explore_cache_date', getTodayKey());
             } catch (e) {}
             setHasMore(true);
@@ -504,8 +504,11 @@ const Explore = () => {
             const seenIds = new Set(currentPosts.map(p => String(p.id).replace(/_p\d+_\d+$/, '')));
             currentPosts.forEach(p => seenIds.add(p.id));
             const seenUrls = new Set(currentPosts.map(p => getDedupUrlKey(p.image_url)).filter(Boolean));
+            const seenStems = new Set<string>();
             const seenTimestamps = new Set<string>();
             currentPosts.forEach(p => {
+                const s = extractMediaFileStem(p.image_url);
+                if (s) seenStems.add(s);
                 const ts = extractMediaTimestamp(p.image_url, p.id);
                 if (ts) seenTimestamps.add(ts);
             });
@@ -515,16 +518,16 @@ const Explore = () => {
             
             let nextBatch: PostData[] = [];
 
-            // Slice from raw cached posts without cyclical repeating
+            // Slice from pre-ranked cache without repeating
             const startIndex = nextPage * PAGE_SIZE;
             if (rawPostsCacheRef.current.length > startIndex) {
                 const unshownRaw = rawPostsCacheRef.current.slice(startIndex, startIndex + PAGE_SIZE);
-                const rankedBatch = rankExploreGrid(unshownRaw, activeProfile, selectedCategory, currentDay);
-                nextBatch = rankedBatch.filter(p => {
+                nextBatch = unshownRaw.filter(p => {
                     const cleanKey = getDedupUrlKey(p.image_url);
                     const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                    const stem = extractMediaFileStem(p.image_url);
                     const ts = extractMediaTimestamp(p.image_url, p.id);
-                    return !seenIds.has(p.id) && !seenIds.has(cleanId) && (!cleanKey || !seenUrls.has(cleanKey)) && (!ts || !seenTimestamps.has(ts));
+                    return !seenIds.has(p.id) && !seenIds.has(cleanId) && (!cleanKey || !seenUrls.has(cleanKey)) && (!stem || !seenStems.has(stem)) && (!ts || !seenTimestamps.has(ts));
                 });
             }
 
@@ -534,20 +537,22 @@ const Explore = () => {
                 const freshDbPosts = nextBatchDb.filter(p => {
                     const cleanKey = getDedupUrlKey(p.image_url);
                     const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                    const stem = extractMediaFileStem(p.image_url);
                     const ts = extractMediaTimestamp(p.image_url, p.id);
-                    if (!p.image_url || seenIds.has(p.id) || seenIds.has(cleanId) || (cleanKey && seenUrls.has(cleanKey)) || (ts && seenTimestamps.has(ts)) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) {
+                    if (!p.image_url || seenIds.has(p.id) || seenIds.has(cleanId) || (cleanKey && seenUrls.has(cleanKey)) || (stem && seenStems.has(stem)) || (ts && seenTimestamps.has(ts)) || (p.user_id && blockedIdsRef.current.includes(p.user_id))) {
                         return false;
                     }
                     seenIds.add(p.id);
                     seenIds.add(cleanId);
                     if (cleanKey) seenUrls.add(cleanKey);
+                    if (stem) seenStems.add(stem);
                     if (ts) seenTimestamps.add(ts);
                     return true;
                 });
                 
                 if (freshDbPosts.length > 0) {
-                    rawPostsCacheRef.current = deduplicatePosts([...rawPostsCacheRef.current, ...freshDbPosts]);
                     const rankedDb = rankExploreGrid(freshDbPosts, activeProfile, selectedCategory, currentDay);
+                    rawPostsCacheRef.current = deduplicatePosts([...rawPostsCacheRef.current, ...rankedDb]);
                     nextBatch = [...nextBatch, ...rankedDb.slice(0, PAGE_SIZE - nextBatch.length)];
                 }
             }
@@ -555,8 +560,9 @@ const Explore = () => {
             const dedupedBatch = deduplicatePosts(nextBatch).filter(p => {
                 const cleanKey = getDedupUrlKey(p.image_url);
                 const cleanId = String(p.id).replace(/_p\d+_\d+$/, '');
+                const stem = extractMediaFileStem(p.image_url);
                 const ts = extractMediaTimestamp(p.image_url, p.id);
-                return !seenIds.has(p.id) && !seenIds.has(cleanId) && (!cleanKey || !seenUrls.has(cleanKey)) && (!ts || !seenTimestamps.has(ts));
+                return !seenIds.has(p.id) && !seenIds.has(cleanId) && (!cleanKey || !seenUrls.has(cleanKey)) && (!stem || !seenStems.has(stem)) && (!ts || !seenTimestamps.has(ts));
             });
             
             if (dedupedBatch.length > 0) {
