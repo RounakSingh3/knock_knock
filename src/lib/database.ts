@@ -25,7 +25,8 @@ import {
     getLocalConnections,
     removeLocalConnection,
     bumpLocalConnectionStreak,
-    getLocalStories
+    getLocalStories,
+    remapDeadSupabaseUrl
 } from './fallbackData';
 export { isPostLikedLocally, isPostDeletedLocally, getLocalLikes, getLocalComments };
 
@@ -248,32 +249,35 @@ export function withTimeout<T>(promise: PromiseLike<T>, ms: number, fallback: T)
     });
 }
 
-function fetchWithAbort(url: string, init: RequestInit = {}, ms = 8000): Promise<Response> {
+function fetchWithAbort(url: string, init: RequestInit = {}, ms = 4000): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
 async function fetchCloudJson<T>(path: string): Promise<T | null> {
+    if (isSupabaseQuotaRestricted()) return null;
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         if (!supabaseUrl) return null;
         const url = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${path}?t=${Math.floor(Date.now() / 15000)}`;
-        const res = await fetchWithAbort(url, { cache: 'no-store' });
+        const res = await fetchWithAbort(url, { cache: 'no-store' }, 4000);
         if (!res.ok) return null;
         return (await res.json()) as T;
-    } catch (_) {
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         return null;
     }
 }
 
 async function uploadCloudJson(path: string, data: unknown): Promise<boolean> {
+    if (isSupabaseQuotaRestricted()) return false;
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
         if (!supabaseUrl || !supabaseKey) return false;
         const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${path}`;
-        const res = await fetch(uploadUrl, {
+        const res = await fetchWithAbort(uploadUrl, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${supabaseKey}`,
@@ -283,14 +287,16 @@ async function uploadCloudJson(path: string, data: unknown): Promise<boolean> {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify(data),
-        });
+        }, 4000);
         return res.ok;
-    } catch (_) {
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         return false;
     }
 }
 
 async function listStoragePrefix(prefix: string, limit: number = 120): Promise<any[]> {
+    if (isSupabaseQuotaRestricted()) return [];
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -307,11 +313,12 @@ async function listStoragePrefix(prefix: string, limit: number = 120): Promise<a
                 limit,
                 sortBy: { column: 'created_at', order: 'desc' },
             }),
-        }, 9000);
+        }, 4000);
         if (!res.ok) return [];
         const list = await res.json();
         return Array.isArray(list) ? list : [];
-    } catch (_) {
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         return [];
     }
 }
@@ -408,6 +415,7 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
 }
 
 async function fetchCloudStoragePostsUncached(): Promise<PostData[]> {
+    if (isSupabaseQuotaRestricted()) return [];
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         if (!supabaseUrl) return [];
@@ -679,7 +687,7 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
             continue;
         }
 
-        // 5. Same-user retry duplicate detection (uploaded with identical or empty captions within 24 hours)
+        // 5. Same-user accidental double-submit duplicate detection (within 5 seconds)
         if ((uid || uname) && ts) {
             const tsNum = Number(ts);
             const isRetryDup = seenUserRecentUploads.some(r => {
@@ -687,7 +695,7 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
                 if (!sameUser) return false;
                 const diffMs = Math.abs(r.ts - tsNum);
                 const sameCaption = (r.caption === caption) || (!r.caption && !caption);
-                if (sameCaption && diffMs <= 24 * 60 * 60 * 1000) return true;
+                if (sameCaption && diffMs <= 5000) return true;
                 return false;
             });
             if (isRetryDup) {
@@ -1128,8 +1136,17 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         return false;
     });
 
-    // Merge dbPosts, localPosts, and userCloudPosts, deduplicated by post id, clean URL, poster hash/filename, and retry upload timestamps
-    const rawCombined: PostData[] = [...dbPosts, ...localPosts, ...userCloudPosts].map(p => ({
+    // Also include matching posts from SEED_POSTS so profiles are never blank when Supabase is offline
+    const seedUserPosts = SEED_POSTS.filter(p => {
+        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id, p.image_url)) return false;
+        const pUname = (p.username || '').toLowerCase();
+        if (candidateUsernames.has(pUname)) return true;
+        if (p.user_id && candidateUserIds.has(p.user_id)) return true;
+        return false;
+    }).map(normalizePost).filter((p): p is PostData => Boolean(p));
+
+    // Merge dbPosts, localPosts, userCloudPosts, and seedUserPosts, deduplicated by post id, clean URL, poster hash/filename, and retry upload timestamps
+    const rawCombined: PostData[] = [...dbPosts, ...localPosts, ...userCloudPosts, ...seedUserPosts].map(p => ({
         ...p,
         image_url: resolveLocalMediaUrl(p.image_url)
     }));
@@ -1300,11 +1317,12 @@ export async function uploadMedia(
                     xhr.setRequestHeader('Content-Type', file.type);
                 }
 
+                const INITIAL_CONNECT_TIMEOUT_MS = 5000;
                 const STALL_TIMEOUT_MS = 25000;
                 let stallTimeout = setTimeout(() => {
                     xhr.abort();
                     reject(new Error('Upload connection stalled.'));
-                }, STALL_TIMEOUT_MS);
+                }, INITIAL_CONNECT_TIMEOUT_MS);
 
                 const resetStallTimer = () => {
                     clearTimeout(stallTimeout);
@@ -1358,7 +1376,7 @@ export async function uploadMedia(
             return publicUrlData?.publicUrl || `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${cleanPath}`;
         } catch (err: any) {
             const errText = String(err?.message || '');
-            if (isQuotaError(err) || err?.status === 402 || err?.status === 403) {
+            if (isQuotaError(err) || err?.status === 402 || err?.status === 403 || !err?.status) {
                 setSupabaseQuotaRestricted(true);
             }
             console.warn(`[uploadMedia] Cloud upload skipped/failed (${errText}), using local IndexedDB storage.`);
@@ -1633,8 +1651,13 @@ export function normalizePost(post: PostData): PostData {
         music_url = undefined;
     }
 
-    const avatar_url = post.avatar_url || `https://i.pravatar.cc/150?u=${post.username || 'user'}`;
-    const resolvedUrl = sanitizePosterUrl(isLocalMediaPost ? resolveLocalMediaUrl(trimmedUrl) : trimmedUrl);
+    const avatar_url = (!post.avatar_url || post.avatar_url.includes('ktruosvlqnpcuzayrqkk.supabase.co'))
+        ? `https://i.pravatar.cc/150?u=${encodeURIComponent(post.username || 'user')}`
+        : post.avatar_url;
+    const remappedUrl = trimmedUrl.includes('ktruosvlqnpcuzayrqkk.supabase.co')
+        ? remapDeadSupabaseUrl(trimmedUrl, post.id, post.media_type)
+        : trimmedUrl;
+    const resolvedUrl = sanitizePosterUrl(isLocalMediaPost ? resolveLocalMediaUrl(remappedUrl) : remappedUrl);
 
     return {
         ...post,
@@ -4915,22 +4938,30 @@ export async function searchUsers(query: string): Promise<ProfileData[]> {
         `name.ilike.%${t}%`
     ]).join(',');
 
-    const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .or(orConditions)
-        .limit(20);
-
     const seen = new Set<string>();
     const results: ProfileData[] = [];
 
-    if (!error && data) {
-        for (const raw of data) {
-            const p = normalizeProfile(raw);
-            if (p && !seen.has(p.id) && !isRemovedUser(p.id, p.username)) {
-                seen.add(p.id);
-                results.push(p);
+    if (!isSupabaseQuotaRestricted()) {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .or(orConditions)
+                .limit(20);
+
+            if (error) {
+                if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
+            } else if (data) {
+                for (const raw of data) {
+                    const p = normalizeProfile(raw);
+                    if (p && !seen.has(p.id) && !isRemovedUser(p.id, p.username)) {
+                        seen.add(p.id);
+                        results.push(p);
+                    }
+                }
             }
+        } catch (err: any) {
+            if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         }
     }
 
@@ -5159,8 +5190,25 @@ export async function searchPostsByCaption(query: string): Promise<PostData[]> {
     return deduplicatePosts(scored.map(s => s.post));
 }
 
+function matchesExploreCategory(post: PostData, category?: string | null): boolean {
+    if (!category || category === 'All') return true;
+    const catLower = (post.category || '').toLowerCase();
+    const target = category.toLowerCase();
+    if (catLower === target) return true;
+    if (target === 'memes' && (catLower === 'comedy' || catLower === 'memes')) return true;
+    if (target === 'bollywood' && (catLower === 'bollywood' || catLower === 'fashion' || (post.username || '').toLowerCase().includes('bollywood'))) return true;
+    if (target === 'fitness' && (catLower === 'fitness' || catLower === 'gym')) return true;
+    if (target === 'sports' && (catLower === 'sports' || catLower === 'cricket')) return true;
+    return false;
+}
+
 export async function fetchDiscoverPosts(category?: string | null, limit: number = 60, offset: number = 0): Promise<PostData[]> {
     const cloudPromise = fetchCloudStoragePosts();
+    if (isSupabaseQuotaRestricted()) {
+        const cloudPosts = await cloudPromise;
+        const local = mergePostsWithFallback([], cloudPosts);
+        return local.filter(p => matchesExploreCategory(p, category));
+    }
     try {
         let query = supabase
             .from('posts')
@@ -5173,31 +5221,23 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
         }
 
         const [{ data, error }, cloudPosts] = await Promise.all([
-            withTimeout(query as PromiseLike<any>, 8000, { data: null, error: { message: 'timeout' } }),
+            withTimeout(query as PromiseLike<any>, 5000, { data: null, error: { message: 'timeout' } }),
             cloudPromise,
         ]);
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
             const local = mergePostsWithFallback([], cloudPosts);
-            if (category && category !== 'All') {
-                return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
-            }
-            return local;
+            return local.filter(p => matchesExploreCategory(p, category));
         }
         
         const normalized = (data || []).map(normalizePost).filter((p): p is PostData => Boolean(p));
         const merged = mergePostsWithFallback(normalized, cloudPosts);
-        if (category && category !== 'All') {
-            return merged.filter(p => p.category?.toLowerCase() === category.toLowerCase());
-        }
-        return merged;
-    } catch (_) {
+        return merged.filter(p => matchesExploreCategory(p, category));
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
         const cloudPosts = await cloudPromise;
         const local = mergePostsWithFallback([], cloudPosts);
-        if (category && category !== 'All') {
-            return local.filter(p => p.category?.toLowerCase() === category.toLowerCase());
-        }
-        return local;
+        return local.filter(p => matchesExploreCategory(p, category));
     }
 }
 
@@ -5238,11 +5278,13 @@ export async function deletePost(postId: string): Promise<boolean> {
                 'knock_explore_posts_cache_v10',
                 'knock_explore_posts_cache_v13',
                 'knock_explore_posts_cache_v15',
+                'knock_explore_posts_cache_v16',
                 'knock_explore_trending_cache_v8',
                 'knock_explore_trending_cache_v9',
                 'knock_explore_trending_cache_v10',
                 'knock_explore_trending_cache_v13',
                 'knock_explore_trending_cache_v15',
+                'knock_explore_trending_cache_v16',
             ];
             for (const key of lsCacheKeys) {
                 try {

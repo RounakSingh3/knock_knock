@@ -600,7 +600,7 @@ const Home = () => {
                 setPosts(prev => deduplicatePosts([...(prev || []), ...freshBatch]));
                 setFeedPage(nextPage);
                 feedPageRef.current = nextPage;
-                setHasMore(true);
+                setHasMorePosts(true);
                 // Batch check likes for new posts
                 const newPostIds = freshBatch.map(p => p.id);
                 checkIfLikedBatch(userId, newPostIds).then(likedMap => {

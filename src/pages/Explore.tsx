@@ -317,13 +317,15 @@ const Explore = () => {
             localStorage.removeItem('knock_explore_posts_cache_v12');
             localStorage.removeItem('knock_explore_posts_cache_v13');
             localStorage.removeItem('knock_explore_posts_cache_v14');
+            localStorage.removeItem('knock_explore_posts_cache_v15');
             localStorage.removeItem('knock_explore_trending_cache_v11');
             localStorage.removeItem('knock_explore_trending_cache_v12');
             localStorage.removeItem('knock_explore_trending_cache_v13');
             localStorage.removeItem('knock_explore_trending_cache_v14');
+            localStorage.removeItem('knock_explore_trending_cache_v15');
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_posts_cache_v15');
+                const cached = localStorage.getItem('knock_explore_posts_cache_v16');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -332,8 +334,8 @@ const Explore = () => {
                     }
                 }
             } else {
-                localStorage.removeItem('knock_explore_posts_cache_v15');
-                localStorage.removeItem('knock_explore_trending_cache_v15');
+                localStorage.removeItem('knock_explore_posts_cache_v16');
+                localStorage.removeItem('knock_explore_trending_cache_v16');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
@@ -366,7 +368,7 @@ const Explore = () => {
         try {
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
-                const cached = localStorage.getItem('knock_explore_trending_cache_v15');
+                const cached = localStorage.getItem('knock_explore_trending_cache_v16');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
@@ -377,9 +379,12 @@ const Explore = () => {
             }
         } catch (e) {}
         try {
-            return deduplicatePosts(
+            const allSeed = deduplicatePosts(
                 [...getLocalPosts(), ...SEED_POSTS].map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id)))
-            ).slice(0, 30);
+            );
+            const vids = allSeed.filter(p => isVideoPost(p));
+            const others = allSeed.filter(p => !isVideoPost(p));
+            return [...vids, ...others].slice(0, 30);
         } catch (_) {
             return [];
         }
@@ -447,7 +452,7 @@ const Explore = () => {
             if (filtered.length > 0) {
                 setTrendingPosts(filtered);
                 try {
-                    localStorage.setItem('knock_explore_trending_cache_v15', JSON.stringify(filtered));
+                    localStorage.setItem('knock_explore_trending_cache_v16', JSON.stringify(filtered));
                 } catch (e) {}
             }
         }).finally(() => {
@@ -470,9 +475,19 @@ const Explore = () => {
             if (requestId !== discoverRequestIdRef.current) return;
             // Network stalled or empty → fall back to bundled community posts so the grid is never blank
             if (!rawPosts || rawPosts.length === 0) {
+                const baseFallback = [...getLocalPosts(), ...SEED_POSTS];
                 rawPosts = selectedCategory && selectedCategory !== 'All'
-                    ? SEED_POSTS.filter(p => (p.category || '').toLowerCase() === selectedCategory.toLowerCase())
-                    : [...SEED_POSTS];
+                    ? baseFallback.filter(p => {
+                        const catLower = (p.category || '').toLowerCase();
+                        const target = selectedCategory.toLowerCase();
+                        if (catLower === target) return true;
+                        if (target === 'memes' && (catLower === 'comedy' || catLower === 'memes')) return true;
+                        if (target === 'bollywood' && (catLower === 'bollywood' || catLower === 'fashion' || (p.username || '').toLowerCase().includes('bollywood'))) return true;
+                        if (target === 'fitness' && (catLower === 'fitness' || catLower === 'gym')) return true;
+                        if (target === 'sports' && (catLower === 'sports' || catLower === 'cricket')) return true;
+                        return false;
+                    })
+                    : baseFallback;
             }
             rawPosts = rawPosts.filter(p => (!p.user_id || !blockedIds.includes(p.user_id)) && (p.id && !BROKEN_POST_IDS.has(p.id)));
             
@@ -493,7 +508,7 @@ const Explore = () => {
             const fresh = rankedExplore.slice(0, PAGE_SIZE);
             setDiscoverPosts(fresh);
             try {
-                localStorage.setItem('knock_explore_posts_cache_v15', JSON.stringify(fresh));
+                localStorage.setItem('knock_explore_posts_cache_v16', JSON.stringify(fresh));
                 localStorage.setItem('knock_explore_cache_date', getTodayKey());
             } catch (e) {}
             setHasMore(true);
@@ -708,7 +723,7 @@ const Explore = () => {
             if (filtered.length === 0) return;
             setTrendingPosts(filtered);
             try {
-                localStorage.setItem('knock_explore_trending_cache_v15', JSON.stringify(filtered));
+                localStorage.setItem('knock_explore_trending_cache_v16', JSON.stringify(filtered));
             } catch (e) {}
         });
         setIsRefreshing(false);

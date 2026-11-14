@@ -101,17 +101,23 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
     if (url.includes('#POSTER:')) {
         try {
             const extracted = decodeURIComponent(url.split('#POSTER:')[1]?.split('#')[0] || '');
-            if (extracted) {
+            if (extracted && !extracted.includes('ktruosvlqnpcuzayrqkk.supabase.co')) {
+                if (extracted.startsWith('data:image/')) {
+                    return extracted;
+                }
                 const resolved = resolveLocalMediaUrl(extracted).split('#')[0];
-                if (resolved && (!resolved.startsWith('blob:') || extracted.startsWith('local-media'))) {
+                if (resolved && (!resolved.startsWith('blob:') || extracted.startsWith('local-media') || extracted.includes('#LOCAL_ID:') || extracted.startsWith('blob:'))) {
                     return resolved;
                 }
             }
         } catch (_) {
             const raw = url.split('#POSTER:')[1]?.split('#')[0];
-            if (raw) {
+            if (raw && !raw.includes('ktruosvlqnpcuzayrqkk.supabase.co')) {
+                if (raw.startsWith('data:image/')) {
+                    return raw;
+                }
                 const resolved = resolveLocalMediaUrl(raw).split('#')[0];
-                if (resolved && (!resolved.startsWith('blob:') || raw.startsWith('local-media'))) {
+                if (resolved && (!resolved.startsWith('blob:') || raw.startsWith('local-media') || raw.includes('#LOCAL_ID:') || raw.startsWith('blob:'))) {
                     return resolved;
                 }
             }
@@ -130,7 +136,7 @@ export const extractPosterFromUrl = (url?: string): string | undefined => {
     }
     // Supabase storage bucket posts/<stem>.mp4 or stories/<stem>.mp4 deterministic poster mapping
     const postBucketMatch = url.match(/^(https?:\/\/[^?#]+\/storage\/v1\/object\/public\/[^/]+)\/(?:posts|stories)\/([^/?#]+?\.(?:mp4|webm|mov|m4v|mkv|avi))(?:[?#]|$)/i);
-    if (postBucketMatch) {
+    if (postBucketMatch && !postBucketMatch[1].includes('ktruosvlqnpcuzayrqkk.supabase.co')) {
         const stem = postBucketMatch[2].replace(/\.[^.]+$/, '');
         return `${postBucketMatch[1]}/posts/posters/${stem}.jpg`;
     }

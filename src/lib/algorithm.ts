@@ -9,7 +9,7 @@
  */
 
 import { isVideoPost, isVideoUrl } from './media';
-import { trackEngagement, isStoryEligibleForViewerScreen, type PostData, type UserStoryGroup, type StoryData } from './database';
+import { trackEngagement, isStoryEligibleForViewerScreen, deduplicatePosts, type PostData, type UserStoryGroup, type StoryData } from './database';
 
 // ── Weight Configuration ───────────────────────────────────
 export const ENGAGEMENT_WEIGHTS: Record<string, number> = {
@@ -291,11 +291,14 @@ export function recordImplicitSignal(signal: ImplicitSignal): void {
  * Merge explicit database engagement profile with fast real-time local implicit signals.
  */
 export function getHybridInterestProfile(
-    explicitProfile?: UserInterestProfile,
+    explicitProfile?: UserInterestProfile | { action_type: string; category: string; value: number }[] | any[],
     _userId?: string
 ): UserInterestProfile {
+    const resolvedProfile: UserInterestProfile | undefined = Array.isArray(explicitProfile)
+        ? buildInterestProfile(explicitProfile)
+        : explicitProfile;
     const localScores = getLocalImplicitScores();
-    const baseScores = explicitProfile?.categoryScores ? { ...explicitProfile.categoryScores } : {};
+    const baseScores = resolvedProfile?.categoryScores ? { ...resolvedProfile.categoryScores } : {};
 
     for (const [cat, impScore] of Object.entries(localScores)) {
         baseScores[cat] = (baseScores[cat] || 0) + impScore;
@@ -309,7 +312,7 @@ export function getHybridInterestProfile(
     const unexploredCategories = CONTENT_CATEGORIES.filter(c => !exploredSet.has(c));
 
     const localHashtags = getLocalHashtagScores();
-    const baseHashtags = explicitProfile?.hashtagScores ? { ...explicitProfile.hashtagScores } : {};
+    const baseHashtags = resolvedProfile?.hashtagScores ? { ...resolvedProfile.hashtagScores } : {};
     for (const [tag, score] of Object.entries(localHashtags)) {
         baseHashtags[tag] = (baseHashtags[tag] || 0) + score;
     }
@@ -1159,7 +1162,7 @@ export function rankExploreGrid(
         let v = 0;
         let p = 0;
         while (v < videoPosts.length || p < photoPosts.length) {
-            if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
+            if (v < videoPosts.length) interleavedMedia.push(videoPosts[v++]);
             if (p < photoPosts.length) interleavedMedia.push(photoPosts[p++]);
             if (v < videoPosts.length) interleavedMedia.push(videoPosts[v++]);
         }

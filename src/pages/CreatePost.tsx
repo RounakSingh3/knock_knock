@@ -542,8 +542,11 @@ const CreatePost = () => {
             if (mediaType === 'video' && !finalUrl.includes('#video.mp4') && !/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(finalUrl.split('#')[0])) {
                 finalUrl = `${finalUrl}#video.mp4`;
             }
-            if (uploadedPosterUrl && !uploadedPosterUrl.startsWith('data:')) {
-                finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(uploadedPosterUrl)}`;
+            const posterToAttach = (uploadedPosterUrl && !uploadedPosterUrl.startsWith('blob:') && !uploadedPosterUrl.startsWith('data:'))
+                ? uploadedPosterUrl
+                : (videoPosterDataUrl || uploadedPosterUrl);
+            if (posterToAttach) {
+                finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(posterToAttach)}`;
             }
             const cleanKey = publicUrl.split('#')[0].split('?')[0];
             const bestInMemoryPoster = videoPosterDataUrl || (uploadedPosterUrl ? resolveLocalMediaUrl(uploadedPosterUrl).split('#')[0] : undefined);
@@ -626,12 +629,14 @@ const CreatePost = () => {
                 localStorage.removeItem('knock_explore_posts_cache_v13');
                 localStorage.removeItem('knock_explore_posts_cache_v14');
                 localStorage.removeItem('knock_explore_posts_cache_v15');
+                localStorage.removeItem('knock_explore_posts_cache_v16');
                 localStorage.removeItem('knock_explore_trending_cache_v10');
                 localStorage.removeItem('knock_explore_trending_cache_v11');
                 localStorage.removeItem('knock_explore_trending_cache_v12');
                 localStorage.removeItem('knock_explore_trending_cache_v13');
                 localStorage.removeItem('knock_explore_trending_cache_v14');
                 localStorage.removeItem('knock_explore_trending_cache_v15');
+                localStorage.removeItem('knock_explore_trending_cache_v16');
                 localStorage.removeItem('knock_boost_stories_cache_v2');
                 sessionStorage.removeItem('knock_reels_instant_v1');
                 sessionStorage.removeItem('knock_reels_instant_v2');
