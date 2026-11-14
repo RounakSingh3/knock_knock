@@ -542,9 +542,22 @@ const CreatePost = () => {
             if (mediaType === 'video' && !finalUrl.includes('#video.mp4') && !/\.(mp4|webm|mov|m4v)(\?|$|#)/i.test(finalUrl.split('#')[0])) {
                 finalUrl = `${finalUrl}#video.mp4`;
             }
-            const posterToAttach = (uploadedPosterUrl && !uploadedPosterUrl.startsWith('blob:') && !uploadedPosterUrl.startsWith('data:'))
-                ? uploadedPosterUrl
-                : (videoPosterDataUrl || uploadedPosterUrl);
+            let posterToAttach: string | undefined =
+                (uploadedPosterUrl && !uploadedPosterUrl.startsWith('blob:') && !uploadedPosterUrl.startsWith('data:'))
+                    ? uploadedPosterUrl
+                    : undefined;
+            if (!posterToAttach && videoPosterBlob) {
+                try {
+                    const posterName = fileName ? `${fileName.replace(/\.[^.]+$/, '')}.jpg` : `poster-${Date.now()}.jpg`;
+                    const localPoster = await createLocalFallbackMediaUrl(
+                        new File([videoPosterBlob], posterName, { type: 'image/jpeg' })
+                    );
+                    posterToAttach = localPoster.fallbackUrl;
+                } catch (_) {}
+            }
+            if (!posterToAttach) {
+                posterToAttach = videoPosterDataUrl || uploadedPosterUrl || undefined;
+            }
             if (posterToAttach) {
                 finalUrl = `${finalUrl}#POSTER:${encodeURIComponent(posterToAttach)}`;
             }

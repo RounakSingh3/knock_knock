@@ -158,13 +158,16 @@ const Profile = () => {
 
             const ok = await deletePost(cleanId);
             if (ok) {
+                const isRemapped = Boolean(targetUrl && targetUrl.includes('#REMAP'));
                 setPosts(prev => prev.filter(p => {
                     if (p.id === postId || String(p.id).replace(/_p\d+_\d+$/, '') === cleanId) return false;
-                    const pCleanUrl = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
-                    if (targetCleanUrl && pCleanUrl === targetCleanUrl) return false;
-                    const pPosterMatch = (p.image_url || '').match(/#POSTER:([^#?]+)/);
-                    const pPoster = pPosterMatch ? decodeURIComponent(pPosterMatch[1]).split('?')[0].toLowerCase().trim() : '';
-                    if (targetPoster && pPoster === targetPoster) return false;
+                    if (!isRemapped && !String(p.image_url || '').includes('#REMAP')) {
+                        const pCleanUrl = (p.image_url || '').split('#')[0].split('?')[0].toLowerCase().trim();
+                        if (targetCleanUrl && pCleanUrl === targetCleanUrl) return false;
+                        const pPosterMatch = (p.image_url || '').match(/#POSTER:([^#?]+)/);
+                        const pPoster = pPosterMatch ? decodeURIComponent(pPosterMatch[1]).split('?')[0].toLowerCase().trim() : '';
+                        if (targetPoster && pPoster === targetPoster) return false;
+                    }
                     return true;
                 }));
                 if (selectedPost && (selectedPost.id === postId || String(selectedPost.id).replace(/_p\d+_\d+$/, '') === cleanId)) {
@@ -252,6 +255,7 @@ const Profile = () => {
         setIsOnline(false);
         setLoadingCallAction(false);
 
+        let loadedProfile: ProfileData | null = null;
         const loadProfile = async () => {
             if (!username) return;
             const cleanUser = username.replace(/^@+/, '').trim();
@@ -272,6 +276,7 @@ const Profile = () => {
                         streak_count: 5,
                     };
                 }
+                loadedProfile = profileData;
                 setProfile(profileData);
 
                 // Canonical URL update if accessed via alias like /profile/tara -> /profile/tara01
@@ -315,6 +320,18 @@ const Profile = () => {
             }
         };
         loadProfile();
+
+        const handlePostsSync = () => {
+            if (!username) return;
+            const targetName = loadedProfile?.username || username.replace(/^@+/, '').trim();
+            fetchUserPosts(targetName, loadedProfile?.id).then(setPosts).catch(() => {});
+        };
+        window.addEventListener('knock-post-created', handlePostsSync);
+        window.addEventListener('knock-post-deleted', handlePostsSync);
+        return () => {
+            window.removeEventListener('knock-post-created', handlePostsSync);
+            window.removeEventListener('knock-post-deleted', handlePostsSync);
+        };
     }, [username, currentUser?.id, navigate]);
 
     // Real-time updates subscription for online status and call requests
@@ -698,7 +715,7 @@ const Profile = () => {
 
                     <div style={{ display: 'flex', gap: '8px', textAlign: 'center', flex: 1, justifyContent: 'center' }}>
                         <button className="stat-btn" onClick={() => setActiveTab('posts')}>
-                            <div className="font-bold text-lg">{posts.length}</div>
+                            <div className="font-bold text-lg">{uniquePosts.length}</div>
                             <div style={{ fontSize: '13px', color: activeTab === 'posts' ? '#ff3366' : 'var(--text-inactive)' }}>Posts</div>
                         </button>
                         <button className="stat-btn" onClick={() => setActiveTab('followers')}>

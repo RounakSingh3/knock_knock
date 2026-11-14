@@ -1,7 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { fetchConnections, fetchFollowCounts, fetchUserPosts, deletePost, type PostData } from '../lib/database';
+import { fetchConnections, fetchFollowCounts, fetchUserPosts, getOfflineUserPosts, deletePost, withTimeout, type PostData } from '../lib/database';
 import { isVideoPost } from '../lib/media';
 import PostMedia from '../components/PostMedia';
 import ExploreFeedViewer from '../components/ExploreFeedViewer';
@@ -37,31 +37,51 @@ const Settings = () => {
     const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null);
 
     useEffect(() => {
-        if (user && user.id && user.username) {
-            setLoadingStats(true);
-            Promise.all([
-                fetchConnections(user.id),
-                fetchFollowCounts(user.id),
-                fetchUserPosts(user.username)
-            ])
-                .then(([conns, followData, posts]) => {
-                    setConnectionsCount(conns.length);
-                    setFollowersCount(followData.followers);
-                    setFollowingCount(followData.following);
-                    
-                    // Filter posts to only count photos (non-videos)
-                    const photos = posts.filter(p => !isVideoPost(p));
-                    setPhotosCount(photos.length);
-                    setUserPosts(posts);
-                    
-                    setLoadingStats(false);
-                })
-                .catch(err => {
-                    console.error('Error fetching settings stats:', err);
-                    setLoadingStats(false);
-                });
+        if (!user || (!user.id && !user.username)) return;
+        let cancelled = false;
+
+        // Immediately hydrate local + SEED_POSTS so My Posts never flashes empty
+        const initialPosts = getOfflineUserPosts(user.username || '', user.id);
+        if (initialPosts.length > 0) {
+            setUserPosts(initialPosts);
+            setPhotosCount(initialPosts.filter(p => !isVideoPost(p)).length);
         }
-    }, [user?.id]);
+
+        const loadAll = async () => {
+            setLoadingStats(true);
+            const [conns, followData, posts] = await Promise.all([
+                user.id ? withTimeout(fetchConnections(user.id).catch(() => []), 3500, []) : Promise.resolve([]),
+                user.id ? withTimeout(fetchFollowCounts(user.id).catch(() => ({ followers: 0, following: 0 })), 3500, { followers: 0, following: 0 }) : Promise.resolve({ followers: 0, following: 0 }),
+                fetchUserPosts(user.username || '', user.id).catch(() => initialPosts),
+            ]);
+            if (cancelled) return;
+            setConnectionsCount(conns.length);
+            setFollowersCount(followData.followers);
+            setFollowingCount(followData.following);
+            const finalPosts = posts.length > 0 ? posts : initialPosts;
+            setUserPosts(finalPosts);
+            setPhotosCount(finalPosts.filter(p => !isVideoPost(p)).length);
+            setLoadingStats(false);
+        };
+        loadAll();
+
+        const handlePostsChanged = () => {
+            fetchUserPosts(user.username || '', user.id)
+                .then(posts => {
+                    if (cancelled) return;
+                    setUserPosts(posts);
+                    setPhotosCount(posts.filter(p => !isVideoPost(p)).length);
+                })
+                .catch(() => {});
+        };
+        window.addEventListener('knock-post-created', handlePostsChanged);
+        window.addEventListener('knock-post-deleted', handlePostsChanged);
+        return () => {
+            cancelled = true;
+            window.removeEventListener('knock-post-created', handlePostsChanged);
+            window.removeEventListener('knock-post-deleted', handlePostsChanged);
+        };
+    }, [user?.id, user?.username]);
 
     if (!user) return null;
 
@@ -262,13 +282,19 @@ const Settings = () => {
                 {/* My Posts Grid */}
                 <div className="settings-group-premium" style={{ marginTop: '1.5rem', background: 'transparent', padding: 0 }}>
                     <div className="settings-group-title" style={{ paddingLeft: '0.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Grid size={18} color="var(--text-active)" /> My Posts
+                        <Grid size={18} color="var(--text-active)" /> My Posts {userPosts.length > 0 ? `(${userPosts.length})` : ''}
                     </div>
                     {userPosts.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-inactive)', background: 'rgba(255,255,255,0.03)', borderRadius: '16px' }}>
-                            <p>You haven't uploaded any photos or videos yet.</p>
-                            <button className="retry-btn-v2" style={{ marginTop: '1rem' }} onClick={() => navigate('/create')}>Create Post</button>
-                        </div>
+                        loadingStats ? (
+                            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-inactive)', background: 'rgba(255,255,255,0.03)', borderRadius: '16px' }}>
+                                <p>Loading your posts...</p>
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-inactive)', background: 'rgba(255,255,255,0.03)', borderRadius: '16px' }}>
+                                <p>You haven't uploaded any photos or videos yet.</p>
+                                <button className="retry-btn-v2" style={{ marginTop: '1rem' }} onClick={() => navigate('/create')}>Create Post</button>
+                            </div>
+                        )
                     ) : (
                         <div className="settings-post-grid">
                             {userPosts.map((post, idx) => (
@@ -299,7 +325,13 @@ const Settings = () => {
                                             e.stopPropagation();
                                             if (confirm('Delete this post permanently?')) {
                                                 const ok = await deletePost(post.id);
-                                                if (ok) setUserPosts(prev => prev.filter(p => p.id !== post.id));
+                                                if (ok) {
+                                                    setUserPosts(prev => {
+                                                        const next = prev.filter(p => p.id !== post.id);
+                                                        setPhotosCount(next.filter(p => !isVideoPost(p)).length);
+                                                        return next;
+                                                    });
+                                                }
                                             }
                                         }}
                                         style={{
@@ -330,6 +362,7 @@ const Settings = () => {
                             if (ok) {
                                 setUserPosts(prev => {
                                     const next = prev.filter(p => p.id !== postId);
+                                    setPhotosCount(next.filter(p => !isVideoPost(p)).length);
                                     if (next.length === 0) setSelectedPostIndex(null);
                                     return next;
                                 });

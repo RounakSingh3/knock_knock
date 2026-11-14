@@ -26,7 +26,8 @@ import {
     removeLocalConnection,
     bumpLocalConnectionStreak,
     getLocalStories,
-    remapDeadSupabaseUrl
+    remapDeadSupabaseUrl,
+    isStockOrSharedMediaUrl
 } from './fallbackData';
 export { isPostLikedLocally, isPostDeletedLocally, getLocalLikes, getLocalComments };
 
@@ -342,12 +343,14 @@ export async function recordCloudDeletedId(postId: string, imageUrl?: string | n
         set.add(String(postId));
         set.add(cleanId);
         let storageObjectPath: string | null = null;
-        if (imageUrl && typeof imageUrl === 'string') {
+        if (imageUrl && typeof imageUrl === 'string' && !imageUrl.includes('#REMAP')) {
             const cleanUrl = imageUrl.split('#')[0].split('?')[0].trim();
-            if (cleanUrl) {
+            if (cleanUrl && !isStockOrSharedMediaUrl(cleanUrl)) {
                 set.add(cleanUrl);
-                const fileName = cleanUrl.split('/').pop();
-                if (fileName) set.add(fileName);
+                const fileName = cleanUrl.split('/').pop() || '';
+                if (fileName.length > 16 && /\d{10,}/.test(fileName)) {
+                    set.add(fileName);
+                }
                 const bucketMarker = `/object/public/${STORAGE_BUCKET}/`;
                 const idx = cleanUrl.indexOf(bucketMarker);
                 if (idx !== -1) {
@@ -644,6 +647,22 @@ async function fetchCloudStoragePostsUncached(): Promise<PostData[]> {
  * Deduplicate posts across DB, Storage, and Local caches based on ID, clean URL, poster hash/filename, and retry upload timestamps.
  * Ensures each photo and video reel is presented exactly once.
  */
+const GENERIC_MEDIA_STEMS = new Set([
+    'thumbnail',
+    'poster',
+    'default',
+    'image',
+    'photo',
+    'video',
+    'cover',
+    'large',
+    'preview',
+    'avatar',
+    '360p',
+    '720p',
+    '1080p',
+]);
+
 export function deduplicatePosts(postList: PostData[]): PostData[] {
     const seenIds = new Set<string>();
     const seenUrls = new Set<string>();
@@ -658,6 +677,7 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         const cleanId = String(post.id).replace(/_p\d+_\d+$/, '');
         if (seenIds.has(cleanId) || seenIds.has(post.id)) continue;
 
+        const isRemappedFallback = String(post.image_url || '').includes('#REMAP');
         const cleanUrl = getDedupUrlKey(post.image_url);
         const mediaStem = extractMediaFileStem(post.image_url);
         const posterStem = extractPosterStemFromUrl(post.image_url);
@@ -667,18 +687,18 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
         const userPrefix = uid ? uid.slice(0, 6) : (uname.startsWith('creator_') || uname.startsWith('user_') ? uname.replace(/^(?:creator|user)_/, '').slice(0, 6) : '');
         const caption = (post.caption || '').trim().toLowerCase();
 
-        // 1. Direct clean base URL deduplication
-        if (cleanUrl && !cleanUrl.startsWith('blob:') && !cleanUrl.startsWith('local-media:') && seenUrls.has(cleanUrl)) {
+        // 1. Direct clean base URL deduplication (skip for #REMAP fallback URLs so distinct post IDs are preserved)
+        if (!isRemappedFallback && cleanUrl && !cleanUrl.startsWith('blob:') && !cleanUrl.startsWith('local-media:') && seenUrls.has(cleanUrl)) {
             continue;
         }
 
         // 2. Media file stem deduplication (matches video file vs photo thumbnail with identical filename stem)
-        if (mediaStem && mediaStem.length > 5 && (seenMediaStems.has(mediaStem) || seenPosterStems.has(mediaStem))) {
+        if (!isRemappedFallback && mediaStem && mediaStem.length > 5 && !GENERIC_MEDIA_STEMS.has(mediaStem) && (seenMediaStems.has(mediaStem) || seenPosterStems.has(mediaStem))) {
             continue;
         }
 
-        // 3. Poster stem deduplication (catches identical video/photo poster across uploads)
-        if (posterStem && (seenPosterStems.has(posterStem) || seenMediaStems.has(posterStem))) {
+        // 3. Poster stem deduplication (catches identical video/photo poster across uploads, skipping generic stems)
+        if (!isRemappedFallback && posterStem && posterStem.length > 5 && !GENERIC_MEDIA_STEMS.has(posterStem) && (seenPosterStems.has(posterStem) || seenMediaStems.has(posterStem))) {
             continue;
         }
 
@@ -705,11 +725,11 @@ export function deduplicatePosts(postList: PostData[]): PostData[] {
 
         seenIds.add(cleanId);
         seenIds.add(post.id);
-        if (cleanUrl && !cleanUrl.startsWith('blob:') && !cleanUrl.startsWith('local-media:')) {
+        if (!isRemappedFallback && cleanUrl && !cleanUrl.startsWith('blob:') && !cleanUrl.startsWith('local-media:')) {
             seenUrls.add(cleanUrl);
         }
-        if (mediaStem && mediaStem.length > 5) seenMediaStems.add(mediaStem);
-        if (posterStem) seenPosterStems.add(posterStem);
+        if (!isRemappedFallback && mediaStem && mediaStem.length > 5 && !GENERIC_MEDIA_STEMS.has(mediaStem)) seenMediaStems.add(mediaStem);
+        if (!isRemappedFallback && posterStem && posterStem.length > 5 && !GENERIC_MEDIA_STEMS.has(posterStem)) seenPosterStems.add(posterStem);
         if (ts) {
             seenTimestamps.add(ts);
             if (uid || uname) seenUserRecentUploads.push({ uid, uname, userPrefix, ts: Number(ts), caption });
@@ -768,8 +788,10 @@ export function mergePostsWithFallback(dbPosts: PostData[], cloudPosts: PostData
     // 3. Cloud Storage posts (recovers all recent video/photo uploads from Storage bucket)
     const cloud = cachedCloud.map(enrichPost);
 
-    // Prioritize DB posts, then local, then cloud
-    const combined = [...db, ...local, ...cloud];
+    // Prioritize DB posts, then local, then cloud; when Supabase is offline, preserve local posts AND SEED_POSTS
+    const combined = (db.length === 0 && cloud.length === 0)
+        ? [...local, ...SEED_POSTS]
+        : [...db, ...local, ...cloud];
     const deduped = deduplicatePosts(combined);
     deduped.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
@@ -1050,34 +1072,35 @@ export function formatDisplayNameFromUsername(username: string): string {
         .join(' ');
 }
 
-export async function fetchUserPosts(username: string, userId?: string): Promise<PostData[]> {
-    if (!username) return [];
-    const cleanUsername = username.replace(/^@+/, '').trim().toLowerCase();
-    if (!cleanUsername) return [];
+function getCandidateUserIdentifiers(username: string, userId?: string): {
+    candidateUsernames: Set<string>;
+    candidateUserIds: Set<string>;
+} {
+    const cleanUsername = (username || '').replace(/^@+/, '').trim().toLowerCase();
+    const candidateUsernames = new Set<string>();
+    if (cleanUsername) candidateUsernames.add(cleanUsername);
 
-    // Collect all candidate usernames and aliases for this user
-    const candidateUsernames = new Set<string>([cleanUsername]);
-    if (COMMON_TYPOS[cleanUsername]) {
+    if (cleanUsername && COMMON_TYPOS[cleanUsername]) {
         COMMON_TYPOS[cleanUsername].forEach(u => candidateUsernames.add(u.toLowerCase()));
     }
-    // Reverse typo check (e.g. if cleanUsername is 'rounak2', add 'rounak')
-    Object.entries(COMMON_TYPOS).forEach(([typo, targets]) => {
-        if (targets.map(t => t.toLowerCase()).includes(cleanUsername)) {
-            candidateUsernames.add(typo.toLowerCase());
-        }
-    });
-    // Check creator pairs (e.g. 'funnyreels2' -> 'comedy_vault_in')
-    if (CREATOR_USERNAME_PAIRS[cleanUsername]) {
+    if (cleanUsername) {
+        Object.entries(COMMON_TYPOS).forEach(([typo, targets]) => {
+            if (targets.map(t => t.toLowerCase()).includes(cleanUsername)) {
+                candidateUsernames.add(typo.toLowerCase());
+            }
+        });
+    }
+    if (cleanUsername && CREATOR_USERNAME_PAIRS[cleanUsername]) {
         candidateUsernames.add(CREATOR_USERNAME_PAIRS[cleanUsername].toLowerCase());
     }
-    // Reverse pair check (e.g. if cleanUsername is 'comedy_vault_in', also look for 'funnyreels2')
-    Object.entries(CREATOR_USERNAME_PAIRS).forEach(([alias, canonical]) => {
-        if (canonical.toLowerCase() === cleanUsername) {
-            candidateUsernames.add(alias.toLowerCase());
-        }
-    });
+    if (cleanUsername) {
+        Object.entries(CREATOR_USERNAME_PAIRS).forEach(([alias, canonical]) => {
+            if (canonical.toLowerCase() === cleanUsername) {
+                candidateUsernames.add(alias.toLowerCase());
+            }
+        });
+    }
 
-    // Collect all candidate user IDs
     const candidateUserIds = new Set<string>();
     if (userId && userId !== '00000000-0000-0000-0000-000000000000' && !userId.startsWith('creator-')) {
         candidateUserIds.add(userId);
@@ -1089,7 +1112,47 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
         }
     }
 
-    const cloudPromise = fetchCloudStoragePosts();
+    return { candidateUsernames, candidateUserIds };
+}
+
+function matchesUserCandidate(
+    post: PostData | null | undefined,
+    candidateUsernames: Set<string>,
+    candidateUserIds: Set<string>
+): boolean {
+    if (!post || post.id?.startsWith('story-') || isPostDeletedLocally(post.id, post.image_url)) return false;
+    const pUname = (post.username || '').toLowerCase();
+    if (pUname && candidateUsernames.has(pUname)) return true;
+    if (post.user_id && candidateUserIds.has(post.user_id)) return true;
+    return false;
+}
+
+/** Synchronously resolve cached local and historical SEED_POSTS for a user so account views render immediately. */
+export function getOfflineUserPosts(username: string, userId?: string): PostData[] {
+    const { candidateUsernames, candidateUserIds } = getCandidateUserIdentifiers(username, userId);
+    if (candidateUsernames.size === 0 && candidateUserIds.size === 0) return [];
+
+    const localPosts = getLocalPosts().filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds));
+    const seedUserPosts = SEED_POSTS
+        .filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds))
+        .map(normalizePost)
+        .filter((p): p is PostData => Boolean(p));
+
+    const combined = [...localPosts, ...seedUserPosts].map(p => ({
+        ...p,
+        image_url: resolveLocalMediaUrl(p.image_url)
+    }));
+    return deduplicatePosts(combined).sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+}
+
+export async function fetchUserPosts(username: string, userId?: string): Promise<PostData[]> {
+    if (!username && !userId) return [];
+    const { candidateUsernames, candidateUserIds } = getCandidateUserIdentifiers(username || '', userId);
+    if (candidateUsernames.size === 0 && candidateUserIds.size === 0) return [];
+
+    const cloudPromise = withTimeout(fetchCloudStoragePosts(), 4000, [] as PostData[]);
     let dbPosts: PostData[] = [];
     if (!isSupabaseQuotaRestricted()) {
         try {
@@ -1102,7 +1165,11 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
                 query = query.or(orConditions.join(','));
             }
 
-            const { data, error } = await query.order('created_at', { ascending: false });
+            const { data, error } = await withTimeout(
+                query.order('created_at', { ascending: false }),
+                3500,
+                { data: null, error: { message: 'timeout' } } as any
+            );
 
             if (error) {
                 if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
@@ -1119,33 +1186,14 @@ export async function fetchUserPosts(username: string, userId?: string): Promise
     }
 
     const allCloudPosts = await cloudPromise;
-    const userCloudPosts = allCloudPosts.filter(p => {
-        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id, p.image_url)) return false;
-        const pUname = (p.username || '').toLowerCase();
-        if (candidateUsernames.has(pUname)) return true;
-        if (p.user_id && candidateUserIds.has(p.user_id)) return true;
-        return false;
-    });
+    const userCloudPosts = allCloudPosts.filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds));
+    const localPosts = getLocalPosts().filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds));
+    const seedUserPosts = SEED_POSTS
+        .filter(p => matchesUserCandidate(p, candidateUsernames, candidateUserIds))
+        .map(normalizePost)
+        .filter((p): p is PostData => Boolean(p));
 
-    // Always fetch matching local posts (strictly user-created posts, excluding 24h stories)
-    const localPosts = getLocalPosts().filter(p => {
-        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id, p.image_url)) return false;
-        const pUname = (p.username || '').toLowerCase();
-        if (candidateUsernames.has(pUname)) return true;
-        if (p.user_id && candidateUserIds.has(p.user_id)) return true;
-        return false;
-    });
-
-    // Also include matching posts from SEED_POSTS so profiles are never blank when Supabase is offline
-    const seedUserPosts = SEED_POSTS.filter(p => {
-        if (!p || p.id?.startsWith('story-') || isPostDeletedLocally(p.id, p.image_url)) return false;
-        const pUname = (p.username || '').toLowerCase();
-        if (candidateUsernames.has(pUname)) return true;
-        if (p.user_id && candidateUserIds.has(p.user_id)) return true;
-        return false;
-    }).map(normalizePost).filter((p): p is PostData => Boolean(p));
-
-    // Merge dbPosts, localPosts, userCloudPosts, and seedUserPosts, deduplicated by post id, clean URL, poster hash/filename, and retry upload timestamps
+    // Merge dbPosts, localPosts, userCloudPosts, and seedUserPosts, deduplicated cleanly
     const rawCombined: PostData[] = [...dbPosts, ...localPosts, ...userCloudPosts, ...seedUserPosts].map(p => ({
         ...p,
         image_url: resolveLocalMediaUrl(p.image_url)
@@ -1716,6 +1764,9 @@ export async function createNewPost(post: {
     const localPost = buildLocalPost();
     saveLocalPost(localPost);
     invalidateCache();
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('knock-post-created', { detail: localPost }));
+    }
 
     const isBlobBaseUrl = Boolean(post.image_url && (post.image_url.startsWith('blob:') || post.image_url.startsWith('local-media://')));
     if (isSupabaseQuotaRestricted() || isBlobBaseUrl) {
@@ -3861,15 +3912,27 @@ export async function fetchFollowing(userId: string): Promise<ProfileData[]> {
 
 /** Get follower and following counts */
 export async function fetchFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
-    const [followersRes, followingRes] = await Promise.all([
-        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('following_id', userId),
-        supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', userId),
-    ]);
+    if (!userId || userId.startsWith('creator-') || isSupabaseQuotaRestricted()) {
+        return { followers: 0, following: 0 };
+    }
+    try {
+        const [followersRes, followingRes] = await withTimeout(
+            Promise.all([
+                supabase.from('follows').select('id', { count: 'exact', head: true }).eq('following_id', userId),
+                supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', userId),
+            ]),
+            3000,
+            [{ count: 0 }, { count: 0 }] as any
+        );
 
-    return {
-        followers: followersRes.count || 0,
-        following: followingRes.count || 0,
-    };
+        return {
+            followers: followersRes?.count || 0,
+            following: followingRes?.count || 0,
+        };
+    } catch (err: any) {
+        if (isQuotaError(err)) setSupabaseQuotaRestricted(true);
+        return { followers: 0, following: 0 };
+    }
 }
 
 /** Check if currentUser is following targetUser */
