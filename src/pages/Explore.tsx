@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useContext, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Search, Loader2, Users, Image, BookOpen, UserPlus, UserCheck, Play, Flame, TrendingUp, Eye, Music, X, Hash } from 'lucide-react';
+import { withTimeout } from '../lib/database';
+import { SEED_POSTS, getLocalPosts } from '../lib/fallbackData';
 import { searchUsers, searchPostsByCaption, searchStoriesByHashtag, fetchBoostedStories, checkIfFollowing, toggleFollow, fetchDiscoverPosts, fetchUserEngagements, fetchTrendingPosts, trackEngagement, normalizePost, deduplicatePosts, getDedupUrlKey, extractMediaTimestamp, extractMediaFileStem, BROKEN_POST_IDS, type UserStoryGroup, type StoryData, type ProfileData, type PostData, type MessageData } from '../lib/database';
 import { buildInterestProfile, assembleFeed, shuffleFeedForRefresh, rankExploreGrid, getHybridInterestProfile, recordImplicitSignal, generateInfiniteStream, dailyReshuffle, type ScoredPost } from '../lib/algorithm';
 import PostMedia from '../components/PostMedia';
@@ -306,44 +308,46 @@ const Explore = () => {
     // ⚡ Everyday Reshuffle Date Key (YYYY-MM-DD)
     const getTodayKey = (): string => new Date().toISOString().slice(0, 10);
 
-    // Discover (Default) State with instant cache rehydration and everyday cache invalidation
+    // Discover (Default) State with instant cache rehydration and 0ms seed fallback so skeletons never get stuck
     const [discoverPosts, setDiscoverPosts] = useState<PostData[]>(() => {
+        const today = new Date().toISOString().slice(0, 10);
         try {
             localStorage.removeItem('knock_explore_posts_cache_v10');
             localStorage.removeItem('knock_explore_posts_cache_v11');
             localStorage.removeItem('knock_explore_posts_cache_v12');
-            localStorage.removeItem('knock_explore_trending_cache_v15');
+            localStorage.removeItem('knock_explore_posts_cache_v13');
+            localStorage.removeItem('knock_explore_posts_cache_v14');
+            localStorage.removeItem('knock_explore_trending_cache_v11');
             localStorage.removeItem('knock_explore_trending_cache_v12');
-            const today = new Date().toISOString().slice(0, 10);
+            localStorage.removeItem('knock_explore_trending_cache_v13');
+            localStorage.removeItem('knock_explore_trending_cache_v14');
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
                 const cached = localStorage.getItem('knock_explore_posts_cache_v15');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        return deduplicatePosts(parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id))));
+                        const valid = deduplicatePosts(parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id))));
+                        if (valid.length > 0) return valid;
                     }
                 }
             } else {
-                // New day detected! Clear stale caches to trigger fresh everyday reshuffle
                 localStorage.removeItem('knock_explore_posts_cache_v15');
                 localStorage.removeItem('knock_explore_trending_cache_v15');
                 localStorage.setItem('knock_explore_cache_date', today);
             }
         } catch (e) {}
-        return [];
-    });
-    const [isDiscoverLoading, setIsDiscoverLoading] = useState<boolean>(() => {
         try {
-            const today = new Date().toISOString().slice(0, 10);
-            const cachedDate = localStorage.getItem('knock_explore_cache_date');
-            if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_posts_cache_v15');
-            return !cached || JSON.parse(cached).length === 0;
-        } catch (e) {
-            return true;
+            const seedPool = deduplicatePosts(
+                [...getLocalPosts(), ...SEED_POSTS].map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id)))
+            );
+            const rankedSeed = rankExploreGrid(seedPool, getHybridInterestProfile(), null, today);
+            return rankedSeed.slice(0, 18);
+        } catch (_) {
+            return [];
         }
     });
+    const [isDiscoverLoading, setIsDiscoverLoading] = useState<boolean>(false);
     const selectedCategoryRef = useRef<string | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -356,34 +360,31 @@ const Explore = () => {
     const [hasMore, setHasMore] = useState(true);
     const sentinelRef = useRef<HTMLDivElement>(null);
 
-    // Trending posts (FOMO) with instant cache rehydration
+    // Trending posts (FOMO) with instant cache rehydration and 0ms seed fallback
     const [trendingPosts, setTrendingPosts] = useState<PostData[]>(() => {
+        const today = new Date().toISOString().slice(0, 10);
         try {
-            const today = new Date().toISOString().slice(0, 10);
             const cachedDate = localStorage.getItem('knock_explore_cache_date');
             if (cachedDate === today) {
                 const cached = localStorage.getItem('knock_explore_trending_cache_v15');
                 if (cached) {
                     const parsed = JSON.parse(cached);
                     if (Array.isArray(parsed) && parsed.length > 0) {
-                        return deduplicatePosts(parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id))));
+                        const valid = deduplicatePosts(parsed.map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id))));
+                        if (valid.length > 0) return valid;
                     }
                 }
             }
         } catch (e) {}
-        return [];
-    });
-    const [isTrendingLoading, setIsTrendingLoading] = useState<boolean>(() => {
         try {
-            const today = new Date().toISOString().slice(0, 10);
-            const cachedDate = localStorage.getItem('knock_explore_cache_date');
-            if (cachedDate !== today) return true;
-            const cached = localStorage.getItem('knock_explore_trending_cache_v15');
-            return !cached || JSON.parse(cached).length === 0;
-        } catch (e) {
-            return true;
+            return deduplicatePosts(
+                [...getLocalPosts(), ...SEED_POSTS].map(normalizePost).filter((p): p is PostData => Boolean(p && !BROKEN_POST_IDS.has(p.id)))
+            ).slice(0, 30);
+        } catch (_) {
+            return [];
         }
     });
+    const [isTrendingLoading, setIsTrendingLoading] = useState<boolean>(false);
 
     const normalizedTrendingPosts = useMemo(
         () => deduplicatePosts(trendingPosts.map(normalizePost).filter((p): p is PostData => Boolean(p))),
@@ -420,7 +421,7 @@ const Explore = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     // Raw posts cache for infinite scroll pagination
-    const rawPostsCacheRef = useRef<any[]>([]);
+    const rawPostsCacheRef = useRef<PostData[]>(discoverPosts);
     const userProfileRef = useRef<any>(null);
 
     const PAGE_SIZE = 18;
@@ -435,36 +436,52 @@ const Explore = () => {
     }, [blockedIds]);
     // Load Trending Posts (FOMO banner)
     useEffect(() => {
+        let cancelled = false;
         if (trendingPosts.length === 0) setIsTrendingLoading(true);
-        fetchTrendingPosts(50, user?.id, true).then(posts => {
-            const filtered = posts
+        withTimeout(fetchTrendingPosts(50, user?.id, true), 12000, [] as PostData[]).then(posts => {
+            if (cancelled) return;
+            const filtered = (posts || [])
                 .filter(p => !p.user_id || !blockedIds.includes(p.user_id))
                 .map(normalizePost)
                 .filter((p): p is PostData => Boolean(p));
-            setTrendingPosts(filtered);
-            try {
-                localStorage.setItem('knock_explore_trending_cache_v15', JSON.stringify(filtered));
-            } catch (e) {}
-            setIsTrendingLoading(false);
+            if (filtered.length > 0) {
+                setTrendingPosts(filtered);
+                try {
+                    localStorage.setItem('knock_explore_trending_cache_v15', JSON.stringify(filtered));
+                } catch (e) {}
+            }
+        }).finally(() => {
+            if (!cancelled) setIsTrendingLoading(false);
         });
+        return () => { cancelled = true; };
     }, [blockedIds, user?.id]);
 
     // Load Discover Feed with Dedicated Explore Discovery Model & Everyday Reshuffle
+    const discoverRequestIdRef = useRef(0);
     const loadDiscoverFeed = async (dateKeyOverride?: string) => {
-        if (discoverPosts.length === 0) setIsDiscoverLoading(true);
+        const requestId = ++discoverRequestIdRef.current;
+        if (discoverPostsRef.current.length === 0) setIsDiscoverLoading(true);
         setFeedPage(0);
         feedPageRef.current = 0;
         setHasMore(true);
         observedPostsRef.current.clear();
         try {
-            let rawPosts = await fetchDiscoverPosts(selectedCategory, 200, 0);
+            let rawPosts = await withTimeout(fetchDiscoverPosts(selectedCategory, 200, 0), 12000, [] as PostData[]);
+            if (requestId !== discoverRequestIdRef.current) return;
+            // Network stalled or empty → fall back to bundled community posts so the grid is never blank
+            if (!rawPosts || rawPosts.length === 0) {
+                rawPosts = selectedCategory && selectedCategory !== 'All'
+                    ? SEED_POSTS.filter(p => (p.category || '').toLowerCase() === selectedCategory.toLowerCase())
+                    : [...SEED_POSTS];
+            }
             rawPosts = rawPosts.filter(p => (!p.user_id || !blockedIds.includes(p.user_id)) && (p.id && !BROKEN_POST_IDS.has(p.id)));
             
             // Strictly deduplicate by advanced deduplicator (strips clean URL, posters, retry timestamps)
-            let uniqueRaw = deduplicatePosts(rawPosts);
+            let uniqueRaw = deduplicatePosts(rawPosts.map(normalizePost).filter((p): p is PostData => Boolean(p)));
 
-            const engagements = user ? await fetchUserEngagements(user.id) : [];
-            const hybridProfile = getHybridInterestProfile(engagements);
+            const engagements = user ? await withTimeout(fetchUserEngagements(user.id), 5000, [] as any[]) : [];
+            if (requestId !== discoverRequestIdRef.current) return;
+            const hybridProfile = getHybridInterestProfile(buildInterestProfile(engagements as any[]));
             userProfileRef.current = hybridProfile;
 
             // Apply Model 3: Dedicated Explore Discovery Model with Everyday Reshuffle and Strict Diversity
@@ -483,9 +500,20 @@ const Explore = () => {
         } catch (e) {
             console.error('Error loading discover feed:', e);
         } finally {
-            setIsDiscoverLoading(false);
+            if (requestId === discoverRequestIdRef.current) setIsDiscoverLoading(false);
         }
     };
+
+    // Re-fetch when the user returns to the tab (e.g. after opening a news article) if the grid is still empty
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState === 'visible' && discoverPostsRef.current.length === 0 && searchTerm.trim().length === 0) {
+                loadDiscoverFeed();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
+    }, [selectedCategory, searchTerm, user?.id]);
 
     useEffect(() => {
         if (searchTerm.trim().length > 0) return;
@@ -513,7 +541,7 @@ const Explore = () => {
                 if (ts) seenTimestamps.add(ts);
             });
 
-            const activeProfile = userProfileRef.current || getHybridInterestProfile([]);
+            const activeProfile = userProfileRef.current || getHybridInterestProfile();
             const currentDay = getTodayKey();
             
             let nextBatch: PostData[] = [];
@@ -672,11 +700,12 @@ const Explore = () => {
         const refreshSeed = `${getTodayKey()}_pull_${Date.now()}`;
         await loadDiscoverFeed(refreshSeed);
         // Reload trending with fresh shuffle too
-        fetchTrendingPosts(50, user?.id, true).then(posts => {
-            const filtered = posts
+        withTimeout(fetchTrendingPosts(50, user?.id, true), 12000, [] as PostData[]).then(posts => {
+            const filtered = (posts || [])
                 .filter(p => !p.user_id || !blockedIds.includes(p.user_id))
                 .map(normalizePost)
                 .filter((p): p is PostData => Boolean(p));
+            if (filtered.length === 0) return;
             setTrendingPosts(filtered);
             try {
                 localStorage.setItem('knock_explore_trending_cache_v15', JSON.stringify(filtered));

@@ -73,9 +73,11 @@ export const DailyNewsFeed: React.FC<DailyNewsFeedProps> = ({ onShareNews, exter
             setNewsList(items);
             setIsLoading(false);
 
-            // Auto-sync top news to database as real posts
+            // Defer background news sync so it never competes with Explore reels/grid loading
             if (selectedCategory === 'All') {
-                syncNewsToDatabase(items).catch(() => {});
+                setTimeout(() => {
+                    syncNewsToDatabase(items).catch(() => {});
+                }, 6000);
             }
         });
 

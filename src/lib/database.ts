@@ -236,12 +236,30 @@ export interface PostData {
     music_url?: string;
 }
 
+/** Resolve with `fallback` if `promise` does not settle within `ms` (or rejects). Prevents infinite loaders. */
+export function withTimeout<T>(promise: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
+    return new Promise<T>((resolve) => {
+        let done = false;
+        const timer = setTimeout(() => { if (!done) { done = true; resolve(fallback); } }, ms);
+        Promise.resolve(promise).then(
+            (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v); } },
+            () => { if (!done) { done = true; clearTimeout(timer); resolve(fallback); } }
+        );
+    });
+}
+
+function fetchWithAbort(url: string, init: RequestInit = {}, ms = 8000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 async function fetchCloudJson<T>(path: string): Promise<T | null> {
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         if (!supabaseUrl) return null;
         const url = `${supabaseUrl}/storage/v1/object/public/${STORAGE_BUCKET}/${path}?t=${Math.floor(Date.now() / 15000)}`;
-        const res = await fetch(url, { cache: 'no-store' });
+        const res = await fetchWithAbort(url, { cache: 'no-store' });
         if (!res.ok) return null;
         return (await res.json()) as T;
     } catch (_) {
@@ -277,7 +295,7 @@ async function listStoragePrefix(prefix: string, limit: number = 120): Promise<a
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
         if (!supabaseUrl || !supabaseKey) return [];
-        const res = await fetch(`${supabaseUrl}/storage/v1/object/list/${STORAGE_BUCKET}`, {
+        const res = await fetchWithAbort(`${supabaseUrl}/storage/v1/object/list/${STORAGE_BUCKET}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${supabaseKey}`,
@@ -289,7 +307,7 @@ async function listStoragePrefix(prefix: string, limit: number = 120): Promise<a
                 limit,
                 sortBy: { column: 'created_at', order: 'desc' },
             }),
-        });
+        }, 9000);
         if (!res.ok) return [];
         const list = await res.json();
         return Array.isArray(list) ? list : [];
@@ -371,10 +389,25 @@ export async function savePostToCloudStorageMeta(post: PostData): Promise<void> 
     } catch (_) {}
 }
 
+let _cloudPostsInFlight: Promise<PostData[]> | null = null;
+let _lastGoodCloudPosts: PostData[] = [];
+
 export async function fetchCloudStoragePosts(): Promise<PostData[]> {
     const cached = getFromCache<PostData[]>('cloud_storage_posts', 15000);
     if (cached) return cached;
+    if (_cloudPostsInFlight) return _cloudPostsInFlight;
 
+    // Share one request between Explore grid + trending, and never wait more than 10s
+    _cloudPostsInFlight = withTimeout(fetchCloudStoragePostsUncached(), 10000, _lastGoodCloudPosts)
+        .then((posts) => {
+            if (Array.isArray(posts) && posts.length > 0) _lastGoodCloudPosts = posts;
+            return Array.isArray(posts) ? posts : _lastGoodCloudPosts;
+        })
+        .finally(() => { _cloudPostsInFlight = null; });
+    return _cloudPostsInFlight;
+}
+
+async function fetchCloudStoragePostsUncached(): Promise<PostData[]> {
     try {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         if (!supabaseUrl) return [];
@@ -382,8 +415,8 @@ export async function fetchCloudStoragePosts(): Promise<PostData[]> {
         const [, metaList, postFiles, posterFiles] = await Promise.all([
             fetchCloudDeletedIds(),
             fetchCloudJson<PostData[]>(CLOUD_POSTS_META_PATH),
-            listStoragePrefix('posts', 1000),
-            listStoragePrefix('posts/posters', 1000),
+            listStoragePrefix('posts', 200),
+            listStoragePrefix('posts/posters', 200),
         ]);
 
         // 1. Index posters by exact stem, userId, and timestamp
@@ -4599,12 +4632,16 @@ export async function fetchUserEngagements(userId: string): Promise<EngagementDa
     const cached = getFromCache<EngagementData[]>(`engagements_${userId}`, 45000);
     if (cached) return cached;
 
-    const { data, error } = await supabase
-        .from('engagements')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(300); // Last 300 interactions for fast calculation
+    const { data, error } = await withTimeout<any>(
+        supabase
+            .from('engagements')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(300), // Last 300 interactions for fast calculation
+        5000,
+        { data: [], error: null }
+    );
 
     if (error) {
         console.error('Error fetching user engagements:', error);
@@ -5135,7 +5172,10 @@ export async function fetchDiscoverPosts(category?: string | null, limit: number
             query = query.eq('category', category);
         }
 
-        const [{ data, error }, cloudPosts] = await Promise.all([query, cloudPromise]);
+        const [{ data, error }, cloudPosts] = await Promise.all([
+            withTimeout(query as PromiseLike<any>, 8000, { data: null, error: { message: 'timeout' } }),
+            cloudPromise,
+        ]);
         if (error) {
             if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
             const local = mergePostsWithFallback([], cloudPosts);
@@ -5196,9 +5236,13 @@ export async function deletePost(postId: string): Promise<boolean> {
                 'knock_explore_posts_cache_v7',
                 'knock_explore_posts_cache_v8',
                 'knock_explore_posts_cache_v10',
+                'knock_explore_posts_cache_v13',
+                'knock_explore_posts_cache_v15',
                 'knock_explore_trending_cache_v8',
                 'knock_explore_trending_cache_v9',
                 'knock_explore_trending_cache_v10',
+                'knock_explore_trending_cache_v13',
+                'knock_explore_trending_cache_v15',
             ];
             for (const key of lsCacheKeys) {
                 try {
@@ -5429,12 +5473,13 @@ export async function fetchTrendingPosts(
             .order('likes_count', { ascending: false })
             .limit(limit);
 
+        const emptyRes: any = { data: [] };
         const [cloudPosts, latestRes, favRes, userRes, topRes] = await Promise.all([
             cloudPromise,
-            latestPromise,
-            favPromise,
-            userPromise,
-            topPromise,
+            withTimeout(latestPromise as PromiseLike<any>, 8000, emptyRes),
+            withTimeout(favPromise as PromiseLike<any>, 8000, emptyRes),
+            withTimeout(userPromise as PromiseLike<any>, 8000, emptyRes),
+            withTimeout(topPromise as PromiseLike<any>, 8000, emptyRes),
         ]);
 
         const seenIds = new Set<string>();
@@ -5480,10 +5525,11 @@ export async function fetchTrendingPosts(
             return fallback;
         }
 
-        // Keep the newest uploads at the very front of Trending!
+        // Keep the newest uploads at the very front of Trending and strictly deduplicate!
         result.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-        setInCache(cacheKey, result);
-        return result;
+        const dedupedTrending = deduplicatePosts(result);
+        setInCache(cacheKey, dedupedTrending);
+        return dedupedTrending;
     } catch (error: any) {
         if (isQuotaError(error)) setSupabaseQuotaRestricted(true);
         console.warn('Error fetching trending posts (using local fallback):', error);

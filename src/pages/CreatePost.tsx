@@ -622,8 +622,16 @@ const CreatePost = () => {
                 localStorage.removeItem('knock_home_posts_cache_v4');
                 localStorage.removeItem('knock_explore_posts_cache_v10');
                 localStorage.removeItem('knock_explore_posts_cache_v11');
+                localStorage.removeItem('knock_explore_posts_cache_v12');
+                localStorage.removeItem('knock_explore_posts_cache_v13');
+                localStorage.removeItem('knock_explore_posts_cache_v14');
+                localStorage.removeItem('knock_explore_posts_cache_v15');
                 localStorage.removeItem('knock_explore_trending_cache_v10');
                 localStorage.removeItem('knock_explore_trending_cache_v11');
+                localStorage.removeItem('knock_explore_trending_cache_v12');
+                localStorage.removeItem('knock_explore_trending_cache_v13');
+                localStorage.removeItem('knock_explore_trending_cache_v14');
+                localStorage.removeItem('knock_explore_trending_cache_v15');
                 localStorage.removeItem('knock_boost_stories_cache_v2');
                 sessionStorage.removeItem('knock_reels_instant_v1');
                 sessionStorage.removeItem('knock_reels_instant_v2');
